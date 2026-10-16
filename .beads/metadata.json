@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "archicraft",
+  "project_id": "401c371a-b5a6-42f8-8f94-fea500fdeedf"
+}
