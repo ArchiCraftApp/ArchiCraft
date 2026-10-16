@@ -1,0 +1,24 @@
+[package]
+name = "archicraft-geometry"
+description = "ArchiCraft geometry evaluation: element bodies, junctions, plan cuts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+archicraft-model.workspace = true
+geo.workspace = true
+glam.workspace = true
+spade.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+geo.workspace = true
+
+[lints]
+workspace = true

@@ -8,3 +8,6 @@
 
 # Archicad KB scraper and its corpus: kept locally, not tracked
 kb-scraper/
+
+# Rust build output
+/target/

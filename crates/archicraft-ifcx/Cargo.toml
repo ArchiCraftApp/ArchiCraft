@@ -1,0 +1,26 @@
+[package]
+name = "archicraft-ifcx"
+description = "ArchiCraft IFCX (IFC5) reader and writer, versioned adapter for ifcx_alpha"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+archicraft-geometry.workspace = true
+archicraft-model.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+jsonschema.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,257 @@
+//! Declarations of the `archicraft::` attributes (IFX-060, IFX-061).
+//!
+//! Every attribute ArchiCraft writes in its own namespace is declared in the
+//! file's `schemas` section, so the file validates on its own. The
+//! `formatVersion` in `archicraft::project` versions this schema (IFX-062).
+
+use indexmap::IndexMap;
+use serde_json::{Value, json};
+
+use archicraft_model::material::{FillPattern, MaterialCategory};
+use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, VolumeUnit};
+use archicraft_model::{Position, SlabReference};
+
+/// Version of the ArchiCraft schema written by this release.
+pub const FORMAT_VERSION: u32 = 1;
+
+pub const PROJECT: &str = "archicraft::project";
+pub const STOREY: &str = "archicraft::storey";
+pub const ELEMENT: &str = "archicraft::element";
+pub const WALL: &str = "archicraft::wall";
+pub const SLAB: &str = "archicraft::slab";
+
+pub const REFERENCE_LINES: [&str; 4] = ["outside", "center", "inside", "custom"];
+pub const TOP_LINKS: [&str; 3] = ["fixed", "storey", "relative"];
+pub const KINDS: [&str; 2] = ["wall", "slab"];
+
+fn real() -> Value {
+    json!({"dataType": "Real"})
+}
+
+fn length() -> Value {
+    json!({"dataType": "Real", "quantityKind": "Length"})
+}
+
+fn angle() -> Value {
+    json!({"dataType": "Real", "quantityKind": "Plane angle"})
+}
+
+fn integer() -> Value {
+    json!({"dataType": "Integer"})
+}
+
+fn string() -> Value {
+    json!({"dataType": "String"})
+}
+
+fn boolean() -> Value {
+    json!({"dataType": "Boolean"})
+}
+
+fn reference() -> Value {
+    json!({"dataType": "Reference"})
+}
+
+fn enumeration<'a>(options: impl IntoIterator<Item = &'a str>) -> Value {
+    let options: Vec<&str> = options.into_iter().collect();
+    json!({"dataType": "Enum", "enumRestrictions": {"options": options}})
+}
+
+fn array(item: Value) -> Value {
+    json!({"dataType": "Array", "arrayRestrictions": {"value": item}})
+}
+
+fn object(fields: &[(&str, Value)]) -> Value {
+    let values: serde_json::Map<String, Value> = fields.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect();
+    json!({"dataType": "Object", "objectRestrictions": {"values": values}})
+}
+
+fn optional(mut value: Value) -> Value {
+    if let Some(map) = value.as_object_mut() {
+        map.insert("optional".into(), Value::Bool(true));
+    }
+    value
+}
+
+fn rgb() -> Value {
+    array(real())
+}
+
+fn point2() -> Value {
+    array(length())
+}
+
+fn top_link() -> Value {
+    object(&[
+        ("link", enumeration(TOP_LINKS)),
+        ("value", length()),
+        ("storey", optional(reference())),
+        ("relative", optional(integer())),
+    ])
+}
+
+fn positions() -> Value {
+    enumeration(Position::ALL.map(Position::code))
+}
+
+fn wall_defaults() -> Value {
+    object(&[
+        ("thickness", length()),
+        ("referenceLine", enumeration(REFERENCE_LINES)),
+        ("referenceOffset", optional(length())),
+        ("baseOffset", length()),
+        ("top", top_link()),
+        ("material", string()),
+        ("layer", string()),
+        ("position", positions()),
+        ("ifcClass", string()),
+    ])
+}
+
+fn slab_defaults() -> Value {
+    object(&[
+        ("thickness", length()),
+        (
+            "reference",
+            enumeration([SlabReference::Top.code(), SlabReference::Bottom.code()]),
+        ),
+        ("offset", length()),
+        ("material", string()),
+        ("layer", string()),
+        ("position", positions()),
+        ("ifcClass", string()),
+    ])
+}
+
+fn project() -> Value {
+    object(&[
+        ("formatVersion", string()),
+        (
+            "info",
+            object(&[
+                ("number", string()),
+                ("client", string()),
+                ("address", string()),
+                ("author", string()),
+            ]),
+        ),
+        (
+            "settings",
+            object(&[
+                ("lengthUnit", enumeration(LengthUnit::ALL.map(LengthUnit::code))),
+                ("lengthDecimals", integer()),
+                ("angleUnit", enumeration(AngleUnit::ALL.map(AngleUnit::code))),
+                ("angleDecimals", integer()),
+                ("slopeFormat", enumeration(SlopeFormat::ALL.map(SlopeFormat::code))),
+                ("areaUnit", enumeration(AreaUnit::ALL.map(AreaUnit::code))),
+                ("volumeUnit", enumeration(VolumeUnit::ALL.map(VolumeUnit::code))),
+                ("cutPlaneHeight", length()),
+                ("chordDeviation", length()),
+                ("maxSegmentAngle", real()),
+            ]),
+        ),
+        (
+            "location",
+            object(&[
+                ("altitude", length()),
+                ("surveyPoint", point2()),
+                ("trueNorth", angle()),
+            ]),
+        ),
+        ("groundStorey", reference()),
+        (
+            "layers",
+            array(object(&[
+                ("id", string()),
+                ("name", string()),
+                ("visible", boolean()),
+                ("locked", boolean()),
+            ])),
+        ),
+        (
+            "materials",
+            array(object(&[
+                ("id", string()),
+                ("name", string()),
+                ("code", string()),
+                ("description", string()),
+                (
+                    "category",
+                    enumeration(MaterialCategory::ALL.map(MaterialCategory::code)),
+                ),
+                ("color", rgb()),
+                ("opacity", real()),
+                ("priority", integer()),
+                (
+                    "cutFill",
+                    object(&[
+                        ("pattern", enumeration(FillPattern::ALL.map(FillPattern::code))),
+                        ("foreground", rgb()),
+                        ("background", optional(rgb())),
+                    ]),
+                ),
+            ])),
+        ),
+        (
+            "toolDefaults",
+            object(&[("wall", wall_defaults()), ("slab", slab_defaults())]),
+        ),
+        (
+            "views",
+            array(object(&[
+                ("id", string()),
+                ("name", string()),
+                ("projection", enumeration(["perspective", "parallel"])),
+            ])),
+        ),
+        ("counters", object(&[("wall", integer()), ("slab", integer())])),
+    ])
+}
+
+/// The `schemas` section written to every file.
+pub fn declarations() -> IndexMap<String, Value> {
+    let mut schemas = IndexMap::new();
+    schemas.insert(PROJECT.to_owned(), json!({"value": project()}));
+    schemas.insert(
+        STOREY.to_owned(),
+        json!({"value": object(&[
+            ("elevation", length()),
+            ("height", length()),
+            ("cutPlaneHeight", optional(length())),
+        ])}),
+    );
+    schemas.insert(
+        ELEMENT.to_owned(),
+        json!({"value": object(&[
+            ("kind", enumeration(KINDS)),
+            ("layer", string()),
+            ("locked", boolean()),
+            ("position", positions()),
+        ])}),
+    );
+    schemas.insert(
+        WALL.to_owned(),
+        json!({"value": object(&[
+            ("start", point2()),
+            ("end", point2()),
+            ("thickness", length()),
+            ("referenceLine", enumeration(REFERENCE_LINES)),
+            ("referenceOffset", optional(length())),
+            ("baseOffset", length()),
+            ("top", top_link()),
+            ("material", reference()),
+        ])}),
+    );
+    schemas.insert(
+        SLAB.to_owned(),
+        json!({"value": object(&[
+            ("outline", array(point2())),
+            ("holes", array(array(point2()))),
+            ("thickness", length()),
+            ("reference", enumeration([SlabReference::Top.code(), SlabReference::Bottom.code()])),
+            ("offset", length()),
+            ("material", reference()),
+        ])}),
+    );
+    schemas
+}

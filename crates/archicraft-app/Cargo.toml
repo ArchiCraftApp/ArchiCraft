@@ -1,0 +1,21 @@
+[package]
+name = "archicraft-app"
+description = "ArchiCraft desktop application"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "archicraft"
+path = "src/main.rs"
+
+[dependencies]
+archicraft-geometry.workspace = true
+archicraft-ifcx.workspace = true
+archicraft-model.workspace = true
+
+[lints]
+workspace = true

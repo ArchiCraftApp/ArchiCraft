@@ -1,0 +1,82 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/archicraft-model",
+    "crates/archicraft-geometry",
+    "crates/archicraft-ifcx",
+    "crates/archicraft-app",
+]
+default-members = [
+    "crates/archicraft-model",
+    "crates/archicraft-geometry",
+    "crates/archicraft-ifcx",
+    "crates/archicraft-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "CC-BY-4.0"
+repository = "https://github.com/Graphicraft/ArchiCraft"
+publish = false
+
+# Versions follow docs/technology-choices.md. The egui family is pinned exactly
+# (egui is pre-1.0 and breaks its API with every release); upgrade deliberately,
+# all together, once egui_tiles supports the new egui version.
+[workspace.dependencies]
+archicraft-model = { path = "crates/archicraft-model" }
+archicraft-geometry = { path = "crates/archicraft-geometry" }
+archicraft-ifcx = { path = "crates/archicraft-ifcx" }
+
+eframe = { version = "=0.36.2", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "wgpu",
+    "wayland",
+    "x11",
+    "persistence",
+] }
+egui = "=0.36.2"
+egui_extras = { version = "=0.36.2", default-features = false }
+egui_tiles = "=0.17.1"
+egui_kittest = "=0.36.2"
+
+rfd = "0.17.2"
+bytemuck = { version = "1.25", features = ["derive"] }
+glam = { version = "0.34.1", features = ["serde"] }
+geo = { version = "0.33.1", default-features = false }
+spade = "2.15"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip", "preserve_order", "raw_value"] }
+indexmap = { version = "2", features = ["serde"] }
+uuid = { version = "1.28", features = ["v4", "v5", "serde"] }
+
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+insta = { version = "1.49", features = ["json"] }
+jsonschema = { version = "0.58.6", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+
+[profile.dev]
+# Geometry and IFCX code is slow unoptimised; keep debug builds usable.
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"

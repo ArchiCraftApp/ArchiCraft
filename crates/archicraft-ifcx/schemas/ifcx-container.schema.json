@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ifcx.json",
+  "$defs": {
+    "IfcxNode": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "IfcxNode.json",
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "path.json"
+        },
+        "children": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "inherits": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "attributes": {
+          "$ref": "RecordUnknown.json"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "path": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "path.json",
+      "type": "string",
+      "pattern": "</[A-Za-z0-9_/.:]+>"
+    },
+    "RecordUnknown": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "RecordUnknown.json",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {}
+    },
+    "IfcxHeader": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "IfcxHeader.json",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "ifcxVersion": {
+          "type": "string"
+        },
+        "dataVersion": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "ifcxVersion",
+        "dataVersion",
+        "author",
+        "timestamp"
+      ]
+    },
+    "EnumRestrictions": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "EnumRestrictions.json",
+      "type": "object",
+      "properties": {
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "options"
+      ]
+    },
+    "ArrayRestrictions": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ArrayRestrictions.json",
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "value": {
+          "$ref": "IfcxValueDescription.json"
+        }
+      },
+      "required": [
+        "value"
+      ]
+    },
+    "IfcxValueDescription": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "IfcxValueDescription.json",
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "$ref": "DataType.json"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "inherits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "quantityKind": {
+          "$ref": "QuantityKind.json"
+        },
+        "enumRestrictions": {
+          "$ref": "EnumRestrictions.json"
+        },
+        "arrayRestrictions": {
+          "$ref": "ArrayRestrictions.json"
+        },
+        "objectRestrictions": {
+          "$ref": "ObjectRestrictions.json"
+        }
+      },
+      "required": [
+        "dataType"
+      ]
+    },
+    "DataType": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "DataType.json",
+      "type": "string",
+      "enum": [
+        "Real",
+        "Boolean",
+        "Integer",
+        "String",
+        "DateTime",
+        "Enum",
+        "Array",
+        "Object",
+        "Reference",
+        "Blob"
+      ]
+    },
+    "QuantityKind": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "QuantityKind.json",
+      "type": "string",
+      "enum": [
+        "Plane angle",
+        "Thermodynamic temperature",
+        "Electric current",
+        "Time",
+        "Frequency",
+        "Mass",
+        "Length",
+        "Linear velocity",
+        "Force",
+        "Pressure",
+        "Area",
+        "Energy",
+        "Power",
+        "Volume"
+      ]
+    },
+    "ObjectRestrictions": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ObjectRestrictions.json",
+      "type": "object",
+      "properties": {
+        "values": {
+          "$ref": "RecordIfcxValueDescription.json"
+        }
+      },
+      "required": [
+        "values"
+      ]
+    },
+    "RecordIfcxValueDescription": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "RecordIfcxValueDescription.json",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "$ref": "IfcxValueDescription.json"
+      }
+    },
+    "IfcxSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "IfcxSchema.json",
+      "type": "object",
+      "properties": {
+        "uri": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "IfcxValueDescription.json"
+        }
+      },
+      "required": [
+        "value"
+      ]
+    },
+    "ImportNode": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ImportNode.json",
+      "type": "object",
+      "properties": {
+        "uri": {
+          "type": "string"
+        },
+        "integrity": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "IfcxFile": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "IfcxFile.json",
+      "type": "object",
+      "properties": {
+        "header": {
+          "$ref": "IfcxHeader.json"
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "$ref": "ImportNode.json"
+          }
+        },
+        "schemas": {
+          "$ref": "RecordIfcxSchema.json"
+        },
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "IfcxNode.json"
+          }
+        }
+      },
+      "required": [
+        "header",
+        "imports",
+        "schemas",
+        "data"
+      ]
+    },
+    "RecordIfcxSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "RecordIfcxSchema.json",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": {
+        "$ref": "IfcxSchema.json"
+      }
+    },
+    "code": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "code.json",
+      "type": "string",
+      "pattern": "</[A-Za-z0-9]+>"
+    }
+  }
+}
