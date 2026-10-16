@@ -1,0 +1,43 @@
+# cargo-deny policy (SRS NFR-LEG-001, docs/technology-choices.md):
+# only permissive licences; no GPL, LGPL or AGPL; weak copyleft (MPL-2.0)
+# only after review. `cargo deny list` gives the licence inventory.
+
+[graph]
+all-features = false
+
+[licenses]
+# ArchiCraft's own crates are not published and are skipped here.
+private = { ignore = true }
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+exceptions = [
+    # egui's default fonts (Ubuntu-Light under the Ubuntu Font Licence 1.0,
+    # Hack and emoji fonts under the SIL OFL 1.1) ship in this crate.
+    # Both licences permit bundling the fonts with software. Font licences,
+    # not code licences; recheck before any public release (SRS O-5).
+    { crate = "epaint_default_fonts", allow = ["OFL-1.1", "Ubuntu-font-1.0"] },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[advisories]
+# Advisories are checked in CI with network access; see .github/workflows.
+ignore = []

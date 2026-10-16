@@ -14,12 +14,9 @@ archicraft-model.workspace = true
 indexmap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-insta.workspace = true
 jsonschema.workspace = true
 
 [lints]

@@ -15,10 +15,6 @@ glam.workspace = true
 spade.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-uuid.workspace = true
-
-[dev-dependencies]
-geo.workspace = true
 
 [lints]
 workspace = true

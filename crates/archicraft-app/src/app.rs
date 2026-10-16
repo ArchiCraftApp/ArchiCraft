@@ -1,0 +1,875 @@
+//! The application window (UI-001, PRJ-003, PRJ-004, PRJ-008).
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use archicraft_ifcx::Problem;
+use archicraft_model::template::default_metric_project;
+use eframe::egui_wgpu;
+use egui::{Id, RichText, ThemePreference, Ui, ViewportCommand, WidgetText};
+use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
+
+use crate::document::Document;
+use crate::persistence::autosave::{Abandoned, Autosaver, Session, find_abandoned};
+use crate::persistence::crash::{RecentLog, reports_since};
+use crate::persistence::prefs::{Preferences, ThemeChoice};
+use crate::persistence::{DataDirs, save_atomically};
+use crate::ui::actions::Action;
+use crate::ui::dialogs::{self, Dialogs};
+use crate::ui::{browser, properties, shell};
+use crate::views::plan;
+use crate::views::tools::ToolKind;
+use crate::views::view3d::{self, View3dState, model_bounds};
+use crate::workspace::{Pane, Request, Workspace};
+
+/// What to do once unsaved changes are saved or discarded.
+#[derive(Clone, Debug, PartialEq)]
+enum Then {
+    New,
+    Open(Option<PathBuf>),
+    Close,
+    Quit,
+    Recover(usize),
+}
+
+/// Work to do after a prompt closes, with access to the whole application.
+type FollowUp = Box<dyn FnOnce(&mut ArchiCraftApp, &egui::Context)>;
+
+#[derive(Clone, Debug)]
+enum Prompt {
+    Unsaved(Then),
+    Message {
+        title: String,
+        text: String,
+    },
+    LoadReport,
+    /// IFX-062: the file was written by a newer ArchiCraft.
+    OverwriteNewer {
+        save_as: bool,
+    },
+}
+
+pub struct ArchiCraftApp {
+    dirs: DataDirs,
+    ws: Workspace,
+    tree: Tree<Pane>,
+    dialogs: Dialogs,
+    session: Option<Session>,
+    autosaver: Autosaver,
+    last_autosave: Instant,
+    load_problems: Vec<Problem>,
+    prompt: Option<Prompt>,
+    recovery: Vec<Abandoned>,
+    crash_reports: Vec<PathBuf>,
+    quit_confirmed: bool,
+    newer_confirmed: bool,
+    title: String,
+    theme: Option<ThemeChoice>,
+    released: Vec<View3dState>,
+    _log: Arc<RecentLog>,
+}
+
+impl std::fmt::Debug for ArchiCraftApp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArchiCraftApp")
+            .field("ws", &self.ws)
+            .finish_non_exhaustive()
+    }
+}
+
+fn default_tree(ws: &Workspace) -> Tree<Pane> {
+    let mut panes = vec![Pane::Plan(ws.doc.project.storeys.ground())];
+    if let Some(view) = ws.doc.project.views.first() {
+        panes.push(Pane::View3d(view.id));
+    }
+    Tree::new_tabs(Id::new("archicraft-views"), panes)
+}
+
+impl ArchiCraftApp {
+    /// Creates the application. `open` is a project given on the command
+    /// line.
+    pub fn new(dirs: DataDirs, prefs: Preferences, log: Arc<RecentLog>, open: Option<PathBuf>) -> Self {
+        let undo_steps = prefs.undo_steps;
+        let ws = Workspace::new(Document::new(default_metric_project(), undo_steps), prefs);
+        let tree = default_tree(&ws);
+        let session = match Session::start(&dirs.recovery()) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::error!("autosave is unavailable: {e}");
+                None
+            }
+        };
+        let recovery = find_abandoned(&dirs.recovery());
+        let crash_reports = reports_since(&dirs.crash_reports(), ws.prefs.last_crash_report.as_deref());
+        let mut app = Self {
+            dirs,
+            ws,
+            tree,
+            dialogs: Dialogs::default(),
+            session,
+            autosaver: Autosaver::new(),
+            last_autosave: Instant::now(),
+            load_problems: Vec::new(),
+            prompt: None,
+            recovery,
+            crash_reports,
+            quit_confirmed: false,
+            newer_confirmed: false,
+            title: String::new(),
+            theme: None,
+            released: Vec::new(),
+            _log: log,
+        };
+        if let Some(path) = open {
+            app.open_path(&path);
+        }
+        app
+    }
+
+    /// The workspace, for tests.
+    pub fn workspace(&mut self) -> &mut Workspace {
+        &mut self.ws
+    }
+
+    fn message(&mut self, title: &str, text: impl Into<String>) {
+        self.prompt = Some(Prompt::Message {
+            title: title.to_owned(),
+            text: text.into(),
+        });
+    }
+
+    fn replace_document(&mut self, doc: Document) {
+        // 3D views hold GPU textures registered with egui; release them on
+        // the next frame, when the render state is at hand.
+        self.released.extend(self.ws.views_3d.drain().map(|(_, state)| state));
+        self.ws.replace_document(doc);
+        self.tree = default_tree(&self.ws);
+        self.newer_confirmed = false;
+    }
+
+    /// Opens a project file (PRJ-003, PRJ-008).
+    pub fn open_path(&mut self, path: &Path) {
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) => {
+                self.message("Cannot open the project", format!("{}: {e}", path.display()));
+                return;
+            }
+        };
+        match archicraft_ifcx::load(&bytes) {
+            Ok(outcome) => {
+                let doc = Document::opened(
+                    outcome.project,
+                    path.to_owned(),
+                    outcome.newer_format,
+                    self.ws.prefs.undo_steps,
+                );
+                self.replace_document(doc);
+                self.load_problems = outcome.problems;
+                if !self.load_problems.is_empty() {
+                    self.prompt = Some(Prompt::LoadReport);
+                }
+                self.ws.prefs.add_recent(path);
+                self.save_prefs();
+                self.ws.info(format!("Opened {}", path.display()));
+            }
+            Err(problem) => self.message("Cannot open the project", format!("{}: {problem}", path.display())),
+        }
+    }
+
+    fn save_prefs(&mut self) {
+        if let Err(e) = self.ws.prefs.save(&self.dirs.preferences_file()) {
+            tracing::warn!("preferences not saved: {e}");
+        }
+    }
+
+    /// Saves the project (PRJ-003, PRJ-005, NFR-REL-001…003). Returns true
+    /// if it was saved.
+    fn save(&mut self, save_as: bool) -> bool {
+        if self.ws.doc.newer_format && !self.newer_confirmed {
+            self.prompt = Some(Prompt::OverwriteNewer { save_as });
+            return false;
+        }
+        let path = match (&self.ws.doc.path, save_as) {
+            (Some(path), false) => path.clone(),
+            _ => {
+                let mut dialog = rfd::FileDialog::new()
+                    .add_filter("IFCX project", &["ifcx"])
+                    .set_file_name(format!("{}.ifcx", self.ws.doc.project.info.name));
+                if let Some(dir) = self.ws.doc.path.as_ref().and_then(|p| p.parent()) {
+                    dialog = dialog.set_directory(dir);
+                }
+                match dialog.save_file() {
+                    Some(p) if p.extension().is_none() => p.with_extension("ifcx"),
+                    Some(p) => p,
+                    None => return false,
+                }
+            }
+        };
+        self.save_to(&path)
+    }
+
+    /// Writes the project to `path`.
+    pub fn save_to(&mut self, path: &Path) -> bool {
+        let (bytes, warnings) = self.ws.doc.to_bytes(&self.ws.prefs.author);
+        match save_atomically(path, &bytes, self.ws.prefs.backups) {
+            Ok(()) => {
+                self.ws.doc.saved_to(path.to_owned());
+                self.ws.prefs.add_recent(path);
+                self.save_prefs();
+                if let Some(session) = &self.session {
+                    session.clear();
+                }
+                match warnings.first() {
+                    Some(w) => self.ws.error(format!("Saved with warnings: {w}")),
+                    None => self.ws.info(format!("Saved {}", path.display())),
+                }
+                true
+            }
+            Err(e) => {
+                self.message("The project was not saved", format!("{}: {e}", path.display()));
+                false
+            }
+        }
+    }
+
+    /// Runs `then`, first asking to save unsaved changes (PRJ-003).
+    fn guard(&mut self, ctx: &egui::Context, then: Then) {
+        if self.ws.doc.is_dirty() {
+            self.prompt = Some(Prompt::Unsaved(then));
+        } else {
+            self.proceed(ctx, then);
+        }
+    }
+
+    fn proceed(&mut self, ctx: &egui::Context, then: Then) {
+        match then {
+            Then::New | Then::Close => {
+                let doc = Document::new(default_metric_project(), self.ws.prefs.undo_steps);
+                self.replace_document(doc);
+                self.load_problems.clear();
+                if let Some(session) = &self.session {
+                    session.clear();
+                }
+            }
+            Then::Open(path) => {
+                let path = path.or_else(|| rfd::FileDialog::new().add_filter("IFCX project", &["ifcx"]).pick_file());
+                if let Some(path) = path {
+                    self.open_path(&path);
+                }
+            }
+            Then::Quit => {
+                self.quit_confirmed = true;
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
+            Then::Recover(index) => {
+                if index < self.recovery.len() {
+                    let abandoned = self.recovery.remove(index);
+                    match std::fs::read(&abandoned.model)
+                        .map_err(|e| e.to_string())
+                        .and_then(|b| archicraft_ifcx::load(&b).map_err(|p| p.to_string()))
+                    {
+                        Ok(outcome) => {
+                            let doc = Document::recovered(
+                                outcome.project,
+                                abandoned.info.original_path.clone(),
+                                self.ws.prefs.undo_steps,
+                            );
+                            self.replace_document(doc);
+                            self.load_problems = outcome.problems;
+                            abandoned.discard();
+                            self.ws.info("Recovered the autosaved project. Save it to keep it.");
+                        }
+                        Err(e) => self.message("Recovery failed", e),
+                    }
+                }
+            }
+        }
+    }
+
+    fn open_pane(&mut self, pane: Pane) {
+        if let Pane::Plan(storey) = pane {
+            self.ws.active_storey = storey;
+        }
+        self.ws.active_pane = Some(pane);
+        if let Some(tile) = self.tree.tiles.find_pane(&pane) {
+            self.tree.make_active(|id, _| id == tile);
+            return;
+        }
+        let new = self.tree.tiles.insert_pane(pane);
+        // Add the tab to the tab group that shows the most recent view.
+        let target = self.tree.tiles.iter().find_map(|(id, tile)| match tile {
+            Tile::Container(egui_tiles::Container::Tabs(_)) => Some(*id),
+            _ => None,
+        });
+        match target {
+            Some(tabs) => {
+                if let Some(Tile::Container(container)) = self.tree.tiles.get_mut(tabs) {
+                    container.add_child(new);
+                }
+            }
+            None => {
+                let tabs = self.tree.tiles.insert_tab_tile(vec![new]);
+                self.tree.root = Some(tabs);
+            }
+        }
+        self.tree.make_active(|id, _| id == new);
+    }
+
+    /// Panes in tab order, for next/previous tab.
+    fn panes(&self) -> Vec<Pane> {
+        let mut out = Vec::new();
+        fn walk(tiles: &Tiles<Pane>, id: TileId, out: &mut Vec<Pane>) {
+            match tiles.get(id) {
+                Some(Tile::Pane(p)) => out.push(*p),
+                Some(Tile::Container(c)) => {
+                    for child in c.children() {
+                        walk(tiles, *child, out);
+                    }
+                }
+                None => {}
+            }
+        }
+        if let Some(root) = self.tree.root {
+            walk(&self.tree.tiles, root, &mut out);
+        }
+        out
+    }
+
+    fn cycle_tab(&mut self, step: isize) {
+        let panes = self.panes();
+        if panes.is_empty() {
+            return;
+        }
+        let current = self
+            .ws
+            .active_pane
+            .and_then(|p| panes.iter().position(|q| *q == p))
+            .unwrap_or(0) as isize;
+        let next = (current + step).rem_euclid(panes.len() as isize) as usize;
+        self.open_pane(panes[next]);
+    }
+
+    fn zoom_active(&mut self, ids: Option<Vec<archicraft_model::ElementId>>) {
+        match self.ws.active_pane {
+            Some(Pane::Plan(storey)) => {
+                let plan = self.ws.doc.plan(storey);
+                if let Some(state) = self.ws.plan_views.get_mut(&storey) {
+                    let rect = state.last_rect;
+                    match ids {
+                        Some(ids) => state.zoom_to(rect, &plan, &ids),
+                        None => state.fit(rect, &plan),
+                    }
+                }
+            }
+            Some(Pane::View3d(view)) => {
+                let geometry = self.ws.doc.geometry();
+                let bounds = model_bounds(&self.ws.doc.project, &geometry, ids.as_deref());
+                if let Some(state) = self.ws.views_3d.get_mut(&view) {
+                    state.fit(bounds);
+                }
+            }
+            None => {}
+        }
+    }
+
+    fn run(&mut self, ctx: &egui::Context, action: Action) {
+        match action {
+            Action::New => self.guard(ctx, Then::New),
+            Action::Open => self.guard(ctx, Then::Open(None)),
+            Action::Save => {
+                self.save(false);
+            }
+            Action::SaveAs => {
+                self.save(true);
+            }
+            Action::Close => self.guard(ctx, Then::Close),
+            Action::Quit => self.guard(ctx, Then::Quit),
+            Action::Undo => self.ws.undo(),
+            Action::Redo => self.ws.redo(),
+            Action::Delete => self.ws.delete_selection(),
+            Action::SelectAll => self.ws.select_all(),
+            Action::ToolSelect => self.ws.tool.select(ToolKind::Select),
+            Action::ToolWall => self.ws.tool.select(ToolKind::Wall),
+            Action::ToolSlab => self.ws.tool.select(ToolKind::Slab),
+            Action::Settings => self.dialogs.settings = true,
+            Action::FitWindow => self.zoom_active(None),
+            Action::ZoomSelection => {
+                let ids = self.ws.selected_ids();
+                if !ids.is_empty() {
+                    self.zoom_active(Some(ids));
+                }
+            }
+            Action::PreviousZoom | Action::NextZoom => {
+                if let Some(Pane::Plan(storey)) = self.ws.active_pane
+                    && let Some(state) = self.ws.plan_views.get_mut(&storey)
+                {
+                    if action == Action::PreviousZoom {
+                        state.previous_zoom();
+                    } else {
+                        state.next_zoom();
+                    }
+                }
+            }
+            Action::NextTab => self.cycle_tab(1),
+            Action::PreviousTab => self.cycle_tab(-1),
+            Action::SwitchPlan3d => {
+                let target = match self.ws.active_pane {
+                    Some(Pane::Plan(_)) => self.ws.doc.project.views.first().map(|v| Pane::View3d(v.id)),
+                    _ => Some(Pane::Plan(self.ws.active_storey)),
+                };
+                if let Some(pane) = target {
+                    self.open_pane(pane);
+                }
+            }
+            Action::OrbitMode => {
+                let view = match self.ws.active_pane {
+                    Some(Pane::View3d(v)) => Some(v),
+                    _ => self.ws.doc.project.views.first().map(|v| v.id),
+                };
+                if let Some(view) = view {
+                    self.open_pane(Pane::View3d(view));
+                    let projection = self
+                        .ws
+                        .doc
+                        .project
+                        .view(view)
+                        .map_or(archicraft_model::project::Projection::Perspective, |v| v.projection);
+                    let state = self
+                        .ws
+                        .views_3d
+                        .entry(view)
+                        .or_insert_with(|| View3dState::new(projection));
+                    state.orbit = !state.orbit;
+                }
+            }
+            Action::ToggleReferenceLines => {
+                self.ws.prefs.show_reference_lines = !self.ws.prefs.show_reference_lines;
+                self.save_prefs();
+            }
+            Action::Storeys => self.dialogs.storeys = true,
+            Action::Layers => self.dialogs.layers = true,
+            Action::Materials => self.dialogs.materials = true,
+            Action::ProjectSettings => self.dialogs.open_project_settings(&self.ws),
+            Action::Preferences => self.dialogs.preferences = Some(self.ws.prefs.clone()),
+            Action::Problems => self.dialogs.problems = !self.dialogs.problems,
+            Action::Shortcuts => self.dialogs.shortcuts = true,
+            Action::About => self.dialogs.about = true,
+        }
+    }
+
+    /// Keyboard shortcuts (UI-008). Single-key shortcuts are ignored while a
+    /// text field has focus or a value is being typed during point input.
+    fn shortcuts(&mut self, ctx: &egui::Context) {
+        let typing = ctx.text_edit_focused();
+        let drawing = self.ws.tool.is_drawing();
+        let mut triggered = Vec::new();
+        for action in Action::ALL {
+            let Some(shortcut) = action.shortcut() else {
+                continue;
+            };
+            if typing && !action.works_while_typing() {
+                continue;
+            }
+            if drawing && (action.is_single_key() || action == Action::NextTab) {
+                continue;
+            }
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcut)) {
+                triggered.push(action);
+            }
+        }
+        if !typing {
+            let redo_y = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Y);
+            if ctx.input_mut(|i| i.consume_shortcut(&redo_y)) {
+                triggered.push(Action::Redo);
+            }
+            let backspace = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Backspace);
+            if !drawing && ctx.input_mut(|i| i.consume_shortcut(&backspace)) {
+                triggered.push(Action::Delete);
+            }
+        }
+        for action in triggered {
+            self.run(ctx, action);
+        }
+    }
+
+    fn autosave(&mut self, ctx: &egui::Context) {
+        let interval = Duration::from_secs(u64::from(self.ws.prefs.autosave_minutes) * 60);
+        if let Some(session) = &self.session
+            && self.ws.doc.needs_autosave()
+            && self.last_autosave.elapsed() >= interval
+        {
+            let geometry = self.ws.doc.geometry();
+            self.autosaver.request(
+                session,
+                &self.ws.doc.project,
+                geometry,
+                self.ws.doc.path.clone(),
+                &self.ws.prefs.author,
+            );
+            self.ws.doc.mark_autosaved();
+            self.last_autosave = Instant::now();
+        }
+        ctx.request_repaint_after(Duration::from_secs(30));
+    }
+
+    fn update_title_and_theme(&mut self, ctx: &egui::Context) {
+        let title = format!(
+            "{}{} — ArchiCraft",
+            if self.ws.doc.is_dirty() { "● " } else { "" },
+            self.ws.doc.display_name()
+        );
+        if title != self.title {
+            ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
+            self.title = title;
+        }
+        if self.theme != Some(self.ws.prefs.theme) {
+            ctx.set_theme(match self.ws.prefs.theme {
+                ThemeChoice::System => ThemePreference::System,
+                ThemeChoice::Light => ThemePreference::Light,
+                ThemeChoice::Dark => ThemePreference::Dark,
+            });
+            self.theme = Some(self.ws.prefs.theme);
+        }
+    }
+
+    fn handle_close_request(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().close_requested()) && !self.quit_confirmed {
+            if self.ws.doc.is_dirty() {
+                ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+                self.prompt = Some(Prompt::Unsaved(Then::Quit));
+            } else {
+                self.quit_confirmed = true;
+            }
+        }
+    }
+
+    fn prompts(&mut self, ctx: &egui::Context) {
+        let Some(prompt) = self.prompt.clone() else {
+            return;
+        };
+        let mut close = false;
+        let mut follow_up: Option<FollowUp> = None;
+        let modal = egui::Modal::new(Id::new("prompt")).show(ctx, |ui| {
+            ui.set_max_width(480.0);
+            match &prompt {
+                Prompt::Unsaved(then) => {
+                    ui.heading("Save changes?");
+                    ui.label(format!(
+                        "“{}” has unsaved changes. Save them before continuing?",
+                        self.ws.doc.display_name()
+                    ));
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        let then = then.clone();
+                        if ui.button("Save").clicked() {
+                            close = true;
+                            follow_up = Some(Box::new(move |app, ctx| {
+                                if app.save(false) {
+                                    app.proceed(ctx, then);
+                                }
+                            }));
+                        } else if ui.button("Don't save").clicked() {
+                            close = true;
+                            let then = then.clone();
+                            follow_up = Some(Box::new(move |app, ctx| app.proceed(ctx, then)));
+                        } else if ui.button("Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                }
+                Prompt::Message { title, text } => {
+                    ui.heading(title);
+                    ui.label(text);
+                    if ui.button("OK").clicked() {
+                        close = true;
+                    }
+                }
+                Prompt::LoadReport => {
+                    ui.heading("The project was opened with problems");
+                    ui.label("Everything that could be read was loaded. These objects were skipped, repaired or replaced:");
+                    egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                        for p in &self.load_problems {
+                            ui.label(p.to_string());
+                        }
+                    });
+                    if ui.button("OK").clicked() {
+                        close = true;
+                    }
+                }
+                Prompt::OverwriteNewer { save_as } => {
+                    ui.heading("Overwrite a newer file?");
+                    ui.label(
+                        "This file was written by a newer version of ArchiCraft. Saving it with this version may lose data that this version does not know.",
+                    );
+                    ui.horizontal(|ui| {
+                        let save_as = *save_as;
+                        if ui.button("Save anyway").clicked() {
+                            close = true;
+                            follow_up = Some(Box::new(move |app, _| {
+                                app.newer_confirmed = true;
+                                app.save(save_as);
+                            }));
+                        }
+                        if ui.button("Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                }
+            }
+        });
+        if modal.should_close() && !matches!(prompt, Prompt::Unsaved(_)) {
+            close = true;
+        }
+        if close {
+            self.prompt = None;
+        }
+        if let Some(f) = follow_up {
+            f(self, ctx);
+        }
+    }
+
+    fn startup_windows(&mut self, ctx: &egui::Context) {
+        if !self.recovery.is_empty() && self.prompt.is_none() {
+            let mut action: Option<(usize, bool)> = None;
+            let mut later = false;
+            egui::Window::new("Recover unsaved work")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label(
+                        "ArchiCraft did not close properly last time. These autosaves can be recovered (PRJ-004):",
+                    );
+                    for (i, a) in self.recovery.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            let place = a
+                                .info
+                                .original_path
+                                .as_ref()
+                                .map_or_else(|| "never saved".to_owned(), |p| p.display().to_string());
+                            ui.label(format!(
+                                "{} — autosaved {} ({place})",
+                                a.info.project_name, a.info.saved_at
+                            ));
+                            if ui.button("Recover").clicked() {
+                                action = Some((i, true));
+                            }
+                            if ui.button("Discard").clicked() {
+                                action = Some((i, false));
+                            }
+                        });
+                    }
+                    if ui.button("Decide later").clicked() {
+                        later = true;
+                    }
+                });
+            match action {
+                Some((i, true)) => self.guard(ctx, Then::Recover(i)),
+                Some((i, false)) => {
+                    let a = self.recovery.remove(i);
+                    a.discard();
+                }
+                None => {}
+            }
+            if later {
+                self.recovery.clear();
+            }
+        }
+        if !self.crash_reports.is_empty() {
+            let mut dismissed = false;
+            egui::Window::new("ArchiCraft crashed last time")
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    ui.label("A crash report was saved on this computer. Nothing was sent. You can pass it on to the developers if you want to:");
+                    for path in &self.crash_reports {
+                        ui.horizontal(|ui| {
+                            ui.monospace(path.display().to_string());
+                            if ui.small_button("Copy path").clicked() {
+                                ctx.copy_text(path.display().to_string());
+                            }
+                        });
+                    }
+                    if ui.button("OK").clicked() {
+                        dismissed = true;
+                    }
+                });
+            if dismissed {
+                self.ws.prefs.last_crash_report = self
+                    .crash_reports
+                    .first()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().into_owned());
+                self.crash_reports.clear();
+                self.save_prefs();
+            }
+        }
+    }
+
+    fn handle_requests(&mut self) {
+        for request in std::mem::take(&mut self.ws.requests) {
+            match request {
+                Request::OpenPane(pane) => self.open_pane(pane),
+                Request::ZoomTo(ids) if ids.is_empty() => self.zoom_active(None),
+                Request::ZoomTo(ids) => self.zoom_active(Some(ids)),
+                Request::Settings => self.dialogs.settings = true,
+            }
+        }
+    }
+}
+
+struct Behavior<'a> {
+    ws: &'a mut Workspace,
+    render_state: Option<&'a egui_wgpu::RenderState>,
+    closed: Vec<Pane>,
+}
+
+impl egui_tiles::Behavior<Pane> for Behavior<'_> {
+    fn pane_ui(&mut self, ui: &mut Ui, _tile_id: TileId, pane: &mut Pane) -> UiResponse {
+        match *pane {
+            Pane::Plan(storey) => plan::ui(ui, self.ws, storey),
+            Pane::View3d(view) => view3d::ui(ui, self.ws, view, self.render_state),
+        }
+        UiResponse::None
+    }
+
+    fn tab_title_for_pane(&mut self, pane: &Pane) -> WidgetText {
+        let project = &self.ws.doc.project;
+        match pane {
+            Pane::Plan(storey) => project
+                .storeys
+                .get(*storey)
+                .map_or_else(|| "Plan".to_owned(), |s| format!("Plan: {}", s.name))
+                .into(),
+            Pane::View3d(view) => project
+                .view(*view)
+                .map_or_else(|| "3D".to_owned(), |v| v.name.clone())
+                .into(),
+        }
+    }
+
+    fn on_tab_button(&mut self, tiles: &mut Tiles<Pane>, tile_id: TileId, response: egui::Response) -> egui::Response {
+        if (response.clicked() || response.drag_started())
+            && let Some(Tile::Pane(pane)) = tiles.get(tile_id)
+        {
+            self.ws.active_pane = Some(*pane);
+            if let Pane::Plan(storey) = pane {
+                self.ws.active_storey = *storey;
+            }
+        }
+        response
+    }
+
+    fn is_tab_closable(&self, _tiles: &Tiles<Pane>, _tile_id: TileId) -> bool {
+        true
+    }
+
+    fn on_tab_close(&mut self, tiles: &mut Tiles<Pane>, tile_id: TileId) -> bool {
+        if let Some(Tile::Pane(pane)) = tiles.get(tile_id) {
+            self.closed.push(*pane);
+        }
+        true
+    }
+
+    fn retain_pane(&mut self, pane: &Pane) -> bool {
+        let project = &self.ws.doc.project;
+        match pane {
+            Pane::Plan(storey) => project.storeys.get(*storey).is_some(),
+            Pane::View3d(view) => project.view(*view).is_some(),
+        }
+    }
+
+    fn simplification_options(&self) -> SimplificationOptions {
+        SimplificationOptions {
+            all_panes_must_have_tabs: true,
+            ..SimplificationOptions::default()
+        }
+    }
+}
+
+impl eframe::App for ArchiCraftApp {
+    fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        for state in self.released.drain(..) {
+            state.release(frame.wgpu_render_state());
+        }
+        self.handle_close_request(&ctx);
+        self.update_title_and_theme(&ctx);
+        if self.prompt.is_none() {
+            self.shortcuts(&ctx);
+        }
+        self.ws.prune_selection();
+
+        let mut actions: Vec<Action> = Vec::new();
+        let mut recent: Option<PathBuf> = None;
+        egui::Panel::top("menu").show(ui, |ui| {
+            let (action, r) = shell::menu_bar(ui, &self.ws, self.dialogs.problems);
+            actions.extend(action);
+            recent = r;
+        });
+        egui::Panel::top("properties").show(ui, |ui| properties::strip(ui, &mut self.ws));
+        let problem_count = self.ws.doc.geometry().problems.len() + self.load_problems.len();
+        egui::Panel::bottom("status").show(ui, |ui| {
+            actions.extend(shell::status_bar(ui, &mut self.ws, problem_count));
+        });
+        if self.dialogs.problems {
+            egui::Panel::bottom("problems").resizable(true).show(ui, |ui| {
+                dialogs::problems_panel(ui, &mut self.ws, &self.load_problems);
+            });
+        }
+        egui::Panel::left("toolbox").resizable(false).show(ui, |ui| {
+            actions.extend(shell::toolbox(ui, &mut self.ws));
+        });
+        egui::Panel::right("browser")
+            .resizable(true)
+            .default_size(240.0)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| browser::ui(ui, &mut self.ws, &mut self.dialogs));
+            });
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
+            if self.tree.root.is_none() {
+                ui.centered_and_justified(|ui| {
+                    ui.label(RichText::new("Open a plan or 3D view from the project browser.").weak());
+                });
+                return;
+            }
+            let mut behavior = Behavior {
+                ws: &mut self.ws,
+                render_state: frame.wgpu_render_state(),
+                closed: Vec::new(),
+            };
+            self.tree.ui(&mut behavior, ui);
+            let closed = std::mem::take(&mut behavior.closed);
+            for pane in closed {
+                if let Pane::View3d(view) = pane
+                    && let Some(state) = self.ws.views_3d.remove(&view)
+                {
+                    state.release(frame.wgpu_render_state());
+                }
+            }
+        });
+
+        if let Some(prefs) = self.dialogs.show(&ctx, &mut self.ws) {
+            self.ws.prefs = prefs;
+            self.save_prefs();
+        }
+        self.handle_requests();
+        self.startup_windows(&ctx);
+        self.prompts(&ctx);
+        for action in actions {
+            self.run(&ctx, action);
+        }
+        if let Some(path) = recent {
+            self.guard(&ctx, Then::Open(Some(path)));
+        }
+        self.autosave(&ctx);
+    }
+
+    fn on_exit(&mut self) {
+        self.autosaver.shutdown();
+        self.save_prefs();
+        if let Some(session) = self.session.take() {
+            session.end();
+        }
+    }
+}

@@ -38,7 +38,6 @@ eframe = { version = "=0.36.2", default-features = false, features = [
     "persistence",
 ] }
 egui = "=0.36.2"
-egui_extras = { version = "=0.36.2", default-features = false }
 egui_tiles = "=0.17.1"
 egui_kittest = "=0.36.2"
 
@@ -54,11 +53,9 @@ indexmap = { version = "2", features = ["serde"] }
 uuid = { version = "1.28", features = ["v4", "v5", "serde"] }
 
 thiserror = "2.0"
-anyhow = "1.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
-insta = { version = "1.49", features = ["json"] }
 jsonschema = { version = "0.58.6", default-features = false }
 
 [workspace.lints.rust]

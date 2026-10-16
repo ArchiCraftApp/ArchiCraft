@@ -60,18 +60,26 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+cargo build --workspace
+cargo test --workspace                                   # unit, golden-file and UI tests
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+conformance/run.sh crates/archicraft-ifcx/tests/golden/*.ifcx   # IFX-006, needs Node.js
+ARCHICRAFT_BLESS=1 cargo test -p archicraft-ifcx --test roundtrip  # after an intended format change
 ```
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+Rust workspace (see `docs/technology-choices.md` and the SRS in `docs/SRS.md`):
+
+- `crates/archicraft-model`: domain model; every change is a `Command` executed by `History` (undo/redo).
+- `crates/archicraft-geometry`: meshes from parameters, wall junctions, plan cuts sliced from the 3D bodies.
+- `crates/archicraft-ifcx`: IFCX read/write, versioned per IFCX version (`alpha/`), bundled schema files.
+- `crates/archicraft-app`: eframe/egui application; wgpu 3D views; persistence (atomic save, autosave, recovery, crash reports).
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- Cite SRS requirement IDs (for example `WAL-020`) in doc comments where code implements them.
+- The model, geometry and IFCX crates stay headless (no UI dependencies).
+- Lengths are metres and angles radians in `f64`; units only affect display and input.

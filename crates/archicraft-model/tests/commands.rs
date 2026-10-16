@@ -287,3 +287,20 @@ fn history_is_bounded_and_replayable() {
     assert_eq!(replayed.elements.len(), 5);
     assert_eq!(h.journal().count(), 5);
 }
+
+#[test]
+fn relinking_keeps_the_absolute_position() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let w = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    let id = w.id;
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    let upper = p.storeys.as_slice()[1].id;
+    let before = p.vertical_extent(p.element(id).unwrap());
+    let moved = archicraft_model::command::relink_to_storey(&p, p.element(id).unwrap(), upper).unwrap();
+    h.execute(&mut p, Command::UpdateElements(vec![moved])).unwrap();
+    let after = p.element(id).unwrap();
+    assert_eq!(after.storey, upper);
+    assert_eq!(p.vertical_extent(after), before);
+    assert!(matches!(after.as_wall().unwrap().top, TopLink::Storey { storey, .. } if storey == upper));
+}

@@ -19,7 +19,7 @@ use crate::element::{Element, ElementKind, KindTag, TopLink};
 use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
 use crate::layer::Layer;
 use crate::material::Material;
-use crate::project::{NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
+use crate::project::{Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
 use crate::storey::{Storey, StoreyList};
 use crate::validate;
 
@@ -88,6 +88,7 @@ pub enum Command {
         site: String,
         building: String,
     },
+    SetLocation(Location),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
@@ -138,6 +139,7 @@ impl Command {
             Command::SetSettings(_) => "Change project settings".into(),
             Command::SetInfo(_) => "Change project information".into(),
             Command::SetSpatialNames { .. } => "Rename site and building".into(),
+            Command::SetLocation(_) => "Change project location".into(),
         }
     }
 
@@ -283,6 +285,21 @@ impl Command {
                     building: building.trim().to_owned(),
                 }])
             }
+            Command::SetLocation(location) => {
+                let values = [
+                    location.altitude,
+                    location.survey_point[0],
+                    location.survey_point[1],
+                    location.true_north,
+                ];
+                if values.iter().any(|v| !v.is_finite()) {
+                    return Err(CommandError::Invalid("The location has invalid values.".into()));
+                }
+                if &project.site.location == location {
+                    return Err(CommandError::NoChange);
+                }
+                Ok(vec![Edit::SetLocation(*location)])
+            }
         }
     }
 }
@@ -392,6 +409,25 @@ fn rehome(project: &Project, element: &Element, target: StoreyId, target_elevati
         ElementKind::Slab(slab) => {
             slab.offset = home + slab.offset - target_elevation;
         }
+    }
+    Some(moved)
+}
+
+/// The element moved to another home storey while keeping its absolute
+/// position (ELM-005). A wall top linked relative to the old home storey is
+/// linked to the same storey absolutely, so the top stays where it is.
+pub fn relink_to_storey(project: &Project, element: &Element, target: StoreyId) -> Option<Element> {
+    let target_elevation = project.storeys.get(target)?.elevation;
+    let mut moved = rehome(project, element, target, target_elevation)?;
+    if let (ElementKind::Wall(old), ElementKind::Wall(new)) = (&element.kind, &mut moved.kind) {
+        new.top = match old.top {
+            TopLink::Relative { storeys, offset } => match project.storeys.relative(element.storey, storeys) {
+                Some(s) => TopLink::Storey { storey: s.id, offset },
+                None => new.top,
+            },
+            other @ TopLink::Storey { .. } => other,
+            TopLink::Fixed { .. } => new.top,
+        };
     }
     Some(moved)
 }
@@ -592,6 +628,7 @@ pub enum Edit {
     SetSettings(ProjectSettings),
     SetInfo(ProjectInfo),
     SetSpatialNames { site: String, building: String },
+    SetLocation(Location),
     SetCounters(NameCounters),
 }
 
@@ -680,6 +717,7 @@ impl Edit {
                 site: std::mem::replace(&mut project.site.name, site),
                 building: std::mem::replace(&mut project.building.name, building),
             },
+            Edit::SetLocation(location) => Edit::SetLocation(std::mem::replace(&mut project.site.location, location)),
             Edit::SetCounters(counters) => Edit::SetCounters(std::mem::replace(&mut project.counters, counters)),
         };
         project.revision += 1;
