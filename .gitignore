@@ -5,3 +5,6 @@
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+
+# Scraped Archicad KB corpus (~1.4 GB), regenerate with kb-scraper/scrape_archicad_kb.py
+kb-scraper/archicad-kb/
