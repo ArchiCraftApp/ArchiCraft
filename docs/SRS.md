@@ -3,10 +3,10 @@
 | | |
 |---|---|
 | **Document** | Software Requirements Specification (SRS) for ArchiCraft v1 |
-| **Version** | 0.1 — draft for review |
+| **Version** | 0.2 — draft for review |
 | **Date** | 2026-10-16 |
 | **Owner** | Alexander Partsch |
-| **Status** | Draft. Not yet reviewed against the technology-stack decision record. |
+| **Status** | Draft. Reviewed against the technology choices (R8) on 2026-10-16; the resulting decisions are D-2, D-11 and D-12 (Section 9.1). |
 | **Basis** | Graphisoft Archicad Knowledge Base (offline corpus of 313 articles, scraped 2026-10-16), buildingSMART IFC5-development repository (commit `1a63082`, 2026-09-08), IFCX schema registry ifcx.dev |
 
 ## Executive summary
@@ -17,19 +17,20 @@
   - Project set-up with storeys, grids, units and location.
   - Plan views generated live from the model, and 3D views; both are editable.
   - Precise numeric input with snapping and inference guides.
-  - Element tools: walls with layered structures and clean junctions, slabs, columns, beams, single- and multi-plane roofs, openings, doors and windows, rule-based stairs, terrain from survey points and contours, free-form solids, and associative solid operations and trims.
+  - Element tools: walls with layered structures and clean junctions, slabs, columns, beams, single- and multi-plane roofs, openings, doors and windows, rule-based stairs, terrain from points and contour lines, free-form solids, and associative solid operations and trims.
   - With priority Should: railings, curtain walls, and section/elevation views.
-  - IFCX is the native format with full round-trip of the parametric model.
-- **What v1 does not do:** collaboration, BIM information management (property sets, classifications, schedules, model checking), drawing sheets and publishing, MEP and structural analysis, photorealistic rendering (Section 8).
+  - IFCX is the native and only file format, with full round-trip of the parametric model.
+- **What v1 does not do:** file formats other than IFCX, installers and automatic updates, collaboration, BIM information management (property sets, classifications, schedules, model checking), drawing sheets and publishing, MEP and structural analysis, photorealistic rendering (Section 8).
 - **Key decisions:**
-  - IFCX as the native format, with the parametric data in a declared `archicraft::` namespace (D-1).
+  - IFCX as the native and only file format, with the parametric data in a declared `archicraft::` namespace (D-1, D-11).
   - IFCX `ifcx_alpha` pinned, behind a versioned adapter (CON-2, IFX-090).
+  - Windows, macOS and Linux desktop application, fully offline, without installer, updater or online service (D-2, D-12).
   - One home storey per element (D-3).
   - One material concept (D-5).
   - Order-independent, reference-line-based junctions (D-6).
-- **Size:** 589 requirements — 315 Must, 211 Should, 63 Could — plus 8 end-to-end acceptance scenarios (Section 7) and an informative increment plan (Appendix F).
+- **Size:** 567 requirements — 314 Must, 199 Should, 54 Could — plus 8 end-to-end acceptance scenarios (Section 7) and an informative increment plan (Appendix F). Version 0.2 withdrew 22 requirements (Section 0.3).
 - **Main risks:**
-  - IFCX is a pre-standard with few consumers: mitigated by an isolated adapter, conformance tests against buildingSMART's reference implementation, and an optional IFC 4 export (D-4).
+  - IFCX is a pre-standard with few consumers, and v1 exchanges no other format (D-11): mitigated by an isolated adapter and conformance tests against buildingSMART's reference implementation. Tools that cannot read IFCX cannot exchange models with v1.
   - Geometric robustness of junctions, Boolean operations and roofs: mitigated by fixtures and regression tests (Appendix D.7, NFR-MNT-005).
   - Performance on large models (NFR-PERF).
   - The breadth of the Must scope: mitigated by the increments in Appendix F.
@@ -61,7 +62,7 @@
 
 ### 0.1 Purpose of this document
 
-This SRS defines **what** ArchiCraft v1 must do and how well it must do it. It is the contract between product ownership and implementation. Together with the separate technology-stack decision record (which defines **how**), it is the basis for planning the implementation (work breakdown into beads issues is a later step and deliberately not part of this document).
+This SRS defines **what** ArchiCraft v1 must do and how well it must do it. It is the contract between product ownership and implementation. Together with the technology choices (R8), which say what ArchiCraft is built with, it is the basis for planning the implementation (work breakdown into beads issues is a later step and deliberately not part of this document).
 
 The document is technology-neutral on purpose. Where a requirement constrains the technology (for example, offline operation or the IFCX file structure), the constraint is stated as a requirement, not as a choice of library.
 
@@ -76,6 +77,7 @@ The document is technology-neutral on purpose. Where a requirement constrains th
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-10-16 | First complete draft, revised after an independent review (60 findings: 2 High, 16 Medium, 42 Low; all addressed). |
+| 0.2 | 2026-10-16 | Reviewed against the technology choices (R8) with the product owner. IFCX is the only file format (D-11, which supersedes D-4), and there is no installer, updater or online service (D-12). This withdraws 22 requirements: imports and exports of other formats, survey-point import, material textures, image export and update checks. Linux is required (NFR-PORT-003 raised to Must, D-2). Solid operations and trims stay Must; R8 plans a 3D Boolean library for them. The JSON nesting limit follows R8 (Appendix D.9). Open question O-17 (product name) added. |
 
 ---
 
@@ -107,22 +109,22 @@ ArchiCraft is a desktop application in which architects and civil engineers draw
 | Openings, doors and windows | Must | 4.17, 4.18 |
 | Stairs with rule-based solver | Must (winders, spirals: Should) | 4.20 |
 | Railings, curtain walls | Should | 4.19, 4.21 |
-| Terrain from survey points and contours | Must | 4.23 |
+| Terrain from typed points and contour lines | Must | 4.23 |
 | Objects and component library | Must for doors, windows and generic objects (furniture library, linked libraries, save-as-component: Should) | 4.24 |
-| Materials and appearance | Must (textures: Should) | 4.27 |
+| Materials and appearance: colour and opacity, no textures | Must (roughness: Should) | 4.27 |
 | 2D construction lines, arcs and polylines | Must (further shapes and dimensions: Should; text: Could) | 4.26 |
 | Spaces (rooms) | Could | 4.25 |
-| IFCX as native format with full round-trip | Must | 5.2 |
+| IFCX as native and only file format, with full round-trip | Must | 5.2 |
 | Opening third-party IFCX | Should | 5.2.9 |
-| DXF and image underlays; glTF, STL and image export | Should (DWG, PDF, IFC 4 export: Could) | 5.3 |
-| Collaboration, BIM information management, documentation, MEP, analysis, rendering | Out | 8 |
+| Desktop application on Windows, macOS and Linux | Must | 6.5 |
+| Other file formats (D-11); installer and updates (D-12); collaboration, BIM information management, documentation, MEP, analysis, rendering | Out | 5.3, 8 |
 
 ### 1.4 Intended audience
 
 | Reader | Uses this document to |
 |---|---|
 | Product owner | Confirm scope and priorities; resolve the open issues in Section 9. |
-| Implementers (humans and coding agents) | Derive the work breakdown, design the architecture together with the technology-stack record, and write acceptance tests. |
+| Implementers (humans and coding agents) | Derive the work breakdown, design the architecture together with the technology choices (R8), and write acceptance tests. |
 | Testers | Derive test cases from requirement IDs and the acceptance scenarios in Section 7. |
 
 ### 1.5 Definitions
@@ -140,7 +142,7 @@ Terms are defined in [Appendix A](#appendix-a--glossary). Archicad terms and the
 | R5 | IFCX "not-use-cases" draft (NUC 1–13), `web/nuc/index.html` in R2 (status: draft for review). |
 | R6 | buildingSMART Data Dictionary (bSDD) IFC 4.3 class URIs, `https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/class/<IfcClass>`. |
 | R7 | ISO/IEC/IEEE 29148:2018, *Systems and software engineering — Life cycle processes — Requirements engineering* (structure and quality criteria for requirements). |
-| R8 | ArchiCraft technology-stack decision record (in preparation, separate document). |
+| R8 | ArchiCraft technology choices, [`docs/technology-choices.md`](technology-choices.md) (status: proposed, 2026-10-16; aligned with SRS v0.2). |
 | R9 | buildingSMART International, "IFCX – Core & Modularisation Project Update", press item dated 2026-08-26, <https://www.buildingsmart.org/?p=33789> (accessed through a search index on 2026-10-16; the page itself rejected direct retrieval). |
 
 ### 1.7 Conventions
@@ -149,7 +151,7 @@ Terms are defined in [Appendix A](#appendix-a--glossary). Archicad terms and the
 
 > **WAL-003** · M — The system shall … *(KB 303968, 303922)*
 
-- Identifiers are `<AREA>-<NNN>`. Numbers are never reused; deleted requirements are marked *withdrawn*. Requirements are grouped by topic, so a number reflects when a requirement was added, not its position.
+- Identifiers are `<AREA>-<NNN>`. Numbers are never reused. A deleted requirement keeps its ID and is marked *withdrawn*, with the decision that removed it and its former priority; withdrawn requirements are not counted. Requirements are grouped by topic, so a number reflects when a requirement was added, not its position.
 - **Priorities** (MoSCoW, relative to the v1 release):
   - **M — Must:** v1 cannot ship without it.
   - **S — Should:** planned for v1; may slip to a v1.x update only by explicit decision.
@@ -166,16 +168,15 @@ Terms are defined in [Appendix A](#appendix-a--glossary). Archicad terms and the
 
 ### 2.1 Product perspective
 
-ArchiCraft is a new, self-contained desktop application. It is not an add-on to another CAD system and it does not require a server. The model lives in memory while the user works and is persisted as an IFCX file.
+ArchiCraft is a new, self-contained desktop application. It is not an add-on to another CAD system and it does not require a server. The model lives in memory while the user works and is persisted as an IFCX file, its only file format (D-11).
 
 ```mermaid
 flowchart LR
     U([Architect / civil engineer]) -->|draws, edits, inspects| AC[ArchiCraft v1<br/>desktop application]
-    AC -->|save / export| IFCX[(.ifcx file<br/>IFC5, JSON)]
-    IFCX -->|open / import| AC
+    AC -->|save| IFCX[(.ifcx file<br/>IFC5, JSON)]
+    IFCX -->|open| AC
     IFCX --> V[IFCX viewers and tools<br/>e.g. buildingSMART IFC5 viewer]
-    REF[(Reference inputs<br/>DXF, images, survey points,<br/>other IFCX models)] -->|import as reference| AC
-    AC -->|export| OUT[(glTF / STL /<br/>images)]
+    REF[(IFCX files from<br/>other tools)] -->|open, or link as reference| AC
 ```
 
 ### 2.2 Product functions (overview)
@@ -186,7 +187,7 @@ flowchart LR
 4. **Element tools** — walls, slabs, columns, beams, roofs, openings, doors, windows, stairs, railings, curtain walls (simplified), terrain, free-form solids, generic objects, 2D construction geometry.
 5. **Editing** — selection, transformations, polygon and edge editing, splitting/trimming/joining, arrays, parameter transfer, solid operations.
 6. **Appearance** — materials with colour and opacity, layered (composite) wall/slab/roof structures, plan display of cut and projected geometry.
-7. **Persistence and exchange** — IFCX as native format with full round-trip of the parametric model, import of third-party IFCX, reference underlays, and export of common 3D formats.
+7. **Persistence and exchange** — IFCX as the native and only file format, with full round-trip of the parametric model, opening of third-party IFCX files, and IFCX reference models.
 
 ### 2.3 User classes and characteristics
 
@@ -199,7 +200,7 @@ flowchart LR
 
 ### 2.4 Operating environment
 
-- Desktop operating systems: Windows 11 (x64) and macOS (current and previous major version, Apple silicon) are required; Linux (x64, current Ubuntu LTS) is planned with priority Should (NFR-PORT-001…003).
+- Desktop operating systems: Windows 11 (x64), macOS (current and previous major version, Apple silicon) and Linux (x64, current Ubuntu LTS) are all required (NFR-PORT-001…003, D-2).
 - Input by mouse with scroll wheel, trackpad, and keyboard; optional 3D mouse and pen (Section 5.4).
 - A GPU supporting a current hardware-accelerated graphics API; minimum and reference hardware are defined in NFR-PERF-001.
 - Fully functional without network access.
@@ -210,8 +211,8 @@ flowchart LR
 |---|---|
 | CON-1 | **IFCX is the native project format and the primary exchange format** (see Section 5.2 and decision D-1). |
 | CON-2 | IFCX is a pre-standard (`ifcx_alpha`). In August 2026 buildingSMART's IFCX Core & Modularisation project plan passed the next stage of approval and was looking for sponsors (R9); further breaking changes are expected. The IFCX reader/writer must therefore be isolated behind a versioned adapter (NFR-MNT-004). |
-| CON-3 | Single-user, offline desktop application. No accounts, no server components, no telemetry without opt-in. |
-| CON-4 | Technology choices (language, UI toolkit, rendering, geometry kernel, libraries) are made in the technology-stack decision record (R8). This SRS must not be read as preferring a technology. |
+| CON-3 | Single-user, offline desktop application. No accounts, no server components, no telemetry (D-12). |
+| CON-4 | Technology choices (language, UI toolkit, rendering, geometry kernel, libraries) are made in the technology choices document (R8). This SRS must not be read as preferring a technology. |
 | CON-5 | No Graphisoft code, content, library parts or trademarks are used or shipped. The knowledge base serves as domain reference only; articles are cited, not reproduced. |
 | CON-6 | Third-party components must be license-compatible with the intended distribution model (NFR-LEG-001). |
 
@@ -289,7 +290,7 @@ An **element** is anything the user places in the model. Every element has:
 | **Construction elements** | Wall, slab, column, beam, roof, shell, curtain wall, stair, railing, free-form solid, terrain | Have a closed 3D body. Take part in junctions, openings, trims and solid operations. Are drawn cut or projected in plan. |
 | **Hosted elements** | Opening, door, window | Have exactly one host construction element, move with it and cut it (and optionally further elements). |
 | **Object elements** | Furniture, fixtures, equipment, generic components | Instances of an **object definition** (a parametric or mesh-based component). They do not cut other elements. |
-| **Reference elements** | Grid, guide line, 2D line/arc/polyline/fill, text, dimension, underlay | Support drawing and reading the model. Grids are written as `IfcGrid` (GRD-006); 2D construction geometry may be written as `IfcAnnotation` (ANN-010). Text, dimensions, guide lines and underlays are not written as IFCX elements. |
+| **Reference elements** | Grid, guide line, 2D line/arc/polyline/fill, text, dimension | Support drawing and reading the model. Grids are written as `IfcGrid` (GRD-006); 2D construction geometry may be written as `IfcAnnotation` (ANN-010). Text, dimensions and guide lines are not written as IFCX elements. |
 | **Imported elements** | Elements read from third-party IFCX | Have mesh geometry without ArchiCraft parameters. Can be transformed, re-layered and deleted, but not edited parametrically (IFX-082). |
 
 ### 3.3 Relations
@@ -311,7 +312,7 @@ Resources are named, project-wide definitions that elements refer to by stable I
 
 | Resource | Content |
 |---|---|
-| **Material** | Name, short code, description. Appearance: colour, opacity, optional texture (Section 4.27). Plan display: cut-fill and cover-fill patterns with pens. Category, mapped to the IFCX material category (IFX-041). **Intersection priority**, used to resolve how the skins of meeting elements join (WAL-023). |
+| **Material** | Name, short code, description. Appearance: colour, opacity and roughness (Section 4.27). Plan display: cut-fill and cover-fill patterns with pens. Category, mapped to the IFCX material category (IFX-041). **Intersection priority**, used to resolve how the skins of meeting elements join (WAL-023). |
 | **Layer structure** | Ordered list of skins (material, thickness, role *core*/*finish*/*other*). Used by walls, slabs and roofs. |
 | **Profile** | A closed 2D cross-section, parametric (rectangle, circle, I, T, L, U, hollow sections) or user-drawn. Used by columns, beams and, where supported, walls and railings. |
 | **Layer** | Visibility and locking category for elements, such as *Walls exterior*, *Structure* or *Furniture*. |
@@ -391,7 +392,7 @@ The storey (level) structure is the backbone of plan views, element heights and 
   Changing a unit shall never change stored geometry (NFR-L10N-003). *(KB 303897, 303822)*
 - **STR-010** · M — The decimal separator and digit grouping shall default to the operating-system locale, with an in-app override that takes effect without a restart (NFR-L10N-004). *(KB 336967)*
 - **STR-011** · M — The project shall hold **one** vertical datum: the altitude of project zero above sea level. Every import, elevation readout and IFCX export uses it, and no import shall require entering it a second time. *(KB 337074, 337306, 303777, 336742)*
-- **STR-012** · M — The project location shall include the **survey point** (the coordinates of the project origin in the surveyor's projected coordinate system) and the angle between project north and true north. Imports with world coordinates (TER-003, XCH-001) use it to convert to project coordinates, and IFCX export writes it (IFX-070). *(KB 303897, 303954, 337074, 303777)*
+- **STR-012** · M — The project location shall include the **survey point** (the coordinates of the project origin in the surveyor's projected coordinate system) and the angle between project north and true north. IFCX export writes it (IFX-070). *(KB 303897, 303954, 337074, 303777)*
 - **STR-013** · M — A project shall have one site and one building, with editable names. *(KB 303954)*
 - **STR-015** · S — The project location shall also include latitude and longitude and the EPSG code of the projected coordinate reference system. *(KB 303897, 339130)*
 - **STR-014** · C — A project may contain several buildings on one site, each with its own storey set. *(KB 336729, 303692)*
@@ -491,7 +492,7 @@ There is one model and many **views** of it. A view combines a *viewpoint* (view
 - **VIEW-043** · M — Whenever a view has an active restriction (kind filter, storey range, region, cut plane, hidden elements, isolation), the view shall show a persistent indicator, and one command shall clear all restrictions. *(KB 303545, 304005, 304155, 303400)*
 - **VIEW-044** · S — A region filter drawn in plan (rectangle or polygon) shall show what lies inside or outside it, either trimming elements at its boundary or keeping them whole. Elements cut by it stay selectable. *(KB 304005, 303400)*
 - **VIEW-045** · S — The selection shall be kept when switching views. Commands shall show the current selection in 3D or in the plan, zoomed to it. *(KB 304155)*
-- **VIEW-046** · C — An exploded display may offset storeys vertically by a configurable distance, for the viewport and image export. *(KB 691828)*
+- **VIEW-046** · C — An exploded display may offset storeys vertically by a configurable distance in 3D views. *(KB 691828)*
 - **VIEW-047** · M — View filters, hidden elements and cut planes shall never change the model geometry or the standard (non-`archicraft::`) IFCX content (IFX-068). *(KB 303400, 303425)*
 
 **Display styles**
@@ -503,8 +504,8 @@ There is one model and many **views** of it. A view combines a *viewpoint* (view
 - **VIEW-054** · M — 3D views shall meet the performance targets of NFR-PERF-003 automatically, through level-of-detail and culling, without the user having to simplify the model. *(KB 303400, 396969)*
 - **VIEW-055** · S — A view shall be able to hide doors and windows while keeping their openings, and to show doors and windows in a schematic or a detailed 3D representation. *(KB 303400, 303846)*
 - **VIEW-056** · S — Backgrounds shall be solid or gradient sky and ground colours. *(KB 670286, 303584)*
-- **VIEW-062** · C — A background image may be shown behind 3D views. *(KB 303586, 671769)*
-- **VIEW-057** · C — A sun study may be exported as an image sequence of the current view for a date range, time range and interval. *(KB 691885)*
+- **VIEW-062** · *withdrawn by D-11 (was C)* — Background image behind 3D views.
+- **VIEW-057** · *withdrawn by D-11 (was C)* — Sun study exported as an image sequence.
 
 ### 4.5 Plan display and graphic attributes
 
@@ -521,7 +522,7 @@ There is one model and many **views** of it. A view combines a *viewpoint* (view
   - drafting line, annotation line, annotation text;
   - screen-only feedback (selection, pre-selection, guides, snap markers).
   
-  Default weights at 1:100: hairline, 0.13, 0.18, 0.25, 0.35 and 0.50 mm. Screen-only pens shall never appear in exported images or drawings. *(KB 303731)*
+  Default weights at 1:100: hairline, 0.13, 0.18, 0.25, 0.35 and 0.50 mm. Screen-only pens are used for on-screen feedback only. *(KB 303731)*
 - **DSP-006** · S — The user shall be able to edit a pen's colour, weight and description; the description is shown wherever pens are selectable. *(KB 303731)*
 - **DSP-007** · C — Several named pen tables (for example "colour", "monochrome", "dark canvas") may be defined and selected per view. Switching changes only colours and weights; element pen references are untouched. *(KB 303731)*
 - **DSP-008** · S — At least six built-in line types (solid, dashed, dotted, dash-dot, centre, hidden) shall be provided. Each is defined by repeating dash and gap lengths in millimetres, with a flag for paper-size or model-size scaling. *(KB 303473)*
@@ -1012,19 +1013,19 @@ Free-form solids let users model whatever the parametric tools cannot express. S
 
 ### 4.23 Terrain and site
 
-The knowledge base identifies the terrain pipeline as the biggest friction point. Each source format (survey points, contour lines, point clouds) needs multi-step, multi-tool conversions, and the datum has to be entered twice. ArchiCraft shall import points and contours directly and keep a single project datum. *(KB 303894, 303777, 337074, 336878, 304118, 336860, 337306, 303953, 336742)*
+The knowledge base identifies the terrain pipeline as the biggest friction point. Each source format (survey points, contour lines, point clouds) needs multi-step, multi-tool conversions, and the datum has to be entered twice. ArchiCraft shall build terrain directly from points and contour lines and keep a single project datum. Survey files are not imported, because IFCX is the only file format (D-11). *(KB 303894, 303777, 337074, 336878, 304118, 336860, 337306, 303953, 336742)*
 
 - **TER-001** · M — The system shall provide a terrain element that is a closed solid. Its top surface is a triangulated irregular network (TIN) through 3D points and optional breaklines, inside an editable boundary polygon. Its bottom is flat, at a user-defined elevation or thickness. *(KB 303777, 303894, 337074)*
-- **TER-002** · M — Terrain shall be creatable by drawing a boundary and adding points with elevations; from a survey point file (TER-003); and from 2D contour polylines (TER-004). *(KB 303894, 337074)*
-- **TER-003** · M — Survey point import shall read text/CSV files with X, Y, Z (and optionally a point number or code) per line. The delimiter (space, tab, comma, semicolon), the unit and the decimal separator shall be selectable, and quoted values tolerated. The points shall be placed either at their original coordinates (converted to project coordinates through the project location, STR-012) or graphically, and the project datum applied as the vertical offset. A preview shall show the point count and extents before import. *(KB 337074, 337306)*
+- **TER-002** · M — Terrain shall be creatable by drawing a boundary and adding points with elevations, and from 2D contour polylines (TER-004). *(KB 303894, 337074)*
+- **TER-003** · *withdrawn by D-11 (was M)* — Survey point import from text/CSV files.
 - **TER-004** · M — The user shall be able to pick existing 2D polylines into a selected terrain as breaklines (contours) and assign one elevation to all vertices of a picked contour in one action. Picking linework without a selected terrain shall not create new terrain silently. *(KB 303894, 303777)*
 - **TER-005** · M — Terrain points, breaklines and the boundary shall be editable in plan and 3D: add, move and delete points and breaklines, with numeric elevation input. *(KB 303777, 303894)*
 - **TER-006** · M — Building elements shall be able to cut the terrain associatively. For example, a basement slab subtracted with upward extrusion (SOL-021) removes the soil above it, and a path slab intersected with the terrain follows the grade. *(KB 303423, 679317, 336860)*
 - **TER-007** · S — In plan, the terrain shall be drawable with contour lines from a base elevation and interval, with every n-th line as a major contour labelled with its elevation. Contours update automatically when the terrain changes, can replace or accompany the triangulation edges, and can be converted to static 2D lines on request. *(KB 303953, 336860, 303894)*
 - **TER-008** · S — Terrain display in 3D shall be selectable as smooth or faceted. *(KB 303777)*
-- **TER-009** · S — Terrain shall be creatable from DXF points, blocks with elevation, and 3D polylines (XCH-001). *(KB 337074)*
-- **TER-010** · C — Terrain points may be thinned or simplified with a vertical tolerance, and a terrain may be derived from a point cloud by grid thinning (Section 8 for point clouds as such). *(KB 337306, 631570)*
-- **TER-011** · C — A calibrated aerial image may be projected onto the terrain top (planar projection from above) for display in ArchiCraft. It is not exported to IFCX (IFX-042). *(KB 303777)*
+- **TER-009** · *withdrawn by D-11 (was S)* — Terrain from DXF points, blocks and 3D polylines.
+- **TER-010** · C — Terrain points may be thinned or simplified with a vertical tolerance. *(KB 337306)*
+- **TER-011** · *withdrawn by D-11 (was C)* — Calibrated aerial image projected onto the terrain.
 - **TER-012** · M — Terrain shall be written to IFCX as `IfcGeographicElement`, a child of the site, with a closed body mesh (Table 5-1, IFX-038). *(KB 336878, 304118)*
 - **TER-014** · S — The terrain's top surface shall additionally be written as a separate, non-volumetric `TopSurface` part, so that consumers can recover the TIN. *(KB 336878, 304118)*
 - **TER-013** · M — A terrain with 50,000 points shall be created in under 5 s on reference hardware (NFR-PERF-001) and shall not reduce 3D navigation below the targets of NFR-PERF-003. *(KB 337306)*
@@ -1048,7 +1049,7 @@ Doors, windows, furniture, fixtures and other components are **instances of comp
 - **OBJ-007** · S — Linked external library folders shall be supported. Moving a library is a re-point operation, and unlinking keeps instance references so that relinking restores them. A definition found in more than one source shall be reported, with a deterministic, user-controllable precedence. *(KB 303895)*
 - **OBJ-008** · S — When a newer version of a used definition is available, the system shall offer to upgrade instances, keeping compatible parameter values. *(KB 303895, 303969)*
 - **OBJ-009** · S — A selection of model elements shall be saveable as a reusable component, choosing category, name, destination (project or library folder) and frozen geometry. All categories shall be choosable in the UI, and the component appears in the catalogue immediately. *(KB 303432, 336836, 662401)*
-- **OBJ-010** · S — Mesh files (glTF, OBJ) shall be importable as component definitions (XCH-007). *(KB 336836)*
+- **OBJ-010** · *withdrawn by D-11 (was S)* — Mesh files (glTF, OBJ) imported as component definitions.
 - **OBJ-011** · S — Identical instances shall share one geometry definition in memory and in IFCX (IFX-050), so that thousands of instances stay interactive. *(KB 336836, 303775)*
 - **OBJ-012** · C — Components may expose on-canvas handles for their main parameters (width, depth, height, arc rise). *(KB 328665)*
 - **OBJ-013** · S — The built-in library shall add at least 30 furniture and fixture definitions: furniture (tables, chairs, sofas, beds, wardrobes), kitchen units, sanitary fixtures (WC, washbasin, bathtub, shower tray), simple vegetation and vehicles. *(KB 303895)*
@@ -1089,12 +1090,12 @@ ArchiCraft uses **one material concept** that carries 3D appearance, the 2D cut 
   - an **intersection priority** (integer 1–999) used for junctions (WAL-023).
 
   Skins, profile regions, elements and faces reference materials by ID. *(KB 303850, 336887, 303922, 336847)*
-- **MAT-008** · S — Materials shall also have a roughness and an optional texture (MAT-005). *(KB 336847, 304012)*
+- **MAT-008** · S — Materials shall also have a roughness. *(KB 336847, 304012)*
 - **MAT-002** · M — Editing a material shall update every element using it in all views, its 2D hatching included. *(KB 303850, 336847)*
 - **MAT-003** · M — The default template shall contain at least the following 25 materials, each with a colour, a cut fill and the intersection priority of Appendix D.4: reinforced concrete, concrete, brick, sand-lime brick, aerated concrete, clay block, softwood, glulam, cross-laminated timber, steel, aluminium, glass, mineral wool, EPS/XPS, wood fibre insulation, plaster, render, gypsum board, screed, natural stone, tiles, soil, gravel, membrane, air gap. *(KB 364093, 303922)*
 - **MAT-004** · S — Faces of construction elements shall accept a material override for appearance only, without changing the skin material. Examples: a wall's reference side, opposite side and end faces; a slab's top, bottom and edges; a roof's top, bottom and edges; opening reveals (OPN-008). *(KB 303922, 339166)*
-- **MAT-005** · S — Textures shall be mapped at a real-world size with rotation and origin, using box mapping per element or planar mapping per face. Commands set the origin by picking a point and the direction by angle or vector. PNG (with alpha) and JPEG are supported. Textures are used in ArchiCraft views and image/glTF export but not in IFCX (IFX-042). *(KB 303440, 303442, 303777, 336847)*
-- **MAT-006** · S — A material browser shall offer search, categories and swatch previews, and shall import materials from another project or a material library file by copying them into the project. *(KB 303727, 339250, 396969)*
+- **MAT-005** · *withdrawn by D-11 (was S)* — Material textures from PNG and JPEG files.
+- **MAT-006** · S — A material browser shall offer search, categories and swatch previews, and shall import materials from another project or a material library (an IFCX file, D-11) by copying them into the project. *(KB 303727, 339250, 396969)*
 - **MAT-007** · M — Materials shall be written to IFCX according to IFX-040 and IFX-043, and IFX-041 where implemented.
 
 ### 4.28 Layers and visibility
@@ -1154,7 +1155,7 @@ Quantity take-off is out of v1, but quick geometric readouts are basic modelling
 
   *(KB 303958, 303964, 303831)*
 - **SET-004** · S — User preferences and shortcuts shall be exportable and importable as a file, for transfer to another computer. *(KB 303831)*
-- **SET-005** · S — The application shall offer to check for updates. Checking is enabled only with the user's consent (NFR-SEC-004); updates are downloaded in the background and installed when the user chooses. *(KB 598955, 592045)*
+- **SET-005** · *withdrawn by D-12 (was S)* — Update checks with background download.
 
 ---
 
@@ -1249,7 +1250,7 @@ Consequences for ArchiCraft:
 
 - **IFX-040** · M — Every material used by at least one element or part shall be written as a node carrying `bsi::ifc::presentation::diffuseColor` (`[r, g, b]`, components 0…1) and `bsi::ifc::presentation::opacity` (0…1). If the material has a category, it shall also carry `bsi::ifc::material` with `code` and `uri`. Elements and parts reference their material via `inherits: { "material": <material path> }`, as in R2.
 - **IFX-041** · S — Material categories (`code`/`uri`) shall come from a configurable mapping table, delivered with the default template (initially CONCRETE, MASONRY, WOOD, STEEL, ALUMINIUM, GLASS, INSULATION, GYPSUM, STONE, SOIL, PLASTIC, OTHER), with URIs from a bSDD dictionary (open issue O-7).
-- **IFX-042** · C — Physically based appearance (roughness, metalness) may be written as a `gltf::material` attribute declared in-file, as in R2's Domestic Hot Water example. Textures are out of scope for IFCX in v1 because the registry's mesh schema has no texture coordinates (Section 8).
+- **IFX-042** · C — Physically based appearance (roughness, metalness) may be written as a `gltf::material` attribute declared in-file, as in R2's Domestic Hot Water example. Textures are not part of v1 (D-11), and the registry's mesh schema has no texture coordinates.
 - **IFX-043** · M — Every material node shall carry `bsi::ifc::prop::Name` with the material's name, and every part of a layered or profiled element shall reference a named material, so that consumers can identify each component's material. *(KB 308009, 338192)*
 
 #### 5.2.6 Types
@@ -1297,30 +1298,30 @@ Consequences for ArchiCraft:
 | `usd::` (mesh, basiscurves, xformop, visibility) | `https://ifcx.dev/@openusd.org/usd@v1.ifcx` |
 | `archicraft::`, `epsg…`, `gltf::material` | Declared in the file's own `schemas` section |
 
-### 5.3 Other exchange formats
+### 5.3 Other file formats
 
-IFCX is the only Must exchange format. The formats below support tracing existing information (imports) and presenting or fabricating results (exports).
+IFCX is the only file format for models and project data (decision D-11). Projects, templates, component and material libraries, and reference models are IFCX files. v1 imports and exports no other format. The requirements below that named other formats are withdrawn; their IDs are kept so that they are not reused.
 
 **Imports**
 
-- **XCH-001** · S — **DXF** (R12 to 2018) shall be importable as a reference underlay or as editable 2D elements (ANN-001). The import offers unit and scale selection, layer mapping and visibility, placement (origin, rotation, or world coordinates through the project location) and the target storey. DXF points, blocks with elevation and 3D polylines can feed terrain creation (TER-009). *(KB 337074, 303422)*
-- **XCH-002** · C — **DWG** files may be imported with the same behaviour as DXF.
-- **XCH-003** · S — **Raster images** (PNG, JPEG) shall be placeable as plan underlays on a storey. They are calibrated by two reference points and a known distance (or by a known resolution), and can be rotated, made translucent and locked. *(KB 303422, 303777, 662860)*
-- **XCH-004** · C — **PDF** pages may be placed as underlays (vector or raster) with calibration. Vector PDF content may also be converted into 2D elements. *(KB 303891, 339177, 303653)*
-- **XCH-005** · S — Underlays and references shall be stored with the project, as an embedded copy or a relative link (user's choice), and managed in a reference manager (reload, relink, remove, visibility). They shall never be written to IFCX as model elements. *(KB 303422)*
-- **XCH-006** · M — **Survey point files** (text/CSV) shall be importable for terrain (TER-003). *(KB 337074, 337306)*
-- **XCH-007** · S — **glTF 2.0 and OBJ** meshes shall be importable as component definitions (OBJ-010), with selection of unit, up axis and insertion point. *(KB 336836)*
-- **XCH-016** · C — **STL** files may be importable as free-form solids. *(KB 303597)*
+- **XCH-001** · *withdrawn by D-11 (was S)* — DXF import as reference underlay or editable 2D elements.
+- **XCH-002** · *withdrawn by D-11 (was C)* — DWG import.
+- **XCH-003** · *withdrawn by D-11 (was S)* — Raster images (PNG, JPEG) as calibrated plan underlays.
+- **XCH-004** · *withdrawn by D-11 (was C)* — PDF pages as underlays.
+- **XCH-005** · *withdrawn by D-11 (was S)* — Storage and management of underlays. IFCX reference models are covered by IFX-084.
+- **XCH-006** · *withdrawn by D-11 (was M)* — Survey point files (text/CSV) for terrain.
+- **XCH-007** · *withdrawn by D-11 (was S)* — glTF 2.0 and OBJ meshes as component definitions.
+- **XCH-016** · *withdrawn by D-11 (was C)* — STL import as free-form solids.
 - **XCH-008** · M — **IFCX** files shall be opened according to IFX-080 and, where implemented, imported and referenced according to IFX-081…084.
 
 **Exports**
 
-- **XCH-010** · S — The current view shall be exportable as a PNG or JPEG image at a user-defined pixel size (up to at least 8,000 px on the long side) with an aspect-ratio lock. The image honours the active style, filters, cut planes and background; PNG can have a transparent background. *(KB 303400, 396969)*
-- **XCH-011** · S — The visible model shall be exportable as **glTF 2.0** (binary `.glb`). The export keeps a node hierarchy by storey and element, element names, and materials (base colour, opacity, textures). Units are metres, converted to glTF's Y-up convention.
-- **XCH-012** · S — Visible geometry shall be exportable as **STL** (binary by default, ASCII optional). The user sets the output unit and scale (for example millimetres at 1:200) and an option to exclude transparent elements. The dialog states that only visible content is written. *(KB 303597, 303846)*
-- **XCH-013** · C — A printability report may list open or non-manifold shells and parts thinner than a user-set minimum at the output scale before STL export. *(KB 303597)*
-- **XCH-014** · C — **OBJ** (with MTL) export may be provided.
-- **XCH-015** · C — **IFC 4.3 / IFC 4 (STEP)** export may be provided, for tools that do not read IFCX yet (decision D-4).
+- **XCH-010** · *withdrawn by D-11 (was S)* — PNG or JPEG image of the current view.
+- **XCH-011** · *withdrawn by D-11 (was S)* — glTF 2.0 export.
+- **XCH-012** · *withdrawn by D-11 (was S)* — STL export.
+- **XCH-013** · *withdrawn by D-11 (was C)* — Printability report before STL export.
+- **XCH-014** · *withdrawn by D-11 (was C)* — OBJ export.
+- **XCH-015** · *withdrawn by D-11 (was C)* — IFC 4.3 / IFC 4 (STEP) export (D-4).
 
 ### 5.4 Hardware interfaces
 
@@ -1334,8 +1335,8 @@ IFCX is the only Must exchange format. The formats below support tracing existin
 
 ### 5.5 Software interfaces
 
-- **SW-001** · M — The system shall use the operating system's native file dialogs, register as handler for `.ifcx` files (with user consent during installation), and maintain a list of recently opened projects.
-- **SW-002** · S — Files (IFCX, DXF, images, survey point files) dropped onto the application window shall be opened or imported according to their type.
+- **SW-001** · M — The system shall use the operating system's native file dialogs, register as handler for `.ifcx` files (with the user's consent at first start, because there is no installer, D-12), and maintain a list of recently opened projects.
+- **SW-002** · S — IFCX files dropped onto the application window shall be opened.
 - **SW-003** · S — Elements copied in one open project shall be pasteable into another open project, together with their materials, layer structures and profiles (EDT-016, PRF-009).
 - **SW-004** · C — A documented, versioned, out-of-process command interface may allow scripts to query, create and modify elements with explicit units. It batches bulk operations with deferred regeneration and rejects degenerate input. It uses the same command objects as the UI (NFR-MNT-001). *(KB 304061, 339130, 303564)*
 
@@ -1351,7 +1352,7 @@ Reference models (defined in Section 7.3): **RM-S** (single-family house, about 
   - *Minimum* (proposal): Apple MacBook Air M1 with 8 GB RAM, and a Windows laptop with an Intel Core i5-1135G7 (Iris Xe graphics), 8 GB RAM and a 1920×1080 display.
   - *Reference* (proposal): Apple MacBook Air M2 with 16 GB RAM, and a Windows laptop with an Intel Core Ultra 7 155H (Arc graphics) and 16 GB RAM.
 
-  The concrete machines are confirmed together with the technology-stack record (R8, O-15).
+  Linux is measured on the Windows laptop of each class, running the current Ubuntu LTS. The technology choices (R8) support these GPUs; the concrete machines are still to be chosen (O-15).
   
   All performance targets below are measured on reference hardware unless stated otherwise. *(analysis)*
 - **NFR-PERF-002** · M — Opening RM-M shall take ≤ 10 s; saving it ≤ 5 s. Opening RM-L shall take ≤ 30 s.
@@ -1371,7 +1372,7 @@ Reference models (defined in Section 7.3): **RM-S** (single-family house, about 
 - **NFR-REL-004** · M — On opening, the system shall check the model's referential integrity (hosts, storeys, materials, layers, types). It shall repair what can be repaired deterministically (for example orphaned hosted elements or missing materials replaced by a default) and report the repairs to the user.
 - **NFR-REL-005** · M — Operations that would produce invalid geometry (self-intersecting or degenerate polygons, zero thickness, failed Boolean operations) shall be prevented or rejected with an explanatory message. They shall never silently create corrupt elements. *(KB 303609)*
 - **NFR-REL-006** · M — A failing element (for example a geometry evaluation that throws) shall not crash the application. The element is flagged, shown with a fallback representation, and listed in a problems panel.
-- **NFR-REL-007** · S — The application shall not crash on any file of the fuzzing corpus of Appendix D.9 (malformed IFCX, DXF, image and point files); malformed input is rejected with a message.
+- **NFR-REL-007** · S — The application shall not crash on any file of the fuzzing corpus of Appendix D.9 (malformed IFCX files); malformed input is rejected with a message.
 
 ### 6.3 Accuracy and numerical robustness
 
@@ -1394,7 +1395,7 @@ Reference models (defined in Section 7.3): **RM-S** (single-family house, about 
 
 - **NFR-PORT-001** · M — The application shall run on Windows 11 (x64).
 - **NFR-PORT-002** · M — The application shall run on macOS (current and previous major version) on Apple silicon.
-- **NFR-PORT-003** · S — The application shall run on Linux (x64, current Ubuntu LTS).
+- **NFR-PORT-003** · M — The application shall run on Linux (x64, current Ubuntu LTS).
 - **NFR-PORT-004** · M — Files shall be platform-independent; a project saved on one platform opens identically on another.
 - **NFR-PORT-005** · M — The UI shall support high-DPI displays and UI scaling from 100% to 200%.
 - **NFR-PORT-006** · M — 2D and 3D rendering shall use a current, non-deprecated, hardware-accelerated graphics API on each supported operating system. Minimum and reference hardware (NFR-PERF-001) shall be published with every release. *(KB 304143, 330185, 304061)*
@@ -1410,9 +1411,9 @@ Reference models (defined in Section 7.3): **RM-S** (single-family house, about 
 ### 6.7 Security and privacy
 
 - **NFR-SEC-001** · M — The application shall work fully offline and shall not require an account or licence server for v1.
-- **NFR-SEC-002** · M — No usage data, telemetry or crash reports shall be sent without explicit opt-in. Crash reports are stored locally so the user can choose to send them.
+- **NFR-SEC-002** · M — The application shall not send usage data, telemetry or crash reports (D-12). After a crash it shall store a crash report on the local disk and show its location at the next start, so the user can decide whether to pass it on.
 - **NFR-SEC-003** · M — All imported files shall be treated as untrusted input. Parsers shall enforce the size and depth limits of Appendix D.9, and no file content shall ever be executed.
-- **NFR-SEC-004** · M — Network access shall happen only after user consent and only (a) to import URIs named in a file being opened (IFX-081), (b) to the update service when update checks are enabled (SET-005), or (c) to the crash-report service when the user sends a report (NFR-SEC-002).
+- **NFR-SEC-004** · M — Network access shall happen only after user consent, and only to fetch import URIs named in a file being opened (IFX-081). There is no update or crash-report service (D-12).
 
 ### 6.8 Localization and units
 
@@ -1429,7 +1430,7 @@ Reference models (defined in Section 7.3): **RM-S** (single-family house, about 
 
 ### 6.10 Legal
 
-- **NFR-LEG-001** · M — Every third-party component shall be inventoried with its licence. Licences shall be compatible with the distribution model chosen in the technology-stack record. *(inspection)*
+- **NFR-LEG-001** · M — Every third-party component shall be inventoried with its licence. Licences shall be compatible with the distribution model, which is still open (O-5); until it is decided, only the permissive licences allowed by the technology choices (R8) are used. *(inspection)*
 - **NFR-LEG-002** · M — The product shall not include Graphisoft content (text, images, library parts, templates) or use Archicad trademarks in its UI or documentation, except for nominative references such as "imports files from …". *(inspection)*
 - **NFR-LEG-003** · S — buildingSMART example files used as test inputs shall be fetched at test time from R2 rather than redistributed, because R2 asks users not to create derivatives of the examples.
 
@@ -1448,11 +1449,11 @@ Reference models (defined in Section 7.3): **RM-S** (single-family house, about 
 
 ### 7.2 Acceptance scenarios
 
-v1 is accepted when all Must requirements are verified and scenarios AS-01…AS-05, AS-07 and AS-08 pass on Windows and macOS. Parts of a scenario that exercise Should requirements are required only if those requirements are in the release. These parts are the railing in AS-01, all of AS-06 (marked S), and the curtain-wall entrance of RM-M.
+v1 is accepted when all Must requirements are verified and scenarios AS-01…AS-05, AS-07 and AS-08 pass on Windows, macOS and Linux. Parts of a scenario that exercise Should requirements are required only if those requirements are in the release. These parts are the railing in AS-01, all of AS-06 (marked S), and the curtain-wall entrance of RM-M.
 
 | ID | Scenario | Pass criteria |
 |---|---|---|
-| **AS-01** | **Two-storey house.** New project from the default template. Ground floor and upper floor plus attic. Layered exterior walls, interior walls, floor slabs with stair opening, U-shaped stair with railing, doors and windows, gable roof with the gable walls trimmed to the roof, terrain from survey points. Save as IFCX. | The file passes IFX-006. In the IFC5 viewer, the tree shows project/site/building/3 storeys. Walls show openings and clean L/T junctions. Materials and colours are as modelled. |
+| **AS-01** | **Two-storey house.** New project from the default template. Ground floor and upper floor plus attic. Layered exterior walls, interior walls, floor slabs with stair opening, U-shaped stair with railing, doors and windows, gable roof with the gable walls trimmed to the roof, terrain from typed spot elevations. Save as IFCX. | The file passes IFX-006. In the IFC5 viewer, the tree shows project/site/building/3 storeys. Walls show openings and clean L/T junctions. Materials and colours are as modelled. |
 | **AS-02** | **Structural frame.** Grid 4×3 bays of 6.00 m. Columns at grid intersections on three storeys. Beams on grid lines. Slabs. Pad footings. | All members sit on grid lines and storey levels within the model tolerance (NFR-ACC-003). IFC classes are correct (`IfcColumn`, `IfcBeam`, `IfcSlab`, `IfcFooting`). |
 | **AS-03** | **Round trip.** Close and reopen the AS-01 project. Change the exterior wall structure thickness and the upper storey height. | All elements are still parametric. Junctions, openings, slabs and the roof follow the change. The re-saved file passes IFX-006, and element UUIDs are unchanged. |
 | **AS-04** | **Precision input.** Draw a closed wall polygon by typed relative and polar coordinates. Then measure it. | Measured lengths and angles equal the typed values exactly (display at 0.1 mm / 0.01°). |
@@ -1484,13 +1485,13 @@ The items below are deliberately **not** part of v1. Where a later release is li
 | **BIM information** | Property sets and custom properties, classification systems other than the IFC class, IDS/model checking against requirements, quantity take-off and schedules, zones with calculation rules, life-cycle and energy data | v1 writes classes, names, materials and (C) basic quantities only. | 303892, 303918, 671766, 684379 |
 | **Documentation** | Layouts and sheets, publishing (PDF/DWG/print), drawing titles, keynotes, property labels, automatic dimensioning, rule-based graphic overrides beyond DSP-016, details and worksheets, 3D documents, interior elevations, reflected ceiling plans, renovation phasing | A "drawings" release could build on the plan/section generator, attributes and annotations of v1. | 679530, 680699, 631328, 672288, 303415, 303425, 303400 |
 | **Disciplines** | MEP, structural analytical model, loads and analysis exchange, reinforcement, infrastructure (alignments, roads, rail, tunnels) | IFCX already has alignment schemas (R3); infrastructure would be a separate product track. | 304055, 304116 |
-| **Visualization** | Photorealistic render engines, animations and walkthrough videos, VR/AR, live links to external visualizers, AI image generation, sketch rendering, 360° panoramas | glTF export (XCH-011) is the cheapest bridge to external visualizers. | 708003, 396969, 304023, 304030, 303584, 588511 |
+| **Visualization** | Photorealistic render engines, animations and walkthrough videos, VR/AR, live links to external visualizers, AI image generation, sketch rendering, 360° panoramas, material textures | External visualizers have to read IFCX (D-11). | 708003, 396969, 304023, 304030, 303584, 588511, 303440 |
 | **Design process** | Design options/variants, model comparison, project migration comparison, AI assistant | The command architecture (NFR-MNT-001) keeps an AI assistant or scripting feasible. | 701070, 396965, 672061, 668983 |
 | **Extensibility** | Add-on SDK, scripting language for parametric objects, visual-programming links, graphical component authoring | A documented out-of-process command interface is C in v1 (SW-004). | 303637, 304035, 303564 |
-| **Formats** | Point clouds, DXF/DWG export, RVT/RFA, 3DM, FBX, DGN, U3D/3D PDF, IFC 2x3/4 import | IFC 4 export is C (XCH-015); DWG import is C (XCH-002). | 337306, 631570, 303439 |
+| **Formats** | Every file format other than IFCX (D-11): DXF and DWG, PDF, raster images (underlays, image export, textures), survey point files, point clouds, glTF, OBJ, STL, RVT/RFA, 3DM, FBX, DGN, U3D/3D PDF, IFC 2x3/4 (STEP) import and export | Exchange works only with tools that read IFCX. The withdrawn requirements of Section 5.3 keep their IDs in case formats return after v1. | 337306, 631570, 303439, 337074, 303422, 303597, 336836 |
 | **Content** | Large furniture libraries, library packs, roof and wall accessory generators (cladding, framing, mouldings), dormer generator, gutters and fascias | v1 ships a starter library (OBJ-001); dormers are modelled with walls, roofs, roof joins and openings. | 303775, 303877, 303880 |
-| **Platform and business** | Licensing and accounts, cloud services, web and mobile clients, remote-desktop joystick navigation, touch-first UI | To be defined in the technology-stack record and business planning. | 304041, 369114 |
-| **Deferred element depth** | Equal-going winder constructions beyond single-point; cantilever, plate and pan stair structures; custom tread libraries; railing pattern editor and custom railing components; curtain-wall junction hardware, numeric priorities and full frame/panel catalogues; profile offset parameters (C); shells (C); custom symbol fills and line types; per-scale pen-set families; textures in IFCX (needs texture coordinates in the IFCX mesh schema) | Candidates for v1.x updates once v1 is stable. | 303645, 303730, 303675, 336836, 303795, 303913, 303731 |
+| **Platform and business** | Installer and automatic updates (D-12), licensing and accounts, cloud services, web and mobile clients, remote-desktop joystick navigation, touch-first UI | The technology choices (R8) build a native desktop application only. Licensing and distribution are open (O-5). | 304041, 369114, 598955, 592045 |
+| **Deferred element depth** | Equal-going winder constructions beyond single-point; cantilever, plate and pan stair structures; custom tread libraries; railing pattern editor and custom railing components; curtain-wall junction hardware, numeric priorities and full frame/panel catalogues; profile offset parameters (C); shells (C); custom symbol fills and line types; per-scale pen-set families | Candidates for v1.x updates once v1 is stable. | 303645, 303730, 303675, 336836, 303795, 303913, 303731 |
 
 ---
 
@@ -1503,15 +1504,17 @@ The SRS is written on the basis of the following decisions. Each is a recommenda
 | ID | Decision | Rationale | Affected |
 |---|---|---|---|
 | **D-1** | **IFCX is the native project format.** The parametric model is stored in a declared `archicraft::` namespace inside the same file, next to standard IFCX geometry and semantics. | One file, open by default; generic IFCX consumers see a complete model; IFCX is designed for third-party extensions (R5, NUC 4). Alternative: a proprietary project format with IFCX export. That would be simpler to evolve, but files would no longer be "open by default". | CON-1, IFX-060…067, PRJ-007 |
-| **D-2** | Desktop application for Windows and macOS (Linux S), fully offline. | Target users work on desktop workstations, and IFCX files and projects are local. | NFR-PORT, NFR-SEC-001 |
+| **D-2** | Desktop application for Windows, macOS and Linux, fully offline. Linux was S in v0.1 and is required since v0.2. | Target users work on desktop workstations, and IFCX files and projects are local. The technology choices (R8) target all three platforms with one code base. | NFR-PORT, NFR-PERF-001, NFR-SEC-001, Section 7.2 |
 | **D-3** | Every element has exactly one home storey; heights are storey-linked. | Matches IFC spatial containment and architectural practice. Split levels are handled with per-view cut planes and offsets. | STR, ELM-005…009 |
-| **D-4** | IFC 4 (STEP) export is C, not M. | The user's goal is IFCX, but many tools cannot read IFCX in 2026. Recommended for an early v1.x update if users need to exchange with current BIM tools. | XCH-015 |
+| **D-4** | *Superseded by D-11 in v0.2.* Was: IFC 4 (STEP) export is C, not M. | Many tools cannot read IFCX in 2026; v1 accepts this limitation (D-11). | XCH-015 (withdrawn) |
 | **D-5** | One material concept: appearance, cut fill, category and priority in one resource, plus per-face overrides. | Avoids the duplication that the reference product's split forces on users. | MAT, DSP-011, WAL-023 |
 | **D-6** | Wall and beam junctions are detected from reference-line contact only; results are order-independent. | Predictable, as in the reference product, but without its drawing-order dependence. | WAL-020…027 |
 | **D-7** | Explicit commands for every reshape and transfer operation; modifier gestures are accelerators only. | The reference product's overloaded gestures need a matrix to explain them. | EDT-020, INP, SEL |
 | **D-8** | Section and elevation views are S, for viewing and basic editing. | They reuse the plan generator, and heights are hard to check without them; drawing in sections stays C. | VIEW-030…032 |
 | **D-9** | Curtain walls, railings, presets and parameter transfer are S; shells and spaces are C. | Keeps the Must scope to the elements every building needs. | CW, RAI, ROF-013, SPC |
 | **D-10** | A full circle wall is one closed element (not two halves). | No seams in plan, 3D or IFCX. | WAL-002 |
+| **D-11** | **IFCX is the only file format** for models and project data: projects, templates, component and material libraries, and reference models. v1 imports and exports no other format. This also removes survey-point import, plan underlays, image export and material textures. | Product-owner decision of 2026-10-16, in line with the technology choices (R8): v1 concentrates on IFCX. Textures could not be written to IFCX anyway (IFX-042). Terrain is built from typed points and drawn contour lines (TER-002, TER-004). | Section 5.3, TER-002, TER-003, TER-009, TER-010, TER-011, OBJ-010, MAT-005, MAT-008, VIEW-046, VIEW-057, VIEW-062, SW-002, D-4 |
+| **D-12** | **No installer, updater or online service.** The application registers itself for `.ifcx` files at first start, with the user's consent. It never sends data; crash reports stay on the local disk for the user to pass on. | Product-owner decision of 2026-10-16, in line with the technology choices (R8). The only network access left is fetching remote IFCX imports after consent (IFX-081). | SW-001, SET-005, NFR-SEC-002, NFR-SEC-004, CON-3, O-13 |
 
 ### 9.2 Open questions
 
@@ -1521,7 +1524,7 @@ The SRS is written on the basis of the following decisions. Each is a recommenda
 | O-2 | How deep does georeferencing go: offset and rotation only, or coordinate reprojection between CRSs? | Offset, rotation and the EPSG code of one projected CRS; no reprojection (STR-012). |
 | O-3 | Which imperial unit formats (fraction denominators, decimal feet) must be supported? | Feet-inches with fractions down to 1/64″, plus decimal feet and decimal inches. |
 | O-4 | Which national stair rule presets ship with v1? Are rules hard constraints or warnings? | The international default ships (Appendix D.3). DIN 18065 and ÖNORM B 5371 / OIB-RL 4 presets are S (STA-052), with values to be verified against the standards. Rules drive the solver; a fixed going yields warnings (STA-008). |
-| O-5 | Which licence and distribution model applies (open source, commercial, freemium)? | Not decided. It constrains third-party components (NFR-LEG-001). |
+| O-5 | Which licence and distribution model applies (open source, commercial, freemium)? | Not decided. It constrains third-party components (NFR-LEG-001); the technology choices (R8) allow only permissive licences, which keeps every model possible. |
 | O-6 | How are IFC predefined types (slab floor/roof/landing, footing pad/strip) represented in IFCX? `ifcx_alpha` has no standard attribute. | ArchiCraft namespace now; standard attribute once available (IFX-024). |
 | O-7 | Which bSDD dictionary provides the material category codes and URIs? R2's Hello Wall uses a MIDAS material dictionary. | Configurable mapping table (IFX-041); dictionary to be chosen. |
 | O-8 | How is true north represented in IFCX? | Resolved by IFX-070: two georeferenced reference points define the orientation. Revisit when a standard attribute exists. |
@@ -1529,10 +1532,11 @@ The SRS is written on the basis of the following decisions. Each is a recommenda
 | O-10 | What is the default door/window handedness convention? | DIN 107, selectable (DW-017, Appendix D). |
 | O-11 | What do the default templates contain (metric/imperial, attribute standards, layer set, materials)? | One metric template (Appendix D); an imperial template is S (PRJ-012). |
 | O-12 | Is user-authored parametric content (scripted or visual component authoring) planned at all? This affects the component definition format. | Not in v1 (Section 8); built-in definitions plus "save selection as component" (OBJ-009). |
-| O-13 | Update checks, crash reports and telemetry policy? | Everything opt-in (NFR-SEC-002, SET-005). |
+| O-13 | Update checks, crash reports and telemetry policy? | Resolved by D-12: no update checks and no telemetry; crash reports stay on the local disk (NFR-SEC-002). |
 | O-14 | Is linking an IFCX reference model (IFX-084) needed in v1? | C. |
-| O-15 | Exact reference hardware and model sizes for performance acceptance. | NFR-PERF-001 and Section 7.3; confirm with the technology-stack record. |
+| O-15 | Exact reference hardware and model sizes for performance acceptance. | NFR-PERF-001 and Section 7.3. The technology choices (R8) support both hardware classes; the concrete machines are still to be chosen. |
 | O-16 | Semantics of `header.dataVersion`: a save counter or a semantic version? | A save counter (IFX-002). |
+| O-17 | Is the product name "ArchiCraft" clear of trademark conflicts? It resembles "ArchiCAD", Graphisoft's earlier spelling of Archicad, in the same market (NFR-LEG-002). | Keep the name during development; check trademarks before any public release. |
 
 ---
 
@@ -2039,13 +2043,13 @@ The concrete key bindings are a UI design deliverable.
 
 ### D.9 Parser robustness limits and fuzzing (NFR-REL-007, NFR-SEC-003)
 
-Proposed values, to be agreed with the technology-stack record:
+Proposed values; the nesting limit is that of the JSON parser in the technology choices (R8):
 - **file size:** at most 2 GB;
-- **JSON nesting depth:** at most 256;
+- **JSON nesting depth:** fewer than 128 levels;
 - **IFCX composition depth** (`children`/`inherits` chains): at most 64;
 - **imports:** at most 32 per file.
 
-Every parser (IFCX, DXF, raster images, survey points, glTF/OBJ) is fuzzed for at least 1 hour per release with a coverage-guided fuzzer, seeded with the R2 examples and with ArchiCraft-generated files.
+Every parser of external files (the IFCX reader, and the preference import of SET-004) is fuzzed for at least 1 hour per release with a coverage-guided fuzzer, seeded with the R2 examples and with ArchiCraft-generated files.
 
 ## Appendix E — Knowledge-base source index
 
@@ -2295,12 +2299,12 @@ All articles cited as *KB nnnnnn*, from the offline corpus (R1). Titles and URLs
 
 ## Appendix F — Suggested implementation increments (informative)
 
-This ordering respects the dependencies between requirement areas. It is a starting point for the later planning into beads issues, not a plan.
+This ordering respects the dependencies between requirement areas. It is a starting point for the later planning into beads issues, not a plan. The technology choices (R8) say which libraries arrive with which increment.
 
 | Increment | Content | Exit criterion |
 |---|---|---|
 | **0 — Walking skeleton** | Command/undo core (NFR-MNT-001, UND); project, storeys, layers, materials (minimal); straight walls and slabs; plan view (cut and projection) and 3D view; IFCX writer and reader with spatial tree, meshes and materials; save, autosave, recovery | A storey with walls and a slab round-trips through IFCX and passes IFX-006 in CI. |
 | **1 — Core modeller** | Point-input service and snapping (INP); selection (SEL); editing (EDT); 2D construction geometry (ANN-001); layer structures and junctions (PRF, WAL-020…027); columns and beams; openings, doors and windows (basic catalogue); plan attributes (DSP); properties panel and settings dialogs; project browser, tabs and saved views | Fixtures F2, F6, F7 pass; a ground floor with openings can be drawn precisely. |
 | **2 — Envelope and site** | Roofs (single- and multi-plane), trim and solid operations, free-form solids, terrain from points and contours, grids, stairs (straight/L/U, solver, landings) | AS-01 without railings and AS-02 pass. |
-| **3 — Should scope** | Railings, curtain walls, sections and elevations, display styles, sun and shadows, DXF/image underlays, glTF/STL/PNG export, presets, parameter transfer, component library features, third-party IFCX import | AS-01…AS-06 pass in full. |
+| **3 — Should scope** | Railings, curtain walls, sections and elevations, display styles, sun and shadows, presets, parameter transfer, component library features, third-party IFCX import | AS-01…AS-06 pass in full. |
 | **4 — Could scope and polish** | C requirements by user feedback; performance tuning against RM-L; usability testing (NFR-USE-001) | AS-07 and AS-08 pass; release candidate. |
