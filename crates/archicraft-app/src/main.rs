@@ -18,12 +18,16 @@ fn main() -> eframe::Result {
     let open = std::env::args_os().nth(1).map(PathBuf::from);
     tracing::info!(data = %dirs.root().display(), "starting ArchiCraft {}", env!("CARGO_PKG_VERSION"));
 
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("ArchiCraft")
+        .with_app_id("archicraft")
+        .with_inner_size([1440.0, 900.0])
+        .with_min_inner_size([800.0, 500.0]);
+    if let Some(icon) = archicraft_app::icon() {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("ArchiCraft")
-            .with_app_id("archicraft")
-            .with_inner_size([1440.0, 900.0])
-            .with_min_inner_size([800.0, 500.0]),
+        viewport,
         renderer: eframe::Renderer::Wgpu,
         ..eframe::NativeOptions::default()
     };
