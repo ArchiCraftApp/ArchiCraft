@@ -1,0 +1,1018 @@
+# ArchiCraft implementation status
+
+_Gap analysis of the codebase against docs/SRS.md (567 requirements), generated 2026-10-17. Status values: **done** (every clause verified in code), **partial** (substantive behaviour exists, at least one clause missing), **missing** (nothing substantive). Remaining effort: S/M/L/XL. Source data with evidence, gaps, dependencies, architecture map and verification-asset map: `gap-analysis.json` in the workflow scratchpad._
+
+## Summary
+
+Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust workspace with a command/undo core where every mutation is a serialisable, invertible `Command`; storeys, layers and 25 default materials; straight walls (single/chain/rectangle, L and T junctions) and slabs with holes; a plan view (cut, projected and overhead classes with merged cut fills) and a wgpu 3D view; snapping, angle constraint and typed polar input; an `ifcx_alpha` writer and lenient reader with the full spatial tree, closed meshes, materials, in-file `archicraft::` schema declarations, golden files and a CI conformance run against buildingSMART's ifcx-core and viewer; atomic save with backups, background autosave with crash recovery, local crash reports and preferences. Its exit criterion (a storey with walls and a slab round-trips through IFCX and passes IFX-006 in CI) is met. Of the 567 requirements, 62 are done, 160 partial and 345 missing; of the 314 Must requirements, 58 are done, 118 partial and 138 missing. What comes next is increment 1 (core modeller): the editing area (EDT) has no user-facing command at all, layer structures/profiles (PRF), columns, beams, openings, doors and windows do not exist, and the priority-based junction engine needed for fixtures F2/F6/F7 is absent. Before those element kinds are added, two structural decisions pay off across every later increment: making the element kind, IFC class and tool/default/counter tables extensible instead of closed enums matched in ~15 places, and adding the relation store (host, solid operation, annotation binding) and an incremental geometry evaluation that Appendix F increments 1 to 3 all rely on.
+
+## Counts by status and priority
+
+| Status | Must (M) | Should (S) | Could (C) | Total |
+|---|---:|---:|---:|---:|
+| done | 58 | 4 | 0 | 62 |
+| partial | 118 | 36 | 6 | 160 |
+| missing | 138 | 159 | 48 | 345 |
+| **total** | 314 | 199 | 54 | 567 |
+
+Remaining effort of the 505 open requirements: S 124, M 218, L 138, XL 25.
+
+## Per-section status (done/partial/missing)
+
+| Section | Title | Must | Should | Could | Total |
+|---|---|---|---|---|---:|
+| 4.1 | Project and file management | 2/4/0 | 1/1/4 | 0/1/0 | 13 |
+| 4.2 | Project structure, location and units | 7/5/0 | 0/0/2 | 0/0/1 | 15 |
+| 4.3 | Workspace and user interface | 1/7/0 | 1/6/1 | 0/0/1 | 17 |
+| 4.4 | Views and navigation | 2/8/8 | 0/2/15 | 0/0/3 | 38 |
+| 4.5 | Plan display and graphic attributes | 0/7/1 | 0/2/7 | 0/1/2 | 20 |
+| 4.6 | Drawing input and precision | 1/8/6 | 0/2/6 | 0/0/1 | 24 |
+| 4.7 | Selection | 0/5/1 | 0/0/3 | 0/0/1 | 10 |
+| 4.8 | Editing and transformation | 0/4/11 | 0/0/9 | 0/0/1 | 25 |
+| 4.9 | Common element behaviour | 3/5/4 | 0/2/5 | 0/0/1 | 20 |
+| 4.10 | Grids | 0/0/4 | 0/0/4 | 0/0/1 | 9 |
+| 4.11 | Walls | 1/10/4 | 0/0/9 | 0/0/2 | 26 |
+| 4.12 | Slabs | 0/4/2 | 0/0/3 | 0/0/0 | 9 |
+| 4.13 | Columns | 0/0/4 | 0/0/2 | 0/0/0 | 6 |
+| 4.14 | Beams | 0/0/4 | 0/0/5 | 0/0/1 | 10 |
+| 4.15 | Layer structures and profiles | 0/0/5 | 0/0/5 | 0/0/1 | 11 |
+| 4.16 | Roofs and shells | 0/0/8 | 0/0/4 | 0/0/2 | 14 |
+| 4.17 | Openings | 0/0/6 | 0/0/5 | 0/0/2 | 13 |
+| 4.18 | Doors and windows | 0/0/15 | 0/0/6 | 0/0/2 | 23 |
+| 4.19 | Curtain walls | 0/0/0 | 0/0/8 | 0/0/4 | 12 |
+| 4.20 | Stairs | 0/0/19 | 0/0/11 | 0/0/4 | 34 |
+| 4.21 | Railings | 0/0/0 | 0/0/9 | 0/0/1 | 10 |
+| 4.22 | Free-form solids and solid operations | 0/0/15 | 0/0/8 | 0/0/1 | 24 |
+| 4.23 | Terrain and site | 0/0/7 | 0/0/3 | 0/0/1 | 11 |
+| 4.24 | Objects and component library | 0/0/6 | 0/0/6 | 0/0/1 | 13 |
+| 4.25 | Spaces | 0/0/0 | 0/0/0 | 0/0/2 | 2 |
+| 4.26 | 2D drafting and annotation | 0/0/2 | 0/0/4 | 0/0/6 | 12 |
+| 4.27 | Materials and appearance | 0/4/0 | 0/1/2 | 0/0/0 | 7 |
+| 4.28 | Layers and visibility | 2/2/0 | 0/0/1 | 0/0/0 | 5 |
+| 4.29 | Measurement and element information | 0/0/1 | 0/3/1 | 0/0/1 | 6 |
+| 4.30 | Undo, redo and history | 3/0/0 | 0/1/0 | 0/1/0 | 5 |
+| 4.31 | Preferences | 0/2/0 | 0/2/0 | 0/0/0 | 4 |
+| 5.2.1 | File structure and conformance | 3/3/0 | 0/1/0 | 0/1/0 | 8 |
+| 5.2.2 | Identity and tree structure | 3/3/2 | 0/0/0 | 0/0/0 | 8 |
+| 5.2.3 | Semantics | 3/0/1 | 1/0/0 | 0/1/0 | 6 |
+| 5.2.4 | Geometry and placement | 3/3/1 | 0/1/1 | 0/0/0 | 9 |
+| 5.2.5 | Materials and appearance | 1/1/0 | 0/1/0 | 0/0/1 | 4 |
+| 5.2.6 | Types | 0/0/0 | 0/0/2 | 0/0/0 | 2 |
+| 5.2.7 | Authoring data (ArchiCraft namespace) | 4/3/0 | 0/0/2 | 0/0/1 | 10 |
+| 5.2.8 | Location | 0/0/0 | 0/1/0 | 0/0/0 | 1 |
+| 5.2.9 | Opening and referencing third-party IFCX | 1/0/0 | 1/1/1 | 0/0/1 | 5 |
+| 5.2.10 | Evolution of IFCX | 1/0/0 | 0/0/1 | 0/0/0 | 2 |
+| 5.3 | Other file formats | 1/0/0 | 0/0/0 | 0/0/0 | 1 |
+| 5.4 | Hardware interfaces | 1/3/0 | 0/1/0 | 0/0/2 | 7 |
+| 5.5 | Software interfaces | 0/1/0 | 0/0/2 | 0/1/0 | 4 |
+| 6.1 | Performance and scalability | 0/7/0 | 0/2/0 | 0/0/0 | 9 |
+| 6.2 | Reliability and data integrity | 3/3/0 | 0/1/0 | 0/0/0 | 7 |
+| 6.3 | Accuracy and numerical robustness | 3/2/0 | 0/0/0 | 0/0/0 | 5 |
+| 6.4 | Usability and learnability | 1/2/1 | 0/1/1 | 0/0/0 | 6 |
+| 6.5 | Portability and compatibility | 2/4/0 | 0/0/0 | 0/0/0 | 6 |
+| 6.6 | Maintainability and testability | 3/2/0 | 0/0/0 | 0/0/0 | 5 |
+| 6.7 | Security and privacy | 2/2/0 | 0/0/0 | 0/0/0 | 4 |
+| 6.8 | Localization and units | 0/3/0 | 0/0/1 | 0/0/0 | 4 |
+| 6.9 | Accessibility | 0/0/0 | 0/3/0 | 0/0/0 | 3 |
+| 6.10 | Legal | 1/1/0 | 0/1/0 | 0/0/0 | 3 |
+
+## Readiness per Appendix F increment
+
+| Increment | Content (SRS Appendix F) | Exit criterion | Scope status (in scope: done/partial/missing) | What blocks the exit criterion |
+|---|---|---|---|---|
+| 0 — Walking skeleton | Command/undo core, project, storeys, layers, materials, straight walls and slabs, plan and 3D view, IFCX writer/reader, save/autosave/recovery | A storey with walls and a slab round-trips through IFCX and passes IFX-006 in CI | Delivered (samples::storey_with_walls_and_slab, roundtrip.rs, CI conformance job) | Nothing blocks it. Residual partials inside its scope: STR-002 default inverted, INP-003 Esc cancels the whole operation, NFR-REL-005 storey commands do not validate linked elements, PRJ-003 title shows the file name, LAY-001 no hidden/locked-layer warning, IFX-007 unrounded storey elevations. |
+| 1 — Core modeller | INP, SEL, EDT, ANN-001, PRF + WAL-020…027, COL, BEA, OPN, DW (basic catalogue), DSP, properties panel and settings dialogs, browser, tabs, saved views | Fixtures F2, F6, F7 pass; a ground floor with openings can be drawn precisely | 156 in scope: 2/37/117 | F2 needs PRF-001 layer structures (missing, L) and multi-skin bodies; F6 needs the multi-wall junction rule (WAL-020/026, partial: 3+ walls at a node stay square); F7 needs the material-priority engine (WAL-023 partial: priority stored but unused). EDT has no user-facing command (all 25 EDT rows missing/partial, MoveElements unreachable). OPN/DW (36 rows) and COL/BEA (16 rows) are entirely missing and need a host relation (ELM-016) and extensible element kinds. 'Drawn precisely' is close: INP-001…009 exist in plan; absolute/Cartesian input (INP-004), locks (INP-007), guides (INP-011) are missing. |
+| 2 — Envelope and site | Roofs, trim and solid operations, free-form solids, terrain, grids, stairs | AS-01 without railings and AS-02 pass | 92 in scope: 0/0/92 | Nothing in scope exists. Gating decisions: a 3D Boolean engine (Manifold or alternative, SOL-020) with its C++ toolchain, a relation store in Project (SOL-022, TER-006), a straight-skeleton roof generator (ROF-003), a general polyhedron/sweep builder beyond extrude.rs (STA-040), site-level elements under IfcSite (TER-012), IfcClass extension to the D.5 list. AS-02 additionally needs GRD-001…006 and the grid-alignment check (NFR-ACC-003). |
+| 3 — Should scope | Railings, curtain walls, sections and elevations, display styles, sun and shadows, presets, parameter transfer, component library, third-party IFCX import | AS-01…AS-06 pass in full | 50 in scope: 0/1/49 | Sections/elevations need arbitrary-plane slicing and a new Pane kind (VIEW-030/059, XL); display styles and sun need per-view resources and a shadow pass (VIEW-051/052); railings need profiles and sweeps (RAI-003, XL); third-party import needs the ImportedElement kind and inherits expansion (IFX-081/082, partial/missing); AS-06 also needs foreign-attribute preservation (IFX-066). |
+| 4 — Could scope and polish | C requirements by user feedback, performance tuning against RM-L, usability testing (NFR-USE-001) | AS-07 and AS-08 pass; release candidate | 64 in scope (all C rows + NFR-PERF + NFR-USE-001): 0/15/49 | No reference models RM-M/RM-L, no benchmark harness or fps instrumentation (AS-07); full-model re-evaluation per edit, non-indexed GPU buffers and egui-painted plans are the known performance limits; NFR-USE-001 needs doors, windows and a gable roof plus a test protocol (AS-08); hardware classes undecided (O-15) and no release process. |
+
+## Acceptance scenarios (SRS 7.2)
+
+| ID | Status | Notes |
+|---|---|---|
+| AS-01 | not-yet-possible | Only walls and slabs exist: ElementKind has Wall and Slab only (/Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-model/src/element.rs:191-194); no stair, door, window, roof, railing, terrain or layered-wall code anywhere (grep for stair/roof/door/window/terrain in archicraft-model finds only layer names, template.rs:265-268). Closest asset: samples::two_storey_shell (/Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-model/src/samples.rs:46-83): two storeys, exterior ring + interior T-junction wall per storey, ground slab, upper slab with a stair opening. Parts of the pass criteria already automated: IFX-006 (a) and the viewer tree project/site/building/storeys via /Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/conformance/check.ts:67-103 run in CI (.github/workflows/ci.yml:53-69); L/T junction geometry tests in /Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-geometry/src/wall.rs:291-343; material colours written as bsi::ifc::presentation::diffuseColor (crates/archicraft-ifcx/src/alpha/writer.rs:334) and checked by check.ts:96-98. Gable walls trimmed to roof, openings, 3 storeys with attic: nothing. |
+| AS-02 | not-yet-possible | No grid, column, beam or footing elements (ElementKind = Wall \| Slab, element.rs:191-194; ToolKind = Select \| Wall \| Slab, /Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-app/src/views/tools.rs:13-17). IfcClass enum contains Footing and Covering as names only (element.rs:10-15) but no element kind produces them; IfcColumn and IfcBeam are not in the enum. No NFR-ACC-003 alignment check against grid lines exists. |
+| AS-03 | partial | Round trip is well covered for the current model: round_trip_restores_the_editable_model compares the loaded Project to the original with assert_eq (/Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-ifcx/tests/roundtrip.rs:47-62); regenerated_geometry_matches_the_stored_geometry saves/loads/saves and compares bytes (roundtrip.rs:64-73); spatial_tree_and_identities checks UUID paths and v5 Body sub-node ids (roundtrip.rs:142-191); ids are stable UUIDs (crates/archicraft-model/src/ids.rs:1-5, 22-24). Storey-height change propagating to linked walls: storey_changes_move_linked_walls (/Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-model/tests/commands.rs:147-168). Missing: no test that reopens, edits wall thickness and storey height, and re-validates IFX-006 with unchanged UUIDs in one flow; 'exterior wall structure thickness' needs layer structures (absent); openings and roof following the change cannot be tested yet. |
+| AS-04 | partial | Typed relative polar input exists: TypedInput {distance, angle} and ToolState::apply_typed (/Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-app/src/views/tools.rs:86-116, 407-425), tested by typed_distance_and_constraint (tools.rs tests: 2500mm then angle 90) and wall_chain_closes_into_joined_walls (closed polygon by points). Unit parsing/formatting at 0.1 mm input resolution: display_rounding_does_not_lose_typed_precision, parses_and_formats_angles '45.00°' (/Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-model/src/units.rs tests). Missing: relative Cartesian (ΔX, ΔY) and absolute coordinate entry (INP-004) — TypedInput has only distance+angle; no measure tool (grep 'measure' in crates/archicraft-app/src hits only a camera comment, views/camera.rs:106); no test that draws a closed polygon purely by typed polar/relative values and measures lengths/angles back; no UI-level (kittest) test of typing during point input. |
+| AS-05 | partial | Mechanics present and unit-tested: session lock folder + autosave.ifcx/autosave.json, abandoned-session discovery and recovery, live sessions skipped — abandoned_sessions_are_found_and_live_ones_skipped (/Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-app/src/persistence/autosave.rs:236-273); 'Recover unsaved work' dialog (crates/archicraft-app/src/app.rs:634-676) and Then::Recover (app.rs:266-284); autosave timer with 5-minute default (app.rs:497-512; persistence/prefs.rs:59); original file intact via atomic save: atomic_save_keeps_backups and failed_save_leaves_the_original (/Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-app/src/persistence/mod.rs tests); recovered documents are unsaved (crates/archicraft-app/src/document.rs:191). Missing: no end-to-end test that spawns the app, edits, kills the process after the autosave interval and restarts; no kittest test of the recovery dialog (crates/archicraft-app/tests/ui.rs has 4 tests, none for recovery); the '6 minutes' timing is not exercised (the autosave trigger uses Instant with no injectable clock, app.rs:60, 501). |
+| AS-06 | not-yet-possible | Marked S. The reader refuses files without archicraft:: data: 'opening IFCX files from other tools is not supported yet' (/Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/crates/archicraft-ifcx/src/alpha/reader.rs:742, 866), asserted by third_party_files_are_reported_as_unsupported (crates/archicraft-ifcx/tests/roundtrip.rs:357-367). No RX examples fetched at test time, no unknown-attribute preservation, no hide/move/delete of imported elements. Composition primitives (flatten, roots, cycle detection, schema checks) exist in crates/archicraft-ifcx/src/validate.rs and are tested (cycles_are_detected roundtrip.rs:369-381), so the reader side of AS-06 has a foundation. |
+| AS-07 | not-yet-possible | No RM-M or RM-L models, no performance harness: no benches/, no criterion/proptest dependency (grep over Cargo.toml files and .rs; Instant::now appears only for the autosave timer, crates/archicraft-app/src/app.rs:112, 512 and workspace.rs:107, 117). CI has test/lint/conformance/licences jobs only (/Users/partsch/Code/06-archicraft/.claude/worktrees/archicraft-merge-local-run-66645f/.github/workflows/ci.yml). Technology choices acknowledge targets are measured, not assumed, and reference machines are still to be chosen (docs/technology-choices.md:113, 246). |
+| AS-08 | not-yet-possible | Demonstration method; nothing in the repository (no test script, participant protocol or checklist under docs/). The NFR-USE-001 task itself needs doors, windows and a gable roof, none of which exist yet. |
+
+Reference models: RM-S, RM-M, RM-L and RX-1…n are all absent; the two golden files (5 and 12 elements) are increment-0 stand-ins. Appendix D.7 fixtures: F3 partial (ingredients exist), F1, F2, F4–F9 absent.
+
+## Architecture summary
+
+**archicraft-model** — the headless domain model (no UI, geometry or file-format dependency). `Project` aggregates info, settings (units, cut plane, tessellation), site/building, a sorted `StoreyList`, flat `Vec<Layer>`/`Vec<Material>`, an `IndexMap<ElementId, Element>`, tool defaults, 3D views and name counters. `Element` is a flat envelope (id, name, home storey, layer, IFC class, position, locked) around a closed `ElementKind {Wall, Slab}`; walls store a reference line plus thickness/offsets/`TopLink`, slabs a CCW outline with CW holes. Every change is a `Command` (23 variants) planned into primitive invertible `Edit`s applied by `History` with bounded undo/redo, journal and replay; `validate.rs` is the single gate for element validity; `units.rs` parses and formats lengths/angles; `template.rs` is the hard-coded default metric template; `samples.rs` builds the reference models.
+
+**archicraft-geometry** — turns the model into closed, outward-oriented `TriMesh` bodies in storey-local coordinates: `wall::footprints` resolves L and T junctions from reference-line contact (3+ walls, crossings and priorities deferred), `extrude` builds prisms with spade CDT caps, `ModelGeometry::evaluate` re-evaluates the whole project per revision inside `catch_unwind`, `slice.rs` cuts horizontally into geo polygons and `plan.rs` classifies parts into cut/projected/overhead, merges same-material cut regions and offers picking. No Boolean engine, no arbitrary-plane slicing, no incremental evaluation.
+
+**archicraft-ifcx** — the `ifcx_alpha` adapter: `writer.rs` emits the spatial tree with bsi::ifc classes, names, storey transforms, mesh bodies inheriting material nodes, wall axes and the `archicraft::` parametric data declared in-file by `schema.rs` (FORMAT_VERSION 1); `reader.rs` restores an editable project leniently with a problem report and flags newer formats; `validate.rs` mirrors the reference implementation offline with D.9 limits; `json.rs` guarantees deterministic plain-decimal output; `registry.rs` bundles the four buildingSMART schemas. Third-party files are rejected, nothing foreign is preserved.
+
+**archicraft-app** — eframe/egui 0.36.2 with egui_tiles tabs and a wgpu offscreen 3D renderer. `Workspace` holds the `Document` (project + history + cached geometry/plans), preferences, the `ToolState` state machine, the global selection and per-view states; panels only mutate through `Workspace::execute(Command)`. `views/plan.rs` paints the plan with the egui painter and hosts the inlined point-input pipeline (typed value → Shift constraint → snap); `views/view3d.rs` navigates, picks and caches a `GpuScene` keyed by revision and selection; `ui/` holds actions (31, 23 with shortcuts), menus, toolbox, status bar, properties strip/settings dialog, project browser and dialogs; `persistence/` provides atomic save with backups, locked-session autosave with recovery, crash reports and JSON preferences.
+
+### Extension points
+
+- Add an element kind (e.g. Column), step by step: (1) crates/archicraft-model/src/element.rs: add `pub struct Column {...}` (plan geometry in metres + vertical params + material), a variant in `ElementKind`, a variant in `KindTag` with label/code/name_prefix (e.g. "C")/`ifc_classes()` (add `IfcClass` variants + codes if needed), extend `ElementKind::tag/material/set_material/translate` and add `Element::as_column`. (2) project.rs: add a `NameCounters` field, an arm in `next_element_name`, a `ColumnDefaults` struct in `ToolDefaults`, a `new_column` factory, and an arm in `vertical_extent`. (3) template.rs: fill the new defaults. (4) validate.rs: `validate_column` ranges + arm in `validate_element`. (5) command.rs: counters in `plan_add_elements`, `rehome`, `relink_to_storey` (if it has a TopLink), `check_tool_defaults`, the default-slot loops in `plan_delete_layer`/`plan_delete_material`. (6) crates/archicraft-geometry/src/evaluate.rs: arm in `local_extent` and `evaluate_element` producing `ElementGeometry {parts, axis}` (reuse `extrude`, or add a new generator module); if it joins walls, extend wall.rs. (7) crates/archicraft-geometry/src/plan.rs only if it needs a non-body plan symbol (bodies are sliced generically). (8) crates/archicraft-ifcx/src/alpha/schema.rs: `pub const COLUMN = "archicraft::column"`, add to `KINDS`, declare its object schema and `column` in `toolDefaults`/`counters`; writer.rs `element_attributes` arm + `project_attribute` defaults/counters; reader.rs `read_element` arm, `read_tool_defaults`, counters; bump `FORMAT_VERSION` if the change is not backwards tolerant. (9) crates/archicraft-model/src/samples.rs: add the kind to a sample so golden files and conformance cover it; run `ARCHICRAFT_BLESS=1 cargo test -p archicraft-ifcx` and review. (10) App: tools.rs `ToolKind::Column` + modes + `add_point/complete/preview/prompt/needed`; actions.rs `Action::ToolColumn` + shortcut (check Appendix D.8 uniqueness test); shell.rs toolbox + Design menu; properties.rs `prototype`, `*_defaults` extraction, kind-specific `Fields` getters/setters (fields auto-hide when the getter returns None), `derived` rows; workspace.rs `select_all` mapping; dialogs.rs nothing unless a new dialog. (11) Tests: commands.rs undo/redo for the new kind, geometry closedness, roundtrip equality, a kittest label check.
+- Add a command: (1) crates/archicraft-model/src/command.rs: new `Command::Foo {...}` variant (must be Clone + Serialize + Deserialize); (2) `label()` arm with a user-facing string (shown in Edit menu and status line); (3) `plan()` arm: validate against `&Project`, return `Err(CommandError::NoChange)` when nothing changes, `Locked` via `project.edit_lock_reason`, `Invalid`/`NotFound` otherwise, and produce `Vec<Edit>` from existing primitives (prefer `ReplaceElement`, `SetStoreys`, `Set*` snapshots); (4) only if no primitive fits, add an `Edit` variant and its `apply` arm that performs the change and returns the exact inverse (use `std::mem::replace`; keep index semantics like InsertElement/RemoveElement); (5) test in crates/archicraft-model/tests/commands.rs that execute+undo restores the starting project (compare with `revision` normalised) and that an invalid command leaves it untouched; (6) UI: call `ws.execute(Command::Foo {...})` from a panel/tool; if it is a global action add an `Action` variant (actions.rs: enum, ALL, label, optional shortcut, works_while_typing) and an arm in `ArchiCraftApp::run` (app.rs:377), plus a menu item in shell.rs.
+- Add a drawing tool (e.g. a Column point tool or a wall-offset tool): (1) crates/archicraft-app/src/views/tools.rs: add `ToolKind::X` (label/description, ALL), optional mode enum with `ALL`/`label`, extend `ToolState::needed()` (fixed point count or None for open-ended), `prompt()` text per state, `add_point()` (either accumulate points until `needed()` then `complete()`, or emit a command per click like the wall chain), `complete()`/`finish()` to build `Command::AddElements(vec![project.new_x(...)])` (or an edit command for modification tools), `preview()` rings for rubber-banding, and reset semantics; (2) if the tool needs new snap kinds or targets, extend `SnapKind` (ordered precedence), `SnapTargets::from_plan` and `snap()`, and add a marker glyph in plan.rs `draw_snap_marker`; (3) actions.rs: `Action::ToolX` with a free single-key shortcut (test `shortcuts_are_unique`), `run()` arm `self.ws.tool.select(ToolKind::X)`; shell.rs: toolbox button and Design menu item; properties.rs `tool_modes` for mode buttons and `gather()` mapping ToolKind -> KindTag so the strip shows the right defaults; workspace.rs `select_all` mapping; (4) unit-test the state machine in tools.rs without egui (see `wall_chain_closes_into_joined_walls`) and add a kittest asserting the button exists and `ws.tool.kind` changes.
+- Add a dialog: (1) crates/archicraft-app/src/ui/dialogs.rs: add state to `Dialogs` (a `bool` for a non-modal window, or `Option<Draft>` for a draft-and-OK dialog like `ProjectDraft`/`preferences`); (2) write `fn foo_window(&mut self, ctx, ws)` using `egui::Window::new("Title").open(&mut open)...show(ctx, \|ui\| ...)` (or `egui::Modal::new(Id::new(..))` for confirmations, checking `modal.should_close()`), using `widgets::length/angle/text/choice` for unit-aware inputs and `ws.execute(Command::...)` to apply (immediately per field, or on OK from the draft); call it from `Dialogs::show`; (3) expose it: `Action::Foo` in actions.rs (+ label, optional shortcut) handled in `ArchiCraftApp::run` by setting the flag, a menu item in shell.rs (Project/View/Help menu), and/or a button in browser.rs or a `Request` variant in workspace.rs if a pane must open it; (4) if the dialog needs prefs changes, return them like `preferences_window` so app.rs saves them; (5) kittest: `harness.get_by_label("Title")` after clicking the menu item.
+- Add an IFCX attribute (archicraft:: namespace): (1) add the field to the model struct and to `validate.rs` ranges; (2) crates/archicraft-ifcx/src/alpha/schema.rs: declare it inside the relevant object (`object(&[("key", length())...])`), wrap with `optional(...)` if absent in old files; for enums, derive options from a model `ALL` array via `.map(T::code)`; (3) writer.rs: write it in `element_attributes`/`project_attribute`/storey block with `json!` (use `round_coordinate` only for mesh coordinates; parameters are written at full precision); (4) reader.rs: read with `report.or(real(attr, "key"), default)` so a missing value becomes a warning, not an error; (5) if older ArchiCraft versions would misinterpret the file, bump `FORMAT_VERSION` (schema.rs:15) so they flag `newer_format`; (6) run `ARCHICRAFT_BLESS=1 cargo test -p archicraft-ifcx --test roundtrip` to regenerate golden files, inspect the diff, and run `conformance/run.sh crates/archicraft-ifcx/tests/golden/*.ifcx`; (7) for a standard attribute (bsi::ifc::*, usd::*) instead: confirm it is declared in the bundled schema (crates/archicraft-ifcx/schemas, registry test), add the import if it comes from ifc-mat, and extend conformance/check.ts if the viewer composition should verify it.
+- Add a new IFCX version adapter: copy crates/archicraft-ifcx/src/alpha to e.g. src/beta, change `IFCX_VERSION`, and add a match arm in `archicraft_ifcx::load` (lib.rs:44) while keeping the alpha reader for old files (IFX-090).
+- Add a plan-view overlay or line class (e.g. hatches, dimension lines): produce data in crates/archicraft-geometry/src/plan.rs (`PlanElement`/`CutRegion` fields or a new collection on `PlanDrawing`), then draw it in crates/archicraft-app/src/views/plan.rs `draw_plan` with the `Palette` colours and the line-weight constants; add it to `PlanElement::segments()` if it should be pickable/snappable (SnapTargets reads `segments()` indirectly via cut/projected/overhead).
+- Add a 3D display feature: extend `DisplayMode` (render3d.rs:25, ALL/label/faces/edges), `Uniforms.params` and views/shader.wgsl, and `FrameKey` so the viewport re-renders when the setting changes; the status bar combo in shell.rs iterates `DisplayMode::ALL` automatically.
+- Add a preference: add the field to `Preferences` (prefs.rs, `#[serde(default)]` keeps old files loading), clamp it in `sanitized()`, add a row in `Dialogs::preferences_window`, and read `ws.prefs.<field>` where needed.
+- Add a sample/golden model: add a constructor in crates/archicraft-model/src/samples.rs built through commands, register it in crates/archicraft-ifcx/examples/reference_models.rs and in `samples()` of tests/roundtrip.rs, bless the golden file, and CI conformance picks it up automatically.
+
+## Technical debt
+
+- Plan view ignores elements from other storeys: crates/archicraft-geometry/src/plan.rs:120 iterates only `project.elements_on(storey)`, so a wall on the storey below that reaches into this storey's view range (or a slab linked to the storey above) is never shown or cut; VIEW-010's view range is only partially honoured.
+- Wall junctions limited to L and T: crates/archicraft-geometry/src/wall.rs:14-16 and :223-227 leave 3+ walls at a node, crossings, collinear continuations and all priority/layer-based joins (WAL-020..027) square; material `priority` (material.rs:153) is stored and edited but never used.
+- All fill patterns render as solid tones: crates/archicraft-model/src/material.rs:92 and crates/archicraft-app/src/views/plan.rs:264-282 draw `cut_fill.foreground` as a flat egui Mesh; `FillPattern` variants and `CutFill.background` have no visual effect (DSP-009/010).
+- Hover highlighting in 3D is dead code: crates/archicraft-app/src/views/view3d.rs:213 calls `build_scene(..., None)` and `SceneKey` (workspace.rs:44) omits hover, so the HOVER_TINT path in crates/archicraft-app/src/views/render3d.rs:129-144 never runs.
+- Whole-model re-evaluation on every edit: crates/archicraft-app/src/document.rs:97-103 re-runs `ModelGeometry::evaluate` for all elements and clears all plan caches when `revision` changes; `footprints` in wall.rs:239-246 is O(n^2) per storey. Will not meet NFR-PERF targets for RM-L without incremental invalidation.
+- Per-frame allocations in the plan view: crates/archicraft-app/src/views/plan.rs:487 rebuilds `SnapTargets::from_plan` (all nodes/edges) every frame while a drawing tool is active, and plan.rs:400 / view3d.rs:127 clone `i.raw.events` every frame.
+- Transparent faces are drawn unsorted with depth writes off and no culling: crates/archicraft-app/src/views/render3d.rs:311 (`cull_mode: None`) and :574; overlapping translucent elements (glass) will blend in arbitrary order.
+- Hard-coded 'Scale 1:100' label: crates/archicraft-app/src/ui/shell.rs:241 shows a fixed scale string unrelated to the camera; no real drawing scale concept exists (VIEW/DSP scale requirements).
+- Tab-insertion heuristic depends on HashMap order: crates/archicraft-app/src/app.rs:302-305 picks `tiles.iter().find_map(... Tabs ...)` as 'the tab group that shows the most recent view', but `Tiles::iter` is unordered, so new panes may land in an arbitrary tab group once the layout is split.
+- Duplicated geometry helpers: `point_in_ring` is defined in crates/archicraft-model/src/validate.rs:91, crates/archicraft-geometry/src/slice.rs:128, crates/archicraft-geometry/src/triangulate.rs:24 and as `point_in_polygon` in crates/archicraft-geometry/src/plan.rs:172; `signed_area` in validate.rs:26, extrude.rs:9, slice.rs:123 and tools.rs:328 (`counter_clockwise`); segment helpers in validate.rs:64-88, plan.rs:192-207 and tools.rs:190-211. Two coincidence tolerances coexist (slice.rs:13 uses 1e-9, mesh.rs:53 uses 1e-6).
+- Closed enums instead of a trait make every new element kind a cross-crate shotgun change: `ElementKind`/`KindTag` matches in element.rs, project.rs:153-156 (`NameCounters {wall, slab}` is a per-kind struct that is also serialised to IFCX and declared in schema.rs:207), command.rs:331-334/405-412/508/542, validate.rs:264-274, evaluate.rs:130-134/159-188, writer.rs:192-217, reader.rs:604-713, schema.rs:25, tools.rs, properties.rs:47-131, workspace.rs:207-211.
+- Editing (EDT-*) has no UI: only `Command::MoveElements` exists (command.rs:41); there is no drag-move, rotate, mirror, stretch, offset or node editing in plan.rs, and no transformation of slabs' holes after creation.
+- Third-party IFCX import is refused: crates/archicraft-ifcx/src/alpha/reader.rs:742 errors on files without `archicraft::project`, and :866 skips elements without `archicraft::element` (IFX-080..083 only partially met); the writer does not import ifc-mat (writer.rs:348) and `MaterialCategory` is kept in the archicraft namespace pending a bSDD decision (material.rs:33-35, SRS O-7).
+- `History::undo` silently clears the whole undo and redo stacks when an inverse fails to apply: crates/archicraft-model/src/command.rs:827-833; the user gets 'Nothing to undo' with no explanation.
+- Undo limit applies only to new documents: prefs `undo_steps` is read in `Document::new` (document.rs:36) and labelled 'Undo steps (new projects)' in dialogs.rs:698; changing it does not affect the open document.
+- Blocking native file dialogs on the UI thread: crates/archicraft-app/src/app.rs:197-208 and :257 call `rfd::FileDialog::...::save_file()/pick_file()` synchronously inside the frame.
+- Locale detection is POSIX-only: crates/archicraft-app/src/persistence/prefs.rs:140-172 reads LC_ALL/LC_NUMERIC/LANG and a hard-coded language list; Windows/macOS users get a decimal point unless they override (STR-010).
+- Typed-input character whitelist is a hack: crates/archicraft-app/src/views/plan.rs:359-361 accepts chars in " .,+-/'\"′″°mcfitn" so unit suffixes can be typed; any new unit or locale symbol needs this string updated.
+- Arbitrary default when switching a wall to a custom reference line: crates/archicraft-app/src/ui/properties.rs:295 uses `thickness / 3.0`.
+- `catch_unwind` as a safety net: crates/archicraft-geometry/src/evaluate.rs:69 hides geometry panics as 'failed unexpectedly' problems and depends on panic=unwind; root causes are not surfaced in tests.
+- `TriMesh.indices` are u32 but IFX-038/`MAX_MESH_POINTS` is 65535 and `check_closed` is only called in tests; `writer.rs` does not verify closedness or the point limit before writing (mesh.rs:49, writer.rs:220-227).
+- Tessellation settings (`ProjectSettings.tessellation`, project.rs:27-43) are stored, validated, written to IFCX and editable in the Project dialog but unused because no curved geometry exists.
+- Conformance build artifacts are not git-ignored: `git check-ignore` reports conformance/.ifc5, conformance/node_modules and conformance/.build as NOT ignored (.gitignore covers only .dolt, *.db, kb-scraper, /target), so running conformance/run.sh locally dirties the tree.
+- deny.toml:42 claims 'Advisories are checked in CI' but .github/workflows/ci.yml:79 runs `cargo deny check licenses sources bans` without `advisories`; Cargo.lock also carries two thiserror majors (1.0.69 and 2.0.21) under `multiple-versions = "warn"`.
+- Technology-choices drift: docs/technology-choices.md:39 and :120-122 name lyon for plan tessellation and insta/cargo-fuzz for testing, but none are dependencies; plan fills are triangulated with spade (geometry/triangulate.rs) and drawn via egui painter, and there are no snapshot or fuzz tests. Schema files from IFCx.dev have an unknown licence (crates/archicraft-ifcx/schemas/README.md).
+- UI test coverage is thin: crates/archicraft-app/tests/ui.rs has 4 label-based tests and no screenshot/snapshot tests; dialogs, plan input and 3D are untested at the UI level.
+- Project settings dialog issues up to four separate commands on OK (dialogs.rs:609-615: SetInfo, SetSettings, SetSpatialNames, SetLocation), so one OK can create several undo steps and partially apply if one is rejected.
+- Material/layer lookups are linear scans (`Project::layer`/`material`, project.rs:185-191) and `element_count_on_layer` is O(elements) per layer row (dialogs.rs:327), acceptable now but called per frame in dialogs.
+- GPU texture lifetime is handled by a side channel: `ArchiCraftApp.released: Vec<View3dState>` (app.rs:69,145,793) because `Workspace::replace_document` cannot access the render state; closing a tab frees textures in app.rs:842-849 via `Behavior.closed`.
+
+## Cross-slice inconsistencies corrected in this report
+
+- **PRJ-003**: Status is partial (verifier: title shows the file name, not the project name) but gap and effort still said 'none'. Confirmed in crates/archicraft-app/src/document.rs:125-131: display_name() prefers the path's file name over project.info.name.
+- **UI-002**: Status is partial (verifier) but gap/effort said 'none'. Confirmed in crates/archicraft-app/src/ui/properties.rs:508-539 (summary drops the editable count when it equals the selected count) and 627-647 (plain checkbox, no mixed state).
+- **VIEW-001**: Status is partial (verifier: NFR-PERF-006 timing clause unverified) but gap/effort said 'none'.
+- **MAT-003**: Status is partial (verifier: cut fills are labels plus flat tones) but gap/effort said 'none'; also contradicted DSP-002 ('no fill definitions'). Confirmed template.rs:286-290 builds every cut fill as colour.scaled(0.85) with background None.
+- **INP-003**: Status is partial (verifier: Esc cancels the whole operation) but gap/effort said 'none'. Confirmed plan.rs:701-711 calls tool.reset() when no text is typed.
+- **IFX-004**: Status is partial (verifier: no cache of foreign imports) but gap/effort said 'none for the Must clauses'.
+- **IFX-007**: Status is partial (verifier: rounding applied only to mesh/curve points) but gap/effort said 'none (minor…)'. Confirmed writer.rs:237-239 and 313 write storey.elevation unrounded.
+- **IFX-060**: Status is partial (verifier: enumerated junction settings, layer structures, profiles, presets not stored) but gap/effort said 'none for the current model'.
+- **HW-007**: Status is partial (verifier: Shift+two-finger drag can only yaw on macOS and is undocumented) but gap/effort said 'none'.
+- **NFR-REL-005**: Status is partial (verifier: storey commands can invalidate linked elements) but gap/effort said 'none'. Confirmed command.rs:186-207 only call StoreyList::set_elevation/set_height.
+- **NFR-USE-003**: Status is partial (verifier: prompts omit live keys) but gap/effort said 'none for the existing tools'.
+- **NFR-SEC-002**: Status is partial (verifier: only Rust panics produce a crash report) but gap/effort said 'none for Rust panics'.
+- **HW-006**: Contradiction with NFR-PORT-005 (done): HW-006's gap claimed 'No UI scaling setting 100-200% (NFR-PORT-005)'. SRS NFR-PORT-005 asks for high-DPI support and 100-200% scaling, which egui/eframe provide through the OS scale factor and the built-in Ctrl/Cmd +/-/0 zoom; the nfr-quality slice rates it done by inspection. HW-006 stays partial for the untested multi-monitor DPI change and missing secondary windows.
+- **UI-017**: Shortcut count disagreed across slices (UI-017: 25, NFR-A11Y-001: 22). Counted in crates/archicraft-app/src/ui/actions.rs:118-141: 23 of the 31 Action variants have a default shortcut.
+- **NFR-A11Y-001**: Shortcut count disagreed across slices (UI-017: 25, NFR-A11Y-001: 22); actual count is 23 of 31 (actions.rs:118-141).
+- **PRJ-007**: Contradiction with UI-004/UI-015: PRJ-007 said the panel layout is 'not persisted at all', while UI-004/UI-015 note that eframe's default persist_egui_memory keeps window rects and panel sizes implicitly. Confirmed: main.rs uses NativeOptions::default() (persist_egui_memory true) and egui PanelState uses get_persisted/insert_persisted. Only the egui_tiles tab/split layout is lost.
+- **EDT-011,EDT-012,ELM-011,IFX-033,IFX-034,IFX-035,PRJ-007,SOL-030**: depends_on entries used a non-existent prefix 'BEM' for beams while the SRS and the structure slice use BEA-xxx; normalised so dependency text resolves to real requirement areas.
+
+## Requirement table
+
+One row per SRS requirement, grouped by section. Effort is the remaining effort (none for done rows). The last column condenses the gap (or, for done rows, the primary evidence).
+
+### 4.1 Project and file management
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| PRJ-001 | M | partial | M | Template supplies no layer structures (the concept does not exist in the model yet). The 'template' is a hard-coded Rust function, not a selectable template artefact: New always uses it, there is no template choice and no templat… |
+| PRJ-002 | S | missing | M | No 'Save as template', no template store/folder under DataDirs, no template choice when creating a project. |
+| PRJ-003 | M | partial | S | Window title shows the file name once the project is saved (Document::display_name prefers the path over project.info.name, document.rs:125-131), so renaming the project in Project settings does not change the title; every other… |
+| PRJ-004 | M | done | none | Done: crates/archicraft-app/src/persistence/prefs.rs:32-33,59 autosave_minutes default 5, editable crates/archicraft-app/src/ui/dialogs.rs:692-694 |
+| PRJ-005 | M | done | none | Done: crates/archicraft-app/src/persistence/mod.rs:70-108 save_atomically (temp file in target folder, sync_all, backup rotation, rename), 52-63 backup_path → 'house.ifcx.bak', 'house.ifcx.bak2' (the open dialog filters on the if… |
+| PRJ-006 | S | missing | M | No per-project lock or in-use detection, no warning, no read-only open mode (would need Save disabled and a read-only indicator). |
+| PRJ-007 | M | partial | S | Layer structures, profiles, presets and stair rule defaults are not in the model, so not stored (they belong to other areas). Personal settings: the tab/split layout is not persisted (tile tree rebuilt by default_tree, app.rs:81-… |
+| PRJ-008 | M | partial | S | A few things are dropped or defaulted silently, violating 'never omit silently': layer records that are not objects (reader.rs:266 `as_object()?`), malformed view records (reader.rs:391-405 filter_map with `.ok()?`), a missing/in… |
+| PRJ-009 | S | missing | L | No start screen: no New-with-template-choice, no Open, no searchable recent list, no thumbnails (needs a snapshot rendered at save and cached outside the project). |
+| PRJ-013 | C | partial | S | Nothing in the UI offers a sample project; needs a start-screen entry (or menu item) that opens samples::two_storey_shell(). |
+| PRJ-010 | S | done | none | Done. round-trip tests only cover samples with empty info fields except name |
+| PRJ-011 | S | missing | L | No second window/instance for a second project; no cross-project copy/paste. Either multi-process (spawn a second ArchiCraft process, exchange via the OS clipboard) or egui multi-viewport with per-viewport wgpu state. |
+| PRJ-012 | S | partial | S | No imperial template (feet-inches units, imperial storey heights/wall thicknesses/tool defaults) and no way to choose it at New. |
+
+### 4.2 Project structure, location and units
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| STR-001 | M | done | none | Done: crates/archicraft-model/src/storey.rs:11-23 Storey (name, signed elevation, height), 37-62 StoreyList sorted by elevation with a ground storey, 92-97 number() (0 ground, +/- above/below), 105-120 top storey's nominal height… |
+| STR-002 | M | partial | S | The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs derives Default, dialogs.rs:34-37), so by default changing a height moves only the next storey (the SRS alternative) instead of shifting all sto… |
+| STR-003 | M | done | none | Done. rename from the context menu is indirect: it opens the dialog with the storey selected |
+| STR-004 | M | done | none | Done: crates/archicraft-app/src/ui/dialogs.rs:204-276 delete prompt shows the element count (212, 232), radio 'Move them… keeping their position' with target storey choice (233-248) or 'Delete them' (249) |
+| STR-005 | M | done | none | Done: Every storey operation is a Command (crates/archicraft-model/src/command.rs:45-71) executed via History::execute (798-815) which only trims to the limit and never clears on success |
+| STR-006 | M | done | none | Done. for the current element kinds (walls, slabs); new kinds must keep the same storey-relative representation |
+| STR-007 | S | missing | M | No named reference levels (project zero, sea level, user-defined), no selection of the display/entry datum, no conversion in elevation fields (storey dialog, properties panel) or readouts; storage must stay relative to project ze… |
+| STR-008 | M | done | none | Done. observation: a per-storey override cannot be cleared back to the project default from the UI |
+| STR-009 | M | partial | S | Slope format, area unit and volume unit are not editable from the UI (only via the file); the slope format is not used anywhere yet (no slopes/roofs). Angle precision applies to decimal degrees/gradians only (DMS ignores decimals… |
+| STR-010 | M | partial | S | 'Default to the OS locale' is implemented only through POSIX environment variables (LC_ALL/LC_NUMERIC/LANG) and a hard-coded language list; GUI launches on macOS and Windows normally have none set, so the default is a point regar… |
+| STR-011 | M | partial | S | No elevation readout uses the datum (no sea-level-relative display; needs STR-007), and there is no import yet that could consume it. The single-datum rule itself holds in the model. |
+| STR-012 | M | partial | M | 'IFCX export writes it (IFX-070)' is not met: no `SurveyPoint` child node on the site with usd::xformop and epsg<code> eastings/northings/height attributes, no second +Y reference point for true north, no in-file epsg schema decl… |
+| STR-013 | M | done | none | Done: crates/archicraft-model/src/project.rs:75-86 Site and Building with names, 168-169 one of each on Project |
+| STR-015 | S | missing | S | Add latitude, longitude and EPSG code to Location, the Project settings dialog, archicraft::project.location (schema + reader defaults, format version), and feed IFX-070 (epsg4326 attributes). |
+| STR-014 | C | missing | XL | Several buildings per site each with its own storey set: storeys moved under Building, element home storey lookup across buildings, browser grouping, plan panes, IFCX tree with several IfcBuilding children, ground-storey numberin… |
+
+### 4.3 Workspace and user interface
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| UI-001 | M | partial | M | No 2D/annotation tool group (no such tools exist); the view-control bar has no view rotation (VIEW-060), no real drawing scale (shell.rs:241 is a hard-coded label, VIEW-013 absent), no active display settings for plan views, and… |
+| UI-002 | M | partial | S | The Locked checkbox has no mixed/indeterminate state for selections that mix locked and unlocked elements (properties.rs:627-647), and summary() omits the editable count whenever it equals the selected count (properties.rs:528-53… |
+| UI-003 | M | partial | M | No live preview in the dialog; the "Plan display" section is a placeholder label (properties.rs:716 "Cut fills come from the material.") with no settings; only the wall and slab tools exist, so "every tool" is two tools. |
+| UI-004 | S | partial | L | Panels cannot be docked elsewhere, floated or (except the problems panel) hidden; the tab/split layout and open views are never saved per user (tree rebuilt from scratch); egui-memory persistence is an untested side effect of efr… |
+| UI-005 | M | partial | S | No context menu on tabs (Behavior in app.rs:727-788 adds none; egui_tiles tab_ui not overridden); no context menu on 3D-view items (browser.rs:86-96) or the Project section; VIEW-003's rename/delete/settings/"save as view" for vi… |
+| UI-006 | M | done | none | Done: Open views are egui_tiles tabs: Tree::new_tabs app.rs:81-87, tab titles 736-749, closable 763-772, active-tab bookkeeping 751-761 |
+| UI-007 | S | done | none | Done. only reachable by dragging a tab; there is no explicit split command, no UI test, and the split is not persisted — see UI-004 |
+| UI-008 | M | partial | S | D.8 commands without shortcuts because the commands do not exist: cut, copy, paste, command palette; move, copy-move, rotate, mirror, vertical move, array, trim, split, offset; measure, column, beam, roof, opening, door, window,… |
+| UI-009 | S | partial | M | No reassignment UI, no keymap stored in Preferences (prefs.rs:29-55 has none), no conflict detection or confirmation; view-local keys (R, Tab, Backspace in plan.rs:638-725) are outside the Action system and cannot be rebound. |
+| UI-010 | S | partial | M | Canvas background is hard-coded per dark/light mode (plan Palette views/plan.rs:92-139, 3D background views/view3d.rs:93-99) with no preference; no automatic 3:1 contrast adjustment (material cut-fill colours drawn as stored plan… |
+| UI-011 | S | partial | S | Menu items have no description tooltip; status-bar controls (Fit, Next/Previous zoom, display mode, Views), browser buttons, dialog buttons and most property fields have no tooltips; Action has label() but no description(). |
+| UI-012 | M | partial | S | Dangling references (Project::integrity_problems model/src/project.rs:327-342) are never listed; load problems (Problem.path ifcx/src/validate.rs:35-39) are plain labels, not clickable (dialogs.rs:874-881); missing definitions (O… |
+| UI-013 | C | missing | M | Everything: a toolbar model, an editor and persistence of the arrangement. |
+| UI-014 | S | partial | S | Project browser (browser.rs:24-116) and Storeys dialog (dialogs.rs:87-202) have no search field; layer structures, profiles, presets, saved views and components do not exist yet. |
+| UI-015 | S | partial | S | No draggable splitters inside dialogs (Materials uses fixed ui.columns(2) dialogs.rs:387); size persistence is an untested eframe side effect with no code or test in the repo; the toolbox panel is not resizable (app.rs:820). |
+| UI-016 | S | missing | L | Folder concept in the model and IFCX namespace, tree UI with drag and drop, and reference stability (DSP-003) for every resource type. |
+| UI-017 | M | partial | M | No command palette (NFR-USE-005); shortcuts are not bindable (UI-009); several commands are not Actions and exist in one place only: R cycles the reference line plan.rs:712-720, wall/slab geometry modes properties.rs:745-768 (str… |
+
+### 4.4 Views and navigation
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| VIEW-001 | M | partial | M | Propagation is correct but not within a verified NFR-PERF-006 budget: every revision re-evaluates all elements, drops all plan caches and rebuilds/re-uploads the whole GPU scene (document.rs:97-103, view3d.rs:203-214); no benchma… |
+| VIEW-002 | M | done | none | Done: crates/archicraft-app/src/workspace.rs:18-21 Pane::{Plan(StoreyId), View3d(ViewId)} (one implicit plan per storey) |
+| VIEW-059 | S | missing | XL | Section and elevation view types, four default elevations in the template, browser entries, tabs |
+| VIEW-003 | M | partial | M | Single click already opens the plan (browser.rs:48 `double_clicked() \|\| clicked()`) instead of only selecting; no sections, elevations, saved views or folders; no 'save as view' or 'settings' item; 3D views have no context menu… |
+| VIEW-004 | M | missing | L | Saved-view resource (camera or zoom+rotation, scale, layer states, kind filters, storey range, cut planes, hidden elements, display style, sun), re-apply to live model, redefine keeping ID/name, visual distinction, IFCX persisten… |
+| VIEW-010 | M | partial | M | No cover fill for projected elements (Material has cut_fill only); overhead drawing cannot be switched off; bottom/top limits are not adjustable per view (document.rs:115 always ViewRange::for_storey; no per-view state) |
+| VIEW-011 | M | missing | M | Display range on elements (ELM-008), drawing elements on non-home storeys, project-wide configurable remote style (dashed, above/below) |
+| VIEW-012 | S | partial | M | View range (bottom/top limits) cannot be overridden; no per-plan-view settings object (plan views keyed by StoreyId, workspace.rs:56), so split-level use case not covered |
+| VIEW-013 | S | missing | M | Drawing scale per 2D view (default 1:100), line weights/hatch spacing/annotation sizes in paper units resolved against scale, independent of zoom |
+| VIEW-014 | M | done | none | Done. observation: Point-unit wheel without modifier always pans, so a smooth-scrolling mouse cannot zoom without Cmd/Ctrl |
+| VIEW-060 | S | missing | M | View rotation angle on the 2D camera, rotated grid/snap/constraint angles, command to set/reset rotation |
+| VIEW-015 | S | missing | M | Trace underlay of another storey or view with opacity, offset, rotation and one-command toggle |
+| VIEW-020 | M | partial | M | No numeric editing of eye position, target or field of view (fov fixed at 45 deg, camera.rs:154; no camera properties UI); no 'custom' preset with rotation angles and azimuth; projection switch exists only as a status-bar toggle,… |
+| VIEW-021 | M | partial | M | Navigation presets are not configurable: bindings are hard-coded and Preferences (prefs.rs:28-55) has no navigation preset (SET-003) |
+| VIEW-022 | M | missing | M | Align-view-to-surface command (face normal from pick, set yaw/pitch, both projections, cut faces) |
+| VIEW-023 | S | missing | M | Persistent two-point-perspective camera property and matrix shear |
+| VIEW-024 | C | missing | M | Walk mode with eye height, mouse-look, keyboard movement |
+| VIEW-025 | M | partial | XL | Working plane (INP-015), 3D point input with snapping/typed values, tool previews and edit commands in 3D views |
+| VIEW-030 | S | missing | XL | Section/elevation marker element, live derivation with cut/projection rules in a vertical plane, depth and horizontal limits, open-from-marker, update on marker move |
+| VIEW-031 | S | missing | M | Storey level lines with labels and grid axes in section/elevation views |
+| VIEW-032 | S | missing | L | Selection, move and stretch of elements in section/elevation views |
+| VIEW-058 | C | missing | L | Drawing new elements in section/elevation views |
+| VIEW-040 | M | missing | M | Per-view hidden set, hide selection, isolate selection / marquee, show all honouring layers, D.8 shortcuts |
+| VIEW-041 | M | missing | M | Per-view element-kind filter and storey range (all / from-to) with optional trimming at range limits |
+| VIEW-042 | M | missing | XL | User-defined cut planes (two points in orthogonal view or numeric with side), section box with handles, global toggle, capped display with uniform colour or materials |
+| VIEW-061 | S | missing | S | Binding a cut plane to storey elevation + offset |
+| VIEW-043 | M | missing | S | Persistent restriction indicator and clear-all-restrictions command |
+| VIEW-044 | S | missing | M | Region filter drawn in plan (rectangle/polygon), inside/outside, trim or keep whole, selectable cut elements |
+| VIEW-045 | S | partial | S | 'Show in 3D' does not zoom to the selection; no 'show selection in plan' command from 3D (would need to pick the storey of the selection and zoom) |
+| VIEW-046 | C | missing | M | Exploded display offsetting storeys vertically in 3D |
+| VIEW-047 | M | partial | S | The governed features (filters, hidden elements, cut planes) do not exist yet, and no test asserts that saved IFCX is identical with hidden layers / any view state (IFX-068) |
+| VIEW-050 | M | partial | M | No adjustable edge thickness (1-px LineList pipeline render3d.rs:362-368); no switch to turn transparency off for performance |
+| VIEW-051 | S | missing | L | Named display-style resources (mode, transparency, monochrome override, background, edges, shadows), shipped presets, per-view application, persistence |
+| VIEW-052 | S | missing | L | Directional sun (azimuth/altitude), real-time shadow mapping, sun from location/true north and date/time |
+| VIEW-053 | S | missing | L | Ambient occlusion, soft shadows, sky light with automatic reduction during navigation |
+| VIEW-054 | M | missing | L | No level of detail, no frustum/occlusion culling, back-face culling disabled (cull_mode None render3d.rs:311), single buffer per pass, no benchmark against RM-M/RM-L for NFR-PERF-003 |
+| VIEW-055 | S | missing | M | Hide doors/windows keeping openings; schematic vs detailed representation |
+| VIEW-056 | S | missing | S | Background not user-configurable; no gradient sky/ground |
+
+### 4.5 Plan display and graphic attributes
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| DSP-001 | M | partial | L | No pen, line-type, fill or cover-fill attributes exist. Outline colours and weights are hard-coded constants (plan.rs:91-143 Palette, CUT_WIDTH/PROJECTED_WIDTH). Elements carry no graphic-property references other than the materi… |
+| DSP-002 | M | partial | M | The template contains no pen table, no line types and no fill definitions (none of these resource types exist). Legibility currently comes from constants in the renderer, not from a default attribute set in the project. |
+| DSP-003 | M | partial | M | Pens, line types, fills, layer structures and profiles do not exist as attributes. FillPattern is a closed enum (material.rs:94-102) serialised as an IFCX enum restriction (schema.rs:188), not an ID-referenced resource with name/… |
+| DSP-004 | M | partial | M | Weights do not come from pens (none exist). Widths are logical points, never multiplied by pixels_per_point, so at 100% DPI the 0.9-pt projected and overhead lines are below one device pixel and take epaint's faded thin-line path… |
+| DSP-019 | S | missing | M | No paper-mm weights, no hairline, no drawing scale to resolve against, no true-weights/thin-lines view option. |
+| DSP-005 | S | partial | M | No pen resource in the project, no weights (hairline, 0.13…0.50 mm), no structural/non-structural cut distinction, no fill/annotation/drafting pens, nothing saved or editable. The existing palette can seed the default values but… |
+| DSP-006 | S | missing | S | No pen editor; no pen chooser anywhere that could show descriptions. |
+| DSP-007 | C | partial | M | No named pen tables, no per-view selection. |
+| DSP-008 | S | missing | M | No line-type resource, no six built-in types, no mm dash/gap definitions, no paper/model scaling flag. |
+| DSP-009 | M | missing | M | No cut/cover/drafting roles on fills; element settings offer no fills at all. |
+| DSP-010 | M | partial | L | Every pattern is drawn as a flat tone of the foreground colour (plan.rs:264-282; comment material.rs:91-92). No hatch definition (angle, spacing, pen) exists; background is stored but never rendered nor editable; no transparency… |
+| DSP-020 | S | missing | M | No hatch catalogue, no definitions, no paper/model scaling, no per-element rotation/origin override. |
+| DSP-011 | M | partial | M | Only the foreground tone is visible; changing the material's pattern has no visible effect because hatches are not rendered (DSP-010). Skins of layered elements do not exist (PRF). |
+| DSP-012 | S | partial | M | Skin separator lines with their own pen and a per-view switch: no layered elements, no pens, no per-view options. |
+| DSP-013 | S | missing | M | Hatch rendering with spacing-based flat-tone fallback and performance against NFR-PERF-004. |
+| DSP-014 | M | partial | M | Projected and overhead lines are drawn as independent line_segments (plan.rs:220-221,248-262), so corners have no joins; epaint strokes have butt caps only and its thin-line path has no caps at all (tessellator.rs:1007-1008), whi… |
+| DSP-015 | S | missing | M | Doors, windows and objects do not exist; no detail-level concept per view or element. |
+| DSP-016 | C | missing | L | No override rule list, criteria, effects or presets. |
+| DSP-017 | C | missing | M | No layered elements and no per-view display option. |
+| DSP-018 | S | missing | M | Golden reference images, per-platform CI comparison and a tolerance in the test plan. |
+
+### 4.6 Drawing input and precision
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| INP-001 | M | partial | L | Service exists only in plan views and only for element creation: the 3D view has no point input at all (crates/archicraft-app/src/views/view3d.rs handles navigation and picking only); no transforms, reshaping, guides, measuring o… |
+| INP-002 | M | partial | M | No X/Y/Z display on demand (only distance and angle); no stretch mode at all, so neither total length nor length change is shown or accepted as typed input during stretching. |
+| INP-003 | M | partial | S | Esc with no typed text calls ToolState::reset() and discards the whole in-progress operation instead of only the current step (plan.rs:701-711; Backspace is the per-step undo); typing is accepted only once the tool has a point (p… |
+| INP-004 | M | partial | M | Only relative polar coordinates. Missing: relative Cartesian (dX, dY, dZ) fields, absolute coordinates from the project origin, from the user origin (INP-014) or from a temporarily marked snap point, and a single key switching po… |
+| INP-005 | M | done | none | Done: crates/archicraft-model/src/units.rs:391-424 (parse_length: suffixes mm, cm, m, ft, in, ', " in any unit setting), units.rs:469-482 (normalises ′ ″ typographic marks and locale decimal separator), units.rs:484-553 (mixed nu… |
+| INP-022 | S | missing | M | Arithmetic (+ − × ÷) in typed values and field addressing (X3, A35) are absent; the input character whitelist and the tracker fields must be extended. |
+| INP-006 | M | partial | M | Directions are measured from the X axis only (no construction grid to orient from); the alternative 'hold cursor on the nearest guide, including vertical guides in 3D' is missing (no guides, no 3D input); constrained mode bypasse… |
+| INP-007 | M | missing | M | No key command locks X, Y or distance; no X or Y lock exists at all; the lock is not drawn as a temporary guide (circle / vertical / horizontal line); no explicit release key. |
+| INP-023 | S | missing | S | No lock key, no temporary guide line drawn for the locked angle, no release. |
+| INP-008 | M | partial | L | 2D only: no snapping in 3D views. Missing targets: division points beyond the midpoint (INP-010), tangent points, arc/circle centres (no curved geometry exists), axis points of columns and beams (no such elements). Missing glyphs… |
+| INP-024 | S | missing | S | Polygon centroid snapping (slab outlines, cut polygons) absent. |
+| INP-009 | M | partial | M | Guide intersection and guide kinds are absent (no guides yet); only the single best candidate is computed, there is no candidate list and no key to cycle through candidates in range (Tab is already taken by the field toggle while… |
+| INP-010 | M | missing | M | Only the 'half' mode, hard-coded. Missing: N equal parts (2-100), percentage, repeated fixed distance, best equal division near a target distance; selection of exactly one active mode; scope option (between nodes / between inters… |
+| INP-011 | M | missing | L | Whole requirement: marking points/edges by dwell (default 1.0 s) or key, temporary guides (horizontal, vertical, angle increments, parallel, perpendicular, tangent, bisector, line through two centres), snappable guide intersectio… |
+| INP-012 | S | missing | L | Whole requirement: persistent guide lines/segments/circles/arcs per view, snappable with division points, drag-from-border creation aligned to an edge, numeric offset move/copy, delete individually/by sweep/all, global hide, excl… |
+| INP-013 | M | partial | L | Snap grid has one step for X and Y and lives in user preferences, not configured per view type in the project. The visible grid is a fixed power-of-ten display grid: no main/auxiliary spacing, rotation or local origin, and its in… |
+| INP-014 | M | missing | M | Whole requirement: placeable/rotatable user origin, coordinate display and entry relative to it, reset to project origin. |
+| INP-015 | M | missing | L | Whole requirement: horizontal plane at typed elevation (default active storey), vertical through two points, three-point plane, picked from a face, and a look-perpendicular command. |
+| INP-016 | M | missing | L | Whole requirement: point-on-face snapping and X/Y/Z axis-parallel inference guides from the last point in 3D. |
+| INP-017 | S | partial | S | No way to exclude an element, layer or reference from producing snap targets without hiding it: Layer has only visible/locked (crates/archicraft-model/src/layer.rs:8-15), Element has only locked (element.rs:276-287). |
+| INP-018 | S | missing | L | Whole requirement: contour-detection key, preview and creation from a clicked edge, edge chain or smallest closed region, in plan and 3D, preserving arcs. |
+| INP-019 | C | missing | M | Whole requirement: gravity option taking the elevation of the highest slab/roof/terrain under the pointer for columns, walls, objects, stairs. |
+| INP-020 | S | partial | S | Press-drag-release input is not selectable: no preference field (prefs.rs:28-50) and no drag-based point commit. |
+| INP-021 | S | missing | L | Whole requirement: live distances from the placed/moved element to nearest grid axes, walls, columns, beams; choosing the reference edge; typing a distance to place. |
+
+### 4.7 Selection
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| SEL-001 | M | partial | M | 3D views have no hover highlight, no info label and no Tab cycling (view3d.rs:166-188 only picks the nearest hit on click). |
+| SEL-002 | M | partial | M | No option limiting picking to edges and nodes. Esc does not clear the selection while a 3D view is active (Escape handled only in plan.rs:701). Elements drawn only projected (e.g. the default slab below the 1.10 m cut plane) are… |
+| SEL-003 | M | partial | M | Only the axis-aligned rectangle with the direction-dependent mode. Missing: rotated rectangle and polygon shapes, explicit 'fully inside' and 'partially inside' modes as selectable options, and area selection in 3D views. |
+| SEL-004 | M | partial | S | Limiting to the selection region is impossible because SEL-005 does not exist; with a 3D view active it selects all visible elements of all storeys (acceptable as 'current view'). |
+| SEL-010 | S | missing | S | Select similar (same kind and same preset / material / layer structure) is absent; kind and material are available in the model now, presets and layer structures are not. |
+| SEL-005 | S | missing | L | Whole requirement: persistent, movable, removable selection region covering current or all storeys, limiting select-all and edit commands, stretching nodes when moved. |
+| SEL-006 | S | missing | L | Whole requirement: criteria dialog combining kind with storey, layer, material, layer structure, dimensions, name/ID, IFC class; operators; add/remove to selection; fill from picked element; named criteria sets saved in the proje… |
+| SEL-007 | M | partial | S | 'Hidden by view filters' cannot be honoured because no view filters exist; Project::is_visible checks only the layer (project.rs:207-209). Needs a view-aware visibility predicate once VIEW filters arrive. |
+| SEL-008 | M | missing | XL | Whole requirement: edit mode for compound elements with selectable parts; no compound element kinds exist and the selection model has no sub-element addressing. |
+| SEL-009 | C | missing | M | Named selection sets stored in the project and recallable are absent. |
+
+### 4.8 Editing and transformation
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| EDT-001 | M | missing | L | Move exists only as a model command: no tool, menu item, shortcut, drag or context-menu entry invokes it, no live preview, no INP-001 point input for the vector. Rotate, mirror and vertical move (signed dZ = base_offset/offset ch… |
+| EDT-022 | S | missing | L | No 3D mirror; walls/slabs are vertical extrusions whose parameters cannot represent a mirror about an arbitrary plane; needs free-form solids and 3D point input. |
+| EDT-002 | M | missing | M | No copy or multiple-copy variant of any transform, no modifier switching, no cursor variant indicator. Copy needs new ElementIds and names via Project::next_element_name (project.rs:270-277) and AddElements. |
+| EDT-003 | S | missing | S | No rotate ±90° command; no bounding-box helper for a selection (PlanElement::bounds exists per element, crates/archicraft-geometry/src/plan.rs:225-233). |
+| EDT-004 | M | missing | L | No array command of any type (linear, radial, vertical stack, rectangular), no count/spacing methods, no vertical displacement or storey assignment. |
+| EDT-005 | S | missing | L | No path distribution; the only path-like entity is the wall reference line (geometry/plan.rs:148-150). Lines, arcs, polylines, splines do not exist. |
+| EDT-006 | S | missing | M | No resize/scale command, no reference point choice, no notification for non-scalable parameters. |
+| EDT-007 | M | missing | L | No 3D rotation; free-form solids, imported elements and objects do not exist; no mechanism tells the user a transform cannot be applied (no transforms exist). |
+| EDT-025 | S | missing | M | Objects do not exist; no 3D rotation. |
+| EDT-008 | M | missing | XL | No contextual edit palette, no node/edge hit-testing (PlanDrawing::pick returns whole elements only, geometry/plan.rs:270-282), none of the node commands (move/insert/delete node, fillet/chamfer) or edge commands (offset edge, of… |
+| EDT-009 | M | missing | L | No handles, no dragging of nodes or edges, no numeric input during a stretch. Plan view handles only click/area selection (views/plan.rs:498-563). |
+| EDT-010 | M | missing | M | No offset of one or all edges of a slab outline, no offset copy of walls; lines, polylines and arcs do not exist. |
+| EDT-023 | S | missing | M | No offset copy and no wall-chain detection at the model level (junction detection lives only in geometry/wall.rs:212-218 for footprints). |
+| EDT-011 | M | missing | L | No trim command, no intersection search for linear elements, no boundary-from-selection logic. |
+| EDT-012 | M | missing | M | No extend command, no boundary pick (edge, extension, wall face). |
+| EDT-013 | M | missing | L | No split command for walls or slabs; roofs, terrain and guides do not exist; no choice of which part stays selected. |
+| EDT-024 | S | missing | L | No 3D plane split; needs 3D booleans (Manifold is only planned per docs/technology-choices.md). |
+| EDT-014 | S | missing | L | No fillet/chamfer; slab outlines cannot hold arcs (element.rs:179-180), so fillet needs a polycurve outline type first. |
+| EDT-015 | S | missing | M | No union/difference of a drawn polygon with a slab outline; the geo crate (already a dependency, geometry/plan.rs:156 unary_union) provides BooleanOps, so this is mostly tool/UI work plus hole handling via validate_slab_polygon (… |
+| EDT-016 | M | partial | M | Cut, copy and paste are entirely missing: no clipboard, no Action variants, no paste at same position, at a picked point, or onto another storey at the same relative elevation. |
+| EDT-017 | M | partial | S | For mixed kinds the panel offers the union of parameters, not only those common to all kinds: a field is shown if ANY target has it (properties.rs:176-178, 204-206), so a wall+slab selection still shows Reference line, Base offse… |
+| EDT-018 | M | partial | S | Profiles and layer structures (skins) do not exist, so the zero-thickness-skin check is not implemented (only wall/slab thickness). Otherwise complete for walls and slabs. |
+| EDT-019 | M | partial | S | Thresholds are compile-time constants, not project settings: ProjectSettings (project.rs:47-52) has no tolerance fields, no UI in the project settings dialog (dialogs.rs:479-626), nothing written to IFCX (writer.rs:154-165). Edit… |
+| EDT-020 | M | missing | M | None of trim, split, extend, parameter pick-up/inject or contour detection exist as explicit commands or as gestures; previews exist only for element creation (views/tools.rs:547-572). Effort here is wiring each operation as a co… |
+| EDT-021 | C | missing | M | No align or distribute commands. |
+
+### 4.9 Common element behaviour
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| ELM-001 | M | done | none | Done: crates/archicraft-model/src/project.rs:120-149 (WallDefaults, SlabDefaults, ToolDefaults), 174 (Project.tool_defaults), 281-323 (new_wall/new_slab apply defaults) |
+| ELM-002 | S | missing | L | No Preset resource, no storage in project/template/IFCX, no preset management (rename, delete, reorder, search), no preset selector in the settings dialog, no apply-to-selection including layer. |
+| ELM-003 | S | missing | M | No pick-up or inject commands, no latch mode, no compatibility filter between kinds. Building blocks exist: wall_defaults()/slab_defaults() derive defaults from an element (properties.rs:83-112), 3D picking exists (views/view3d.r… |
+| ELM-004 | M | done | none | Done: crates/archicraft-model/src/element.rs:277-278 (Element.name) |
+| ELM-019 | S | partial | S | Prefix is hard-coded per kind (KindTag::name_prefix); not configurable in the project or template. |
+| ELM-005 | M | partial | S | Absolute elevation is not shown anywhere (properties show only Base offset / Elevation offset, properties.rs:314-324,453-463; derived() 541-575 shows length/area/volume only). Changing the home storey always relinks; there is no… |
+| ELM-006 | M | partial | S | Implemented for walls only; columns, curtain walls, stairs and storey-spanning openings do not exist yet and must reuse TopLink when added. |
+| ELM-007 | M | missing | M | No vertical move exists, so nothing offers re-association after a move; editing Base offset / Elevation offset in the properties panel does not trigger an offer; no bulk 're-associate selection with storeys by elevation' command… |
+| ELM-008 | M | missing | L | No storey display range on elements, no drawing of elements on other storeys' plans, no project-wide above/below outline style, no editing from other storeys' plans; snap targets likewise only from the home storey (views/tools.rs… |
+| ELM-009 | S | missing | M | No custom N-up/M-down range, no independent outline/cover-fill settings; roofs and terrain do not exist. |
+| ELM-010 | M | done | none | Done: crates/archicraft-model/src/element.rs:281 (Element.layer, mandatory) |
+| ELM-011 | M | partial | S | IfcClass enum has no IfcBeam, IfcMember, IfcColumn and none of the Appendix D.5 list for free-form solids, objects and imported elements (those kinds do not exist). Reader downgrades unknown classes to the kind default with a war… |
+| ELM-012 | S | partial | S | 'Usable by display overrides' cannot be met until DSP-016 (Could) exists. No round-trip test asserts IsExternal or position survive save/load. |
+| ELM-020 | C | missing | S | No structural-function flag on Element, no UI, no IFCX property (e.g. LoadBearing). |
+| ELM-013 | M | partial | S | No ghosted handles (no handles exist at all; a locked selection is highlighted like any other, views/plan.rs:309-318). On hover only name and kind are shown (views/plan.rs:621-632); the lock cause is only reported in the status l… |
+| ELM-014 | S | missing | M | No auxiliary flag, no ghosted drawing, no pick exclusion/modifier/filter, no exclusion from the IFCX element set, no operator role. |
+| ELM-015 | S | missing | L | No group relation, no group selection semantics, no nesting, ungroup or suspend, no persistence. |
+| ELM-016 | M | missing | M | No hosted elements exist, so no host relation, no cascade on delete, no cascade on copy (copy itself does not exist). |
+| ELM-017 | M | partial | S | Dependent values do not update live while editing: fields commit on Enter/focus loss (widgets.rs:52-57) and derived rows (properties.rs:541-575) refresh only after the command; no kind with dependent parameters (stairs) exists ye… |
+| ELM-018 | M | missing | M | No per-element or per-kind plan display option (projected / projected with overhead / cut only), no UI, no persistence. |
+
+### 4.10 Grids
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| GRD-001 | M | missing | L | Everything: grid-system resource/element (two axis sets with individual spacings, label series, bubbles at one/both ends, extension lengths, rotation, origin), its drawing in plan, a creation tool and an edit dialog, persistence… |
+| GRD-007 | C | missing | M | Radial grid systems (polar axes: radii and angular axes). |
+| GRD-002 | M | missing | M | Add/delete/move/rename individual axes with numeric spacing edits; commands and UI. |
+| GRD-008 | S | missing | M | Dimension-chain rendering of axis spacings in plan (and later sections). |
+| GRD-003 | M | missing | M | Grid axes as edge snap targets and axis intersections as node targets in plan; snapping infrastructure in 3D views does not exist. |
+| GRD-004 | M | missing | S | Storey-range visibility (default all storeys) for grid systems; needs a visibility path other than home storey. |
+| GRD-009 | S | missing | M | Grid display in section/elevation views with filters by axis name and storey. |
+| GRD-005 | S | missing | M | Batch placement of columns at selected axis intersections and beams along axes. |
+| GRD-006 | S | missing | M | IfcGrid node with one Axis_<label> basiscurves child per axis, archicraft::grid schema (alpha/schema.rs), reader support, round-trip tests. |
+
+### 4.11 Walls
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| WAL-001 | M | done | none | Done: WallMode Single/Chain/Rectangle/RotatedRectangle crates/archicraft-app/src/views/tools.rs:41-64 |
+| WAL-002 | M | missing | XL | Arc wall geometry (centre/radius/sweep, three points, tangent continuation), exact arc storage, tessellated body per IFX-034, closed circular wall without seam, arc junctions, plan drawing, snapping to arcs, IFCX schema and reade… |
+| WAL-003 | M | partial | M | No layer structure or profile on walls (single material only); reference-line locations 'core exterior face' and 'core interior face' missing (ReferenceLine enum has no core variants). |
+| WAL-004 | M | partial | S | Structure clause cannot be exercised: no layer structures exist. No explicit test asserting the reference line stays put after a thickness change. |
+| WAL-005 | M | partial | M | Command that changes reference_line while shifting start/end by the face offset difference so the body stays; UI entry; hosted elements n/a yet. |
+| WAL-006 | M | missing | S | Flip command: swap exterior/interior (reverse direction or mirror reference-line location) keeping the reference line and body in place; menu/shortcut; later swap skin order. |
+| WAL-007 | M | partial | S | Reference lines are shown only in plan views, not in 3D (render3d.rs build_scene draws meshes/feature edges only); no direction arrow on the in-progress preview; beams n/a. The R key records a SetToolDefaults command in the undo… |
+| WAL-008 | S | missing | M | Start/end thickness, trapezoidal footprint with the reference-line face straight, junction maths for tapered faces, UI fields, IFCX schema. |
+| WAL-009 | S | missing | L | Polygonal wall kind with closed plan outline of straight and arc edges extruded between base and top; junctions with line walls; tool; IFCX. |
+| WAL-035 | C | missing | M | Layer structures on polygonal walls. |
+| WAL-010 | S | missing | L | Inclined faces (one or both), non-prismatic body generation, openings following inclination. |
+| WAL-011 | S | missing | L | Optional elevation-outline polygon (straight and arc edges) stored on the wall, body clipped by it, editor in elevation plane. |
+| WAL-020 | M | partial | L | X (crossing) junctions not handled; three or more walls at one node fall back to square ends (wall.rs:223-227); only single-skin bodies, no skin trimming; walls on different home storeys never join even if they overlap vertically… |
+| WAL-021 | M | partial | M | No auto-join option/toggle; no extension or trimming when a point is placed off the reference line (typed distances bypass snapping, plan.rs:475-480); no auto-join when editing/moving existing walls. |
+| WAL-022 | M | missing | M | Join command extending/trimming two selected walls until reference lines meet; unjoin command (requires an explicit junction relation or 'never join' flag since joins are implicit from contact). |
+| WAL-023 | M | partial | L | Priority is never used by junction resolution (wall.rs has no priority logic); no skins; no columns/beams; higher-priority cutting through lower-priority bodies not implemented; merging ignores priority and junction adjacency. |
+| WAL-024 | S | missing | S | Per-skin priority override in a layer structure. |
+| WAL-025 | S | missing | M | Join group element property with reserved 'never join', honoured in footprints(), editable in properties, saved to IFCX. |
+| WAL-026 | M | partial | M | Three or more walls at a node are only 'left square' (wall.rs:14-16,223-227) rather than resolved by a documented deterministic rule; fixture F6 not covered. |
+| WAL-036 | S | missing | M | Per-wall junction order property overriding the deterministic rule. |
+| WAL-027 | M | partial | S | Sections and solid operations do not exist, so agreement there cannot be exercised; plan merges same-material regions regardless of 3D adjacency (plan.rs:153-157), so two overlapping unjoined walls show as one region although 3D… |
+| WAL-030 | M | missing | M | Split-at-point command producing two walls sharing an endpoint (joined by contact), point input UI, hosted elements n/a. |
+| WAL-031 | S | missing | M | Merge command for collinear end-to-end walls with identical settings. |
+| WAL-032 | C | missing | L | Combining parallel touching walls into one with a combined cross-section. |
+| WAL-033 | M | partial | L | Endpoint handles, face drag for thickness, parallel offset, curve/straighten, arc radius change, all with numeric input; UI move of elements. |
+| WAL-034 | S | missing | L | Profiles with holes or vertical openings for hollow vertical elements; hollow bodies in 3D/plan; clean joins. |
+
+### 4.12 Slabs
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| SLB-001 | M | partial | L | No arc edges (outline is Vec<DVec2>; validate_ring, extrude, triangulate, SnapTargets, IFCX schema outline=array(point2) all assume polylines). No circle mode (SlabMode has only Polygon/Rectangle/RotatedRectangle). No snapping to… |
+| SLB-002 | M | partial | M | The 'or a layer structure' alternative is missing: no LayerStructure type anywhere, Slab has a single thickness + single MaterialId, geometry extrudes one part (crates/archicraft-geometry/src/evaluate.rs:177-187). |
+| SLB-009 | S | missing | S | Core top / core bottom reference planes need layer structures with core skins, new SlabReference variants, UI options, schema enumeration extension and reader leniency, and vertical_extent computing the core offset within the str… |
+| SLB-003 | M | partial | M | No UI path creates a hole: every tool completion passes Vec::new() for holes (tools.rs:510, 513, 527). Holes are not editable (no polygon editing commands at all, no node/edge handles in plan.rs) and cannot be traced (INP-018 abs… |
+| SLB-004 | M | missing | L | Needs arc walls (WAL-002), arc edges in slab outlines, a shared deterministic tessellation of coincident curves (same chord deviation/angle parameters, same seed points) used by wall body, slab body, plan cut and IFCX writer, and… |
+| SLB-005 | S | missing | M | Per-edge angle attribute on the outline and holes, non-vertical side-face generation (offset top/bottom rings per edge), UI per edge, IFCX schema and reader. |
+| SLB-006 | S | missing | L | Inclined top plane and optional independent bottom plane (sloped constant-thickness and tapered slabs), parameters (pitch/direction or three-point plane), geometry (cut prism by planes), plan projection still works via mesh outli… |
+| SLB-007 | M | missing | XL | Whole priority-based cleanup engine between slabs, walls, columns and beams in 3D, sections and plan cuts (WAL-023), needing boolean solid operations, skin-aware bodies and an element-pair detection beyond wall reference lines. |
+| SLB-008 | M | partial | L | No polygon editing commands (EDT-008 node/edge palette, EDT-015 union/difference) exist anywhere; plan view handles only tool points and selection (plan.rs:497-563). No dragging of the slab elevation: there are no section/elevati… |
+
+### 4.13 Columns
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| COL-001 | M | missing | L | Column element kind with rectangular/circular/profile cross-section, base offset, TopLink (reusable: element.rs:71-79), nine-point anchor, rotation; geometry (prism from cross-section), properties fields, defaults (D.2: 0.30 x 0.… |
+| COL-002 | M | missing | M | Column tool with one-click placement and optional second click for rotation (ToolState needs a variable-point completion mode; tools.rs:357-371 only has fixed point counts or polygon/chain). Grid-intersection placement is GRD-005. |
+| COL-003 | M | missing | M | Top/bottom end cut planes (horizontal default, custom angle), geometry cutting the prism by planes, numeric fields, and handles (no handle infrastructure exists in plan.rs or view3d.rs). |
+| COL-004 | S | missing | M | Inclination (angle from vertical and direction) parameters, sheared/rotated body generation, plan projection of inclined body, UI and schema. |
+| COL-005 | S | missing | XL | Segmented axis model shared with beams (segments with cross-section, material, uniform/tapered size, fixed/flexible length), solver for flexible lengths, fixture F5 acceptance test, UI and schema. |
+| COL-006 | M | missing | XL | Columns joining walls, beams and slabs by material priority. |
+
+### 4.14 Beams
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| BEA-001 | M | missing | L | Beam element between two points with width/height or profile, nine-point anchor, lateral offset, roll angle, elevation relative to home storey, inclination by end elevations or pitch; geometry (swept rectangle/profile along an in… |
+| BEA-002 | M | missing | M | Per-end cut (vertical default, horizontal, custom angle), geometry cutting the swept body by end planes, numeric fields, handles in plan and 3D (no handle infrastructure exists). |
+| BEA-003 | S | missing | M | End cut planes defined by two angles (about both cross-section axes). |
+| BEA-004 | M | missing | XL | Axis-contact junction detection for beams (L, T, X) with walls and columns, trimming by material priority; requires generalising the wall junction code from Footprint [DVec2; 4] (wall.rs:102) to 3D bodies. |
+| BEA-005 | S | missing | XL | Segment model (per-segment cross-section, material, start/end size taper, fixed/flexible length as percentage shares), per-joint cut planes, swept geometry per segment, fixture F4 acceptance test, UI, schema. |
+| BEA-006 | S | missing | L | Segment operations: insert, remove, reorder, copy/paste settings between elements, swap sizes, split at picked point, drag joint with numeric input. |
+| BEA-007 | S | missing | M | Notches and holes in beams as hosted openings; requires the opening element and extending its host kinds to beams, plus boolean subtraction from the beam body. |
+| BEA-008 | M | missing | M | Beam bodies feeding the plan generator, an optional beam axis line in PlanElement, and correct projected/overhead outlines for angled end cuts (follows from mesh outlines once end cuts exist). |
+| BEA-009 | C | missing | XL | Curved beams in plan: arc axis, sweep geometry along an arc, tessellation, plan projection. |
+| BEA-010 | S | missing | M | Beam chain mode producing joined beams per segment, and placement along grid axes (GRD-005), which requires grids (GRD-001) that do not exist. |
+
+### 4.15 Layer structures and profiles
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| PRF-001 | M | missing | L | Named layer structure resource with ordered skins (material, thickness, role core/finish/other, at least one core, 48+ skins), Add/Update/Delete commands and Edits (command.rs:616-633 has only layer/material resource edits), edit… |
+| PRF-002 | M | missing | S | An UpdateLayerStructure command; propagation then comes for free from revision-based re-evaluation. |
+| PRF-003 | M | missing | M | Core exterior/interior face reference-line variants and their offsets from the structure, core faces as snap targets, use by DW-008 reveals (doors/windows absent) and SLB-009. |
+| PRF-004 | M | missing | XL | Named profile resource (closed regions with holes, material per region, insertion origin, usage flags), a profile editor (2D drawing of regions), use by columns and beams, update propagation, IFCX schema/writer/reader, IFX-025 ho… |
+| PRF-010 | S | missing | L | Profiled walls and railings, per-edge material overrides on profiles. |
+| PRF-005 | M | missing | M | Parametric generators for rectangle, circle, RHS, CHS, I/H, T, L, U/C, Z from dimensions, producing profile regions (with holes for hollow sections), dimension UI and schema (parametric definition stored, not only the polygon). |
+| PRF-011 | S | missing | M | Catalogue data (IPE, HEA, HEB, HEM, UPE, L; W, C, HSS) mapped onto PRF-005 parametric shapes, with a searchable picker (UI-014). |
+| PRF-006 | S | missing | L | Profile creation from copied 2D shapes (ANN absent), from the cross-section of a selected wall/beam/column, or from a set of adjacent walls (needs section computation of bodies). |
+| PRF-007 | S | missing | L | Nominal width/height and horizontal/vertical stretch zones on profiles; scaling only geometry inside the zones when an element size differs (storey-linked profiled walls). |
+| PRF-008 | C | missing | L | Named offset parameters bound to edges, overridable per instance and per end of tapered segments. |
+| PRF-009 | S | missing | L | Copy/paste between projects carrying layer structures, profiles and materials, with name-conflict resolution (use existing / keep both / overwrite) dialog. |
+
+### 4.16 Roofs and shells
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| ROF-001 | M | missing | L | Everything: Roof element kind (outline, pivot line, slope side, pitch, pivot elevation, thickness or layer structure), roof defaults (D.2: 35°, 0.30 m, 0.50 m overhang), slope parsing in angle/percent/rise-run, geometry evaluatio… |
+| ROF-002 | M | missing | M | A roof tool: draw pivot line, indicate slope side, then draw outline (rectangle, rotated rectangle, polygon) that may extend beyond the pivot line on both sides; toolbox/menu/shortcut entry (actions.rs:18-20 has only ToolSelect/T… |
+| ROF-003 | M | missing | XL | Multi-plane roof element (closed pivot polygon; per edge pitch, overhang, sloped/gable type), weighted straight skeleton for non-convex footprints with different pitches, plane/hip/valley/ridge generation to 0.1 mm closure, gable… |
+| ROF-004 | M | missing | M | Three creation modes for the pivot polygon (draw, pick existing closed polygon, outline of selected walls) and defaulting the pivot elevation to the top of the selected walls. |
+| ROF-005 | S | missing | L | Break levels (height above pivot + pitch above) in the skeleton/plane generation for mansard roofs; UI and persistence. |
+| ROF-006 | M | missing | M | Per-edge eaves cut type (plumb, square, horizontal, custom angle) in the roof body generation, UI and IFCX attribute. |
+| ROF-007 | M | missing | M | Layer structures measured perpendicular to the roof plane; reference-surface choice (bottom, top, top of core) for the pivot elevation; multi-part body per skin (writer already emits one child per BodyPart, writer.rs:372-382, IFX… |
+| ROF-008 | M | missing | L | Numeric editing of pitch, pivot elevation, overhangs, edge types, outline; direct manipulation of pivot line, edges and nodes (needs a handle/grip framework that does not exist for walls or slabs either); full-model re-evaluation… |
+| ROF-009 | S | missing | M | Split command converting each computed plane into an independent single-plane roof, with a warning dialog (dialog pattern exists, dialogs.rs). |
+| ROF-010 | S | missing | L | Associative roof-to-roof join (mutual trim to ridge/valley line); needs the relation store and Boolean/trim engine. |
+| ROF-011 | S | missing | S | Ridge elevation, eaves elevation, plan area and sloped area per plane in the derived section. |
+| ROF-012 | M | missing | M | Roof as a host for openings cutting through the sloped body; roof windows (DW-021). |
+| ROF-013 | C | missing | XL | Shell element (extruded/revolved/ruled membrane, constant thickness, side flip, contour editing, holes). Could priority. |
+| ROF-014 | C | missing | L | Convert faceted surface (solid faces or terrain) into a group of planar roofs. Could priority. |
+
+### 4.17 Openings
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| OPN-001 | M | missing | L | No opening element kind exists: ElementKind/KindTag are {Wall, Slab} only (crates/archicraft-model/src/element.rs:191-201), Element has no host field (element.rs:275-286), no host relation anywhere in Project (project.rs:165-186)… |
+| OPN-012 | S | missing | L | Beams, columns, free-form solids and terrain do not exist as element kinds; no Boolean subtraction exists (mesh.rs has no CSG, technology-choices.md:156 plans Manifold). Needs those elements plus a general 3D Boolean path. |
+| OPN-002 | M | missing | L | No cut-element list, no host reassignment command, no multi-element void subtraction. Cutting elements other than the host needs a general 3D Boolean (technology-choices.md:156 names OPN-002 as a Manifold case). Move semantics (c… |
+| OPN-003 | M | missing | M | No opening cross-section type. Needs rectangle/circle/polygon profile on the opening, circle tessellation with project.settings.tessellation (project.rs:28-44 exists), and validation via validate_ring (validate.rs). Polygon input… |
+| OPN-004 | M | missing | M | No opening orientation parameter (perpendicular to host face vs vertical). Needs orientation enum, host face normal from ReferenceLine::face_offsets (element.rs:99) for walls and slab/roof face normals, and matching void generati… |
+| OPN-013 | S | missing | M | No section or elevation views exist (Pane is Plan or View3d only, workspace.rs:18-21); no opening tool. Needs section/elevation view type plus profile input mapped to the host face plane. |
+| OPN-005 | M | missing | L | No depth mode (through/limited with start/end offsets). A limited-depth niche cannot be produced by the planned 2D cut before extrusion (extrude.rs:18 only extrudes outline+holes vertically); it needs either a wall-plane extrusio… |
+| OPN-006 | S | missing | L | No storey-spanning opening, no multi-host cutting, roofs absent. TopLink::Storey/Relative (element.rs:71-80) and Project::top_elevation (project.rs:231) give the storey-following datum pattern to reuse. Needs shaft element with b… |
+| OPN-007 | M | missing | L | No opening tool: ToolKind is {Select, Wall, Slab} (tools.rs:13-17), add_point is plan-only (tools.rs:451, StoreyId + DVec2), the 3D view has picking (view3d.rs:75) but no tool input, and previews are polylines only (tools.rs:547)… |
+| OPN-008 | S | missing | L | Bodies are single-material (BodyPart per element, evaluate.rs:22-28); Material has no per-face override (material.rs:142-156); no layer structures/skins exist. Needs reveal/end faces as separate parts or face material overrides,… |
+| OPN-009 | S | missing | M | PlanElement has only cut/projected/overhead/reference_line (geometry/plan.rs:23-33); no symbol layer and no per-view display settings (plan views are implicit per storey, project.rs:117-123 defines only View3d). Needs opening out… |
+| OPN-010 | C | missing | M | No Profile resource exists (Project holds only layers and materials, project.rs:165-186). Needs PRF profiles and a profile reference on openings with re-evaluation on profile change. |
+| OPN-011 | C | missing | M | No quantity reporting at all; TriMesh::signed_volume (mesh.rs:105) can measure a void once the intersection of void and cut element exists (needs Booleans). |
+
+### 4.18 Doors and windows
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| DW-001 | M | missing | L | No Door or Window element kinds, no host relation, no tool, no feedback path for 'no host under pointer' (Workspace::error exists, workspace.rs:190, usable). Needs hosted-element data (host wall id, position along wall, vertical… |
+| DW-021 | S | missing | M | Roofs do not exist; no roof window type. Needs ROF plus a sloped-host placement variant of DW-001. |
+| DW-002 | M | missing | L | No preview of a door/window or its void; tool previews are polylines (tools.rs:547). No host-candidate cycling key (the select tool's Tab cycling in plan.rs is the only precedent). Needs candidate host list at the pointer (walls… |
+| DW-003 | M | missing | M | No exterior-side parameter. ReferenceLine::face_offsets (element.rs:99-107) gives both face lines to pick the nearest face at the click. Needs a flip flag stored on the unit, shown in preview and reversible via inspector without… |
+| DW-004 | M | missing | M | No opening-configuration step after the position click, no hinge side / swing side / sliding direction parameters, no preview. Needs a second tool phase with four-quadrant preview and independent inspector fields. |
+| DW-005 | M | missing | S | No anchor parameter. Needs left/centre/right anchor used at placement and kept fixed when width changes. |
+| DW-006 | M | missing | M | No width/height parameters and no door/window defaults in ToolDefaults (project.rs:146-149 holds wall and slab only; D.2 defaults 0.90×2.10 / 1.20×1.40 absent). The defaults-vs-selection editing pattern exists (properties.rs:35-5… |
+| DW-007 | M | missing | M | No vertical-position model (pinned edge, reference host base/top/any storey, offset). TopLink (element.rs:71-80) and Project::top_elevation (project.rs:231) are reusable for the storey reference; a sill/head pin and resize-keeps-… |
+| DW-008 | M | missing | M | No reveal parameter. Exterior/interior faces are derivable (element.rs:99-107); core faces need layer structures (PRF-003), which do not exist. |
+| DW-009 | M | missing | M | No host cutting at all; walls have one skin (Wall.material, element.rs:130-139). Needs void subtraction from every skin part, re-evaluation when unit or host changes (ModelGeometry::evaluate at evaluate.rs:63 evaluates elements i… |
+| DW-010 | M | missing | S | No empty-opening type. Once DW-001/005/007/008 exist this is a frameless, leafless unit sharing their rules. |
+| DW-022 | S | missing | M | No arched/round-headed void shapes or symbols; needs tessellated arch outline in the wall plane (IFX-034 settings exist, project.rs:28-44). |
+| DW-011 | M | missing | XL | No catalogue and no object-definition resource (Project has only layers and materials, project.rs:165-186). Needs parametric generators for: single/double hinged doors, single sliding (pocket/surface), sidelight/transom parameter… |
+| DW-012 | M | missing | L | No door/window parameters and the inspector is hard-coded per ElementKind (properties.rs:253-264 geometry_fields), not schema-driven. Needs a parameter-schema type (name, kind, unit, range, enum options), per-type schemas for fra… |
+| DW-013 | M | missing | L | No plan symbol generation; PlanElement has no symbol/annotation geometry (geometry/plan.rs:23-33) and cut fills are merged per material (plan.rs:119-160). Needs parametric symbol builders (leaf + swing arc, sliding arrows; frame/… |
+| DW-014 | S | missing | L | No catalogue UI. Needs category tree, thumbnails (rendered from generators), incremental search (UI-014), and plan/elevation/3D preview with side switching. Elevation preview needs an elevation projection of the unit. |
+| DW-015 | S | missing | M | No derived values (sill/head elevation, nominal size, clear opening) and no named key points. SnapTargets (tools.rs:170-200) only collects plan nodes/edges; needs typed key points (jamb faces, clear-opening edges) exposed to snap… |
+| DW-016 | S | missing | L | No corner window; a unit spanning two hosts contradicts the single-host model and must cut both walls at the L junction (wall.rs:138 l_junction gives the corner geometry). Needs two-host placement, corner connection types (frame… |
+| DW-023 | C | missing | M | No frameless mitred glass connection; adds one corner connection type to DW-016. |
+| DW-017 | S | missing | M | No handedness computation, no convention setting (DIN 107 default, Appendix D.6), no plan labels. Needs convention enum in preferences/project settings, derivation from hinge side × swing side (DW-004), display in inspector and p… |
+| DW-018 | M | missing | L | Writer writes only Body/Axis children (writer.rs:361-406), no Void child, no usd::usdgeom::visibility, no type nodes or inherits.type (IFX-050/051); every element is a direct storey child (writer.rs:300-308) so hosted children (I… |
+| DW-019 | M | missing | L | Arc walls do not exist (Wall is start/end only, element.rs:130-139; WAL-002 missing). Needs arc walls, chord-aligned placement, and a void that cuts the full curved thickness (not a planar 2D cut; needs a radial prism or 3D Boole… |
+| DW-020 | C | missing | L | No curved units; would need curved frame/leaf generators following the arc. |
+
+### 4.19 Curtain walls
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| CW-001 | S | missing | L | No curtain wall kind; no compound element concept (BodyPart list exists per element, evaluate.rs:22-28, usable for frames/panels). Needs path (straight segments), base elevation, TopLink (exists, element.rs:71) and boundary frame… |
+| CW-002 | S | missing | M | No grid model. Needs columns/rows with sizes, distribution modes (fixed, best fit, number of divisions), per-item locks with the at-least-one-flexible rule, and validation in Command::plan (command.rs) via validate_element (valid… |
+| CW-003 | S | missing | M | No frame-class resource. The Material resource pattern (command.rs AddMaterial/UpdateMaterial/DeleteMaterial with replacement; dialogs.rs:376 materials dialog; writer/reader material records) is the template for named project-wid… |
+| CW-004 | S | missing | M | No panel-class resource; same pattern as CW-003 with type glass/solid, thickness, material. |
+| CW-010 | C | missing | L | No layered, insert or custom panels; needs CW-004 plus skins (PRF) and door/window generators (DW-011). |
+| CW-005 | S | missing | L | No compound edit mode (SEL-008) exists; selection is per element id (workspace.rs:53 HashSet<ElementId>). Needs part addressing (cell/frame ids stable across grid edits), per-instance override storage, delete-division-frame merge… |
+| CW-006 | S | missing | S | No frame geometry; the mullion-through/transom-trimmed rule belongs in the frame generator of CW-001. |
+| CW-011 | C | missing | S | No per-class priority; adds a priority field to frame classes and uses it in the CW-006 trimming. |
+| CW-007 | S | missing | M | No symbolic plan representation; PlanElement has no symbol layer (geometry/plan.rs:23-33). Needs frames as rectangles and panels as lines generated from the grid, drawn in views/plan.rs. |
+| CW-012 | C | missing | S | Projected drawing of bodies exists generically (up_facing_outline, mesh.rs:196; plan.rs:143) but there is no per-view switch between symbolic and projected. |
+| CW-008 | C | missing | M | No roofs, no trim relation, no 3D Booleans. Needs SOL-030 trims applied to frames and panels individually. |
+| CW-009 | S | missing | M | IfcClass lacks IfcCurtainWall/IfcMember/IfcPlate (element.rs:10-14); writer has no compound-part children with their own class (IFX-016; writer.rs:361-406 writes Body/Axis only); reader ignores non-storey children (reader.rs:854-… |
+
+### 4.20 Stairs
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| STA-001 | M | missing | XL | No stair element exists. ElementKind/KindTag are closed wall/slab enums (crates/archicraft-model/src/element.rs:191-204); ToolKind has Select/Wall/Slab only (crates/archicraft-app/src/views/tools.rs:13-20). Needs a Stair struct (… |
+| STA-002 | M | missing | L | No stair body side/offset, no upward/downward input mode, no live riser-count preview. Tool preview exists only as 2D outlines (tools.rs:519-547) and the 3D view has no tool preview at all (crates/archicraft-app/src/views/view3d.… |
+| STA-003 | M | missing | S | No total-rise computation. Storey-link infrastructure exists (Project::top_elevation project.rs:232-238; StoreyList::relative_elevation crates/archicraft-model/src/storey.rs:108-119) and geometry is re-evaluated on every revision… |
+| STA-004 | M | missing | S | No riser solver (N or target R, integer N within bounds, actual R reported). Tests 3.000/19 and 3.300/22 missing. |
+| STA-005 | M | missing | S | No rule-set type with independent enable flags and min/max for R, G, 2R+G, R/G, R+G, pitch, walking-line distance; Appendix D.3 defaults not in the template (template.rs has only wall/slab tool defaults, crates/archicraft-model/s… |
+| STA-006 | M | missing | S | No computation of the admissible set of N (test N in {15..20} for 3.000 m missing). |
+| STA-007 | M | missing | S | No going-range intersection of enabled constraints nor its display (test 300<=G<=350 at R=150 missing). |
+| STA-008 | M | missing | S | No fixed-going mode and no violation list with actual/limit values (tests for G=300 and G=250 missing). |
+| STA-009 | M | missing | M | No R/G/2R+G/N/pitch read-out during placement (tracker text is distance/angle only, tools.rs:415-437) or editing (properties panel is wall/slab only, crates/archicraft-app/src/ui/properties.rs:253-460). |
+| STA-010 | M | missing | M | No walking line, no configurable inner-edge distance, no check against the rule minimum. |
+| STA-011 | M | missing | L | No conflict detection, no naming of conflicting rules, no alternatives, no keep-last-valid behaviour. ModelGeometry records only a failure string and drops the body (crates/archicraft-geometry/src/evaluate.rs:57,78-85); ElementGe… |
+| STA-020 | M | missing | L | No straight/L/U/polyline stair, no flight/landing segment types, no corner turning type. The only body generator is a vertical extrusion of a 2D ring (crates/archicraft-geometry/src/extrude.rs:18). |
+| STA-021 | M | missing | M | No landing-corner riser offsets (fixed/minimum, length or goings, linked, sum-to-one-going). |
+| STA-022 | M | missing | M | No node insertion on a baseline, no automatic landing, no minimum landing length (D.3: 1.00 m), no surplus placement option. |
+| STA-023 | M | missing | M | No riser distribution across flights, no symmetric U-stair (test 22 = 11 + 11 missing). |
+| STA-024 | M | missing | S | No start/end-with-riser-or-tread option. |
+| STA-025 | S | missing | L | No equal-angle winders (corner turning type or segment type), no count modes, no 30-degree test. |
+| STA-026 | C | missing | M | No equal-going single-point winders. |
+| STA-027 | S | missing | L | No arc baseline, no arc input in any tool (points are straight polylines, tools.rs:318), no curved/spiral flights. Tessellation settings exist (project.rs:28-44). |
+| STA-028 | S | missing | S | No chord/arc going measure. |
+| STA-029 | S | missing | M | No lock-baseline option; no automatic flight lengthening/shortening. |
+| STA-040 | M | missing | L | No tread/riser thickness, nosing, gaps, open-riser mode or separate flight/landing finish settings; D.2 default finish 0.025 m absent. Requires stepped-profile body generation beyond extrude.rs. |
+| STA-041 | S | missing | L | No flight/landing structure choice (none / monolithic smooth / stepped) with materials; D.2 default (monolithic, smooth) absent. Per-part materials are supported by BodyPart (evaluate.rs:22-28) but Element exposes a single materi… |
+| STA-042 | C | missing | L | No stringers/beams, no profile resource (Project has layers/materials/views only, project.rs:164-185). |
+| STA-043 | S | missing | M | No seam suppression between same-material treads and risers. feature_edges (crates/archicraft-geometry/src/mesh.rs:239) is coplanarity-based per mesh and would draw every tread/riser edge. |
+| STA-044 | S | missing | M | No part-level failure reporting with fallback; ElementGeometry has no per-part warnings (evaluate.rs:31-35). |
+| STA-045 | M | missing | L | No stair plan symbol: no step lines, walking line, arrow, up/down label, break line or configurable break height. Generic plan classification is per part against one cut height (crates/archicraft-geometry/src/plan.rs:133-143) and… |
+| STA-046 | S | missing | L | Elements appear only on their home storey (plan.rs:109-120); no storey-above display, no ELM-008 display range. |
+| STA-047 | C | missing | M | No riser/tread numbering. |
+| STA-048 | S | missing | M | No free-form solid element and no conversion. |
+| STA-049 | S | missing | S | No solid operations exist; no relation store in Project (project.rs:164-185). |
+| STA-050 | C | missing | M | No ramp mode (test 5 degrees / 0.500 m -> 5.715 m missing). |
+| STA-051 | M | missing | L | IfcClass has only Wall/Slab/Footing/Covering (element.rs:10-32); writer emits body parts as unclassed mesh children (crates/archicraft-ifcx/src/alpha/writer.rs:361-385); reader skips unknown kinds (crates/archicraft-ifcx/src/alph… |
+| STA-052 | S | missing | M | No preset resource and no DIN 18065 / OENORM B 5371 rule values. |
+
+### 4.21 Railings
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| RAI-001 | S | missing | L | No railing element, no 3D polyline with per-node elevations (tool points are DVec2, tools.rs:318), no height/side/offset. |
+| RAI-002 | S | missing | L | No edge picking, no host relation or associativity (Project has no relations; geometry evaluates elements independently, evaluate.rs:64-91), no static mode, no stair-to-slab continuation. |
+| RAI-003 | S | missing | XL | No railing components, no profile resource, no sweep geometry (only extrude.rs:18 prisms). |
+| RAI-004 | S | missing | M | No distribution modes or alignment (test 4.300/1.200 -> 4 x 1.075 missing). |
+| RAI-005 | S | missing | M | No per-tread pattern, riser-line posts, balusters per tread or floor-reaching end posts. |
+| RAI-006 | S | missing | M | No rail end extension/shape, no mitred/disconnected corners. |
+| RAI-007 | S | missing | M | No railing presets (glass balustrade, vertical bars, horizontal rails/cables); D.2 railing defaults absent. |
+| RAI-008 | C | missing | M | No terrain element and no draping. |
+| RAI-009 | S | missing | M | No railing plan representation; generic cut/projected machinery (plan.rs:111-170) could apply but break-line coupling to the stair does not exist. |
+| RAI-010 | S | missing | M | No IfcRailing class or part writing (IfcClass closed, element.rs:10-32; writer parts unclassed, writer.rs:361-385). |
+
+### 4.22 Free-form solids and solid operations
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| SOL-001 | M | missing | L | FreeFormSolid element kind holding an editable planar-faced mesh (own half-edge/face structure per technology-choices.md:157), box tool, extrude polygon/rectangle/circle with height (no circle generator exists), toolbox entry, IF… |
+| SOL-010 | S | missing | XL | Revolve profile around axis, sweep along 2D/3D path, merge selected solids (merge needs a 3D Boolean union, i.e. Manifold). |
+| SOL-002 | M | missing | XL | Sub-element selection (vertices, edges, faces, combinations) in 3D, move/rotate/scale with numeric input, face push/pull along normal or axis by typed distance, acceptance test (1 m cube -> 1x1x2 m). |
+| SOL-003 | M | missing | M | Per-face material, per-edge smooth/hard and visible/hidden flags in the solid mesh structure, UI to assign them, feature-edge rendering honouring the flags (render currently uses angle threshold, mesh.rs:239), IFCX persistence. |
+| SOL-004 | M | missing | M | Convert command: take the element's evaluated parts (incl. Boolean-modified results) into a free-form solid keeping face materials, after a confirmation dialog; handle imported elements (IFX-082, do not exist yet). |
+| SOL-005 | S | missing | XL | Merge coplanar faces, smooth-merge, curve-merge edges, re-segmentation, fillet, chamfer, stretch by face/edge/vertex. |
+| SOL-006 | S | missing | M | Curved input (circle extrusion, revolve) segmented from the project tessellation by default with a user override per solid. |
+| SOL-007 | S | missing | M | Sweep frame transport (rotation-minimising frames) along 3D paths without flips/twists; tests on non-coplanar segments. |
+| SOL-008 | M | missing | M | Apply the check inside every solid-editing command and Boolean result, reject with an explanatory message (NFR-REL-005) or repair (merge coincident points, drop slivers); handle empty results. |
+| SOL-011 | C | missing | L | Open-sheet construction aids, always auxiliary (ELM-014). Could priority. |
+| SOL-009 | M | missing | S | No free-form solid kind; the D.5 list (20 classes incl. IfcBuildingElementProxy as default and IfcRoof) is absent from IfcClass; needs a KindTag::FreeFormSolid arm in ifc_classes, writer/reader codes and the reader's class fallba… |
+| SOL-020 | M | missing | XL | Boolean engine integration (Manifold or alternative), solid-operation relation model (targets, operators, kind), command and UI to create operations, application in evaluate, terrain/free-form solids as participants, failure hand… |
+| SOL-021 | M | missing | M | Subtraction variants extruding the operator body to +Z / -Z infinity (finite large prism from the operator's projection/upper or lower surface), UI choice, persistence of the variant. |
+| SOL-022 | M | missing | L | Persistent relations in the model and in the archicraft:: IFCX namespace (write + read + validation), automatic re-evaluation on any participant change, acceptance test (move operator 0.10 m). |
+| SOL-023 | M | missing | L | Select related targets/operators, show modifiers of an element (properties panel), remove relations (all targets, all operators, between selected), restore unmodified geometry on operator delete (DeleteElements at command.rs:38 k… |
+| SOL-024 | M | missing | M | Two-stage evaluation: raw bodies for every element, then operations applied with operators' raw bodies; multi-target/multi-operator and mutual relations; order-independence tests. |
+| SOL-025 | M | missing | M | Per-element hidden/ghosted/wireframe display states, operators keep effect in all states, remain selectable and editable while hidden/ghosted. |
+| SOL-026 | S | missing | M | Material choice for new faces (operator's or target's) per operation; needs face provenance from the Boolean result mapped onto BodyParts. |
+| SOL-027 | S | missing | M | Boolean stage after the junction stage with explicit operations prevailing; conflict tests. |
+| SOL-028 | M | missing | S | Holds by construction once Booleans are applied inside ModelGeometry::evaluate; needs section/elevation views (do not exist) and a consistency test over the four outputs. |
+| SOL-030 | M | missing | L | Trim command: select walls/columns/beams/solids, pick roofs/shells/slabs, choose part to keep (modifier: remove), preview highlight, stored as associative trim relation. |
+| SOL-031 | M | missing | M | Trim only where the element passes through the roof surface, not outside the roof footprint; acceptance test with a 15° inclined wall under a hip roof. |
+| SOL-032 | S | missing | L | Trimming volume definition per roof/shell (downward from outline or pivot line, upward, finite editable), on-demand display. |
+| SOL-033 | S | missing | L | Non-associative crop by a plane (single-plane roof plane, picked face, three points) that permanently rewrites the element (likely converting to a free-form solid), independent of the reference afterwards. |
+
+### 4.23 Terrain and site
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| TER-001 | M | missing | L | Whole requirement: terrain element kind with 3D points, optional breaklines, editable boundary polygon, TIN top surface, flat bottom at elevation or thickness, body mesh evaluation, plan and 3D drawing. A constrained Delaunay tri… |
+| TER-002 | M | missing | M | Terrain tool: draw boundary, add points with elevation input, build from 2D contour polylines. |
+| TER-004 | M | missing | M | Pick existing 2D polylines into a selected terrain as breaklines, assign one elevation to all vertices of a contour in one action, refuse to create terrain silently without a selection. |
+| TER-005 | M | missing | L | Add/move/delete terrain points and breaklines and edit the boundary in plan and 3D with numeric elevation input. |
+| TER-006 | M | missing | L | Associative cutting of terrain by building elements (upward-extruded subtraction, intersection following grade), re-evaluated on change. |
+| TER-007 | S | missing | M | Contour lines from base elevation and interval, major contours labelled, auto-update, replace/accompany triangulation edges, convert to static 2D lines. |
+| TER-008 | S | missing | S | Smooth/faceted display choice for terrain in 3D (per-vertex averaged normals vs. per-face normals). |
+| TER-010 | C | missing | M | Thin/simplify terrain points with a vertical tolerance. |
+| TER-012 | M | missing | M | Write terrain as IfcGeographicElement child of the site with a closed body mesh split into Body_<n> tiles (IFX-038; MAX_MESH_POINTS is only validated, not split: crates/archicraft-geometry/src/mesh.rs:49,126); read it back. |
+| TER-014 | S | missing | S | Additional non-volumetric TopSurface part; needs a part-kind flag so validation and the writer accept an open mesh. |
+| TER-013 | M | missing | M | Terrain creation under 5 s at 50,000 points and 3D navigation targets; performance test harness. |
+
+### 4.24 Objects and component library
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| OBJ-001 | M | missing | L | Built-in component library with the DW-011 doors, windows and empty openings and generic parametric box/cylinder. |
+| OBJ-002 | M | missing | L | Component definition type: persistent ID, name, version, category; parameter schema (name, type, unit, default, range, grouping); parametric 3D geometry and plan symbol. |
+| OBJ-014 | S | missing | M | Plan symbols per detail level, named key points, derived values on definitions. |
+| OBJ-003 | M | missing | L | Placement tool with insertion point, rotation snapping, elevation relative to home storey, mirroring; parameter editing in the inspector. |
+| OBJ-004 | M | missing | S | Instance references by definition ID and version. |
+| OBJ-005 | M | missing | M | Placeholder instances (bounding box and name) that stay selectable/deletable, list of missing definitions, relinking. |
+| OBJ-006 | M | missing | M | Embed used definitions in the project file and read them back. |
+| OBJ-007 | S | missing | L | Linked external library folders, re-point, unlink/relink, duplicate reporting with precedence. |
+| OBJ-008 | S | missing | M | Version upgrade offer keeping compatible parameter values. |
+| OBJ-009 | S | missing | L | Save a selection as a reusable component (category, name, destination, frozen geometry), appearing in the catalogue immediately. |
+| OBJ-011 | S | missing | M | Shared geometry per definition in memory and type+occurrence nodes in IFCX. |
+| OBJ-012 | C | missing | M | Parameter handles for width, depth, height, arc rise. |
+| OBJ-013 | S | missing | L | At least 30 furniture/fixture/vegetation/vehicle definitions. |
+
+### 4.25 Spaces
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| SPC-001 | C | missing | L | Space element with name, number, boundary (drawn or detected), storey-linked height, plan stamp, IfcSpace export. |
+| SPC-002 | C | missing | M | Automatic update of detected boundaries when walls move. |
+
+### 4.26 2D drafting and annotation
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| ANN-001 | M | missing | L | 2D construction lines (single, chained straight+arc), polylines, arcs and circles by centre/radius and three points, each with pen and line type; drawing them in plan. |
+| ANN-011 | S | missing | L | Rectangles, rotated rectangles, splines, tangent arcs/circles with solution choice. |
+| ANN-012 | C | missing | M | 2D construction geometry in section/elevation views. |
+| ANN-002 | M | missing | M | 2D elements owned by a view and a layer; usable as tracing input and trim/split cutters. |
+| ANN-003 | C | missing | M | Drafting fills with DSP-009 patterns showing their area. |
+| ANN-004 | S | missing | L | Linear dimensions (horizontal, vertical, aligned, chained), associative points, stale-reference flagging. |
+| ANN-005 | S | missing | M | Level dimensions with selectable origin, associative to slab/roof/terrain top, bottom or core top. |
+| ANN-006 | C | missing | M | Angle dimensions between edges and for arcs. |
+| ANN-007 | C | missing | L | Text blocks with font, paper-unit size, styles, alignment, pen, line spacing, fixed anchor; text style editor and presets. |
+| ANN-008 | C | missing | M | Element labels with dynamic fields (name, material, layer structure, elevation). |
+| ANN-009 | S | missing | M | Copy semantics of associative annotations (with element: refer to copy; alone: keep original). |
+| ANN-010 | C | missing | S | Write 2D construction geometry as IfcAnnotation curves; text/dimensions in the archicraft namespace. |
+
+### 4.27 Materials and appearance
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| MAT-001 | M | partial | S | No optional cover fill. The cut fill carries RGB colours instead of pen references (needs DSP-005). Skins, profile regions and faces do not exist yet, so only elements reference materials. |
+| MAT-008 | S | missing | S | Roughness field, editor control, IFCX attribute (schema formatVersion bump) and use in 3D shading. |
+| MAT-002 | M | partial | S | The '2D hatching included' clause cannot be met while hatches are not rendered (DSP-010); no test asserts propagation to plan and 3D. |
+| MAT-003 | M | partial | S | Cut fills are a FillPattern label plus one flat RGB tone (template.rs:286-290, plan.rs:264-282): no hatch definitions or pens behind the 16 hatch-pattern materials (DSP-010/DSP-005); names, colours and D.4 priorities are complete… |
+| MAT-004 | S | missing | L | Per-face appearance overrides for walls, slabs, roofs and reveals, in model, properties, 3D rendering and IFCX. |
+| MAT-006 | S | partial | M | No category grouping/filter in the browser; no import of materials from another project or a material library (IFCX file). |
+| MAT-007 | M | partial | S | bsi::ifc::material {code, uri} is not written although every material has a category (IFX-040/IFX-041); the category stays in the archicraft namespace pending the bSDD dictionary choice (material.rs:33-35, SRS O-7). |
+
+### 4.28 Layers and visibility
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| LAY-001 | M | partial | S | No warning when a new element is placed on a hidden or locked layer: tools.rs:252-337 and plan.rs:522-534 execute AddElements without checking the default layer; plan_add_elements (command.rs:320-342) accepts additions to locked… |
+| LAY-002 | M | partial | S | No sorting (by name, count or manual order); layers are listed in insertion order (project.rs:171, command.rs:220-223). |
+| LAY-003 | S | missing | M | Layer combination resource, store/apply command, UI, IFCX persistence and saved-view reference. |
+| LAY-004 | M | done | none | Done: Eleven template layers matching the SRS list (Structure, Exterior walls, Interior walls, Slabs, Roof, Openings, Stairs and railings, Terrain, Furniture, 2D construction, References): crates/archicraft-model/src/template.rs:… |
+| LAY-005 | M | done | none | Done. no explicit test writes a project with a hidden layer, see observations |
+
+### 4.29 Measurement and element information
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| MEA-001 | M | missing | L | Measure tool for cumulative distances, angles and height differences in 2D and 3D using snapping, reporting in working units, creating no element. |
+| MEA-006 | S | missing | S | Polygon area mode of the measure tool. |
+| MEA-002 | S | partial | S | Only for exactly one selected element (`let [id] = ids.as_slice() else { return }`, properties.rs:543-546); no height; no summation over several elements of one kind; polyline/spline length impossible until ANN-001. |
+| MEA-003 | S | partial | S | Walls: length of both faces missing; net-after-openings is trivially true only because openings do not exist. Slabs: single area, not top and bottom; perimeter missing. Roofs, columns, beams, doors/windows (DW-015), stairs (STA-0… |
+| MEA-004 | C | missing | S | Plan-projected union area of a selection. |
+| MEA-005 | S | partial | M | No detection of duplicate or overlapping elements of the same kind; no explicit clean-up check command. |
+
+### 4.30 Undo, redo and history
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| UND-001 | M | done | none | Done: Every model change is a Command (model/src/command.rs:36-92: elements, storeys, layers, materials, tool defaults, settings, info, spatial names, location) executed through History (766-898) with configurable limit (DEFAULT_… |
+| UND-002 | M | done | none | Done. note: History::undo/redo drop both stacks if applying a recorded inverse fails, command.rs:827-833 and 847-850 — a defensive path that is unreachable in normal operation |
+| UND-003 | S | partial | S | In wall-chain mode every click already executes Command::AddElements for the segment (tools.rs:464-476), so Backspace removes only the point and leaves the created wall in the model (the next click draws a second wall from the pr… |
+| UND-004 | C | partial | S | A history panel listing executed commands by name and stepping back to a chosen entry (multiple undo/redo). |
+| UND-005 | M | done | none | Done: Cameras live in per-view state, not the model: Camera2d/Camera3d views/camera.rs:13-62, 102- |
+
+### 4.31 Preferences
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| SET-001 | M | partial | M | Missing preference items: UI language (strings are inline literals, NFR-L10N-001 not done), navigation scheme (SET-003), snap dwell time (INP-011), tracker behaviour (INP-002), default units for new projects (New always uses defa… |
+| SET-002 | M | partial | M | Of PRJ-007's list, layer structures, profiles, presets, saved views (View3d holds only id/name/projection model/src/project.rs:111-116, no camera or visibility state) and stair rule defaults do not exist in the model or the file. |
+| SET-003 | S | partial | M | A NavigationScheme type with the ArchiCraft default, a trackpad-first preset and CAD/3D-tool-like presets, stored in Preferences and selectable in the dialog, with the plan and 3D views reading bindings from it. |
+| SET-004 | S | partial | M | Export/import commands with file dialogs, a versioned file format covering preferences and (once UI-009 exists) shortcuts, validation of imported data, and the D.9 fuzzing of the import parser. |
+
+### 5.2.1 File structure and conformance
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| IFX-001 | M | done | none | Done: crates/archicraft-ifcx/src/container.rs:10-28 (IfcxFile with header/imports/schemas/data, Header fields) |
+| IFX-002 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:39-42 (header.id = archicraft:project/<project UUID>), 340-347 (header fields) |
+| IFX-003 | M | partial | S | Imports needed by preserved foreign data are not kept, because IFX-066 (preservation of foreign attributes/nodes and their imports) is not implemented; the import list is hard-coded rather than derived from the attributes actuall… |
+| IFX-004 | M | partial | S | No local cache of foreign imports (IFX-066): imports outside the four bundled Table 5-2 URIs are only warned about (validate.rs:129-146) and their attributes stay unchecked; bundled copies and the no-network clause hold. |
+| IFX-005 | M | done | none | Done: crates/archicraft-ifcx/src/validate.rs:239-254 (check_attributes: undeclared attribute = error), 166-236 (value check per data type as in ifcx-core) |
+| IFX-006 | M | partial | S | Runs only on the two increment-0 samples (crates/archicraft-model/src/samples.rs:32-46); the Section 7.3 reference models RM-S/RM-M/RM-L do not exist yet. The viewer check runs the viewer's composition code in Node (not a headles… |
+| IFX-007 | S | partial | S | Storey elevations in usd::xformop (writer.rs:237-239, 313) and archicraft:: plan coordinates (wall start/end, slab outline/holes) are written unrounded; only mesh and curve points pass through round_coordinate. Determinism and pl… |
+| IFX-008 | C | partial | S | The application always saves compact (crates/archicraft-app/src/document.rs:141 passes false); no preference or save-dialog option lets the user choose indented output |
+
+### 5.2.2 Identity and tree structure
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| IFX-010 | M | done | none | Done. types, voids and skin parts will reuse sub_node_id when those nodes exist |
+| IFX-011 | M | partial | S | Save As (crates/archicraft-app/src/app.rs:189-211) only asks for a path; there is no "new project" (new UUIDs + new header.id) versus "copy of this project" choice and no function to re-identify a Project. Copy, duplicate and arr… |
+| IFX-012 | M | partial | S | Site-level elements (terrain) are not placed under the site, and hosted elements / compound parts are not contained through their host, because none of these element kinds exist; the writer always nests elements under their home… |
+| IFX-013 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:252 (project node is the root, every other node referenced via children or inherits), 39-42 (header.id derived from project.id, independent of file name) |
+| IFX-014 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:54-66 (child_key = <Kind>_<first 8 hex of UUID>, full UUID on collision within a parent, so keys are unique, stable and independent of the display name), applied at 254, 270, 286,… |
+| IFX-015 | M | missing | M | Doors, windows and openings do not exist; the writer must nest them as children of the host with a host-relative usd::xformop (Appendix C) and the reader must read them back |
+| IFX-016 | M | missing | M | Stairs, railings, curtain walls and multi-plane roofs do not exist; the writer must write their parts as child nodes with their own IfcStairFlight/IfcSlab/IfcMember/IfcPlate classes and the reader must restore them |
+| IFX-017 | M | partial | S | Only a single "Body" part is ever produced (evaluate.rs:169-171,180-182); Skin_1…n parts for layer structures, Frame/Panel/Glazing parts and Void children are not generated. The writer path is generic and needs little change once… |
+
+### 5.2.3 Semantics
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| IFX-020 | M | done | none | Done. for existing kinds (IfcClass is a closed 4-variant enum, see observations |
+| IFX-021 | M | done | none | Done. elements have no description field in the model yet; when ELM adds one it must be written as bsi::ifc::prop::Description |
+| IFX-022 | S | done | none | Done: crates/archicraft-model/src/element.rs:35-66 (Position with is_external: None when undefined) |
+| IFX-023 | C | partial | M | Compute Height/Width/Length/Depth/NetVolume/NetArea/NetSideArea/CrossSectionArea per element kind from the evaluated geometry and write them with the prop@v5a attributes |
+| IFX-024 | M | missing | M | Add predefined-type fields to the model (slab type, footing type), expose them in the UI, declare and write them in the archicraft namespace, read them back; add a standard attribute when the registry provides one (O-6) |
+| IFX-025 | M | done | none | Done. semantic openings with Void children for doors/windows/openings are covered by IFX-036 |
+
+### 5.2.4 Geometry and placement
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| IFX-030 | M | done | none | Done. the standard-namespace georeferencing is IFX-070 |
+| IFX-031 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:237-239 (4x4 row-major with translation in the fourth row), 312-313 (storey transform = elevation) |
+| IFX-032 | M | done | none | Done. the writer itself does not call check_closed; validity rests on the generator and tests, see observations |
+| IFX-033 | M | partial | S | Only wall L/T junction cleanup exists. Layer-structure intersections, openings and hosted doors/windows, trims to roofs/slabs, solid operations and beam junctions are not in the geometry crate yet; the writer needs no change but… |
+| IFX-034 | M | partial | S | Max segment angle has no UI field (only chord deviation is in the dialog); no curved geometry exists, so nothing tessellates with these values yet |
+| IFX-035 | S | partial | S | Beam and column axes do not exist (no such elements); grid lines as Axis_<label> curves under IfcGrid are not implemented |
+| IFX-036 | M | missing | M | No doors, windows or openings exist; the writer must emit a closed Void mesh child per occurrence (host-relative, invisible) and the host body must have the volume removed |
+| IFX-037 | S | missing | S | Needs types (IFX-050); then identical geometry is written once on the type node |
+| IFX-038 | M | partial | M | No splitting of large bodies into closed Body_<n> sub-solids (the writer writes a part of any size, writer.rs:372-381); sharing vertices across smooth edges is not needed until curved/free-form solids exist |
+
+### 5.2.5 Materials and appearance
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| IFX-040 | M | partial | S | bsi::ifc::material with code and uri is never written although every material has a category (crates/archicraft-model/src/material.rs:33-35 defers it to O-7) |
+| IFX-041 | S | partial | M | No URIs, no configurable mapping table delivered with the template (hard-coded enum), nothing written to the standard namespace |
+| IFX-042 | C | missing | M | Add roughness/metalness to Material (Section 4.27), declare gltf::material in-file, write and read it |
+| IFX-043 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:331-332 (Name on every material node), 376-379 (every body part inherits a material) |
+
+### 5.2.6 Types
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| IFX-050 | S | missing | L | Type/occurrence split for doors, windows and objects: type node with class, TypeName and host-independent parts; occurrences with inherits.type, own transform, Void and occurrence attributes; reader support |
+| IFX-051 | S | missing | S | Mirrored occurrences need a separate mirrored type; writer must never emit negative-determinant transforms (no transform besides storey translation exists today) |
+
+### 5.2.7 Authoring data (ArchiCraft namespace)
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| IFX-060 | M | partial | S | Junction settings, layer structures, profiles and presets named by the requirement are not stored because neither the model nor the writer has them; project settings, layers, materials, tool defaults, views, counters, storey, ele… |
+| IFX-061 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/schema.rs:126-209 (archicraft::project), 212-257 (storey, element, wall, slab) with complete value descriptions incl. enums, optional fields and quantityKind |
+| IFX-092 | C | missing | S | Publish the archicraft:: schema on ifcx.dev and optionally import it instead of declaring it in-file |
+| IFX-062 | M | partial | S | No migration mechanism for files written by older ArchiCraft versions: the reader has no version-dispatched conversion step (only version 1 exists so far, but the hook and its test are missing) |
+| IFX-063 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:257-338,396-402 (class, Name, xformop, mesh, basiscurves, materials via inherits and presentation attributes) |
+| IFX-064 | M | done | none | Done: crates/archicraft-ifcx/tests/roundtrip.rs:47-62 (every parameter equal after save/load), 64-73 (regenerated geometry gives a byte-identical file, i.e. identical within 1e-6 m), 197-232 (golden files reproduce exactly) |
+| IFX-065 | S | missing | L | Compare stored meshes with regenerated geometry on open, list deviating elements, offer per-element regenerate/keep (keeping requires an imported-element kind) |
+| IFX-066 | S | missing | L | Store foreign attributes per node and foreign nodes in the model, copy their in-file schemas, keep non-Table-5-2 imports and cache them locally, write all of it back as long as the owning node exists |
+| IFX-067 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:142-190 (all materials, layers, views and tool defaults inside archicraft::project on the project node), 329 (only used materials become nodes, and those are referenced via inherit… |
+| IFX-068 | M | partial | S | The auxiliary flag (ELM-014) does not exist, so auxiliary elements cannot be excluded from the building elements; the optional "export visible elements only" does not exist (allowed) |
+
+### 5.2.8 Location
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| IFX-070 | S | partial | M | No SurveyPoint child with usd::xformop, no epsg<code> attributes (eastings/northings/height) with in-file schemas, no second reference point on +Y for true north, no epsg4326 latitude/longitude (Location at crates/archicraft-mode… |
+
+### 5.2.9 Opening and referencing third-party IFCX
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| IFX-080 | M | done | none | Done: crates/archicraft-ifcx/src/lib.rs:40-51 (load) |
+| IFX-081 | S | partial | L | inherits are not expanded into the inheriting node's attributes/children; no local-file import resolution; no remote fetch with user consent; a third-party file cannot be opened at all (requires archicraft::project); no R2-style… |
+| IFX-082 | S | missing | L | Add an ImportedElement kind holding mesh parts, class, name, material and placement; evaluate it as pass-through geometry; support select/inspect/hide/move/copy/delete/layer/storey in the UI; write it back with its original nodes |
+| IFX-083 | S | done | none | Done: crates/archicraft-ifcx/src/validate.rs:32-74 (Problem with severity and node path), 244-248 (schema violations), 272-276 (cycles, depth), 305-319 (unknown references), 138-145 (unresolved imports) |
+| IFX-084 | C | missing | L | Link an IFCX file read-only, display it in plan/3D, make it snappable, reload/unlink, without merging |
+
+### 5.2.10 Evolution of IFCX
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| IFX-090 | M | done | none | Done. only one version has ever been written |
+| IFX-091 | S | missing | L | When a successor is published: new adapter module, migration of existing files, update of Table 5-2 pins and bundled schemas |
+
+### 5.3 Other file formats
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| XCH-008 | M | done | none | Done: crates/archicraft-ifcx/src/lib.rs:42-51 (load dispatches on ifcxVersion) |
+
+### 5.4 Hardware interfaces
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| HW-001 | M | done | none | Done: Plan: middle-button drag pans crates/archicraft-app/src/views/plan.rs:427-433, wheel zooms about the cursor plan.rs:404-418, secondary-button context menu plan.rs:634,728-780. 3D: middle drag pans, Shift+middle orbits crate… |
+| HW-002 | M | partial | S | Pan vs zoom is decided solely by MouseWheelUnit::Point. winit reports Windows precision-touchpad scrolling as line deltas, so on the Windows minimum/reference laptops a two-finger drag would zoom instead of pan; horizontal deltas… |
+| HW-007 | S | partial | S | Shift + two-finger drag can only yaw on macOS: AppKit turns Shift+vertical scroll into horizontal deltas (egui 0.36.2 wheel_state.rs:127) while Camera3d::orbit maps delta.y to pitch (camera.rs:185-188); the shortcuts window docum… |
+| HW-003 | M | partial | M | Only the commands that exist have shortcuts; the D.8 set (cut/copy/paste, command palette, move/rotate/mirror/array/trim/split/offset, measure, other element tools, show all/hide/isolate) is absent. Menus and dialogs are not keyb… |
+| HW-004 | C | missing | L | No 6-DoF device handling anywhere (no HID/3DxWare integration; grep for 3D mouse/space mouse finds nothing). |
+| HW-005 | C | missing | S | Not verified with a tablet on any platform; pressure/eraser/hover semantics unaddressed. Needs a manual check and, if needed, mapping of pen buttons to primary/secondary. |
+| HW-006 | M | partial | S | UI scaling 100-200% is available only through the OS scale factor and egui's built-in Ctrl/Cmd +/-/0 zoom (NFR-PORT-005 holds by inspection); egui's zoom_factor is not exposed in Preferences (prefs.rs:27-53) nor persisted; DPI ch… |
+
+### 5.5 Software interfaces
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| SW-001 | M | partial | M | Registering as handler for .ifcx with the user's consent at first start is not implemented on any platform (no first-start flag in Preferences, no Windows HKCU registry/ProgID, no macOS CFBundleDocumentTypes/LSSetDefaultRoleHandl… |
+| SW-002 | S | missing | S | Read ctx.input raw.dropped_files, accept .ifcx, route through guard(Then::Open(path)) so the unsaved-changes prompt applies; optional hover feedback. |
+| SW-003 | S | missing | L | Needs EDT-016 copy/paste first, a serialised clipboard payload (elements + referenced materials, layer structures, profiles), conflict resolution UI (use existing / keep both / overwrite, PRF-009), and either multiple open projec… |
+| SW-004 | C | partial | XL | No out-of-process interface (socket/pipe/CLI), no versioned documented schema, no explicit units in the API (commands take metres), no batching with deferred regeneration, no query API. |
+
+### 6.1 Performance and scalability
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| NFR-PERF-001 | M | partial | S | Concrete minimum/reference machines not chosen (O-15); nothing in README or release artefacts publishes them (NFR-PORT-006); no measurement protocol or results file exists. |
+| NFR-PERF-002 | M | partial | L | No RM-M/RM-L models (samples.rs has two models of ≤15 elements) and no benchmarks, so the ≤10 s / ≤5 s / ≤30 s targets are unmeasured. Likely hotspots: file flattened twice with full attribute clones (validate.rs:342 and reader.r… |
+| NFR-PERF-003 | M | partial | L | Unmeasured (no RM-M/RM-L, no fps instrumentation). Design limits: non-indexed vertices, 40 B each, 3 per triangle plus 2 per feature edge (render3d.rs:58-64,151-172) → ~240 MB for RM-M, ~1 GB for RM-L; no culling or LOD; 4× MSAA… |
+| NFR-PERF-004 | M | partial | L | Unmeasured. The plan is drawn with egui's painter, which re-tessellates every line and fill every frame (plan.rs:247-289) and does no viewport culling; technology-choices.md:118-126 already states this is too slow for large plans… |
+| NFR-PERF-005 | M | partial | M | No latency measurement. SnapTargets::from_plan rebuilds all node/edge lists from scratch every frame while drawing (plan.rs:487-490) and snap() is O(nodes) + O(near²) with no spatial index (tools.rs:224-250); fine for small model… |
+| NFR-PERF-006 | M | partial | L | Unmeasured, and the update is not incremental: ModelGeometry::evaluate re-extrudes and re-triangulates every element (crates/archicraft-geometry/src/evaluate.rs:64-91), all plan caches are dropped (document.rs:100), footprints ar… |
+| NFR-PERF-007 | M | partial | L | Save (serialise + write + backup copy) runs on the UI thread with no progress indicator (crates/archicraft-app/src/app.rs:214-235); geometry regeneration is synchronous inside the frame (document.rs:97-103); no progress UI, no ca… |
+| NFR-PERF-008 | S | partial | L | No measurement and no RM-L. Expected pressure points: non-indexed f32 vertex arrays (~1 GB CPU + GPU for RM-L, render3d.rs:151-172), serde Value tree of the whole file on open and on save (validate.rs:328, writer.rs:422), full Pr… |
+| NFR-PERF-009 | S | partial | S | Not measured on RM-M. On the UI thread the request still clones the whole Project (autosave.rs:205) and may trigger a full geometry evaluation if stale (app.rs:503); a timing test/benchmark is missing. |
+
+### 6.2 Reliability and data integrity
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| NFR-REL-001 | M | done | none | Done: crates/archicraft-app/src/persistence/mod.rs:70-108: temp file in the target folder, write_all + sync_all, rename over the target, directory fsync, temp removed on failure |
+| NFR-REL-002 | M | done | none | Done: Default 5 min, configurable 1–120: crates/archicraft-app/src/persistence/prefs.rs:33,59,101 and dialogs.rs:692-693 |
+| NFR-REL-003 | M | done | none | Done: Previous version copied to .bak, older ones rotated to .bak2…, count from preferences (default 1, 0–20): crates/archicraft-app/src/persistence/mod.rs:52-63, 88-96 |
+| NFR-REL-004 | M | partial | S | Hosts and types do not exist in the model yet, so those checks are absent. A wall whose top-linked storey is missing is skipped (validate.rs:267-271 via reader.rs:724-730) instead of being repaired deterministically to a fixed he… |
+| NFR-REL-005 | M | partial | S | SetStoreyElevation/SetStoreyHeight (command.rs:186-207) validate storey spacing only, not the elements whose extent depends on the storeys: moving a storey down can put a linked wall's top below its base; the command succeeds and… |
+| NFR-REL-006 | M | partial | S | No fallback representation: a failed element is skipped in plan (plan.rs:121-123) and 3D (render3d.rs:111-113), so it cannot be picked, highlighted or zoomed to from the panel (ZoomTo finds no bounds). The global panic hook (cras… |
+| NFR-REL-007 | S | partial | M | No coverage-guided fuzz target (no fuzz/ directory, cargo-fuzz not set up), no nightly fuzz job in .github/workflows/ci.yml, no D.9 corpus seeded with R2 examples and ArchiCraft files, no 1 h/release run; the preference import (S… |
+
+### 6.3 Accuracy and numerical robustness
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| NFR-ACC-001 | M | done | none | Done: All model coordinates are f64 (glam DVec2/DVec3): crates/archicraft-model/src/element.rs:131-132,180-182 |
+| NFR-ACC-002 | M | done | none | Done: Input parsed at full double precision in any unit incl. imperial fractions down to 1/64": crates/archicraft-model/src/units.rs:391-424, 509-547 (tests 578-587, 625-630) |
+| NFR-ACC-003 | M | partial | S | The tolerance is not applied uniformly: wall joining uses JOIN_TOLERANCE 1e-4 (crates/archicraft-geometry/src/wall.rs:24, 212-220), chain closing 1e-6 (tools.rs:338), mesh point merging 1e-6 (mesh.rs:53), slice keys 1e-9 (slice.r… |
+| NFR-ACC-004 | M | partial | M | The survey point is stored but never applied: no readout or input of coordinates in the survey system, no IFX-070 SurveyPoint/second reference point in the written file (writer.rs:268-280 writes only RefElevation), no EPSG code /… |
+| NFR-ACC-005 | M | done | none | Done: Display formatting rounds to the project's unit and decimals only at output: crates/archicraft-model/src/units.rs:281-356 (format_length/format_angle use UnitSettings.length_decimals/angle_decimals |
+
+### 6.4 Usability and learnability
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| NFR-USE-001 | M | missing | M | No usability test has been planned or run; the test scenario needs exterior/interior walls, a slab, doors, windows and a gable roof, of which only walls and slabs exist. Also no test protocol or 15-minute introduction material. |
+| NFR-USE-002 | M | partial | L | Only two element tools exist. The clause 'the same edit commands for nodes, edges and polygons' has nothing behind it: no node/edge/polygon editing (EDT-008, EDT-009), no transforms, no stretch. Consistency can only be inspected… |
+| NFR-USE-003 | M | partial | S | Prompts omit keys that are live in several states (tools.rs:382-402): the rectangle first-corner and rotated-rectangle width steps list no keys although Esc, R (walls), typed input, Shift and Backspace work; Backspace and R are a… |
+| NFR-USE-004 | M | done | none | Done. now. The permitted one-time notice with 'do not show again' for conversions (SOL-004, ROF-009, STA-048) has no infrastructure yet because those conversions do not exist; re-inspect when they arrive. |
+| NFR-USE-005 | S | missing | S | No searchable command palette: no fuzzy search UI, no execution from a list, no shortcut to open it (D.8 lists 'command palette' among required shortcuts). Action::ALL/label()/shortcut() make this a small task. |
+| NFR-USE-006 | S | partial | M | No layer structures (PRF), no presets, and no defaults for doors, windows, roofs, stairs, railings, columns, beams, terrain, grids (D.2) because those elements do not exist. AS-01 cannot be modelled yet. |
+
+### 6.5 Portability and compatibility
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| NFR-PORT-001 | M | partial | S | CI is a headless build-and-test on Windows Server runners; nothing verifies that the GUI starts on Windows 11 x64 (wgpu adapter, rfd dialogs, DPI). No release build or smoke run is recorded. |
+| NFR-PORT-002 | M | partial | S | Only one macOS version is tested; the clause 'current and previous major version' is not covered. No GUI smoke run, no bundle/notarisation. |
+| NFR-PORT-003 | M | partial | S | CI pins Ubuntu 24.04 although the current LTS at this date is 26.04; no GUI smoke run (Vulkan driver, XDG portal) in CI or on record. |
+| NFR-PORT-004 | M | done | none | Done. ; note there is no .gitattributes guarding golden files against CRLF conversion (harmless today because they are single-line files without a trailing newline). |
+| NFR-PORT-005 | M | done | none | Done. by inspection; there is no automated check at 200 % and the built-in UI zoom shortcut (Ctrl/Cmd + = / - / 0) is not listed in the Keyboard shortcuts window. |
+| NFR-PORT-006 | M | partial | S | Second clause missing: minimum and reference hardware are not published with releases. There is no release process (only ci.yml in .github/workflows), README has no hardware section, and the concrete machines are undecided (SRS O… |
+
+### 6.6 Maintainability and testability
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| NFR-MNT-001 | M | done | none | Done: Command enum (Serialize/Deserialize) crates/archicraft-model/src/command.rs:34-92 |
+| NFR-MNT-002 | M | done | none | Done: model, geometry and ifcx crates have no UI dependency: crates/archicraft-model/Cargo.toml:11-16, crates/archicraft-geometry/Cargo.toml:11-17, crates/archicraft-ifcx/Cargo.toml:11-17 |
+| NFR-MNT-003 | M | partial | M | The 'reference models of Section 7.3' (RM-S house of ~300 elements, RM-M, RM-L) do not exist; the golden and conformance inputs are two tiny samples (storey_with_walls_and_slab, two_storey_shell in crates/archicraft-model/src/sam… |
+| NFR-MNT-004 | M | done | none | Done. ; the crate carries the workspace version (0.1.0) and the IFCX version is expressed by the adapter name (ifcx_alpha) plus IFX-090 dispatch. |
+| NFR-MNT-005 | M | partial | L | No X junction, no three-wall node (fixture F6), no layered walls with skin priorities (F2, F7), no openings at element boundaries, no curved walls (F8), no beams or trims; most Section 4 cases are not implemented yet, so the regr… |
+
+### 6.7 Security and privacy
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| NFR-SEC-001 | M | done | none | Done: No network crate in the dependency graph (Cargo.toml:40-66 |
+| NFR-SEC-002 | M | partial | M | Only Rust panics produce a crash report (crash.rs:66-89); native crashes in the GPU driver or a future C++ kernel, aborts and stack overflows are not captured (deferred in technology-choices.md:194, 271). The no-telemetry clause… |
+| NFR-SEC-003 | M | partial | M | No fuzzing: no cargo-fuzz target and no nightly CI job although D.9 requires at least 1 h per release (technology-choices.md:203 plans it). No unit tests for MAX_FILE_SIZE, MAX_IMPORTS or MAX_COMPOSITION_DEPTH. The 2 GB check run… |
+| NFR-SEC-004 | M | done | none | Done. now (the consent clause is vacuously met because no network access exists). When IFX-081 (S) adds fetching of remote import URIs, a consent prompt must be added and this requirement re-inspected. |
+
+### 6.8 Localization and units
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| NFR-L10N-001 | M | partial | L | Strings are not externalized: no i18n crate or message catalogue (grep for fluent/i18n/gettext/locale finds none); all user-visible text is literal in the app crate, and also in the headless model crate (Command::label crates/arc… |
+| NFR-L10N-002 | S | missing | M | No German translation; impossible before strings are externalized (NFR-L10N-001). |
+| NFR-L10N-003 | M | partial | S | Slope formats (degrees, percent, ratio) exist only as an unused enum: no format/parse functions, no UI, no consumer (no roof pitch yet). Area and volume units are not selectable in the project-settings dialog (STR-009). parse_ang… |
+| NFR-L10N-004 | M | partial | S | OS-locale detection reads only POSIX env vars with a hard-coded language list (prefs.rs:137-172); on Windows and on macOS GUI launches these are usually unset, so 'Automatic' silently means a point (STR-010 asks for the OS locale… |
+
+### 6.9 Accessibility
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| NFR-A11Y-001 | S | partial | M | The first point of every element needs a mouse click: typed input requires a previous point (crates/archicraft-app/src/views/tools.rs:409-410) and absolute coordinates (INP-004) are missing; selection is mouse-only; context-menu-… |
+| NFR-A11Y-002 | S | partial | M | Many inputs have no accessible name: checkboxes with empty labels (dialogs.rs:308, 316, 728, 744), text fields, combo boxes and DragValues whose visible label is a separate ui.label() not associated with the control (crates/archi… |
+| NFR-A11Y-003 | S | partial | M | No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours (weak/small status text crates/archicraft-app/src/ui/shell.rs:170, 239-241). Selection/hover/reference/snap/preview colours (plan.rs:116-120, 130-134) a… |
+
+### 6.10 Legal
+
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| NFR-LEG-001 | M | partial | S | No inventory artifact is committed or published (cargo deny list / cargo-about output, THIRD-PARTY notices). The bundled IFCx.dev schema files are shipped third-party content with no identified licence (crates/archicraft-ifcx/sch… |
+| NFR-LEG-002 | M | done | none | Done. . Keep the untracked 'Archicad KB scraper' corpus (.gitignore:9) out of the repository; product-name trademark check (O-17) is a separate open issue. |
+| NFR-LEG-003 | S | partial | S | No test consumes the R2 examples yet (RX-1…n of SRS 7.3 need third-party IFCX reading, IFX-081/082, increment 3); a fetch-at-test-time harness that feeds the examples to the reader is missing, and the reader currently rejects thi… |
