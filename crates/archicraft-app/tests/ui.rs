@@ -10,7 +10,7 @@ use archicraft_app::i18n::{self, Localizer};
 use archicraft_app::persistence::DataDirs;
 use archicraft_app::persistence::crash::RecentLog;
 use archicraft_app::persistence::prefs::Preferences;
-use archicraft_app::views::tools::ToolKind;
+use archicraft_app::tools::ToolKind;
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::Command;
 use archicraft_model::glam::DVec2;

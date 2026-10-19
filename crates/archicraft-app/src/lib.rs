@@ -4,8 +4,10 @@
 pub mod app;
 pub mod document;
 pub mod i18n;
+pub mod input;
 pub mod logging;
 pub mod persistence;
+pub mod tools;
 pub mod ui;
 pub mod views;
 pub mod workspace;

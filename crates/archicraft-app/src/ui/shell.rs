@@ -8,10 +8,10 @@ use archicraft_model::project::Projection;
 use egui::{Button, RichText, Ui};
 
 use super::actions::Action;
+use crate::tools::ToolKind;
 use crate::tr;
 use crate::views::camera::ViewPreset;
 use crate::views::render3d::DisplayMode;
-use crate::views::tools::ToolKind;
 use crate::workspace::{Pane, Workspace};
 
 fn item(ui: &mut Ui, action: Action, enabled: bool, out: &mut Option<Action>) {
