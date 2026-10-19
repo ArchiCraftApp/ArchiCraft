@@ -14,14 +14,17 @@
 //! * Anything else (free ends, three or more walls at a node, crossings) is
 //!   left square. Full junction handling with layer priorities arrives with
 //!   layer structures (SRS Appendix F, increment 1).
+//!
+//! Reference lines touch if their points are closer than the model
+//! tolerance ([`JOIN_TOLERANCE`], NFR-ACC-003), and walls whose directions
+//! are parallel within [`ANGLE_TOLERANCE`](archicraft_model::ANGLE_TOLERANCE)
+//! do not join.
 
 use std::collections::HashMap;
 
+use archicraft_model::tolerance::{JOIN_TOLERANCE, is_parallel, near_zero};
 use archicraft_model::{ElementId, ReferenceLine, StoreyId};
 use glam::DVec2;
-
-/// Two reference lines touch if their points are closer than this: 0.1 mm.
-pub const JOIN_TOLERANCE: f64 = 1e-4;
 
 /// The input of junction resolution for one wall.
 #[derive(Clone, Debug)]
@@ -51,10 +54,11 @@ impl Line {
     }
 }
 
-/// Intersection of two lines, or `None` if they are (nearly) parallel.
+/// Intersection of two lines, or `None` if their directions are parallel up
+/// to rounding (callers reject parallel walls with [`is_parallel`] first).
 fn intersect(a: Line, b: Line) -> Option<DVec2> {
     let denom = a.dir.perp_dot(b.dir);
-    if denom.abs() < 1e-12 {
+    if near_zero(denom, a.dir.length() * b.dir.length()) {
         return None;
     }
     let t = (b.point - a.point).perp_dot(b.dir) / denom;
@@ -126,7 +130,7 @@ fn ordered_intersect(a_id: ElementId, a: Line, b_id: ElementId, b: Line) -> Opti
 
 fn l_junction(wall: &WallInput, at_end: bool, other: &WallInput, other_at_end: bool) -> Option<EndCorners> {
     let (f, g) = (wall.faces(), other.faces());
-    if wall.dir().perp_dot(other.dir()).abs() < 1e-6 {
+    if is_parallel(wall.dir(), other.dir()) {
         return None;
     }
     let ix = |a: Line, b: Line| ordered_intersect(wall.id, a, other.id, b);
@@ -163,7 +167,7 @@ fn l_junction(wall: &WallInput, at_end: bool, other: &WallInput, other_at_end: b
 }
 
 fn t_junction(wall: &WallInput, at_end: bool, through: &WallInput) -> Option<EndCorners> {
-    if wall.dir().perp_dot(through.dir()).abs() < 1e-6 {
+    if is_parallel(wall.dir(), through.dir()) {
         return None;
     }
     let g = through.faces();
@@ -331,6 +335,64 @@ mod tests {
         assert!((fb[0].y - 0.3).abs() < 1e-12 && (fb[3].y - 0.3).abs() < 1e-12, "{fb:?}");
         // The through wall is unchanged.
         assert!((area(&fps[&through.id]) - 3.0).abs() < 1e-12);
+    }
+
+    /// NFR-ACC-003: reference-line ends 5 µm apart are one point, so the
+    /// walls form the same L junction as walls that share the end exactly.
+    #[test]
+    fn ends_closer_than_the_model_tolerance_join() {
+        let a = wall((0.0, 0.0), (5.0, 0.0), 0.3, ReferenceLine::Outside);
+        let b = wall((5.0, 0.000_005), (5.0, 4.0), 0.3, ReferenceLine::Outside);
+        let fps = footprints(&[a.clone(), b.clone()]);
+        let (fa, fb) = (fps[&a.id], fps[&b.id]);
+        assert!(close(fa[1], (5.0, 0.0)), "{fa:?}");
+        assert!(close(fa[2], (4.7, 0.3)), "{fa:?}");
+        assert_eq!(fb[0], fa[1]);
+        assert_eq!(fb[3], fa[2]);
+        // The same with a diagonal gap at the start of the second wall.
+        let c = wall((5.000_003, 4.000_004), (0.0, 4.0), 0.3, ReferenceLine::Outside);
+        let fps = footprints(&[b.clone(), c.clone()]);
+        assert_eq!(fps[&c.id][0], fps[&b.id][1]);
+        assert_eq!(fps[&c.id][3], fps[&b.id][2]);
+    }
+
+    /// NFR-ACC-003: ends 20 µm apart do not touch and keep square ends (the
+    /// former 0.1 mm join tolerance joined them).
+    #[test]
+    fn ends_farther_apart_than_the_model_tolerance_stay_square() {
+        let a = wall((0.0, 0.0), (5.0, 0.0), 0.3, ReferenceLine::Outside);
+        for gap in [DVec2::new(0.0, 0.000_020), DVec2::new(0.000_020, 0.0)] {
+            let start = DVec2::new(5.0, 0.0) + gap;
+            let b = wall((start.x, start.y), (start.x, 4.0), 0.3, ReferenceLine::Outside);
+            let fps = footprints(&[a.clone(), b.clone()]);
+            let (fa, fb) = (fps[&a.id], fps[&b.id]);
+            assert!(close(fa[1], (5.0, 0.0)) && close(fa[2], (5.0, 0.3)), "{fa:?}");
+            assert!(close(fb[0], (start.x, start.y)), "{fb:?}");
+            assert!(close(fb[3], (start.x - 0.3, start.y)), "{fb:?}");
+        }
+    }
+
+    /// NFR-ACC-003: a wall end within the model tolerance of another wall's
+    /// reference line makes a T junction; 20 µm away it does not.
+    #[test]
+    fn a_wall_end_closer_than_the_model_tolerance_to_a_reference_line_makes_a_t() {
+        let through = wall((0.0, 0.0), (10.0, 0.0), 0.3, ReferenceLine::Outside);
+        let near = wall((5.0, 0.000_005), (5.0, 4.0), 0.2, ReferenceLine::Center);
+        let fps = footprints(&[through.clone(), near.clone()]);
+        assert!((fps[&near.id][0].y - 0.3).abs() < 1e-12, "{:?}", fps[&near.id]);
+        let far = wall((5.0, 0.000_020), (5.0, 4.0), 0.2, ReferenceLine::Center);
+        let fps = footprints(&[through, far.clone()]);
+        assert!((fps[&far.id][0].y - 0.000_020).abs() < 1e-12, "{:?}", fps[&far.id]);
+    }
+
+    /// A direction change below the angle tolerance (a sine of 5e-6, 25 µm
+    /// over 5 m) is a straight continuation: square ends.
+    #[test]
+    fn nearly_parallel_walls_do_not_join() {
+        let a = wall((0.0, 0.0), (5.0, 0.0), 0.3, ReferenceLine::Outside);
+        let b = wall((5.0, 0.0), (10.0, 0.000_025), 0.3, ReferenceLine::Outside);
+        let fps = footprints(&[a.clone(), b]);
+        assert!(close(fps[&a.id][1], (5.0, 0.0)) && close(fps[&a.id][2], (5.0, 0.3)));
     }
 
     #[test]

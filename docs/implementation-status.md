@@ -947,7 +947,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 |---|---|---|---|---|
 | NFR-ACC-001 | M | done | none | Done: All model coordinates are f64 (glam DVec2/DVec3): crates/archicraft-model/src/element.rs:131-132,180-182 |
 | NFR-ACC-002 | M | done | none | Done: Input parsed at full double precision in any unit incl. imperial fractions down to 1/64": crates/archicraft-model/src/units.rs:391-424, 509-547 (tests 578-587, 625-630) |
-| NFR-ACC-003 | M | partial | S | The tolerance is not applied uniformly: wall joining uses JOIN_TOLERANCE 1e-4 (crates/archicraft-geometry/src/wall.rs:24, 212-220), chain closing 1e-6 (tools/mod.rs:101), mesh point merging 1e-6 (mesh.rs:53), slice keys 1e-9 (slice.r… |
+| NFR-ACC-003 | M | partial | S | Model and geometry use archicraft_model::tolerance (wall joining, mesh welding, slicing, plan cut, extrusion; checked by tolerance_scan.rs). Snapping still has its own epsilons: chain closing 1e-6 (tools/mod.rs:101), input/snap.rs:92/132 (archicraft-ooz9.3). |
 | NFR-ACC-004 | M | partial | M | The survey point is stored but never applied: no readout or input of coordinates in the survey system, no IFX-070 SurveyPoint/second reference point in the written file (writer.rs:268-280 writes only RefElevation), no EPSG code /… |
 | NFR-ACC-005 | M | done | none | Done: Display formatting rounds to the project's unit and decimals only at output: crates/archicraft-model/src/units.rs:281-356 (format_length/format_angle use UnitSettings.length_decimals/angle_decimals |
 

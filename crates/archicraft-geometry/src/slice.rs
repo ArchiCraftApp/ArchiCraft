@@ -1,16 +1,22 @@
 //! Horizontal slicing of closed meshes, for plan cuts (VIEW-010, WAL-027).
+//!
+//! Section points are chained by their cell of the model-tolerance grid
+//! (NFR-ACC-003). Neighbouring triangles compute their shared section points
+//! bit-identically (see [`crossing`]), so an exact cell lookup suffices;
+//! segments within one cell are shorter than the tolerance and dropped.
 
 use std::collections::HashMap;
 
+use archicraft_model::tolerance::{Cell2, near_zero, quantise};
 use geo::{Coord, LineString, Polygon};
 use glam::{DVec2, DVec3};
 
 use crate::mesh::TriMesh;
 
-type Key = (i64, i64);
+type Key = Cell2;
 
 fn key(p: DVec2) -> Key {
-    ((p.x * 1e9).round() as i64, (p.y * 1e9).round() as i64)
+    quantise(p)
 }
 
 fn lexicographic_order(a: DVec3, b: DVec3) -> (DVec3, DVec3) {
@@ -111,9 +117,11 @@ fn simplify_collinear(ring: Vec<DVec2>) -> Vec<DVec2> {
         let prev = ring[(i + n - 1) % n];
         let p = ring[i];
         let next = ring[(i + 1) % n];
-        let cross = (p - prev).perp_dot(next - p);
-        let scale = (p - prev).length() * (next - p).length();
-        if cross.abs() > 1e-12 * scale.max(1e-12) || (p - prev).dot(next - p) < 0.0 {
+        let (u, v) = (p - prev, next - p);
+        // The rounding error of the cross product scales with the coordinate
+        // magnitude times the lengths of the differences.
+        let magnitude = prev.abs().max(p.abs()).max(next.abs()).max_element();
+        if !near_zero(u.perp_dot(v), magnitude * (u.length() + v.length())) || u.dot(v) < 0.0 {
             out.push(p);
         }
     }
@@ -173,6 +181,7 @@ pub fn loops_to_polygons(loops: Vec<Vec<DVec2>>) -> Vec<Polygon<f64>> {
 mod tests {
     use super::*;
     use crate::extrude::extrude;
+    use archicraft_model::MODEL_TOLERANCE;
     use geo::Area;
 
     #[test]
@@ -197,6 +206,37 @@ mod tests {
         assert_eq!(polygons[0].interiors().len(), 1);
         assert!((polygons[0].unsigned_area() - 23.0).abs() < 1e-9);
         assert_eq!(polygons[0].exterior().0.len(), 5, "collinear points removed");
+    }
+
+    /// Rounding grows with the coordinates and the collinearity guard grows
+    /// with them, so a slab 2 km from the origin still gets clean rings.
+    #[test]
+    fn collinear_points_are_removed_far_from_the_origin() {
+        let offset = DVec2::new(1500.0, -2000.0);
+        let outer: Vec<DVec2> = [(0.0, 0.0), (0.3, 0.0), (0.3, 0.2), (0.1, 0.2), (0.0, 0.2)]
+            .iter()
+            .map(|&(x, y)| DVec2::new(x, y) + offset)
+            .collect();
+        let mesh = extrude(&outer, &[], 0.0, 3.0).unwrap();
+        let loops = slice_loops(&mesh, 1.1);
+        assert_eq!(loops.len(), 1);
+        assert_eq!(loops[0].len(), 4, "{:?}", loops[0]);
+    }
+
+    /// NFR-ACC-003: section points are chained on the model-tolerance grid.
+    /// An outline edge of 4.5 µm whose ends lie in one cell leaves no
+    /// section segment, and the loop still closes, with one of its ends as
+    /// the corner there instead of both.
+    #[test]
+    fn section_segments_shorter_than_the_model_tolerance_are_dropped() {
+        let d = DVec2::new(0.000_003, 1.000_003);
+        let e = DVec2::new(0.000_001, 1.000_007);
+        assert!(d.distance(e) < MODEL_TOLERANCE && quantise(d) == quantise(e));
+        let outer = vec![DVec2::new(0.0, 0.0), DVec2::new(2.0, 0.0), DVec2::new(2.0, 1.0), d, e];
+        let mesh = extrude(&outer, &[], 0.0, 3.0).unwrap();
+        let loops = slice_loops(&mesh, 1.1);
+        assert_eq!(loops.len(), 1);
+        assert!(loops[0].contains(&d) != loops[0].contains(&e), "{:?}", loops[0]);
     }
 
     #[test]
