@@ -33,8 +33,9 @@ passed on the exact tree and a passing `bead-reviewer` review covers it.
 
 Git authority on `bead/*` branches: the user authorised (2026-10-19) committing, pushing the
 branch, opening the PR and enabling squash auto-merge on green CI, all through
-`scripts/loop/land.sh`. Nothing is pushed to `main` directly, and PRs of beads labelled `loop`
-wait for the user's review. Everywhere else the conservative profile applies.
+`scripts/loop/land.sh`. This includes beads labelled `loop` (user decision of 2026-10-19), except
+that a PR changing `.github/workflows/` or `.claude/settings.json` waits for the user's review.
+Nothing is pushed to `main` directly. Everywhere else the conservative profile applies.
 
 Agents without Claude Code hooks follow the same steps by hand: the scripts in `scripts/loop/`
 are tool-neutral. Run `scripts/loop/gate.sh`, have a second agent review the diff against the

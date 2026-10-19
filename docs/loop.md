@@ -19,7 +19,7 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | 4 Implement | CLAUDE.md conventions; rustfmt runs after every edit | |
 | 5 Gate | fmt, clippy, tests, layering, golden files, diff budget, `.beads/`, conformance, licences | `scripts/loop/gate.sh` |
 | 6 Review | Fresh-context `bead-reviewer` agent; its verdict becomes the review stamp | `.claude/agents/bead-reviewer.md` |
-| 7 Land | Commit `<id>: <summary>`, push, PR, squash auto-merge on green CI | `scripts/loop/land.sh` |
+| 7 Land | Commit `<id>: <summary>`, push, PR, squash auto-merge on green CI (a PR that changes `.github/workflows/` or `.claude/settings.json` waits for the user) | `scripts/loop/land.sh` |
 | 8 Close | Bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |
 
 The gate and the review stamp the exact tree they checked (`loop_tree_hash` in
@@ -40,7 +40,10 @@ The same applies when a decision belongs to the user.
 session that never edits code. It starts each ready bead in its own fresh session and worktree
 with `/bead <id>`, verifies the PR and auto-merge after the session reports, and stops after
 `count` beads, at the first blocker, or when an epic's tasks are all closed. Beads run one at
-a time; two only on request and only when they share no crate label.
+a time; two only on request and only when they share no crate label. A loop bead's PR with
+auto-merge on counts like a feature bead's. One that waits for the user (see below) is reported,
+and the run carries on with beads not labelled `loop`. No loop bead starts while another loop
+bead's PR is open, merging by itself or waiting, because loop beads edit the same files.
 
 **Demo checkpoint.** An epic closes only after the user tried it: the orchestrator builds and
 launches the app from `main`, lists what the epic delivered, and closes the epic on the user's
@@ -54,7 +57,7 @@ Instructions are soft; these are not:
 |---|---|
 | Hook `guard-edit` (PreToolUse Edit/Write) | Code under `crates/`, `conformance/` and the workspace manifests is edited only on a bead branch whose bead is in progress; golden files are never edited by hand; the reviewer never edits; a feature bead never edits the loop's own files |
 | Hook `format-rust` (PostToolUse) | rustfmt on every edited `.rs` file; syntax errors reported back |
-| Hook `guard-bash` (PreToolUse Bash) | No force push, no push to `main`, no PR merge without `--auto`, no `--admin`; code commits only on a bead branch with a gate on the exact tree and a review that covers it; stamps cannot be written by hand; the reviewer runs read-only commands |
+| Hook `guard-bash` (PreToolUse Bash) | No force push, no push to `main`, no PR merge without `--auto`, no `--admin`, no auto-merge for a PR that changes `.github/workflows/` or `.claude/settings.json`; code commits only on a bead branch with a gate on the exact tree and a review that covers it; stamps cannot be written by hand; the reviewer runs read-only commands |
 | Hook `review-verdict` (SubagentStop) | The reviewer's `VERDICT: PASS` stamps the tree, only when the gate passed on it |
 | Hook `stop-gate` (Stop) | A bead session does not end with uncommitted code that has not passed the gate and the review; it runs the gate, blocks at most three times per tree, and `pause.sh` is the explicit way out |
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
@@ -92,9 +95,16 @@ fed to a shell. Other quoted arguments and heredoc bodies are data: a grep patte
 message or a bead note may name `git merge`, `rm` or the state dir (the state dir only on a
 line that writes no file, since a path can reach a write through a variable or a pipe).
 
-Beads labelled `loop` change the loop itself. Their PRs do not auto-merge; the user reviews
-them. Every review finding that a script could have caught becomes such a bead, so the gate
-gets stricter over time.
+Beads labelled `loop` change the loop itself. Every review finding that a script could have
+caught becomes such a bead, so the gate gets stricter over time. Since the user's decision of
+2026-10-19 their PRs auto-merge like a feature bead's (squash, on green CI, after a passing
+review), so the loop runs for hours without the user. The exception is a PR that changes
+`.github/workflows/` or `.claude/settings.json` (`LOOP_USER_REVIEW_PATHS` in
+`scripts/loop/lib.sh`): they hold the CI gate and the hook wiring, the gates that cannot be
+bypassed. `land.sh` leaves auto-merge off for such a PR, also when an earlier run turned it on,
+and names the files; `guard-bash` refuses turning it on by hand; the user reviews and merges it.
+A CODEOWNERS review cannot enforce this while Claude works under the user's GitHub account,
+because GitHub does not let an account approve its own PR.
 
 ## Setup
 
