@@ -7,6 +7,9 @@ LOOP_CODE_PATHS='^(crates/|conformance/|Cargo\.toml$|Cargo\.lock$|rust-toolchain
 LOOP_GOLDEN_PATHS='^crates/[^/]+/tests/golden/'
 # The loop's own guardrails: a feature bead never changes them, only a bead labelled loop.
 LOOP_SELF_PATHS='^(scripts/loop/|\.claude/settings\.json$|\.claude/skills/bead|\.claude/agents/bead-reviewer\.md$|\.github/workflows/)'
+# The CI gate and the hook wiring: a PR that changes them never auto-merges, it waits for the
+# user's review (user decision of 2026-10-19). Every other bead PR auto-merges on green CI.
+LOOP_USER_REVIEW_PATHS='^(\.github/workflows/|\.claude/settings\.json$)'
 # Non-test source lines a bead branch may change before it must be split (label large-change lifts it).
 LOOP_DIFF_BUDGET="${LOOP_DIFF_BUDGET:-800}"
 # The Rust sources the diff budget counts (`#[cfg(test)] mod tests` left out, see loop_budget_lines).
@@ -56,14 +59,19 @@ loop_tree_hash() {
     [ -n "${tree:-}" ] && printf '%s\n' "$tree"
 }
 
-# Files changed on this branch since it left the base, committed or not, including untracked.
+# Files changed on this branch since it left the base, committed or not, including untracked;
+# both paths of a move count.
 loop_changed_files() {
     local base
     base="$(git merge-base "$(loop_base)" HEAD 2>/dev/null || git rev-parse HEAD)"
-    { git diff --name-only "$base"; git ls-files --others --exclude-standard; } | sort -u
+    { git diff --no-renames --name-only "$base"; git ls-files --others --exclude-standard; } | sort -u
 }
 
 loop_code_changed() { loop_changed_files | grep -Eq "$LOOP_CODE_PATHS"; }
+
+# The files of this branch's change that make its PR wait for the user (LOOP_USER_REVIEW_PATHS),
+# one per line. Prints nothing when the PR may auto-merge.
+loop_user_review_files() { loop_changed_files | grep -E "$LOOP_USER_REVIEW_PATHS" || true; }
 
 # A Rust source on stdin without its inline test module: everything from the first top-level
 # `#[cfg(test)]` (further attributes allowed) followed by `mod tests {`. Clippy's

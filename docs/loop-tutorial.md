@@ -11,8 +11,9 @@ each bead in its own session and branch, tests first, checked by a script, revie
 second Claude that did not write the code, and then a pull request that GitHub merges by
 itself once CI is green on Windows and Linux (macOS is tested when a version is released).
 
-You start runs, try the app when a feature area (an epic) is complete, and decide when
-Claude is stuck. Everything else runs without you.
+You start runs, try the app when a feature area (an epic) is complete, decide when Claude
+is stuck, and review the rare pull request that changes CI or the hook wiring. Everything
+else runs without you.
 
 ## Words you will see
 
@@ -24,7 +25,7 @@ Claude is stuck. Everything else runs without you.
 | review | The `bead-reviewer` agent checks the change against the bead's acceptance criteria. |
 | sweep | `scripts/loop/sweep.sh`: closes beads whose pull request merged and reports what waits. |
 | label `human` | On a bead: Claude is stuck and needs your decision. |
-| label `loop` | On a bead or pull request: it changes the loop's own rules, so you review it. |
+| label `loop` | On a bead or pull request: it changes the loop's own rules. It merges by itself like any other, unless it changes CI or the hook wiring; then you review it. |
 | label `loop-split` | A bead that was split into smaller ones; it closes when they are done. |
 
 ## 1. Start a run
@@ -110,19 +111,25 @@ bd update archicraft-xxxx --remove-label human
 
 To put the bead aside instead: `bd defer archicraft-xxxx`.
 
-### A pull request labelled `loop`
+### A pull request that waits for your review
 
-These change the loop's own rules, so they never merge by themselves.
+Pull requests of `loop` beads change the loop's own rules. Since your decision of 2026-10-19
+they merge by themselves on green CI like any other, except one that changes the CI workflows
+(`.github/workflows/`) or the hook wiring (`.claude/settings.json`): those hold the checks
+Claude cannot get around, so that pull request waits for you. Its description names the
+files, and the coordinator tells you about it.
 
 1. Read the pull request on GitHub; its description says what changes and why.
 2. Merge it, or comment on it.
-3. Update the main checkout, because Claude Code reads the loop's rules from there:
 
-   ```bash
-   git -C ~/Code/06-archicraft pull --ff-only
-   ```
+After any `loop` pull request merged, by itself or by you, update the main checkout, because
+Claude Code reads the loop's rules from there:
 
-   Or tell any Claude session "merged, pull the main checkout".
+```bash
+git -C ~/Code/06-archicraft pull --ff-only
+```
+
+Or tell any Claude session "merged, pull the main checkout".
 
 ## 4. Steering
 

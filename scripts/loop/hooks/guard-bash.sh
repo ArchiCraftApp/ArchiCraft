@@ -6,7 +6,8 @@
 #   heredoc bodies that mention a command or the loop's state dir do not count)
 # - no force pushes, no pushes to main, no PR merges without --auto;
 # - a code commit happens only on a bead branch whose tree passed the gate and is covered by a
-#   passing review (loop_review_valid).
+#   passing review (loop_review_valid);
+# - no auto-merge for a PR that changes the CI workflows or the hook wiring: it waits for the user.
 # Pattern matching on the command line is a guardrail, not a sandbox; CI is the final gate.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -67,6 +68,19 @@ fi
 if has 'gh[[:space:]]+pr[[:space:]]+merge'; then
     has '--admin' && hook_deny "PRs never merge with --admin; they merge when the required CI checks pass."
     has '--auto|--disable-auto' || hook_deny "PRs merge only through auto-merge on green CI: gh pr merge <pr> --auto --squash (scripts/loop/land.sh does this)."
+    # Auto-merge stays off for a PR that changes the CI gate or the hook wiring, whoever turns it
+    # on (LOOP_USER_REVIEW_PATHS; an older lib.sh without it keeps the older rules).
+    while [ -n "${LOOP_USER_REVIEW_PATHS:-}" ] && read -r _ _ _ pr rest; do
+        [[ " $pr $rest " =~ [[:space:]]--auto([[:space:]=]) ]] || continue
+        case "$pr" in -*) pr="" ;; esac # no PR named: the current branch's
+        pr="${pr%\"}"; pr="${pr#\"}"; pr="${pr%\'}"; pr="${pr#\'}"
+        case "$pr" in *[\$\`\"\'\(]*) hook_deny "Name the PR literally (number, URL or branch) when turning on auto-merge, so the guard can check its files; or run scripts/loop/land.sh." ;; esac
+        files="$(gh pr diff ${pr:+"$pr"} --name-only 2>/dev/null)" ||
+            hook_deny "Could not list the files of PR '${pr:-of this branch}' (gh pr diff), so auto-merge stays off. scripts/loop/land.sh decides it from the branch."
+        waits="$(grep -E "$LOOP_USER_REVIEW_PATHS" <<<"$files" | paste -sd ' ' - || true)"
+        [ -z "$waits" ] ||
+            hook_deny "This PR changes the CI workflows or the hook wiring ($waits), so it waits for the user's review and auto-merge stays off (user decision of 2026-10-19, docs/loop.md)."
+    done < <(grep -Eo 'gh[[:space:]]+pr[[:space:]]+merge[^;&|]*' <<<"$cmd")
 fi
 
 if has "${git_cmd}commit"; then

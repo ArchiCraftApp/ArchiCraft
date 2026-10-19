@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Step 7 of the bead loop (docs/loop.md): pushes the committed bead branch, opens or updates
 # its pull request and turns on auto-merge, so GitHub merges it once the required CI checks
-# pass. Records the PR on the bead, which stays in progress until sweep.sh sees the merge.
+# pass. A PR that changes the CI workflows or the hook wiring (LOOP_USER_REVIEW_PATHS) waits for
+# the user's review instead. Records the PR on the bead, which stays in progress until sweep.sh
+# sees the merge.
 # Usage: scripts/loop/land.sh [--rebased]   (--rebased pushes with --force-with-lease)
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -28,6 +30,8 @@ fi
 
 bead="$(loop_bead_json "$id")"
 title="$(git log -1 --format=%s)"
+# The files that make the PR wait for the user, as `a` `b`; empty when it may auto-merge.
+waits="$(loop_user_review_files | sed 's/.*/`&`/' | paste -sd ' ' - || true)"
 body="$(mktemp "${TMPDIR:-/tmp}/loop-pr.XXXXXX")"
 {
     echo "Bead: \`$id\` — $(jq -r '.title' <<<"$bead")"
@@ -47,6 +51,10 @@ body="$(mktemp "${TMPDIR:-/tmp}/loop-pr.XXXXXX")"
         echo "Local gate and review passed on tree \`$tree\`."
     else
         echo "Local gate passed on tree \`$tree\`; the review passed before these changes outside code: $since."
+    fi
+    if [ -n "$waits" ]; then
+        echo
+        echo "Waits for the user's review (no auto-merge): it changes the CI workflows or the hook wiring, $waits."
     fi
     echo
     echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
@@ -70,9 +78,14 @@ else
 fi
 rm -f "$body"
 
-if loop_bead_has_label "$id" loop; then
-    # Changes to the loop's own guardrails wait for the user's review instead of auto-merging.
-    merge="the user reviews and merges it (label loop)"
+# Every bead PR auto-merges, a loop bead's too, except one that changes the CI gate or the hook
+# wiring: those are the gates that cannot be bypassed, so the user reviews it (2026-10-19).
+if [ -n "$waits" ]; then
+    # An earlier run may have turned auto-merge on, before the branch changed these files.
+    if [ "$(gh pr view "$url" --json autoMergeRequest -q '.autoMergeRequest != null')" = true ]; then
+        gh pr merge "$url" --disable-auto >/dev/null
+    fi
+    merge="waits for the user's review, as it changes the CI workflows or the hook wiring: $waits"
 else
     gh pr merge "$url" --auto --squash >/dev/null
     merge="auto-merge (squash) on green CI"

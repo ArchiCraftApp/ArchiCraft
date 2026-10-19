@@ -22,8 +22,10 @@ them:
   is the explicit way out).
 
 **Git authority.** On `bead/*` branches the user has authorised (2026-10-19) committing,
-pushing the branch, opening the PR and enabling auto-merge on green CI as part of this loop.
-Everywhere else the conservative profile in CLAUDE.md applies.
+pushing the branch, opening the PR and enabling auto-merge on green CI as part of this loop,
+for beads labelled `loop` too (user decision of 2026-10-19). The exception is a PR that changes
+`.github/workflows/` or `.claude/settings.json`: it waits for the user's review, and nobody
+turns its auto-merge on. Everywhere else the conservative profile in CLAUDE.md applies.
 
 ## 0. Sweep and pick
 
@@ -159,6 +161,9 @@ scripts/loop/land.sh
 
 `land.sh` pushes the branch, opens the PR (title from the commit subject, body from the
 bead, the review and the gate), turns on squash auto-merge and records the PR on the bead.
+When the branch changes `.github/workflows/` or `.claude/settings.json`, it leaves auto-merge
+off and names those files instead: the PR waits for the user's review, so say that in your
+report.
 In the Claude desktop app, also bind the PR to this session if `get_status` does not show
 it and turn on Auto-fix and archive-on-close with the `ccd_pr` tools, so CI failures wake
 this session. Never poll CI yourself.

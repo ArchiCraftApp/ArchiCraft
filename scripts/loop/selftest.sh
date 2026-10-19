@@ -50,8 +50,29 @@ case "$1" in
 esac
 exit 0
 EOF
-# Stub: gh pr view answers with the state in FAKE_GH_STATE.
-printf '#!/bin/sh\n[ "$1 $2" = "pr view" ] && echo "${FAKE_GH_STATE:-}"\nexit 0\n' >"$work/bin/gh"
+cat >"$work/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+# Stub: every call goes to FAKE_GH_LOG. pr view answers the open PR's url from FAKE_GH_URL
+# (--json url,state), whether auto-merge is on from FAKE_GH_AUTO (--json autoMergeRequest) and
+# the state from FAKE_GH_STATE otherwise; pr create prints a url; pr diff prints the files in
+# FAKE_GH_FILES, or fails when FAKE_GH_FAIL is set.
+[ -n "${FAKE_GH_LOG:-}" ] && echo "$*" >>"$FAKE_GH_LOG"
+case "$1 $2" in
+    "pr view")
+        case "$*" in
+            *url,state*) echo "${FAKE_GH_URL:-}" ;;
+            *autoMergeRequest*) echo "${FAKE_GH_AUTO:-false}" ;;
+            *) echo "${FAKE_GH_STATE:-}" ;;
+        esac
+        ;;
+    "pr create") echo "https://github.com/o/r/pull/9" ;;
+    "pr diff")
+        [ -z "${FAKE_GH_FAIL:-}" ] || exit 1
+        for f in ${FAKE_GH_FILES:-}; do echo "$f"; done
+        ;;
+esac
+exit 0
+EOF
 # Stub: every cargo step passes, so gate.sh runs in seconds when the Stop hook starts it.
 printf '#!/bin/sh\nexit 0\n' >"$work/bin/cargo"
 chmod +x "$work/bin/bd" "$work/bin/gh" "$work/bin/cargo"
@@ -125,6 +146,20 @@ check "push then rm -rf" allow "$(hook guard-bash "$(bash_input 'git push -u ori
 check "merge without auto" deny "$(hook guard-bash "$(bash_input 'gh pr merge 12 --squash')")"
 check "merge with admin" deny "$(hook guard-bash "$(bash_input 'gh pr merge 12 --auto --admin')")"
 check "merge with auto" allow "$(hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
+# Auto-merge stays off for a PR that changes the CI workflows or the hook wiring (LOOP_USER_REVIEW_PATHS).
+check "auto-merge for a PR that changes a CI workflow" deny \
+    "$(FAKE_GH_FILES='docs/a.md .github/workflows/ci.yml' hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
+check "auto-merge for a PR that changes the hook wiring" deny \
+    "$(FAKE_GH_FILES='.claude/settings.json' hook guard-bash "$(bash_input 'gh pr merge "https://github.com/o/r/pull/12" --squash --auto')")"
+check "auto-merge for the branch's PR that changes the hook wiring" deny \
+    "$(FAKE_GH_FILES='.claude/settings.json' hook guard-bash "$(bash_input 'git push && gh pr merge --auto --squash')")"
+check "auto-merge for a PR that changes other loop files" allow \
+    "$(FAKE_GH_FILES='scripts/loop/land.sh .claude/settings.local.json .github/CODEOWNERS' hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
+check "auto-merge off for a PR that changes a CI workflow" allow \
+    "$(FAKE_GH_FILES='.github/workflows/ci.yml' hook guard-bash "$(bash_input 'gh pr merge 12 --disable-auto')")"
+check "auto-merge for a PR named by a variable" deny "$(hook guard-bash "$(bash_input 'gh pr merge "$url" --auto --squash')")"
+check "auto-merge for a PR whose files cannot be listed" deny \
+    "$(FAKE_GH_FAIL=1 hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
 check "writing a stamp" deny "$(hook guard-bash "$(bash_input "echo x > $(loop_dir)/review.ok")")"
 check "reading a gate log" allow "$(hook guard-bash "$(bash_input "tail -n 50 $(loop_dir)/gate-test.log")")"
 check "reviewer runs tests" allow "$(hook guard-bash "$(bash_input 'cargo test -p demo walls 2>&1 | tail -n 40' bead-reviewer)")"
@@ -361,6 +396,55 @@ printf '%s\n' 'Intro' '## Acceptance criteria' '- ok' '```bash' '# a comment' '`
 expect "review headings nest below the PR body's level-2 heading" \
     "Intro|### Acceptance criteria|- ok|\`\`\`bash|# a comment|\`\`\`|#### Detail|### Findings" \
     "$(loop_nest_headings 3 "$work/review.md" | paste -sd '|' -)"
+
+# --- land.sh: auto-merge, or wait for the user's review ----------------------------------------
+reset_state
+git switch -q main
+git init -q --bare "$work/origin.git"
+git remote add origin "$work/origin.git"
+git push -q origin main
+export FAKE_GH_LOG="$work/gh.log"
+land() { # land <labels>: land.sh's output for the committed tree, with gate and review stamped
+    stamp gate.ok
+    stamp review.ok
+    : >"$FAKE_GH_LOG"
+    FAKE_BD_LABELS="$1" bash scripts/loop/land.sh 2>&1
+}
+commit_on() { # commit_on <branch> <file>...: a new branch off main with a change to each file
+    local b="$1" f
+    shift
+    git switch -q -c "$b" main
+    for f in "$@"; do mkdir -p "$(dirname "$f")" && echo "# $b" >>"$f"; done
+    git add -A && git commit -qm "${b#bead/}: change"
+}
+merge_calls() { grep '^pr merge ' "$FAKE_GH_LOG" | paste -sd '|' -; }
+pr=https://github.com/o/r/pull/9
+commit_on bead/archicraft-fe01-feature crates/demo/src/lib.rs
+out="$(land "")"
+expect "land.sh turns on auto-merge for a feature bead" "pr merge $pr --auto --squash" "$(merge_calls)"
+commit_on bead/archicraft-lp01-loop scripts/loop/gate.sh .claude/skills/bead/SKILL.md .claude/settings.local.json
+out="$(land loop)"
+expect "land.sh turns on auto-merge for a loop bead" "pr merge $pr --auto --squash" "$(merge_calls)"
+commit_on bead/archicraft-lp02-ci scripts/loop/gate.sh .github/workflows/ci.yml
+out="$(land loop)"
+expect "land.sh leaves auto-merge off for a loop bead that changes a CI workflow" "" "$(merge_calls)"
+expect "land.sh names the CI workflow that makes the PR wait" 1 \
+    "$(grep -c "waits for the user's review.*\`\.github/workflows/ci\.yml\`" <<<"$out")"
+commit_on bead/archicraft-lp03-hooks docs/a.md .claude/settings.json
+out="$(land loop)"
+expect "land.sh leaves auto-merge off for a loop bead that changes the hook wiring" "" "$(merge_calls)"
+expect "land.sh names the hook wiring that makes the PR wait" 1 \
+    "$(grep -c "waits for the user's review.*\`\.claude/settings\.json\`" <<<"$out")"
+out="$(FAKE_GH_URL=$pr FAKE_GH_AUTO=true land loop)"
+expect "land.sh turns auto-merge off when a PR that had it changes the hook wiring" "pr merge $pr --disable-auto" "$(merge_calls)"
+git switch -q main
+mkdir -p .github/workflows && echo 'on: push' >.github/workflows/ci.yml
+git add -A && git commit -qm workflows && git push -q origin main
+git switch -q -c bead/archicraft-lp04-move main
+git mv .github/workflows/ci.yml docs/ci.yml && git commit -qm "archicraft-lp04: move"
+out="$(land loop)"
+expect "land.sh leaves auto-merge off for a loop bead that moves a CI workflow away" "" "$(merge_calls)"
+unset FAKE_GH_LOG
 
 [ -f "$work/crashes" ] && failed=$((failed + $(wc -l <"$work/crashes")))
 echo "loop selftest: $passed passed, $failed failed"
