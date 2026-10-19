@@ -13,11 +13,11 @@ use archicraft_model::project::{
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::tolerance::MODEL_TOLERANCE;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit};
-use archicraft_model::validate::validate_element;
+use archicraft_model::validate::{valid_grid_origin, valid_grid_spacing, validate_element};
 use archicraft_model::{
-    BuildingId, Element, ElementId, ElementKind, IfcClass, KindTag, Layer, LayerId, MaterialId, Position, Project,
-    ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab, SlabReference, Storey, StoreyId, StoreyList,
-    TopLink, ViewId, Wall,
+    BuildingId, Element, ElementId, ElementKind, IfcClass, KindTag, Layer, LayerId, MaterialId, PlanGrid, Position,
+    Project, ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab, SlabReference, Storey, StoreyId,
+    StoreyList, TopLink, ViewId, Wall,
 };
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
@@ -284,6 +284,47 @@ fn read_layer(record: &Value, problems: &mut Vec<Problem>) -> Option<Layer> {
     })
 }
 
+/// A two-component grid value, checked against the model's range.
+fn grid_vector(map: &Object, key: &str, valid: fn(DVec2) -> bool) -> Result<DVec2, String> {
+    let value = point(field(map, key)?).map_err(|e| format!("“{key}”: {e}"))?;
+    if valid(value) {
+        Ok(value)
+    } else {
+        Err(format!("“{key}” is out of range"))
+    }
+}
+
+/// The drafting grid of the plan views (INP-013). A missing `planGrid` is no
+/// problem: files written before it existed get the default grid. Inside a
+/// present grid, each invalid field is reported and falls back to its default.
+fn read_plan_grid(settings: &Object, report: &mut Report) -> PlanGrid {
+    let defaults = PlanGrid::default();
+    let Ok(map) = object(settings, "planGrid") else {
+        return defaults;
+    };
+    let mut grid = PlanGrid {
+        snap_step: report.or(grid_vector(map, "snapStep", valid_grid_spacing), defaults.snap_step),
+        snap_enabled: report.or(boolean(map, "snapEnabled"), defaults.snap_enabled),
+        main_spacing: report.or(
+            grid_vector(map, "mainSpacing", valid_grid_spacing),
+            defaults.main_spacing,
+        ),
+        auxiliary_spacing: report.or(
+            grid_vector(map, "auxiliarySpacing", valid_grid_spacing),
+            defaults.auxiliary_spacing,
+        ),
+        rotation: report.or(real(map, "rotation"), defaults.rotation),
+        origin: report.or(grid_vector(map, "origin", valid_grid_origin), defaults.origin),
+        visible: report.or(boolean(map, "visible"), defaults.visible),
+    };
+    if grid.auxiliary_spacing.cmpgt(grid.main_spacing).any() {
+        report.warn("“auxiliarySpacing” is larger than “mainSpacing”; the default spacings are used");
+        grid.main_spacing = defaults.main_spacing;
+        grid.auxiliary_spacing = defaults.auxiliary_spacing;
+    }
+    grid
+}
+
 /// Project-level data from `archicraft::project`, before storeys and
 /// elements are known.
 struct ProjectData {
@@ -367,6 +408,7 @@ fn read_project_data(attr: &Object, path: &str, problems: &mut Vec<Problem>) -> 
                 defaults.tessellation.max_angle_deg,
             ),
         },
+        plan_grid: read_plan_grid(&settings_map, &mut report),
     };
     let location_map = report.or(object(attr, "location").cloned(), Object::new());
     let survey = location_map.get("surveyPoint").map(point);

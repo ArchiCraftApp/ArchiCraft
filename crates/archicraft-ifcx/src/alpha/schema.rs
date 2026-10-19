@@ -123,6 +123,20 @@ fn slab_defaults() -> Value {
     ])
 }
 
+/// The drafting grid of the plan views (INP-013). Optional, because files
+/// written before it existed do not have it.
+fn plan_grid() -> Value {
+    object(&[
+        ("snapStep", point2()),
+        ("snapEnabled", boolean()),
+        ("mainSpacing", point2()),
+        ("auxiliarySpacing", point2()),
+        ("rotation", angle()),
+        ("origin", point2()),
+        ("visible", boolean()),
+    ])
+}
+
 fn project() -> Value {
     object(&[
         ("formatVersion", string()),
@@ -148,6 +162,7 @@ fn project() -> Value {
                 ("cutPlaneHeight", length()),
                 ("chordDeviation", length()),
                 ("maxSegmentAngle", real()),
+                ("planGrid", optional(plan_grid())),
             ]),
         ),
         (

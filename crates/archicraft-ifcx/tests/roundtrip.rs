@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use archicraft_geometry::{ModelGeometry, TriMesh};
 use archicraft_ifcx::validate::{self, Severity};
 use archicraft_ifcx::{IfcxFile, WriteOptions};
-use archicraft_model::glam::DVec3;
-use archicraft_model::{Project, samples};
+use archicraft_model::glam::{DVec2, DVec3};
+use archicraft_model::{PlanGrid, Project, samples};
 use serde_json::Value;
 
 fn options() -> WriteOptions {
@@ -409,4 +409,103 @@ fn cycles_are_detected() {
     let file = validate::parse(&bytes).unwrap();
     let problems = validate::validate(&file);
     assert!(problems.iter().any(|p| p.message.contains("cycle")), "{problems:#?}");
+}
+
+fn project_settings(value: &mut Value) -> &mut serde_json::Map<String, Value> {
+    value["data"][0]["attributes"]["archicraft::project"]["settings"]
+        .as_object_mut()
+        .unwrap()
+}
+
+/// INP-013, PRJ-007: the plan grid is a project setting kept in the file,
+/// bit for bit.
+#[test]
+fn a_non_default_plan_grid_round_trips_exactly() {
+    let mut project = samples::storey_with_walls_and_slab();
+    project.settings.plan_grid = PlanGrid {
+        snap_step: DVec2::new(0.1, 0.05),
+        snap_enabled: false,
+        main_spacing: DVec2::new(1.2, 0.9),
+        auxiliary_spacing: DVec2::new(0.3, 0.15),
+        rotation: 30f64.to_radians(),
+        origin: DVec2::new(1.0, 1.0),
+        visible: true,
+    };
+    let bytes = save(&project);
+    let problems = validate::validate(&validate::parse(&bytes).unwrap());
+    assert!(problems.is_empty(), "{problems:#?}");
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert_eq!(loaded.project.settings, project.settings);
+}
+
+/// INP-013: files without a plan grid (written before it existed) load with
+/// the default grid and no problem, because the object is optional.
+#[test]
+fn a_missing_plan_grid_loads_the_defaults_without_problems() {
+    let mut project = samples::storey_with_walls_and_slab();
+    project.settings.plan_grid.visible = true;
+    let bytes = edit(&project, |v| {
+        assert!(project_settings(v).remove("planGrid").is_some());
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert_eq!(loaded.project.settings.plan_grid, PlanGrid::default());
+}
+
+/// INP-013: one invalid field of a present plan grid is reported once and
+/// replaced by its default; the other fields are kept.
+#[test]
+fn an_invalid_plan_grid_field_falls_back_to_its_default() {
+    let mut project = samples::storey_with_walls_and_slab();
+    project.settings.plan_grid.snap_step = DVec2::new(0.1, 0.05);
+    project.settings.plan_grid.main_spacing = DVec2::new(2.0, 2.0);
+    project.settings.plan_grid.auxiliary_spacing = DVec2::new(0.5, 0.5);
+    project.settings.plan_grid.origin = DVec2::new(3.0, 4.0);
+    project.settings.plan_grid.rotation = 0.5;
+    // Values the schema accepts but the model does not, so that the reader is
+    // the only one to report them.
+    let fields = [
+        ("snapStep", serde_json::json!([0.0, 0.05])),
+        ("mainSpacing", serde_json::json!([1.0, -1.0])),
+        ("auxiliarySpacing", serde_json::json!([0.25])),
+        ("origin", serde_json::json!([1.0, 2.0, 3.0])),
+    ];
+    let defaults = PlanGrid::default();
+    for (key, value) in fields {
+        let bytes = edit(&project, |v| {
+            project_settings(v)["planGrid"][key] = value;
+        });
+        let loaded = archicraft_ifcx::load(&bytes).unwrap();
+        assert_eq!(loaded.problems.len(), 1, "{key}: {:#?}", loaded.problems);
+        assert!(loaded.problems[0].message.contains(key), "{:#?}", loaded.problems);
+        let mut expected = project.settings.plan_grid.clone();
+        match key {
+            "snapStep" => expected.snap_step = defaults.snap_step,
+            "mainSpacing" => expected.main_spacing = defaults.main_spacing,
+            "auxiliarySpacing" => expected.auxiliary_spacing = defaults.auxiliary_spacing,
+            _ => expected.origin = defaults.origin,
+        }
+        assert_ne!(expected, project.settings.plan_grid, "{key} differs from its default");
+        assert_eq!(
+            loaded.project.settings.plan_grid, expected,
+            "{key} falls back to its default, the other fields are kept"
+        );
+    }
+}
+
+/// INP-013: an auxiliary spacing larger than the main spacing is reported
+/// once, and both spacings fall back to their defaults.
+#[test]
+fn an_auxiliary_spacing_above_the_main_spacing_falls_back_to_the_defaults() {
+    let mut project = samples::storey_with_walls_and_slab();
+    project.settings.plan_grid.main_spacing = DVec2::new(2.0, 2.0);
+    let bytes = edit(&project, |v| {
+        project_settings(v)["planGrid"]["auxiliarySpacing"] = serde_json::json!([3.0, 0.5]);
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert_eq!(loaded.problems.len(), 1, "{:#?}", loaded.problems);
+    let grid = &loaded.project.settings.plan_grid;
+    assert_eq!(grid.main_spacing, PlanGrid::default().main_spacing);
+    assert_eq!(grid.auxiliary_spacing, PlanGrid::default().auxiliary_spacing);
 }

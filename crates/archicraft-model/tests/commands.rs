@@ -1,12 +1,14 @@
 //! Command and undo behaviour (NFR-MNT-001, UND-001, UND-002, STR-004,
-//! STR-005, ELM-013, LAY-002, DSP-003).
+//! STR-005, ELM-013, LAY-002, DSP-003, INP-013).
 
 #![allow(clippy::unwrap_used)]
 
 use archicraft_model::command::{StoreyElements, replay};
 use archicraft_model::glam::DVec2;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Command, CommandError, Element, ElementKind, History, Layer, Project, Storey, TopLink};
+use archicraft_model::{
+    Command, CommandError, Element, ElementKind, History, Layer, PlanGrid, Project, ProjectSettings, Storey, TopLink,
+};
 
 fn ground(p: &Project) -> archicraft_model::StoreyId {
     p.storeys.ground()
@@ -303,4 +305,110 @@ fn relinking_keeps_the_absolute_position() {
     assert_eq!(after.storey, upper);
     assert_eq!(p.vertical_extent(after), before);
     assert!(matches!(after.as_wall().unwrap().top, TopLink::Storey { storey, .. } if storey == upper));
+}
+
+/// The plan grid defaults of the design of INP-013: a 5 cm snap grid with
+/// snapping on, a hidden construction grid of 1 m with 25 cm auxiliary lines,
+/// unrotated at the project origin.
+fn assert_default_plan_grid(grid: &PlanGrid) {
+    assert_eq!(grid.snap_step, DVec2::new(0.05, 0.05));
+    assert!(grid.snap_enabled);
+    assert_eq!(grid.main_spacing, DVec2::new(1.0, 1.0));
+    assert_eq!(grid.auxiliary_spacing, DVec2::new(0.25, 0.25));
+    assert_eq!(grid.rotation, 0.0);
+    assert_eq!(grid.origin, DVec2::ZERO);
+    assert!(!grid.visible);
+}
+
+/// INP-013, PRJ-007: one plan grid per project, with defaults in the
+/// project settings and the default template.
+#[test]
+fn projects_start_with_the_default_plan_grid() {
+    assert_default_plan_grid(&ProjectSettings::default().plan_grid);
+    assert_default_plan_grid(&default_metric_project().settings.plan_grid);
+    assert_eq!(PlanGrid::default(), ProjectSettings::default().plan_grid);
+}
+
+/// INP-013, UND-001: changing the plan grid is one undoable command.
+#[test]
+fn plan_grid_changes_undo_and_redo_to_the_exact_project() {
+    let mut p = default_metric_project();
+    let before = p.clone();
+    let mut h = History::default();
+    let settings = ProjectSettings {
+        plan_grid: PlanGrid {
+            snap_step: DVec2::new(0.1, 0.05),
+            snap_enabled: false,
+            main_spacing: DVec2::new(1.2, 0.9),
+            auxiliary_spacing: DVec2::new(0.3, 0.3),
+            rotation: 30f64.to_radians(),
+            origin: DVec2::new(1.0, 1.0),
+            visible: true,
+        },
+        ..p.settings.clone()
+    };
+    h.execute(&mut p, Command::SetSettings(settings.clone())).unwrap();
+    assert_eq!(p.settings, settings);
+    let after = p.clone();
+
+    h.undo(&mut p).unwrap();
+    let mut expected = before;
+    expected.revision = p.revision;
+    assert_eq!(p, expected);
+
+    h.redo(&mut p).unwrap();
+    let mut expected = after;
+    expected.revision = p.revision;
+    assert_eq!(p, expected);
+}
+
+/// INP-013: steps and spacings are finite, positive and at most 1 km, the
+/// auxiliary spacing is not larger than the main spacing, and rotation and
+/// origin are finite, the origin within the model's ±100 km.
+#[test]
+fn invalid_plan_grids_are_rejected() {
+    let mut p = default_metric_project();
+    let before = p.clone();
+    let mut h = History::default();
+    let with = |change: &dyn Fn(&mut PlanGrid)| {
+        let mut settings = before.settings.clone();
+        change(&mut settings.plan_grid);
+        Command::SetSettings(settings)
+    };
+    let bad = [f64::NAN, f64::INFINITY, -0.5, 0.0, 1000.5];
+    for value in bad {
+        for command in [
+            with(&|g| g.snap_step.x = value),
+            with(&|g| g.snap_step.y = value),
+            with(&|g| g.main_spacing.x = value),
+            with(&|g| g.main_spacing.y = value),
+            with(&|g| g.auxiliary_spacing.x = value),
+            with(&|g| g.auxiliary_spacing.y = value),
+        ] {
+            assert!(
+                matches!(h.execute(&mut p, command), Err(CommandError::Invalid(_))),
+                "{value} is rejected"
+            );
+        }
+    }
+    for command in [
+        with(&|g| g.auxiliary_spacing.x = 1.5),
+        with(&|g| g.auxiliary_spacing.y = 1.5),
+        with(&|g| g.rotation = f64::NAN),
+        with(&|g| g.origin.x = f64::INFINITY),
+        with(&|g| g.origin.y = -100_001.0),
+    ] {
+        assert!(matches!(h.execute(&mut p, command), Err(CommandError::Invalid(_))));
+    }
+    assert_eq!(p, before);
+    assert!(!h.can_undo());
+    // The bounds themselves are allowed.
+    h.execute(
+        &mut p,
+        with(&|g| {
+            g.main_spacing = DVec2::splat(1000.0);
+            g.auxiliary_spacing = DVec2::splat(1000.0);
+        }),
+    )
+    .unwrap();
 }

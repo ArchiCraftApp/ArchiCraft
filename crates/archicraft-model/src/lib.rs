@@ -25,7 +25,7 @@ pub use ids::{BuildingId, ElementId, LayerId, MaterialId, ProjectId, SiteId, Sto
 pub use kinds::{ReferenceLine, Slab, SlabReference, Wall};
 pub use layer::Layer;
 pub use material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
-pub use project::{Project, ProjectInfo, ProjectSettings};
+pub use project::{PlanGrid, Project, ProjectInfo, ProjectSettings};
 pub use storey::{Storey, StoreyList};
 pub use tolerance::{ANGLE_TOLERANCE, JOIN_TOLERANCE, MODEL_TOLERANCE};
 

@@ -25,6 +25,20 @@ pub const MAX_THICKNESS: f64 = 10.0;
 /// Smallest wall height: 1 mm.
 pub const MIN_HEIGHT: f64 = 0.001;
 
+/// Largest step or spacing of a drafting grid, in metres (INP-013).
+pub const MAX_GRID_SPACING: f64 = 1000.0;
+
+/// Whether both components of a grid step or spacing are finite, positive and
+/// at most [`MAX_GRID_SPACING`] (INP-013).
+pub fn valid_grid_spacing(spacing: DVec2) -> bool {
+    spacing.is_finite() && spacing.cmpgt(DVec2::ZERO).all() && spacing.cmple(DVec2::splat(MAX_GRID_SPACING)).all()
+}
+
+/// Whether a drafting grid origin lies within [`MAX_COORDINATE`] (INP-013).
+pub fn valid_grid_origin(origin: DVec2) -> bool {
+    origin.is_finite() && origin.abs().cmple(DVec2::splat(MAX_COORDINATE)).all()
+}
+
 /// Signed area of a ring (positive for counter-clockwise).
 pub fn signed_area(ring: &[DVec2]) -> f64 {
     let n = ring.len();
