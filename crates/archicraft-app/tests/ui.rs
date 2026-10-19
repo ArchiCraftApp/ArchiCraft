@@ -3,13 +3,15 @@
 
 #![allow(clippy::unwrap_used)]
 
+use std::rc::Rc;
 use std::sync::Arc;
 
-use archicraft_app::ArchiCraftApp;
+use archicraft_app::i18n::{self, Localizer};
 use archicraft_app::persistence::DataDirs;
 use archicraft_app::persistence::crash::RecentLog;
 use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::views::tools::ToolKind;
+use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::Command;
 use archicraft_model::glam::DVec2;
 use egui_kittest::Harness;
@@ -113,4 +115,64 @@ fn selecting_an_element_shows_its_properties() {
     harness.get_by_label("Locked");
     harness.get_by_label("Length");
     harness.get_by_label("Home storey");
+}
+
+/// Opens Help ▸ About, finding the Help menu by the title `localizer`
+/// renders.
+fn open_about(harness: &mut Harness<'static, ArchiCraftApp>, localizer: &Rc<Localizer>) {
+    let help = i18n::with(Rc::clone(localizer), || tr!("menu-help"));
+    harness.get_by_label(&help).click();
+    harness.run_steps(2);
+    // Command labels are migrated with the command registry (archicraft-5eu).
+    harness.get_by_label("About ArchiCraft").click();
+    harness.run_steps(2);
+}
+
+#[test]
+fn about_window_text_comes_from_the_catalogue() {
+    // NFR-L10N-001: the pilot migration of the About window and Help menu.
+    let mut harness = harness("about");
+    let english = Rc::new(Localizer::english());
+    open_about(&mut harness, &english);
+    let heading = i18n::with(Rc::clone(&english), || {
+        tr!("dlg-about-heading", version = env!("CARGO_PKG_VERSION"))
+    });
+    assert_eq!(heading, format!("ArchiCraft {}", env!("CARGO_PKG_VERSION")));
+    harness.get_by_label(&heading);
+    harness.get_by_label("A desktop modeller for buildings that saves IFCX (IFC5).");
+    harness.get_by_label(&format!("Writes {} files.", archicraft_ifcx::WRITTEN_VERSION));
+    harness.get_by_label("Works offline. Sends no data anywhere; crash reports stay on this computer.");
+}
+
+/// NFR-L10N-001: with the en-XA pseudo-locale installed, the Help menu title
+/// and the About window come out wrapped in the pseudo markers, so they come
+/// from the catalogue.
+#[cfg(debug_assertions)]
+#[test]
+fn about_window_follows_the_pseudo_locale() {
+    let mut harness = harness("about-pseudo");
+    let pseudo = Rc::new(Localizer::pseudo());
+    harness.state_mut().set_localizer(Rc::clone(&pseudo));
+    harness.run_steps(2);
+    assert!(harness.query_all_by_label("Help").next().is_none());
+    open_about(&mut harness, &pseudo);
+    let heading = i18n::with(Rc::clone(&pseudo), || {
+        tr!("dlg-about-heading", version = env!("CARGO_PKG_VERSION"))
+    });
+    assert!(
+        heading.starts_with(i18n::pseudo::OPEN) && heading.ends_with(i18n::pseudo::CLOSE),
+        "{heading}"
+    );
+    assert!(heading.contains(env!("CARGO_PKG_VERSION")), "{heading}");
+    harness.get_by_label(&heading);
+    let title = i18n::with(Rc::clone(&pseudo), || tr!("dlg-about-title"));
+    assert_eq!(title, "⟦Ábóút ÁrchíCráft⟧");
+    assert_present(&harness, &title);
+    // No English text is left in the window.
+    for english in [
+        format!("ArchiCraft {}", env!("CARGO_PKG_VERSION")),
+        "A desktop modeller for buildings that saves IFCX (IFC5).".to_owned(),
+    ] {
+        assert!(harness.query_all_by_label(&english).next().is_none(), "{english}");
+    }
 }

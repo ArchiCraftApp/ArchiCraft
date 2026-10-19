@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod document;
+pub mod i18n;
 pub mod logging;
 pub mod persistence;
 pub mod ui;

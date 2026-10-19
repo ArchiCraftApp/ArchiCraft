@@ -1,6 +1,7 @@
 //! The application window (UI-001, PRJ-003, PRJ-004, PRJ-008).
 
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -11,6 +12,7 @@ use egui::{Id, RichText, ThemePreference, Ui, ViewportCommand, WidgetText};
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 
 use crate::document::Document;
+use crate::i18n::{self, Localizer};
 use crate::persistence::autosave::{Abandoned, Autosaver, Session, find_abandoned};
 use crate::persistence::crash::{RecentLog, reports_since};
 use crate::persistence::prefs::{Preferences, ThemeChoice};
@@ -66,6 +68,9 @@ pub struct ArchiCraftApp {
     newer_confirmed: bool,
     title: String,
     theme: Option<ThemeChoice>,
+    /// The user-interface language, installed at the start of every frame
+    /// (NFR-L10N-001).
+    localizer: Rc<Localizer>,
     released: Vec<View3dState>,
     _log: Arc<RecentLog>,
 }
@@ -118,6 +123,7 @@ impl ArchiCraftApp {
             newer_confirmed: false,
             title: String::new(),
             theme: None,
+            localizer: Rc::new(Localizer::english()),
             released: Vec::new(),
             _log: log,
         };
@@ -130,6 +136,12 @@ impl ArchiCraftApp {
     /// The workspace, for tests.
     pub fn workspace(&mut self) -> &mut Workspace {
         &mut self.ws
+    }
+
+    /// Switches the user-interface language from the next frame on
+    /// (NFR-L10N-001), for example to the en-XA pseudo-locale in tests.
+    pub fn set_localizer(&mut self, localizer: Rc<Localizer>) {
+        self.localizer = localizer;
     }
 
     fn message(&mut self, title: &str, text: impl Into<String>) {
@@ -789,6 +801,7 @@ impl egui_tiles::Behavior<Pane> for Behavior<'_> {
 
 impl eframe::App for ArchiCraftApp {
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
+        i18n::install(Rc::clone(&self.localizer));
         let ctx = ui.ctx().clone();
         for state in self.released.drain(..) {
             state.release(frame.wgpu_render_state());
