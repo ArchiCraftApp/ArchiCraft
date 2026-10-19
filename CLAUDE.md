@@ -64,7 +64,7 @@ All implementation work goes through the bead loop (`docs/loop.md`): one bead pe
 with `/bead [id]` (`.claude/skills/bead/SKILL.md`), several beads in fresh sessions with
 `/bead-loop [count] [epic]`. Hooks in `.claude/settings.json` enforce it: code under `crates/`
 is edited only on a `bead/<id>-<slug>` branch and committed only after `scripts/loop/gate.sh`
-and the `bead-reviewer` agent passed on the exact tree.
+passed on the exact tree and a passing `bead-reviewer` review covers it.
 
 Git authority on `bead/*` branches: the user authorised (2026-10-19) committing, pushing the
 branch, opening the PR and enabling squash auto-merge on green CI, all through

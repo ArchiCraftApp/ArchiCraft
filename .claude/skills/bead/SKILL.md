@@ -14,8 +14,9 @@ them:
   worktree is on `bead/<id>-<slug>` and that bead is in progress.
 - Editing golden files under `crates/*/tests/golden/` is refused (they change only through
   `ARCHICRAFT_BLESS=1` on a bead labelled `format-change`).
-- `git commit` of code is refused unless the gate and the review both stamped the current
-  tree. Any edit after the gate or the review invalidates both stamps.
+- `git commit` of code is refused unless the gate passed on the current tree and a passing
+  review covers it. Any edit invalidates the gate stamp; the review stamp survives only edits
+  outside code and the loop's own files (step 6).
 - Pushing to `main`, force pushes and merging a PR without `--auto` are refused.
 - Stopping with uncommitted code runs the gate and blocks while it fails (`pause.sh` below
   is the explicit way out).
@@ -27,11 +28,17 @@ Everywhere else the conservative profile in CLAUDE.md applies.
 ## 0. Sweep and pick
 
 ```bash
-scripts/loop/sweep.sh
+git fetch --quiet origin main
+main_loop="$(mktemp -d)"
+git archive origin/main scripts/loop | tar -x -C "$main_loop"
+bash "$main_loop/scripts/loop/sweep.sh"; rm -rf "$main_loop"
 ```
 
-It closes beads whose PR merged and reports PRs still waiting, beads flagged `human` and
-epics whose tasks are all closed. Then choose the bead:
+This runs the sweep as it is on `origin/main`: a new worktree can be cut from an older `main`,
+and its own copy of the scripts may be out of date until step 1 moves it to `origin/main`.
+The sweep closes beads whose PR merged and reports PRs still waiting, beads flagged `human`
+and epics whose tasks are all closed. A close that bd refuses (a blocked bead) shows as
+`refused`; mention it in your report, it does not stop the sweep. Then choose the bead:
 
 - the id in `$ARGUMENTS`, if given;
 - otherwise, if this worktree is already on a `bead/*` branch, resume that bead;
@@ -46,7 +53,9 @@ scripts/loop/start-bead.sh <id>
 
 It refuses epics and blocked beads, cuts `bead/<id>-<slug>` from the latest `origin/main`
 (or resumes it), claims the bead and clones the warm build cache. `scripts/loop/status.sh`
-shows where a resumed bead stands. Then read, in full:
+shows where a resumed bead stands. The claim's lease (`expires in 4 mins`) needs no renewal:
+beads run one at a time, and the lease only matters when two sessions might claim the same
+bead. Then read, in full:
 
 - `bd show <id>`: description (why and what), acceptance criteria, design, notes. The notes
   line `SRS: …` lists the requirement IDs.
@@ -61,15 +70,24 @@ shows where a resumed bead stands. Then read, in full:
 Split the bead first when any of these holds:
 
 - its estimate is above 480 minutes;
-- you expect more than 800 changed non-test source lines (the gate's diff budget);
+- you expect more than 800 changed non-test source lines (the gate's diff budget: Rust
+  sources outside `tests/`, `benches/` and `examples/`, without a top-level
+  `#[cfg(test)] mod tests` at the end of a file);
 - the acceptance criteria cover separable concerns (a new type plus several consumers, a
   refactor plus a feature).
 
-To split: create child beads with `bd create --parent <id> --type task --labels <same labels>`,
-each with its own `--description`, `--acceptance` (a subset of the parent's criteria, together
-covering all of them), `--estimate` and a notes line `SRS: …` for the IDs it serves. Each
-child must leave `main` green on its own; order them with `bd dep add <later> <earlier>`.
-Then mark the parent as a container and move to the first child:
+To split: create child beads with
+`bd create --parent <id> --type task --no-inherit-labels --labels <labels>`, each with its own
+`--description`, `--acceptance` (a subset of the parent's criteria, together covering all of
+them), `--estimate` and a notes line `SRS: …` for the IDs it serves. A child takes only the
+crate labels (`archicraft-model`, `archicraft-geometry`, `archicraft-ifcx`, `archicraft-app`)
+of the crates it touches, because `/bead-loop` runs two beads at once only when they share no
+crate label; it keeps the parent's other labels where they apply (`format-change` only on the
+child that changes the format). Each child must leave `main` green on its own; order them
+with `bd dep add <later> <earlier>`. A cross-cutting test (a scan or grep over all crates)
+goes into the first child scoped to the crate that child changes, and each later child widens
+the scope to its own crates, so `main` stays green after every child. Then mark the parent as
+a container and move to the first child:
 
 ```bash
 bd update <id> --add-label loop-split --append-notes "Split into <child ids>"
@@ -119,7 +137,17 @@ prompt `Review bead <id>`, and do not edit anything while it runs. It starts fro
 context, checks every acceptance criterion against evidence, the conventions and the scope,
 and ends with `VERDICT: PASS` or `VERDICT: FAIL`; a hook stamps the tree on a PASS
 (`scripts/loop/status.sh` shows it). On `FAIL`, fix the findings, run the gate again and
-ask for a new review. Do not touch the tree between a passing review and the commit.
+ask for a new review.
+
+A `PASS` can come with minor findings. Do not re-review for them:
+
+- Fix a trivial one that touches neither code nor the loop's own files (a typo in `docs/`, a
+  status row): run the gate again, then commit without a new review. The review stamp still
+  covers the tree, and `land.sh` names the changed files in the PR.
+- File every other minor finding as a follow-up bead
+  (`bd create … --deps discovered-from:<id>`) and land the reviewed tree as it is.
+
+Any other edit between a passing review and the commit needs a new review.
 
 ## 7. Land
 

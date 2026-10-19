@@ -3,7 +3,8 @@
 # - stamps are written only by gate.sh, the review hook and pause.sh;
 # - the reviewer runs read-only commands;
 # - no force pushes, no pushes to main, no PR merges without --auto;
-# - a code commit happens only on a bead branch whose tree passed the gate and the review.
+# - a code commit happens only on a bead branch whose tree passed the gate and is covered by a
+#   passing review (loop_review_valid).
 # Pattern matching on the command line is a guardrail, not a sandbox; CI is the final gate.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -58,7 +59,7 @@ if has "${git_cmd}commit"; then
     tree="$(loop_tree_hash)"
     loop_stamp_valid gate.ok "$tree" ||
         hook_deny "No passing gate for the current tree of $bead. Run scripts/loop/gate.sh (any edit after the gate needs a new run)."
-    loop_stamp_valid review.ok "$tree" ||
-        hook_deny "No passing review for the current tree of $bead. Launch the bead-reviewer agent with 'Review bead $bead' (any edit after the review needs a new one)."
+    loop_review_valid "$tree" ||
+        hook_deny "No passing review for the current tree of $bead. Launch the bead-reviewer agent with 'Review bead $bead' (any edit to code or the loop's files after the review needs a new one)."
 fi
 exit 0

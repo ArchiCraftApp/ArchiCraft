@@ -18,7 +18,7 @@ if git status --porcelain --untracked-files=all | grep -v ' \.beads/' | grep -q 
 fi
 tree="$(loop_tree_hash)"
 loop_stamp_valid gate.ok "$tree" || { echo "No passing gate for this tree: scripts/loop/gate.sh"; exit 1; }
-loop_stamp_valid review.ok "$tree" || { echo "No passing review for this tree: run the bead-reviewer agent."; exit 1; }
+loop_review_valid "$tree" || { echo "No passing review for this tree: run the bead-reviewer agent."; exit 1; }
 
 if [ "${1:-}" = --rebased ]; then
     git push --quiet --force-with-lease -u origin "$branch"
@@ -31,8 +31,8 @@ title="$(git log -1 --format=%s)"
 body="$(mktemp "${TMPDIR:-/tmp}/loop-pr.XXXXXX")"
 {
     echo "Bead: \`$id\` — $(jq -r '.title' <<<"$bead")"
-    srs="$(jq -r '.notes // ""' <<<"$bead" | grep -Eo '^SRS:.*' | head -n 1 || true)"
-    [ -n "$srs" ] && echo "$srs"
+    srs="$(jq -r '.notes // ""' <<<"$bead" | loop_srs_ids || true)"
+    [ -n "$srs" ] && echo "SRS: $srs"
     echo
     echo "## Acceptance criteria"
     echo
@@ -40,9 +40,14 @@ body="$(mktemp "${TMPDIR:-/tmp}/loop-pr.XXXXXX")"
     echo
     echo "## Review"
     echo
-    if [ -s "$(loop_dir)/review.md" ]; then cat "$(loop_dir)/review.md"; else echo "(no review notes)"; fi
+    if [ -s "$(loop_dir)/review.md" ]; then loop_nest_headings 3 "$(loop_dir)/review.md"; else echo "(no review notes)"; fi
     echo
-    echo "Local gate and review passed on tree \`$tree\`."
+    since="$(loop_changed_since_review "$tree" | sed 's/.*/`&`/' | paste -sd ' ' - || true)"
+    if [ -z "$since" ]; then
+        echo "Local gate and review passed on tree \`$tree\`."
+    else
+        echo "Local gate passed on tree \`$tree\`; the review passed before these changes outside code: $since."
+    fi
     echo
     echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 } >"$body"
