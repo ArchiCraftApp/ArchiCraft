@@ -72,12 +72,13 @@ child must leave `main` green on its own; order them with `bd dep add <later> <e
 Then mark the parent as a container and move to the first child:
 
 ```bash
-bd update <id> --add-label split --append-notes "Split into <child ids>"
+bd update <id> --add-label loop-split --append-notes "Split into <child ids>"
 scripts/loop/start-bead.sh <first-child>
 git branch -D bead/<id>-<slug>   # the parent's branch, still without commits
 ```
 
-The parent stays in progress and `sweep.sh` closes it once all children are closed.
+The parent stays in progress and `sweep.sh` closes it once all children are closed. Use
+exactly the label `loop-split`: plain `split` is the area label of the split tool's beads.
 
 ## 3. Tests first
 
