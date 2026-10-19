@@ -68,6 +68,31 @@ jobs:
       - name: Load them with the reference implementation and viewer composition
         run: conformance/run.sh target/reference-models/*.ifcx crates/archicraft-ifcx/tests/golden/*.ifcx
 
+  # docs/loop.md: the bead-loop rules every pull request keeps, the headless-crate layering
+  # and the self-test of the loop's hooks. A required check for auto-merge.
+  loop-policy:
+    name: Loop policy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Self-test of the loop hooks and scripts
+        run: scripts/loop/selftest.sh
+      - name: Headless crates have no UI dependencies
+        run: scripts/loop/check-layering.sh
+      - name: Pull request rules
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: scripts/loop/ci-check.sh
+
   # NFR-LEG-001: licence inventory and policy (deny.toml).
   licences:
     name: Licences and sources

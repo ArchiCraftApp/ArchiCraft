@@ -23,6 +23,23 @@ bd close <id>         # Complete work
 bd dolt push          # Push beads data to remote
 ```
 
+## Implementation loop
+
+All implementation work goes through the bead loop (`docs/loop.md`): one bead per session
+with `/bead [id]` (`.claude/skills/bead/SKILL.md`), several beads in fresh sessions with
+`/bead-loop [count] [epic]`. Hooks in `.claude/settings.json` enforce it: code under `crates/`
+is edited only on a `bead/<id>-<slug>` branch and committed only after `scripts/loop/gate.sh`
+and the `bead-reviewer` agent passed on the exact tree.
+
+Git authority on `bead/*` branches: the user authorised (2026-10-19) committing, pushing the
+branch, opening the PR and enabling squash auto-merge on green CI, all through
+`scripts/loop/land.sh`. Nothing is pushed to `main` directly, and PRs of beads labelled `loop`
+wait for the user's review. Everywhere else the conservative profile applies.
+
+Agents without Claude Code hooks follow the same steps by hand: the scripts in `scripts/loop/`
+are tool-neutral. Run `scripts/loop/gate.sh`, have a second agent review the diff against the
+bead's acceptance criteria, and land with `scripts/loop/land.sh`.
+
 ## Non-Interactive Shell Commands
 
 **ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
