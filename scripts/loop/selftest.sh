@@ -96,6 +96,7 @@ check() { # check <description> <expected: deny|allow|block|pass> <output>
     fi
 }
 stamp() { loop_stamp_write "$1" "$(loop_tree_hash)" test; }
+expect() { if [ "$2" = "$3" ]; then passed=$((passed + 1)); else failed=$((failed + 1)); echo "FAIL $1: expected $2, got $3"; fi; }
 reset_state() { rm -rf "$(loop_dir)"; git checkout -q -- . 2>/dev/null; git clean -qfd crates docs; }
 
 # --- guard-edit --------------------------------------------------------------------------------
@@ -131,6 +132,62 @@ check "reviewer greps an arrow" allow "$(hook guard-bash "$(bash_input 'grep -n 
 check "reviewer edits with sed" deny "$(hook guard-bash "$(bash_input 'sed -i "" s/a/b/ crates/demo/src/lib.rs' bead-reviewer)")"
 check "reviewer redirects" deny "$(hook guard-bash "$(bash_input 'echo x > notes.txt' bead-reviewer)")"
 check "reviewer commits" deny "$(hook guard-bash "$(bash_input 'git commit -am x' bead-reviewer)")"
+# The reviewer's guard and the stamp guard look at the commands a line runs; quoted arguments and
+# heredoc bodies are data (hooks/shell-commands.awk).
+reviewer() { hook guard-bash "$(bash_input "$1" bead-reviewer)"; }
+check "reviewer runs git merge-base" allow "$(reviewer 'git diff $(git merge-base origin/main HEAD) && git status --short')"
+check "reviewer greps for file utilities" allow "$(reviewer 'grep -rnE "touch|rm -rf|mv |cp |tee " scripts/loop | head')"
+check "reviewer greps for unquoted words" allow "$(reviewer 'rg -nw touch scripts/loop; grep -c tee docs/a.md')"
+check "reviewer greps for git commands" allow "$(reviewer "grep -n 'git rm\\|git merge' docs/a.md")"
+check "reviewer greps for a redirect" allow "$(reviewer 'grep -n "echo x > f" docs/a.md 2>/dev/null')"
+check "reviewer prints a heredoc" allow "$(reviewer $'cat <<\'EOF\'\nrm -rf x > y\nEOF')"
+check "reviewer merges" deny "$(reviewer 'git merge origin/main')"
+check "reviewer merges in another directory" deny "$(reviewer 'git -C . merge --ff-only origin/main')"
+check "reviewer removes with git" deny "$(reviewer 'git rm crates/demo/src/lib.rs')"
+check "reviewer touches a file" deny "$(reviewer 'touch crates/demo/src/x.rs')"
+check "reviewer removes through xargs" deny "$(reviewer 'grep -rl demo crates | xargs -n 1 rm -f')"
+check "reviewer removes through find -exec" deny "$(reviewer "find crates -name '*.rs' -exec rm {} \\;")"
+check "reviewer deletes through find" deny "$(reviewer 'find crates -name x.rs -delete')"
+check "reviewer writes with tee" deny "$(reviewer 'cargo test 2>&1 | tee out.txt')"
+check "reviewer writes through a heredoc" deny "$(reviewer $'cat > notes.md <<\'EOF\'\nonly text\nEOF')"
+check "reviewer writes in a substitution" deny "$(reviewer 'echo "$(touch x)"')"
+check "reviewer writes through sh -c" deny "$(reviewer 'bash -c "echo x > notes.txt"')"
+check "reviewer writes through a heredoc fed to a shell" deny "$(reviewer $'bash <<\'EOF\'\ntouch x\nEOF')"
+check "reviewer pipes a script into a shell" deny "$(reviewer 'echo rm -rf crates | sh')"
+check "reviewer runs the selftest and greps its output" allow \
+    "$(reviewer "/bin/bash scripts/loop/selftest.sh 2>&1 | grep -E 'FAIL|touch|loop selftest'")"
+check "reviewer checks out behind a wrapper" deny "$(reviewer 'timeout 60 git checkout -- .')"
+check "reviewer fixes with clippy" deny "$(reviewer 'cargo clippy --fix --allow-dirty')"
+check "reviewer greps for --fix" allow "$(reviewer 'grep -rn -- --fix scripts/loop')"
+check "heredoc that quotes the stamp dir" allow \
+    "$(hook guard-bash "$(bash_input $'cat > docs/a.md <<\'EOF\'\nStamps: $(git rev-parse --git-path loop) > gate.ok\nEOF')")"
+check "bd note that quotes the stamp dir" allow \
+    "$(hook guard-bash "$(bash_input "bd update x --append-notes 'denied: echo > \$(git rev-parse --git-path loop)/gate.ok'")")"
+check "writing a stamp at a quoted git-path" deny \
+    "$(hook guard-bash "$(bash_input 'echo x > "$(git rev-parse --git-path loop)/review.ok"')")"
+check "touching a stamp" deny "$(hook guard-bash "$(bash_input 'touch "$(git rev-parse --git-path loop)/gate.ok"')")"
+check "copying to a quoted stamp path" deny "$(hook guard-bash "$(bash_input "cp /tmp/x '$(loop_dir)/review.ok'")")"
+check "writing a stamp through sh -c" deny "$(hook guard-bash "$(bash_input "sh -c 'printf x >$(loop_dir)/gate.ok'")")"
+check "writing a stamp with tee" deny \
+    "$(hook guard-bash "$(bash_input 'printf x | tee "$(git rev-parse --git-path loop)/review.ok" >/dev/null')")"
+check "writing a stamp behind a wrapper" deny \
+    "$(hook guard-bash "$(bash_input 'timeout 5 touch "$(git rev-parse --git-path loop)/gate.ok"')")"
+check "writing in the state dir after a cd" deny "$(hook guard-bash "$(bash_input 'cd "$(git rev-parse --git-path loop)" && touch pause')")"
+check "writing in the state dir through a variable" deny \
+    "$(hook guard-bash "$(bash_input 'd=$(git rev-parse --git-path loop); echo x > "$d/pause"')")"
+check "writing in the state dir after a cd through a variable" deny \
+    "$(hook guard-bash "$(bash_input 'd=$(git rev-parse --git-path loop); cd "$d" && touch bead')")"
+check "writing in the state dir through a pipe" deny \
+    "$(hook guard-bash "$(bash_input 'git rev-parse --git-path loop | xargs -I{} touch {}/pause')")"
+check "reading a log in the state dir after a cd" allow \
+    "$(hook guard-bash "$(bash_input 'cd "$(git rev-parse --git-path loop)" && tail -n 20 gate-test.log')")"
+commands() { printf '%s\n' "$1" | awk -f scripts/loop/hooks/shell-commands.awk | cut -f1 | LC_ALL=C sort | paste -sd ' ' -; }
+expect "a commit message in a heredoc is data" "cat git" \
+    "$(commands $'git commit -m "$(cat <<\'EOF\'\nSay "hi" > there; rm -rf x\nEOF\n)"')"
+expect "wrappers and keywords are not the program" "> cp done for ln mv rm rm rm rm rm ssh touch watch" \
+    "$(commands $'for f in a; do sudo -u root rm "$f"; done\nX=1 env -i nohup rm y 2>&1 >out
+timeout -s KILL 5 stdbuf -o L ionice -c 3 setsid /bin/rm z\nfunction f { touch t; }; coproc mv a b
+xargs --max-args 1 cp -t d; watch -n 1 "ln -s a b"; ssh -p 22 host rm w; strace -e trace=all rm v')"
 
 echo 'pub fn demo() { let _x = 1; }' >crates/demo/src/lib.rs
 check "code commit without stamps" deny "$(hook guard-bash "$(bash_input 'git add -A && git commit -m x')")"
@@ -227,7 +284,6 @@ expect_review "FAIL after a PASS" no
 reset_state
 base="$(git rev-parse main)"
 ci() { HEAD_REF="$1" BASE_SHA="$base" PR_TITLE="$2" PR_LABELS="${3:-}" bash scripts/loop/ci-check.sh >/dev/null 2>&1 && echo pass || echo fail; }
-expect() { if [ "$2" = "$3" ]; then passed=$((passed + 1)); else failed=$((failed + 1)); echo "FAIL $1: expected $2, got $3"; fi; }
 echo 'pub fn demo() { let _v = 5; }' >crates/demo/src/lib.rs
 git add -A && git commit -qm "bead change"
 expect "bead PR with its id in the title" pass "$(ci bead/archicraft-ab12.1-demo 'archicraft-ab12.1: Demo change')"
