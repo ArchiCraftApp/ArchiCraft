@@ -3,7 +3,8 @@
 
 use glam::DVec2;
 
-use crate::element::{Element, ElementKind, Slab, TopLink, Wall};
+use crate::element::{Element, ElementKind, TopLink};
+use crate::kinds::{ReferenceLine, Slab, Wall};
 use crate::project::Project;
 
 /// Geometric coincidence tolerance: 0.01 mm (NFR-ACC-003), defined in
@@ -204,7 +205,7 @@ pub fn validate_wall(wall: &Wall) -> Result<(), String> {
         return Err("A wall must be at least 0.1 mm long.".into());
     }
     check_thickness(wall.thickness)?;
-    if let crate::element::ReferenceLine::Custom(offset) = wall.reference_line
+    if let ReferenceLine::Custom(offset) = wall.reference_line
         && (!offset.is_finite() || offset.abs() > MAX_THICKNESS)
     {
         return Err("The reference-line offset is out of range.".into());
