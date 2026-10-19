@@ -18,7 +18,7 @@ use archicraft_model::{
 use egui::{Id, Ui};
 
 use super::widgets::{self, Edited, common};
-use crate::views::tools::{SlabMode, ToolKind, WallMode};
+use crate::tools::{SlabMode, ToolKind, WallMode};
 use crate::workspace::{Request, Workspace};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

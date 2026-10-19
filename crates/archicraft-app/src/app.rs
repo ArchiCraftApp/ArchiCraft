@@ -17,11 +17,11 @@ use crate::persistence::autosave::{Abandoned, Autosaver, Session, find_abandoned
 use crate::persistence::crash::{RecentLog, reports_since};
 use crate::persistence::prefs::{Preferences, ThemeChoice};
 use crate::persistence::{DataDirs, save_atomically};
+use crate::tools::ToolKind;
 use crate::ui::actions::Action;
 use crate::ui::dialogs::{self, Dialogs};
 use crate::ui::{browser, properties, shell};
 use crate::views::plan;
-use crate::views::tools::ToolKind;
 use crate::views::view3d::{self, View3dState, model_bounds};
 use crate::workspace::{Pane, Request, Workspace};
 

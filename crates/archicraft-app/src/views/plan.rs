@@ -14,7 +14,8 @@ use egui::{
 };
 
 use super::camera::{Camera2d, ZoomHistory};
-use super::tools::{Field, Snap, SnapKind, SnapTargets, ToolKind, ToolOutcome, constrain, snap};
+use crate::input::{Field, Snap, SnapKind, SnapTargets, constrain, snap};
+use crate::tools::{ToolKind, ToolOutcome};
 use crate::workspace::{Pane, Request, Workspace};
 
 /// Per-view state of a plan view.

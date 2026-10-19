@@ -8,9 +8,9 @@ use archicraft_model::{Command, CommandError, ElementId, StoreyId, ViewId};
 
 use crate::document::Document;
 use crate::persistence::prefs::Preferences;
+use crate::tools::ToolState;
 use crate::views::plan::PlanViewState;
 use crate::views::render3d::{GpuScene, Renderer3d};
-use crate::views::tools::ToolState;
 use crate::views::view3d::View3dState;
 
 /// A view shown in a tab (UI-006, VIEW-002).
@@ -202,7 +202,7 @@ impl Workspace {
     /// Selects every visible element of the active tool's kind on the active
     /// storey, or of every kind with the selection tool (SEL-004).
     pub fn select_all(&mut self) {
-        use crate::views::tools::ToolKind;
+        use crate::tools::ToolKind;
         let project = &self.doc.project;
         let kind = match self.tool.kind {
             ToolKind::Select => None,
