@@ -7,7 +7,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$(loop_root)"
 
 : "${HEAD_REF:?}" "${BASE_SHA:?}" "${PR_TITLE:=}" "${PR_LABELS:=}"
-changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
+# A pull_request run checks out refs/pull/N/merge, the PR merged into the base as it is now, while
+# BASE_SHA stays at the base the PR was opened against: diffing the merge against its first parent
+# leaves out what the base received since. Elsewhere (no merge commit) BASE_SHA is the base.
+if git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+    changed="$(git diff --name-only HEAD^1 HEAD)"
+else
+    changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
+fi
 labelled() { [[ ",$PR_LABELS," == *",$1,"* ]]; }
 status=0
 error() { echo "::error::$1"; status=1; }

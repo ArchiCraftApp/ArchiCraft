@@ -332,6 +332,27 @@ git commit -qam loop
 expect "loop change in a feature bead" fail "$(ci bead/archicraft-ab12.1-demo 'archicraft-ab12.1: x' format-change)"
 expect "loop change in a loop bead" pass "$(ci bead/archicraft-ab12.1-demo 'archicraft-ab12.1: x' format-change,loop)"
 expect "loop change outside the loop" pass "$(ci claude/setup 'Set up the loop' format-change)"
+# A pull_request run checks out the PR merged into the base as it is now (refs/pull/N/merge),
+# while BASE_SHA stays at the base the PR was opened against.
+pr_merge() { # pr_merge <branch>: detach at the merge of <branch> into moved-base
+    git switch -q --detach moved-base && git merge -q --no-ff --no-edit "$1"
+}
+git switch -q -c moved-base "$base"
+echo '{"x":2}' >crates/demo/tests/golden/a.ifcx
+git commit -qam "base moves: golden"
+git switch -q -c bead/archicraft-ab13-docs "$base"
+echo '# more' >>docs/a.md
+git commit -qam "docs change"
+pr_merge bead/archicraft-ab13-docs
+expect "PR without golden changes after the base got one" pass "$(ci bead/archicraft-ab13-docs 'archicraft-ab13: Docs')"
+git switch -q -c bead/archicraft-ab14-golden "$base"
+echo '{"y":1}' >crates/demo/tests/golden/b.ifcx
+git add -A && git commit -qm "golden change"
+pr_merge bead/archicraft-ab14-golden
+expect "PR merge commit with a golden change without label" fail "$(ci bead/archicraft-ab14-golden 'archicraft-ab14: x')"
+expect "PR merge commit with a golden change with label" pass \
+    "$(ci bead/archicraft-ab14-golden 'archicraft-ab14: x' format-change)"
+git switch -q bead/archicraft-ab12.1-demo
 
 # --- sweep -------------------------------------------------------------------------------------
 export FAKE_BD_DB="$work/beads.json"
