@@ -176,3 +176,28 @@ fn about_window_follows_the_pseudo_locale() {
         assert!(harness.query_all_by_label(&english).next().is_none(), "{english}");
     }
 }
+
+/// A file that cannot be opened, because it does not exist or is larger than
+/// the size limit (lowered here instead of writing 2 GB), shows the “Cannot
+/// open the project” message instead of panicking (NFR-SEC-003, PRJ-008).
+#[test]
+fn unreadable_or_oversized_file_shows_cannot_open() {
+    let dir = std::env::temp_dir().join(format!("archicraft-ui-limits-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let oversized = dir.join("oversized.ifcx");
+    std::fs::write(&oversized, vec![b' '; 2048]).unwrap();
+    for (path, reason) in [
+        (dir.join("missing.ifcx"), "the file cannot be read"),
+        (oversized, "the file is larger than the limit of 1 KB"),
+    ] {
+        let mut harness = harness("cannot-open");
+        harness.state_mut().set_file_size_limit(1024);
+        harness.state_mut().open_path(&path);
+        harness.run_steps(2);
+        harness.get_by_label("Cannot open the project");
+        harness.get_by_label_contains(reason);
+        harness.get_by_label("OK").click();
+        harness.run_steps(2);
+        assert!(harness.query_by_label("Cannot open the project").is_none());
+    }
+}

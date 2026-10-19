@@ -44,6 +44,25 @@ deny = [
     { crate = "curl", reason = "HTTP client: network access only after consent (NFR-SEC-004, IFX-081)" },
     { crate = "attohttpc", reason = "HTTP client: network access only after consent (NFR-SEC-004, IFX-081)" },
     { crate = "surf", reason = "HTTP client: network access only after consent (NFR-SEC-004, IFX-081)" },
+    # NFR-SEC-003: no file content is ever executed, so no script engine or WebAssembly
+    # runtime may enter the dependency graph (docs/testing.md, Security review).
+    { crate = "rhai", reason = "script engine: file content is never executed (NFR-SEC-003)" },
+    { crate = "mlua", reason = "script engine: file content is never executed (NFR-SEC-003)" },
+    { crate = "rlua", reason = "script engine: file content is never executed (NFR-SEC-003)" },
+    { crate = "boa_engine", reason = "script engine: file content is never executed (NFR-SEC-003)" },
+    { crate = "deno_core", reason = "script engine: file content is never executed (NFR-SEC-003)" },
+    { crate = "v8", reason = "script engine: file content is never executed (NFR-SEC-003)" },
+    { crate = "wasmtime", reason = "WebAssembly runtime: file content is never executed (NFR-SEC-003)" },
+    { crate = "wasmer", reason = "WebAssembly runtime: file content is never executed (NFR-SEC-003)" },
+    # Dynamic loading: only the graphics and windowing crates may load the system's GPU and
+    # display libraries; no ArchiCraft crate loads code at run time.
+    { crate = "libloading", reason = "dynamic loading: no plugin or library is loaded from file content (NFR-SEC-003)", wrappers = [
+        "ash",
+        "dlib",
+        "khronos-egl",
+        "wgpu-hal",
+        "x11rb",
+    ] },
 ]
 
 [sources]
