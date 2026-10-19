@@ -569,7 +569,7 @@ fn check_tool_defaults(project: &Project, defaults: &ToolDefaults) -> Result<(),
     {
         return invalid("The default IFC class is not allowed for this tool.");
     }
-    let probe_wall = crate::element::Wall {
+    let probe_wall = crate::kinds::Wall {
         start: DVec2::ZERO,
         end: DVec2::X,
         thickness: defaults.wall.thickness,

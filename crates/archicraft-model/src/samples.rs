@@ -5,7 +5,8 @@
 use glam::DVec2;
 
 use crate::command::{Command, History};
-use crate::element::{ElementKind, Position, ReferenceLine};
+use crate::element::{ElementKind, Position};
+use crate::kinds::ReferenceLine;
 use crate::project::Project;
 use crate::template::default_metric_project;
 

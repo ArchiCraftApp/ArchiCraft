@@ -4,10 +4,9 @@ use glam::DVec2;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::element::{
-    Element, ElementKind, IfcClass, KindTag, Position, ReferenceLine, Slab, SlabReference, TopLink, Wall,
-};
+use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, TopLink};
 use crate::ids::{BuildingId, ElementId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
+use crate::kinds::{ReferenceLine, Slab, SlabReference, Wall};
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::storey::StoreyList;

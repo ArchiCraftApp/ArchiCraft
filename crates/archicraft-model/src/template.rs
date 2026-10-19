@@ -6,8 +6,9 @@
 
 use indexmap::IndexMap;
 
-use crate::element::{IfcClass, Position, ReferenceLine, SlabReference, TopLink};
+use crate::element::{IfcClass, Position, TopLink};
 use crate::ids::{BuildingId, MaterialId, ProjectId, SiteId, ViewId};
+use crate::kinds::{ReferenceLine, SlabReference};
 use crate::layer::Layer;
 use crate::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use crate::project::{
