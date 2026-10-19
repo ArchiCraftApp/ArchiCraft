@@ -14,6 +14,7 @@ pub mod project;
 pub mod samples;
 pub mod storey;
 pub mod template;
+pub mod tolerance;
 pub mod units;
 pub mod validate;
 
@@ -26,6 +27,7 @@ pub use layer::Layer;
 pub use material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 pub use project::{Project, ProjectInfo, ProjectSettings};
 pub use storey::{Storey, StoreyList};
+pub use tolerance::{ANGLE_TOLERANCE, JOIN_TOLERANCE, MODEL_TOLERANCE};
 
 /// Re-exported so that dependants use the same vector types.
 pub use glam;

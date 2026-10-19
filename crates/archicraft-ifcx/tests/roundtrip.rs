@@ -314,6 +314,37 @@ fn missing_references_are_repaired_and_reported() {
 }
 
 #[test]
+fn ground_storey_fallback_uses_the_model_tolerance() {
+    // Without a ground storey reference, the lowest storey at or above
+    // project zero is the ground floor; within the model tolerance below
+    // zero is at zero (NFR-ACC-003).
+    let ground_after_moving = |elevation: f64| {
+        let bytes = edit(&samples::storey_with_walls_and_slab(), |v| {
+            for node in v["data"].as_array_mut().unwrap() {
+                if let Some(Value::Object(attr)) = node["attributes"].get_mut("archicraft::project") {
+                    attr.remove("groundStorey");
+                }
+            }
+            let i = node_index(v, "00 Ground floor");
+            v["data"][i]["attributes"]["archicraft::storey"]["elevation"] = elevation.into();
+        });
+        let loaded = archicraft_ifcx::load(&bytes).unwrap();
+        assert!(
+            loaded
+                .problems
+                .iter()
+                .any(|p| p.message.contains("ground storey is not defined")),
+            "{:#?}",
+            loaded.problems
+        );
+        let storeys = &loaded.project.storeys;
+        storeys.get(storeys.ground()).unwrap().name.clone()
+    };
+    assert_eq!(ground_after_moving(-0.000_005), "00 Ground floor");
+    assert_eq!(ground_after_moving(-0.000_020), "01 First floor");
+}
+
+#[test]
 fn schema_violations_are_reported() {
     let project = samples::storey_with_walls_and_slab();
     let bytes = edit(&project, |v| {

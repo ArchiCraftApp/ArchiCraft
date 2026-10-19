@@ -6,8 +6,10 @@ use glam::DVec2;
 use crate::element::{Element, ElementKind, Slab, TopLink, Wall};
 use crate::project::Project;
 
-/// Geometric coincidence tolerance: 0.01 mm (NFR-ACC-003).
-pub const MODEL_TOLERANCE: f64 = 1e-5;
+/// Geometric coincidence tolerance: 0.01 mm (NFR-ACC-003), defined in
+/// [`crate::tolerance`] and re-exported here for existing users.
+pub use crate::tolerance::MODEL_TOLERANCE;
+
 /// Edges shorter than this are removed or reported: 0.1 mm (EDT-019).
 pub const MIN_EDGE_LENGTH: f64 = 1e-4;
 /// Corners sharper than this are rejected as slivers: 0.1° (EDT-019).

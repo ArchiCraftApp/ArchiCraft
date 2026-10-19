@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ids::StoreyId;
+use crate::tolerance::MODEL_TOLERANCE;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Storey {
@@ -120,12 +121,14 @@ impl StoreyList {
     }
 
     /// The storey whose elevation range contains `elevation` (the lowest
-    /// storey for anything below it, the top storey for anything above).
+    /// storey for anything below it, the top storey for anything above). An
+    /// elevation within the model tolerance of a storey's elevation belongs
+    /// to that storey (NFR-ACC-003).
     pub fn storey_at_elevation(&self, elevation: f64) -> &Storey {
         self.storeys
             .iter()
             .rev()
-            .find(|s| s.elevation <= elevation + 1e-9)
+            .find(|s| s.elevation < elevation + MODEL_TOLERANCE)
             .unwrap_or(&self.storeys[0])
     }
 
@@ -368,6 +371,18 @@ mod tests {
         assert_eq!(inserted.get(mezzanine_id).unwrap().elevation, 3.0);
         assert_eq!(inserted.get(ids[1]).unwrap().elevation, 4.5);
         assert_eq!(inserted.remove(mezzanine_id).unwrap(), list);
+    }
+
+    #[test]
+    fn storey_at_elevation_uses_the_model_tolerance() {
+        let (list, ids) = three();
+        assert_eq!(list.storey_at_elevation(4.0).id, ids[1]);
+        assert_eq!(list.storey_at_elevation(-1.0).id, ids[0]);
+        assert_eq!(list.storey_at_elevation(10.0).id, ids[2]);
+        // NFR-ACC-003: 5 µm below the first floor is the first floor; 20 µm
+        // below is still the ground floor.
+        assert_eq!(list.storey_at_elevation(3.0 - 0.000_005).id, ids[1]);
+        assert_eq!(list.storey_at_elevation(3.0 - 0.000_020).id, ids[0]);
     }
 
     #[test]
