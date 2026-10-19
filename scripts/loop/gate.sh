@@ -53,19 +53,10 @@ golden_check() {
 step golden golden_check
 
 budget_check() {
-    local base lines
-    base="$(git merge-base "$(loop_base)" HEAD)"
-    # Added plus deleted lines of tracked non-test Rust sources, plus new untracked ones.
-    lines="$(
-        {
-            git diff --numstat "$base" -- ':(glob)crates/**/*.rs' ':(exclude,glob)crates/*/tests/**' \
-                ':(exclude,glob)crates/*/benches/**' ':(exclude,glob)crates/*/examples/**' |
-                awk '{ s += $1 + $2 } END { print s + 0 }'
-            git ls-files --others --exclude-standard -- ':(glob)crates/*/src/**/*.rs' | while read -r f; do
-                wc -l <"$f"
-            done
-        } | awk '{ s += $1 } END { print s + 0 }'
-    )"
+    local lines
+    # Added plus deleted lines of Rust sources outside tests/, benches/, examples/ and the
+    # top-level `#[cfg(test)] mod tests`, new untracked files included.
+    lines="$(loop_budget_lines "$(git merge-base "$(loop_base)" HEAD)")"
     echo "non-test source lines changed: $lines (budget $LOOP_DIFF_BUDGET)"
     [ "$lines" -le "$LOOP_DIFF_BUDGET" ] && return 0
     has_label large-change && { echo "over budget, allowed by label large-change"; return 0; }

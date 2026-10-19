@@ -25,17 +25,14 @@ fi
 echo "$tree $((count + 1))" >"$dir/stop-blocks"
 
 way_out="If you must stop here (a question for the user, a blocker), run scripts/loop/pause.sh \"<reason>\" first."
+if ! loop_stamp_valid gate.ok "$tree" && ! loop_stamp_valid gate.fail "$tree"; then
+    "$HOOK_ROOT/scripts/loop/gate.sh" >/dev/null 2>&1
+fi
 if loop_stamp_valid gate.ok "$tree"; then
-    if loop_stamp_valid review.ok "$tree"; then
+    if loop_review_valid "$tree"; then
         hook_block "Bead $bead passed the gate and the review but is not committed. Commit it and run scripts/loop/land.sh (step 7 of /bead). $way_out"
     fi
     hook_block "Bead $bead passed the gate; the review is missing. Launch the bead-reviewer agent with 'Review bead $bead' (step 6 of /bead). $way_out"
-fi
-if ! loop_stamp_valid gate.fail "$tree"; then
-    "$HOOK_ROOT/scripts/loop/gate.sh" >/dev/null 2>&1
-    if loop_stamp_valid gate.ok "$tree"; then
-        hook_block "The gate passed for bead $bead; the review is missing. Launch the bead-reviewer agent with 'Review bead $bead' (step 6 of /bead). $way_out"
-    fi
 fi
 summary="$(head -c 6000 "$dir/gate-summary.txt" 2>/dev/null || echo "The gate failed; run scripts/loop/gate.sh for details.")"
 hook_block "Bead $bead has uncommitted code that fails the gate. Fix the causes, then run scripts/loop/gate.sh again. $way_out

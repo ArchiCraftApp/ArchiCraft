@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Self-test of the bead loop's hooks and policy scripts: drives each hook with Claude Code hook
-# input in a throwaway repository, with a stub bd. Runs locally and in CI (no cargo, no bd).
+# input in a throwaway repository, with stubs for bd, gh and cargo. Runs locally and in CI
+# (needs neither cargo nor bd).
 # Usage: scripts/loop/selftest.sh
 set -uo pipefail
 src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +17,8 @@ cp -R "$src" "$repo/scripts/loop"
 cat >"$work/bin/bd" <<'EOF'
 #!/usr/bin/env bash
 # Stub: bd show <id> --json answers from FAKE_BD_STATUS and FAKE_BD_LABELS; list, children
-# and close work on the JSON array in FAKE_BD_DB (closed ids go to FAKE_BD_DB.closed).
+# and close work on the JSON array in FAKE_BD_DB (closed ids go to FAKE_BD_DB.closed; close
+# refuses the ids listed in FAKE_BD_REFUSE, as bd does for a blocked bead).
 db="${FAKE_BD_DB:-}"
 case "$1" in
     show)
@@ -37,12 +39,22 @@ case "$1" in
         [ -n "$db" ] || { echo '[]'; exit 0; }
         jq --arg p "$2" '[.[] | select(.parent == $p)]' "$db"
         ;;
-    close) [ -n "$db" ] && echo "$2" >>"$db.closed" ;;
+    close)
+        if [[ ",${FAKE_BD_REFUSE:-}," == *",$2,"* ]]; then
+            echo "Error: cannot close $2: blocked by open issues" >&2
+            exit 1
+        fi
+        [ -n "$db" ] && echo "$2" >>"$db.closed"
+        ;;
+    epic) [ -n "$db" ] && echo "archicraft-epic1 Demo epic (2/2 closed)" ;;
 esac
 exit 0
 EOF
-printf '#!/bin/sh\nexit 0\n' >"$work/bin/gh"
-chmod +x "$work/bin/bd" "$work/bin/gh"
+# Stub: gh pr view answers with the state in FAKE_GH_STATE.
+printf '#!/bin/sh\n[ "$1 $2" = "pr view" ] && echo "${FAKE_GH_STATE:-}"\nexit 0\n' >"$work/bin/gh"
+# Stub: every cargo step passes, so gate.sh runs in seconds when the Stop hook starts it.
+printf '#!/bin/sh\nexit 0\n' >"$work/bin/cargo"
+chmod +x "$work/bin/bd" "$work/bin/gh" "$work/bin/cargo"
 export PATH="$work/bin:$PATH"
 cd "$repo" || exit 2
 git init -q -b main
@@ -126,8 +138,23 @@ stamp gate.ok
 check "code commit with the gate only" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
 stamp review.ok
 check "code commit with gate and review" allow "$(hook guard-bash "$(bash_input 'git commit -am x')")"
+echo 'minor fix' >>docs/a.md
+check "code commit after a doc fix, before a new gate" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
+stamp gate.ok
+check "code commit after a doc fix and a new gate" allow "$(hook guard-bash "$(bash_input 'git commit -am x')")"
+loop_review_valid && passed=$((passed + 1)) || { failed=$((failed + 1)); echo "FAIL review not carried over a doc fix"; }
+echo '# minor fix' >>scripts/loop/gate.sh
+stamp gate.ok
+check "code commit after a loop-file fix and a new gate" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
+git checkout -q -- scripts/loop/gate.sh
+mv crates/demo/tests/golden/a.ifcx docs/a.ifcx
+stamp gate.ok
+check "code commit after moving a code file to docs/ and a new gate" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
+mv docs/a.ifcx crates/demo/tests/golden/a.ifcx
 echo '// later edit' >>crates/demo/src/lib.rs
 check "code commit after a later edit" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
+stamp gate.ok
+check "code commit after a code fix and a new gate" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
 reset_state
 git switch -q main
 echo 'pub fn demo() { let _y = 2; }' >crates/demo/src/lib.rs
@@ -149,6 +176,20 @@ stamp review.ok
 check "stop with reviewed, uncommitted code" block "$(hook stop-gate "$stop_input")"
 rm -f "$(loop_dir)/review.ok"
 check "stop with gated, unreviewed code" block "$(hook stop-gate "$stop_input")"
+# The hook runs the gate itself (cargo is a stub) on a tree without a gate result.
+stamp gate.ok
+stamp review.ok
+echo 'typo fix' >>docs/a.md
+out="$(hook stop-gate "$stop_input")"
+check "stop after a doc fix following a PASS" block "$out"
+grep -q 'passed the gate and the review but is not committed' <<<"$out" && passed=$((passed + 1)) ||
+    { failed=$((failed + 1)); echo "FAIL stop after a doc fix asks for a new review: $out"; }
+echo '// code fix' >>crates/demo/src/lib.rs
+out="$(hook stop-gate "$stop_input")"
+grep -q 'passed the gate; the review is missing' <<<"$out" && passed=$((passed + 1)) ||
+    { failed=$((failed + 1)); echo "FAIL stop after a code fix following a PASS does not ask for a review: $out"; }
+git checkout -q -- docs/a.md
+echo 'pub fn demo() { let _z = 3; }' >crates/demo/src/lib.rs
 rm -f "$(loop_dir)/gate.ok" "$(loop_dir)/stop-blocks"
 stamp gate.fail
 echo "GATE FAIL: test" >"$(loop_dir)/gate-summary.txt"
@@ -206,20 +247,64 @@ export FAKE_BD_DB="$work/beads.json"
 cat >"$FAKE_BD_DB" <<'EOF'
 [
   {"id": "x-area", "status": "open", "labels": ["split"]},
+  {"id": "x-blocked", "status": "in_progress", "labels": ["loop-split"]},
+  {"id": "x-blocked.1", "status": "closed", "parent": "x-blocked"},
   {"id": "x-done", "status": "in_progress", "labels": ["loop-split"]},
   {"id": "x-done.1", "status": "closed", "parent": "x-done"},
   {"id": "x-busy", "status": "in_progress", "labels": ["loop-split"]},
   {"id": "x-busy.1", "status": "closed", "parent": "x-busy"},
   {"id": "x-busy.2", "status": "open", "parent": "x-busy"},
-  {"id": "x-empty", "status": "in_progress", "labels": ["loop-split"]}
+  {"id": "x-empty", "status": "in_progress", "labels": ["loop-split"]},
+  {"id": "x-merged-blocked", "status": "in_progress", "external_ref": "https://github.com/o/r/pull/8"},
+  {"id": "x-merged", "status": "in_progress", "external_ref": "https://github.com/o/r/pull/7"},
+  {"id": "x-human", "status": "open", "labels": ["human"], "title": "Needs a decision"}
 ]
 EOF
 : >"$FAKE_BD_DB.closed"
-bash scripts/loop/sweep.sh >/dev/null 2>"$work/sweep.err" || { failed=$((failed + 1)); echo "FAIL sweep exited non-zero"; }
+FAKE_GH_STATE=MERGED FAKE_BD_REFUSE=x-blocked,x-merged-blocked bash scripts/loop/sweep.sh >"$work/sweep.out" 2>"$work/sweep.err" ||
+    { failed=$((failed + 1)); echo "FAIL sweep exited non-zero after a refused close"; }
 [ -s "$work/sweep.err" ] && { failed=$((failed + 1)); echo "FAIL sweep wrote to stderr:"; cat "$work/sweep.err"; }
-expect "sweep closes only a loop-split parent whose children are all closed" "x-done" \
-    "$(tr '\n' ' ' <"$FAKE_BD_DB.closed" | sed 's/ $//')"
+expect "sweep closes merged beads and only loop-split parents whose children are all closed" "x-done x-merged" \
+    "$(sort "$FAKE_BD_DB.closed" | tr '\n' ' ' | sed 's/ $//')"
+expect "sweep reports each refused close" 2 "$(grep -cE '^refused  x-(blocked|merged-blocked): .*blocked by open issues' "$work/sweep.out")"
+expect "sweep reports beads for a human after a refused close" 1 "$(grep -c '^  x-human Needs a decision$' "$work/sweep.out")"
+expect "sweep reports epics due for a demo after a refused close" 1 \
+    "$(grep -c '^  archicraft-epic1 Demo epic' "$work/sweep.out")"
 unset FAKE_BD_DB
+
+# --- diff budget -------------------------------------------------------------------------------
+reset_state
+printf 'pub fn demo() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn old() {}\n}\n' >crates/demo/src/lib.rs
+git add -A && git commit -qm "budget base"
+budget_base="$(git rev-parse HEAD)"
+# Non-test lines: a new function, a test-only helper and a module with a nested test module that
+# does not end the file (8 lines); the file's own test module grows by 2.
+printf '%s\n' 'pub fn demo() {}' 'pub fn added() {}' '#[cfg(test)]' 'pub fn helper() {}' 'mod inner {' \
+    '    #[cfg(test)]' '    mod tests {}' '    pub fn g() {}' '}' '' '#[cfg(test)]' '#[allow(dead_code)]' \
+    'mod tests {' '    #[test]' '    fn old() {}' '    #[test]' '    fn new() {}' '}' >crates/demo/src/lib.rs
+# A new source file (1 line before its test module); an out-of-line test module declaration and a
+# test-only module not named tests, which clippy does not keep last, count like any other line (4);
+# an integration test does not count.
+printf 'pub fn extra() {}\n#[cfg(test)] mod tests { fn t() {} }\n' >crates/demo/src/extra.rs
+printf '#[cfg(test)]\nmod tests;\n#[cfg(test)]\nmod fixtures {}\n' >crates/demo/src/other.rs
+printf '#[test]\nfn it() {}\n' >crates/demo/tests/it.rs
+expect "diff budget leaves out inline test modules and tests/" 13 "$(loop_budget_lines "$budget_base")"
+reset_state
+
+# --- land.sh helpers ---------------------------------------------------------------------------
+srs() { printf '%b' "$1" | loop_srs_ids; }
+expect "SRS ids from a notes line" "SEL-003, SEL-004" "$(srs 'SRS: SEL-003 SEL-004')"
+expect "SRS ids up to the end of the sentence" "NFR-ACC-003" \
+    "$(srs 'SRS: NFR-ACC-003. Reference only: wip/x, see WAL-020.\nPR https://x/pull/5')"
+expect "SRS ids in one-paragraph notes" "WAL-020, NFR-PERF-005" \
+    "$(srs 'Split from x. SRS: WAL-020 (partial, see 4.2), NFR-PERF-005. Depends on GEO-004.')"
+expect "SRS ids with digits in the prefix" "NFR-L10N-003, NFR-A11Y-001" "$(srs 'SRS: NFR-L10N-003, NFR-A11Y-001\nFollow-up')"
+expect "notes without SRS ids" "" "$(srs 'No requirements. Mentions WAL-020 only in passing.')"
+printf '%s\n' 'Intro' '## Acceptance criteria' '- ok' '```bash' '# a comment' '```' '### Detail' '## Findings' \
+    >"$work/review.md"
+expect "review headings nest below the PR body's level-2 heading" \
+    "Intro|### Acceptance criteria|- ok|\`\`\`bash|# a comment|\`\`\`|#### Detail|### Findings" \
+    "$(loop_nest_headings 3 "$work/review.md" | paste -sd '|' -)"
 
 [ -f "$work/crashes" ] && failed=$((failed + $(wc -l <"$work/crashes")))
 echo "loop selftest: $passed passed, $failed failed"

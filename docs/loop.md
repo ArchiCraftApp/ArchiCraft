@@ -12,9 +12,9 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 
 | Step | What happens | Tool |
 |---|---|---|
-| 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report waiting PRs, beads for a human, epics due for a demo | `scripts/loop/sweep.sh` |
+| 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report closes bd refused, waiting PRs, beads for a human, epics due for a demo. The copy on `origin/main` runs, since a new worktree may be cut from an older `main` | `scripts/loop/sweep.sh` |
 | 1 Claim | Claim the bead, branch `bead/<id>-<slug>` from `origin/main`, clone the warm build cache | `scripts/loop/start-bead.sh <id>` |
-| 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines, or with separable criteria | `bd create --parent` |
+| 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines (a top-level `#[cfg(test)] mod tests` does not count), or with separable criteria | `bd create --parent` |
 | 3 Tests first | Every acceptance criterion becomes a failing test | |
 | 4 Implement | CLAUDE.md conventions; rustfmt runs after every edit | |
 | 5 Gate | fmt, clippy, tests, layering, golden files, diff budget, `.beads/`, conformance, licences | `scripts/loop/gate.sh` |
@@ -23,8 +23,11 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | 8 Close | Bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |
 
 The gate and the review stamp the exact tree they checked (`loop_tree_hash` in
-`scripts/loop/lib.sh`); any later edit invalidates both. Stamps, logs and counters live in the
-worktree's git dir (`git rev-parse --git-path loop`), never in the repository.
+`scripts/loop/lib.sh`). Any later edit invalidates the gate stamp. The review stamp survives
+only edits outside code and the loop's own files (`loop_review_valid`): a trivial doc fix for
+a minor finding after a `PASS` needs a new gate run but no new review, and every other minor
+finding becomes a follow-up bead instead of another review round. Stamps, logs and counters
+live in the worktree's git dir (`git rev-parse --git-path loop`), never in the repository.
 `scripts/loop/status.sh` shows where a worktree stands.
 
 **Stop rules.** Three gate failures on the same problem or two failed reviews: the bead gets
@@ -51,7 +54,7 @@ Instructions are soft; these are not:
 |---|---|
 | Hook `guard-edit` (PreToolUse Edit/Write) | Code under `crates/`, `conformance/` and the workspace manifests is edited only on a bead branch whose bead is in progress; golden files are never edited by hand; the reviewer never edits; a feature bead never edits the loop's own files |
 | Hook `format-rust` (PostToolUse) | rustfmt on every edited `.rs` file; syntax errors reported back |
-| Hook `guard-bash` (PreToolUse Bash) | No force push, no push to `main`, no PR merge without `--auto`, no `--admin`; code commits only on a bead branch with valid gate and review stamps; stamps cannot be written by hand; the reviewer runs read-only commands |
+| Hook `guard-bash` (PreToolUse Bash) | No force push, no push to `main`, no PR merge without `--auto`, no `--admin`; code commits only on a bead branch with a gate on the exact tree and a review that covers it; stamps cannot be written by hand; the reviewer runs read-only commands |
 | Hook `review-verdict` (SubagentStop) | The reviewer's `VERDICT: PASS` stamps the tree, only when the gate passed on it |
 | Hook `stop-gate` (Stop) | A bead session does not end with uncommitted code that has not passed the gate and the review; it runs the gate, blocks at most three times per tree, and `pause.sh` is the explicit way out |
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
@@ -62,6 +65,11 @@ The hooks are wired in `.claude/settings.json`; each resolves its script from th
 top level of the session's working directory, so worktree sessions run their own branch's
 version. Command-line matching is a guardrail, not a sandbox: CI and branch protection are
 the gates that cannot be bypassed.
+
+`guard-edit` sees only the Edit and Write tools. A file changed through Bash (`sed -i`, a
+heredoc, a script) bypasses it, on `main` as on a bead branch. Only the stamps catch such a
+change locally (a code commit needs a gate on the exact tree and a review that covers it), and
+CI catches it in the pull request.
 
 Beads labelled `loop` change the loop itself. Their PRs do not auto-merge; the user reviews
 them. Every review finding that a script could have caught becomes such a bead, so the gate

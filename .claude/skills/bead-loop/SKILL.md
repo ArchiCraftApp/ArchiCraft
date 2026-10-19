@@ -16,9 +16,20 @@ that restricts the picks to its descendants.
 
 ## Each iteration
 
-1. **Sweep.** Run `scripts/loop/sweep.sh`. Stop the loop and report to the user when it
-   prints `ATTENTION`, lists beads under "needs a human", or lists an epic ready for its
-   demo (see Demo checkpoint).
+1. **Sweep.** Run the sweep as it is on `origin/main` (this checkout's copy may be older),
+   the same way as step 0 of `/bead`:
+
+   ```bash
+   git fetch --quiet origin main
+   main_loop="$(mktemp -d)"
+   git archive origin/main scripts/loop | tar -x -C "$main_loop"
+   bash "$main_loop/scripts/loop/sweep.sh"; rm -rf "$main_loop"
+   ```
+
+   Stop the loop and report to the user when it prints `ATTENTION`, lists beads under
+   "needs a human", or lists an epic ready for its demo (see Demo checkpoint). A `refused`
+   line (bd would not close a bead, for example a blocked one) does not stop the loop; include
+   it in your report to the user.
 2. **Pick.** `bd ready --json --limit 0 --exclude-type epic --exclude-label human`
    (add `--parent <epic>` when an epic was given) and take the first entry. If nothing is
    ready, the remaining work waits on open PRs: list them from the sweep output, end your
