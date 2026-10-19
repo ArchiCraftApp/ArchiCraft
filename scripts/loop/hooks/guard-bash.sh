@@ -2,6 +2,8 @@
 # PreToolUse (Bash): the git and GitHub rules of the bead loop.
 # - stamps are written only by gate.sh, the review hook and pause.sh;
 # - the reviewer runs read-only commands;
+#   (both judged by the commands the line runs, see shell-commands.awk: quoted arguments and
+#   heredoc bodies that mention a command or the loop's state dir do not count)
 # - no force pushes, no pushes to main, no PR merges without --auto;
 # - a code commit happens only on a bead branch whose tree passed the gate and is covered by a
 #   passing review (loop_review_valid).
@@ -12,16 +14,31 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 cmd="$(hook_field .tool_input.command)"
 [ -n "$cmd" ] || exit 0
 has() { grep -Eq -- "$1" <<<"$cmd"; }
-# The command without harmless redirections (2>&1, >/dev/null), for write detection.
-plain="$(sed -E 's/[0-9]*>&[0-9]+//g; s#[0-9]*>>?[[:space:]]*/dev/null##g' <<<"$cmd")"
-writes() { grep -Eq '(^|[^-=])>|(^|[;&|[:space:]])(rm|mv|cp|touch|tee|truncate|ln|chmod)[[:space:]]|sed[[:space:]]+(-[a-zA-Z]*[[:space:]]+)*-i' <<<"$plain"; }
+# The commands the line runs: one per line, words separated by tabs, a write redirection as
+# ">	<target>".
+cmds="$(printf '%s\n' "$cmd" | awk -f "$(dirname "${BASH_SOURCE[0]}")/shell-commands.awk")"
+t=$'\t'
+runs() { grep -Eq -- "$1" <<<"$cmds"; }
+# Commands that write files: a redirection, a file utility, sed -i, find -delete.
+write_re="^(>|rm|mv|cp|touch|tee|truncate|ln|chmod)($t|\$)|^sed$t(.*$t)?(-[a-zA-Z]*i|--in-place)|^find$t(.*$t)?-delete($t|\$)"
+writes="$(grep -E -- "$write_re" <<<"$cmds")"
+# A line that writes and runs any command naming the state dir: the write itself, a cd into it, or
+# a variable or pipe that carries the path to the write. A heredoc body that is data never counts;
+# a quoted mention (a bd note, a commit message) counts only on a line that writes.
+state_re='\.git/([^[:space:]]*/)?loop|git-path[[:space:]]+loop|(gate|review)\.(ok|fail)|stop-blocks'
 
-if has '\.git/([^[:space:]]*/)?loop|git-path[[:space:]]+loop|(gate|review)\.(ok|fail)|stop-blocks' && writes; then
+if [ -n "$writes" ] && grep -Eq -- "$state_re" <<<"$cmds"; then
     hook_deny "The loop's stamps are written only by scripts/loop/gate.sh, the review hook and scripts/loop/pause.sh. Reading the gate logs is fine."
 fi
 
 if [ "$HOOK_AGENT" = bead-reviewer ]; then
-    if writes || has 'git[[:space:]]+(add|commit|push|reset|checkout|switch|restore|stash|clean|rebase|merge|cherry-pick|rm|mv)|cargo[[:space:]]+(fmt|fix|add|remove|update)|--fix|bd[[:space:]]+(update|close|create|delete|dep|label|remember|forget|human)|gh[[:space:]]'; then
+    git_opts="($t(-C|-c|--git-dir|--work-tree)$t[^$t]*|$t-[^$t]*)*"
+    # --fix rewrites files in any tool (cargo clippy --fix); only a search pattern may name it.
+    fixes="$(grep -E -- "$t--fix(=|$t|\$)" <<<"$cmds" | grep -Ev -- "^(grep|egrep|fgrep|rg)$t")"
+    if [ -n "$writes" ] || [ -n "$fixes" ] ||
+        runs "^git$git_opts$t(add|commit|push|reset|checkout|switch|restore|stash|clean|rebase|merge|cherry-pick|rm|mv)($t|\$)" ||
+        runs "^cargo($t[-+][^$t]*)*$t(fmt|fix|add|remove|update)($t|\$)" ||
+        runs "^bd($t-[^$t]*)*$t(update|close|create|delete|dep|label|remember|forget|human)($t|\$)|^gh($t|\$)"; then
         hook_deny "The bead reviewer only reads: git diff/log/show/status, bd show, grep, cargo check/test. Report the problem as a finding instead."
     fi
     exit 0
