@@ -46,6 +46,13 @@ cargo run --release -p archicraft-app -- my.ifcx  # open a project
 On Linux, the application needs a Vulkan or OpenGL driver and, for file
 dialogs, an XDG desktop portal; standard desktops have both.
 
+On macOS, `scripts/package-macos.sh` builds a release and packs it into
+`target/dmg/ArchiCraft-<version>-macos-arm64.dmg`, with `ArchiCraft.app` and a
+link to Applications to drag it to. The app is signed ad hoc; set
+`CODESIGN_IDENTITY` to sign it with a Developer ID instead. On another Mac, an
+ad hoc signed app opens only after the user allows it under System Settings →
+Privacy & Security.
+
 ## Testing
 
 ```sh
@@ -68,6 +75,7 @@ Windows, macOS and Linux, plus a licence check with cargo-deny.
 | `crates/archicraft-ifcx` | IFCX reader and writer (`ifcx_alpha` adapter), bundled schemas |
 | `crates/archicraft-app` | The desktop application (eframe, egui, wgpu) |
 | `conformance/` | IFX-006 check with buildingSMART's reference code (test-only) |
+| `scripts/` | Packaging (macOS DMG) |
 | `docs/` | SRS and technology choices |
 
 ## License
