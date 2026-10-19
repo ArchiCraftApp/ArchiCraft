@@ -72,6 +72,9 @@ pub struct ArchiCraftApp {
     /// (NFR-L10N-001).
     localizer: Rc<Localizer>,
     released: Vec<View3dState>,
+    /// The largest file opened or recovered (Appendix D.9, NFR-SEC-003);
+    /// lowered only by tests.
+    file_size_limit: u64,
     _log: Arc<RecentLog>,
 }
 
@@ -125,6 +128,7 @@ impl ArchiCraftApp {
             theme: None,
             localizer: Rc::new(Localizer::english()),
             released: Vec::new(),
+            file_size_limit: archicraft_ifcx::validate::MAX_FILE_SIZE as u64,
             _log: log,
         };
         if let Some(path) = open {
@@ -136,6 +140,12 @@ impl ArchiCraftApp {
     /// The workspace, for tests.
     pub fn workspace(&mut self) -> &mut Workspace {
         &mut self.ws
+    }
+
+    /// Lowers the file size limit, so that tests can open an oversized file
+    /// without writing 2 GB.
+    pub fn set_file_size_limit(&mut self, limit: u64) {
+        self.file_size_limit = limit;
     }
 
     /// Switches the user-interface language from the next frame on
@@ -160,16 +170,10 @@ impl ArchiCraftApp {
         self.newer_confirmed = false;
     }
 
-    /// Opens a project file (PRJ-003, PRJ-008).
+    /// Opens a project file (PRJ-003, PRJ-008), checking its size before
+    /// reading it (NFR-SEC-003).
     pub fn open_path(&mut self, path: &Path) {
-        let bytes = match std::fs::read(path) {
-            Ok(b) => b,
-            Err(e) => {
-                self.message("Cannot open the project", format!("{}: {e}", path.display()));
-                return;
-            }
-        };
-        match archicraft_ifcx::load(&bytes) {
+        match archicraft_ifcx::load_path_with_limit(path, self.file_size_limit) {
             Ok(outcome) => {
                 let doc = Document::opened(
                     outcome.project,
@@ -278,9 +282,8 @@ impl ArchiCraftApp {
             Then::Recover(index) => {
                 if index < self.recovery.len() {
                     let abandoned = self.recovery.remove(index);
-                    match std::fs::read(&abandoned.model)
-                        .map_err(|e| e.to_string())
-                        .and_then(|b| archicraft_ifcx::load(&b).map_err(|p| p.to_string()))
+                    match archicraft_ifcx::load_path_with_limit(&abandoned.model, self.file_size_limit)
+                        .map_err(|p| p.to_string())
                     {
                         Ok(outcome) => {
                             let doc = Document::recovered(

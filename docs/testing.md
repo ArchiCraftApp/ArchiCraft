@@ -94,7 +94,28 @@ _To be completed: cargo-fuzz targets, seed corpus and the nightly fuzz job. Thei
 `cargo deny check advisories` checks the dependency graph against the RustSec advisory
 database in CI; `deny.toml` lists each ignored advisory with its reason.
 
-_To be completed: the security review._
+**Untrusted input (NFR-SEC-003).** Every file ArchiCraft opens is untrusted input. The IFCX
+reader enforces the limits of SRS Appendix D.9, each tested at its boundary in
+`crates/archicraft-ifcx/tests/limits.rs`:
+
+- file size at most 2 GB, checked against the file's length before reading
+  (`archicraft_ifcx::load_path`), and the read stops one byte past the limit, so a file that
+  grows while it is read is rejected too;
+- JSON nesting fewer than 128 levels in the whole document (the recursion limit of
+  `serde_json`);
+- `children`/`inherits` chains at most 64 deep, reported with the node path;
+- at most 32 imports.
+
+**No execution.** File content only ever becomes data: the reader has no `eval`, loads no
+plugins or libraries and spawns no processes, and nothing in a file selects code to run.
+`deny.toml` `[bans]` guards this mechanically: it denies script engines and WebAssembly
+runtimes (rhai, mlua, rlua, boa_engine, deno_core, v8, wasmtime, wasmer), and allows
+`libloading` only under the graphics and windowing crates that load the system's GPU and
+display libraries (ash, dlib, khronos-egl, wgpu-hal, x11rb). Adding any of them to an
+ArchiCraft crate fails `cargo deny check bans` in the CI job "Licences and sources".
+
+This property is reviewed before every release: check that the reader still holds no code
+path from file content to execution, and that the bans and their reasons still apply.
 
 ## Performance
 
