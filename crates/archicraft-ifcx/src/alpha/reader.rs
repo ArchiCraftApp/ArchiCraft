@@ -11,6 +11,7 @@ use archicraft_model::project::{
     Building, Location, NameCounters, Projection, Site, SlabDefaults, Tessellation, ToolDefaults, View3d, WallDefaults,
 };
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
+use archicraft_model::tolerance::MODEL_TOLERANCE;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit};
 use archicraft_model::validate::validate_element;
 use archicraft_model::{
@@ -548,9 +549,10 @@ fn storey_list(mut storeys: Vec<Storey>, ground: Option<StoreyId>, problems: &mu
     let ground = match ground.filter(|g| storeys.iter().any(|s| s.id == *g)) {
         Some(g) => g,
         None => {
+            // At or above project zero, within the model tolerance (NFR-ACC-003).
             let g = storeys
                 .iter()
-                .find(|s| s.elevation >= -1e-9)
+                .find(|s| s.elevation > -MODEL_TOLERANCE)
                 .unwrap_or(&storeys[storeys.len() - 1])
                 .id;
             problems.push(Problem::warning(
