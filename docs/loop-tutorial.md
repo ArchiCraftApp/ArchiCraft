@@ -1,0 +1,161 @@
+# Working with the bead loop
+
+A practical guide for the person who runs ArchiCraft's implementation with Claude Code: how
+to start work, what happens meanwhile, and when you are needed. How the loop works inside
+(scripts, hooks, CI rules) is described in [loop.md](loop.md).
+
+## In short
+
+The backlog is a set of small tasks, called beads, in `bd`. Claude works them one at a time:
+each bead in its own session and branch, tests first, checked by a script, reviewed by a
+second Claude that did not write the code, and then a pull request that GitHub merges by
+itself once CI is green on Windows, macOS and Linux.
+
+You start runs, try the app when a feature area (an epic) is complete, and decide when
+Claude is stuck. Everything else runs without you.
+
+## Words you will see
+
+| Word | Meaning |
+|---|---|
+| bead | One task in the backlog, for example `archicraft-ooz9`. Pieces of a split bead get a suffix: `archicraft-ooz9.1`. |
+| epic | A group of beads for one feature area, for example `archicraft-0n41`. The order of the epics is in [roadmap.md](roadmap.md). |
+| gate | `scripts/loop/gate.sh`: formatting, lint, all tests and the project rules. |
+| review | The `bead-reviewer` agent checks the change against the bead's acceptance criteria. |
+| sweep | `scripts/loop/sweep.sh`: closes beads whose pull request merged and reports what waits. |
+| label `human` | On a bead: Claude is stuck and needs your decision. |
+| label `loop` | On a bead or pull request: it changes the loop's own rules, so you review it. |
+| label `loop-split` | A bead that was split into smaller ones; it closes when they are done. |
+
+## 1. Start a run
+
+1. In the Claude desktop app, start a new Code session for the ArchiCraft project. The app
+   gives it its own worktree.
+2. Type one of these:
+
+| Command | What it does |
+|---|---|
+| `/bead-loop 5` | Works the next five ready beads, highest priority first, across all epics. |
+| `/bead-loop 20 archicraft-0n41` | Works only on that epic, until it is complete or 20 beads are done. |
+| `/bead` | Works the single next ready bead in this session. |
+| `/bead archicraft-ooz9.2` | Works exactly that bead in this session. |
+
+With `/bead-loop`, the session you typed it in coordinates. It never writes code itself: it
+starts one session per bead (they appear in the sidebar), checks each result and starts the
+next. Beads run one after another.
+
+Start with small numbers (3 to 5). Each bead is a full working session, so you see cost and
+quality before you let a run go longer. Without an epic, the coordinator rarely has to wait:
+while one pull request is still in CI, it usually finds an independent bead elsewhere.
+
+## 2. While it runs
+
+You do not need to watch. If you want to:
+
+- open a bead session in the sidebar and read along;
+- look at the pull requests on GitHub (or `gh pr list`); their titles start with the bead id,
+  and they merge themselves when CI passes;
+- ask the backlog in a terminal:
+
+  ```bash
+  bd ready                         # what can start next
+  bd list --status in_progress     # being worked on, or waiting for its merge
+  bd epic status                   # progress per epic
+  ```
+
+**When the coordinator pauses**, it says why:
+
+- *Waiting for a merge*: every ready bead depends on a pull request that is still in CI. Type
+  `continue` once it has merged. This happens often when you restrict a run to one epic,
+  because the beads of an epic usually build on each other.
+- *Count reached*: start the next run when you like.
+- One of the three cases in the next section.
+
+To stop a run, tell the coordinator "stop after the current bead", or use the stop button.
+A bead that was cut off keeps its branch; open its session again and type `/bead` to resume.
+
+## 3. When you are needed
+
+### An epic is complete: the demo
+
+The coordinator builds and starts the app from the latest `main`, lists what the epic
+delivered and gives you a short script of things to try.
+
+- Try them.
+- Everything works: answer "OK". The epic is closed.
+- Something is off: describe each problem in your own words ("the wall preview flickers when
+  I snap to a corner"). Claude files each one as a bug bead under the epic; the epic stays
+  open and the next run picks them up.
+
+This is your main quality check. Tests prove behaviour; only you can tell whether the CAD
+tool feels right.
+
+### A bead is flagged `human`
+
+Claude stopped because it cannot continue on its own: an unclear or contradicting
+requirement, or a gate or review that keeps failing. The coordinator names the bead; the
+details are in its notes:
+
+```bash
+bd show archicraft-xxxx
+```
+
+Decide, and answer in the coordinator or in the bead's session, for example "follow the SRS
+text, the note is outdated" or "split this into two beads". Then remove the flag and let it
+continue:
+
+```bash
+bd update archicraft-xxxx --remove-label human
+```
+
+To put the bead aside instead: `bd defer archicraft-xxxx`.
+
+### A pull request labelled `loop`
+
+These change the loop's own rules, so they never merge by themselves.
+
+1. Read the pull request on GitHub; its description says what changes and why.
+2. Merge it, or comment on it.
+3. Update the main checkout, because Claude Code reads the loop's rules from there:
+
+   ```bash
+   git -C ~/Code/06-archicraft pull --ff-only
+   ```
+
+   Or tell any Claude session "merged, pull the main checkout".
+
+## 4. Steering
+
+| You want | Do |
+|---|---|
+| A bead done sooner | `bd update <id> --priority 0` |
+| A bead not done now | `bd defer <id>` |
+| A new task | Tell Claude "file a bead for …", or use `bd create` |
+| Focus on one feature area | `/bead-loop <count> <epic-id>` |
+| See the plan | [roadmap.md](roadmap.md), `bd epic status` |
+| See progress against the SRS | [implementation-status.md](implementation-status.md) |
+
+## 5. If something looks wrong
+
+| Symptom | Cause and fix |
+|---|---|
+| Claude says "Code changes need a bead" | A guard: code changes happen only inside a bead. Use `/bead`. |
+| A pull request stays open with a red check | The bead's session usually fixes it on its own (Auto-fix). If not, the checks tab on GitHub shows the failure; tell that session, or resume it with `/bead`. |
+| The loop behaves like an older version | The main checkout was not pulled after a `loop` pull request (section 3). |
+| A session takes minutes to stop | The stop guard runs the gate on unfinished code; that is intended. To stop anyway, Claude runs `scripts/loop/pause.sh "<reason>"`. |
+| `bd` is very slow in a new session | The beads checkout import is on. Turn it off: `bd config set import.auto false`. |
+
+## 6. Setting up another computer
+
+```bash
+brew install gh jq && gh auth login
+bd config set import.auto false
+```
+
+You also need Rust (rustup), Node.js (for the IFCX conformance check) and `bd`. GitHub is
+already set up (auto-merge, labels, required checks); `scripts/loop/setup-github.sh` would
+redo it. For fast first builds in new worktrees, build once in the main checkout:
+
+```bash
+cargo clippy --workspace --all-targets && cargo test --workspace --no-run
+```
