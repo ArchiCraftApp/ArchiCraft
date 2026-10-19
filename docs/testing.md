@@ -38,7 +38,44 @@ _To be completed: the headless Playwright run of the reference viewer._
 
 ## Fixture registry
 
-_To be completed: the D.7 fixture registry (`crates/archicraft-model/tests/fixtures.rs`, f1..f9)._
+`crates/archicraft-model/src/fixtures.rs` is the registry of the geometry fixtures of SRS
+Appendix D.7 (`D7`, F1..F9) and of further named cases (`EXTRA`). It lives in `src`, not only in
+`tests/`, so the geometry and IFCX test crates can iterate it. Each entry is a `Fixture`:
+
+| Field | Meaning |
+|---|---|
+| `id` | `F1`..`F9` for D.7; any other case is lowercase with a hyphen (`dw-l`, `dw-t`) or `S-shell`, so it never reads as a D.7 id |
+| `title` | the case in a few words |
+| `source` | the knowledge-base article (`KB 303968`), or the sample it comes from |
+| `owner` | the key of the epic in docs/roadmap.md that owns the constructor |
+| `increment` | the SRS increment whose exit needs the constructor (F1, F2, F3, F6, F7: 1; F8, F9: 2; F4, F5: 3) |
+| `seeded` | whether the constructor gives the same identities on every call, so two builds compare equal |
+| `build` | the constructor, `None` until the owner adds it |
+
+Every entry with a constructor inherits the generic checks:
+
+- `fixtures::check` (run by `cargo test -p archicraft-model --test fixtures`): no integrity
+  problems, every element passes `validate_element`, every identity is unique and, when seeded,
+  two builds are equal. Its error starts with the fixture id.
+- `cargo test -p archicraft-geometry --test fixtures`: evaluation without problems and every
+  body part closed and 2-manifold (IFX-032).
+- `cargo test -p archicraft-ifcx --test fixtures`: the file saves without warnings and validates
+  without problems, loads back equal (revision normalised) and save-load-save is
+  byte-identical (IFX-064).
+
+**Adding an entry.** The owner adds `pub fn f1_trapezoidal_wall() -> Project` (or similar) to
+`src/fixtures.rs`, built through commands on `default_metric_project()` like
+`samples.rs`, without clocks or randomness other than element ids, and sets `build:
+Some(f1_trapezoidal_wall)` in the entry. Fixture-specific assertions (the 880/400 of F7, say)
+go into `crates/archicraft-model/tests/fixtures.rs` or the owner's own tests. A new non-D.7
+case gets a new `EXTRA` entry. A deliberately invalid case does not belong here; keep it in the
+owner's tests.
+
+**The increment gate.** `REQUIRED_INCREMENT` (0 today) is the increment up to which every
+entry must have a constructor; `fixtures::check_increment` fails and names each fixture
+without one. The verification of an increment's exit criterion raises it to that increment
+(1 after increment 1, so F1, F2, F3, F6 and F7 must be built), which turns a missing
+constructor into a failing test.
 
 ## Appendix D defaults
 
