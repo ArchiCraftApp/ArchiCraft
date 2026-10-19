@@ -7,6 +7,7 @@
 
 pub mod command;
 pub mod element;
+pub mod fixtures;
 pub mod ids;
 pub mod kinds;
 pub mod layer;

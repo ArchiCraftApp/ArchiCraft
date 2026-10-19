@@ -3,33 +3,18 @@
 
 #![allow(clippy::unwrap_used)]
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use archicraft_geometry::{ModelGeometry, TriMesh};
 use archicraft_ifcx::validate::{self, Severity};
 use archicraft_ifcx::{IfcxFile, WriteOptions};
 use archicraft_model::glam::{DVec2, DVec3};
-use archicraft_model::{PlanGrid, Project, samples};
+use archicraft_model::{PlanGrid, samples};
 use serde_json::Value;
 
-fn options() -> WriteOptions {
-    WriteOptions {
-        author: "Test".into(),
-        timestamp: "2026-10-16T12:00:00Z".into(),
-        data_version: 7,
-    }
-}
-
-fn save(project: &Project) -> Vec<u8> {
-    let geometry = ModelGeometry::evaluate(project);
-    let (bytes, warnings) = archicraft_ifcx::save(project, &geometry, &options(), false);
-    assert!(warnings.is_empty(), "{warnings:?}");
-    bytes
-}
-
-fn samples() -> Vec<Project> {
-    vec![samples::storey_with_walls_and_slab(), samples::two_storey_shell()]
-}
+use common::{edit, node_index, samples, save};
 
 #[test]
 fn written_files_validate_without_problems() {
@@ -255,21 +240,6 @@ fn the_srs_appendix_c_example_validates() {
     let file = validate::parse(&appendix.as_bytes()[start..end]).unwrap();
     let problems = validate::validate(&file);
     assert!(problems.is_empty(), "{problems:#?}");
-}
-
-fn edit(project: &Project, change: impl FnOnce(&mut Value)) -> Vec<u8> {
-    let mut value: Value = serde_json::from_slice(&save(project)).unwrap();
-    change(&mut value);
-    serde_json::to_vec(&value).unwrap()
-}
-
-fn node_index(value: &Value, name: &str) -> usize {
-    value["data"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .position(|n| n["attributes"]["bsi::ifc::prop::Name"] == name)
-        .unwrap()
 }
 
 #[test]
