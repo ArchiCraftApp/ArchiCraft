@@ -42,7 +42,36 @@ _To be completed: the D.7 fixture registry (`crates/archicraft-model/tests/fixtu
 
 ## Appendix D defaults
 
-_To be completed: the table-driven test of the SRS Appendix D defaults._
+`crates/archicraft-model/tests/defaults.rs` pins the defaults of SRS Appendix D for a new
+project from `default_metric_project()`, so a refactor cannot change one silently. `ROWS` has
+one entry per value. Each entry's reference starts with `D.<n> <setting>:`, using the setting
+name from the SRS table (`D.2 Wall: 0.25 m thick`), and every failure message starts with that
+reference. Each entry is one of three kinds:
+
+- `Checked`: a getter or a constant compared with the Appendix D value. Floats are compared
+  with 1e-12; lower bounds such as "at least 100 undo steps" are compared with `>=`.
+- `Elsewhere`: the value lives in another crate, and that crate's `tests/defaults.rs` pins it
+  with the same reference in its assertion message. The model test checks that the file
+  contains the reference. These are the D.1 view range in `crates/archicraft-geometry` and the
+  preference defaults (autosave, backups, undo clamp, snap radius, angle increment) in
+  `crates/archicraft-app`, which loads a temporary preferences file to run the private clamp.
+- `Pending { owner }`: the value does not exist yet. `owner` names the roadmap epic that adds
+  it. The test prints the pending list (`cargo test -p archicraft-model --test defaults --
+  --nocapture`).
+
+`every_appendix_d_row_is_in_the_table` reads the D.1 to D.3 tables of `docs/SRS.md` and fails
+when a row has no entry. `d4_every_template_material_has_the_priority_of_its_group` maps every
+template material by name to its D.4 group and checks the group priority. A material without a
+group fails, and so does a mapped name that is not in the template. `d4_groups_match_the_srs_table`
+keeps the group table equal to the SRS one.
+
+To convert a pending row when the owner epic adds the value: replace
+`pending OWNER` with a check closure (`|p| close(p.tool_defaults.column.width, 0.30)`), or with
+`elsewhere "<crate>/tests/defaults.rs"` when the value lives outside the model crate. In the
+second case, add the assertion there and repeat the reference in its message. A setting with
+several values becomes one row per value, each starting with the same `D.<n> <setting>:`
+prefix. Changing an Appendix D value is an SRS change: update `docs/SRS.md` and the row
+together.
 
 ## Done-requirement traceability
 
