@@ -42,13 +42,84 @@ impl Default for Tessellation {
     }
 }
 
-/// Project-level settings (PRJ-007, STR-008, STR-009).
+/// The drafting grid of the plan views, one for all storeys (INP-013). It is a
+/// project setting, so everyone who opens the file sees the same grid
+/// (PRJ-007).
+///
+/// Values are kept as entered, without rounding: [`Command::SetSettings`]
+/// compares settings exactly to detect a change.
+///
+/// [`Command::SetSettings`]: crate::Command::SetSettings
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlanGrid {
+    /// Steps of the invisible snap grid along its X and Y axes, in metres.
+    pub snap_step: DVec2,
+    pub snap_enabled: bool,
+    /// Spacing of the main lines of the construction grid, in metres.
+    pub main_spacing: DVec2,
+    /// Spacing of the auxiliary lines between the main lines, in metres.
+    pub auxiliary_spacing: DVec2,
+    /// Rotation of both grids about `origin`, in radians.
+    pub rotation: f64,
+    /// Local origin of both grids in project coordinates.
+    pub origin: DVec2,
+    /// Whether the construction grid is shown.
+    pub visible: bool,
+}
+
+impl Default for PlanGrid {
+    fn default() -> Self {
+        Self {
+            snap_step: DVec2::splat(0.05),
+            snap_enabled: true,
+            main_spacing: DVec2::splat(1.0),
+            auxiliary_spacing: DVec2::splat(0.25),
+            rotation: 0.0,
+            origin: DVec2::ZERO,
+            visible: false,
+        }
+    }
+}
+
+impl PlanGrid {
+    /// Checks the ranges of INP-013: steps and spacings are finite, positive
+    /// and at most [`validate::MAX_GRID_SPACING`], the auxiliary spacing is
+    /// not larger than the main spacing, the rotation is finite and the
+    /// origin lies within [`validate::MAX_COORDINATE`].
+    ///
+    /// [`validate::MAX_GRID_SPACING`]: crate::validate::MAX_GRID_SPACING
+    /// [`validate::MAX_COORDINATE`]: crate::validate::MAX_COORDINATE
+    pub fn check(&self) -> Result<(), String> {
+        use crate::validate::{MAX_GRID_SPACING, valid_grid_origin, valid_grid_spacing};
+        let range = format!("must be greater than 0 and at most {MAX_GRID_SPACING} m");
+        if !valid_grid_spacing(self.snap_step) {
+            return Err(format!("The snap grid steps {range}."));
+        }
+        if !valid_grid_spacing(self.main_spacing) || !valid_grid_spacing(self.auxiliary_spacing) {
+            return Err(format!("The construction grid spacings {range}."));
+        }
+        if self.auxiliary_spacing.cmpgt(self.main_spacing).any() {
+            return Err("The auxiliary grid spacing must not be larger than the main spacing.".into());
+        }
+        if !self.rotation.is_finite() {
+            return Err("The grid rotation must be a finite number.".into());
+        }
+        if !valid_grid_origin(self.origin) {
+            return Err("The grid origin is too far from the project origin.".into());
+        }
+        Ok(())
+    }
+}
+
+/// Project-level settings (PRJ-007, STR-008, STR-009, INP-013).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectSettings {
     pub units: UnitSettings,
     /// Default plan cut-plane height above the storey elevation (STR-008).
     pub cut_plane_height: f64,
     pub tessellation: Tessellation,
+    /// The drafting grid shared by all plan views (INP-013).
+    pub plan_grid: PlanGrid,
 }
 
 impl Default for ProjectSettings {
@@ -57,6 +128,7 @@ impl Default for ProjectSettings {
             units: UnitSettings::default(),
             cut_plane_height: 1.10,
             tessellation: Tessellation::default(),
+            plan_grid: PlanGrid::default(),
         }
     }
 }
