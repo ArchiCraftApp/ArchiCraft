@@ -2,8 +2,11 @@
 # One-time GitHub setup for the bead loop (docs/loop.md), run by a repository admin:
 # - squash auto-merge on, merged branches deleted, squash commits titled after the PR;
 # - the labels the loop uses (format-change, large-change, loop);
-# - main protected by the CI checks, so auto-merge waits for green CI on all three OSes.
+# - main protected by the CI checks, so auto-merge waits for green CI on Linux and Windows.
 #   Admins are not bound by it (enforce_admins false), so the owner can still repair main.
+#   No macOS check is required: macOS runs only for releases (.github/workflows/macos.yml),
+#   because GitHub's hosted macOS runners were too slow or never picked the jobs up
+#   (2026-10-19) and no PR could merge (docs/loop.md).
 # Usage: scripts/loop/setup-github.sh
 set -euo pipefail
 command -v gh >/dev/null || { echo "gh is not installed: brew install gh && gh auth login"; exit 1; }
@@ -28,7 +31,6 @@ gh api -X PUT "repos/$repo/branches/main/protection" --input - >/dev/null <<'EOF
     "contexts": [
       "Test (ubuntu-24.04)",
       "Test (windows-latest)",
-      "Test (macos-latest)",
       "Format and clippy",
       "IFCX conformance (buildingSMART reference code)",
       "Licences and sources",
@@ -42,4 +44,4 @@ gh api -X PUT "repos/$repo/branches/main/protection" --input - >/dev/null <<'EOF
   "allow_deletions": false
 }
 EOF
-echo "  main requires the seven CI checks"
+echo "  main requires the six CI checks"

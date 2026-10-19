@@ -9,7 +9,7 @@ to start work, what happens meanwhile, and when you are needed. How the loop wor
 The backlog is a set of small tasks, called beads, in `bd`. Claude works them one at a time:
 each bead in its own session and branch, tests first, checked by a script, reviewed by a
 second Claude that did not write the code, and then a pull request that GitHub merges by
-itself once CI is green on Windows, macOS and Linux.
+itself once CI is green on Windows and Linux (macOS is tested when a version is released).
 
 You start runs, try the app when a feature area (an epic) is complete, and decide when
 Claude is stuck. Everything else runs without you.

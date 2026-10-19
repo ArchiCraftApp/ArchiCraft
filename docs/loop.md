@@ -59,7 +59,21 @@ Instructions are soft; these are not:
 | Hook `stop-gate` (Stop) | A bead session does not end with uncommitted code that has not passed the gate and the review; it runs the gate, blocks at most three times per tree, and `pause.sh` is the explicit way out |
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
 | CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop`; headless layering; the hooks' self-test |
-| Branch protection on `main` | Auto-merge waits for all seven CI checks on three operating systems |
+| Branch protection on `main` | Auto-merge waits for the six required CI checks on Linux and Windows; macOS runs only for releases (below) |
+
+**macOS runs only for releases.** No macOS job runs on a push or pull request, and none is a
+required check. On 2026-10-19 GitHub's hosted macOS runners blocked every merge: the Apple
+silicon jobs (`macos-latest`) were never picked up and GitHub cancelled them after 15
+minutes, and an Intel job (`macos-15-intel`) took 16 minutes where Linux took one. The
+workflow `.github/workflows/macos.yml` builds and tests on Apple silicon when a version tag
+`v*` is pushed and when started by hand (`gh workflow run macos.yml --ref <branch>`). It runs
+macOS 26 and 15, the two newest major versions GitHub's hosted runners offer at this date
+(NFR-PORT-002 asks for Apple's current and previous one; a newer Apple release is covered
+only once GitHub adds it). So a macOS-only failure shows up at the next release at the
+latest: run the workflow by hand before tagging one, and file a red run as a bead. When
+GitHub adds the next macOS major version, move both labels in `macos.yml` up by one
+([actions/runner-images](https://github.com/actions/runner-images#available-images) lists
+the current labels).
 
 The hooks are wired in `.claude/settings.json`; each resolves its script from the git
 top level of the session's working directory, so worktree sessions run their own branch's
