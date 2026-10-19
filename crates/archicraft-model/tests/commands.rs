@@ -3,20 +3,15 @@
 
 #![allow(clippy::unwrap_used)]
 
+mod common;
+
 use archicraft_model::command::{StoreyElements, replay};
 use archicraft_model::glam::DVec2;
 use archicraft_model::template::default_metric_project;
 use archicraft_model::{
-    Command, CommandError, Element, ElementKind, History, Layer, PlanGrid, Project, ProjectSettings, Storey, TopLink,
+    Command, CommandError, Element, ElementKind, History, Layer, PlanGrid, ProjectSettings, Storey, TopLink,
 };
-
-fn ground(p: &Project) -> archicraft_model::StoreyId {
-    p.storeys.ground()
-}
-
-fn wall(p: &Project, start: (f64, f64), end: (f64, f64)) -> Element {
-    p.new_wall(ground(p), DVec2::new(start.0, start.1), DVec2::new(end.0, end.1), 0)
-}
+use common::{ground, wall};
 
 #[test]
 fn add_undo_redo_keeps_identity() {
