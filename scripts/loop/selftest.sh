@@ -14,6 +14,8 @@ failed=0
 # --- fixture: a tiny repository with the loop scripts and a stub bd --------------------------
 mkdir -p "$repo/scripts" "$work/bin" "$repo/crates/demo/src" "$repo/crates/demo/tests/golden" "$repo/docs"
 cp -R "$src" "$repo/scripts/loop"
+# The gate's layering step runs the repository guard next to the loop scripts.
+cp "$src/../check-layering.sh" "$repo/scripts/"
 cat >"$work/bin/bd" <<'EOF'
 #!/usr/bin/env bash
 # Stub: bd show <id> --json answers from FAKE_BD_STATUS and FAKE_BD_LABELS; list, children

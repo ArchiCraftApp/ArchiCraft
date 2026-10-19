@@ -32,6 +32,19 @@ exceptions = [
 multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = true
+# NFR-SEC-001 and NFR-SEC-004: the application works offline and reaches the network only to
+# fetch import URIs named in a file, after the user's consent (IFX-081). No HTTP client may
+# enter the dependency graph until ifcx-interop adds that consent-gated fetch and lifts this ban.
+# tokio stays allowed: it arrives through rfd for the native file dialogs.
+deny = [
+    { crate = "reqwest", reason = "HTTP client: network access only after consent (NFR-SEC-004, IFX-081)" },
+    { crate = "ureq", reason = "HTTP client: network access only after consent (NFR-SEC-004, IFX-081)" },
+    { crate = "hyper", reason = "HTTP client: network access only after consent (NFR-SEC-004, IFX-081)" },
+    { crate = "isahc", reason = "HTTP client: network access only after consent (NFR-SEC-004, IFX-081)" },
+    { crate = "curl", reason = "HTTP client: network access only after consent (NFR-SEC-004, IFX-081)" },
+    { crate = "attohttpc", reason = "HTTP client: network access only after consent (NFR-SEC-004, IFX-081)" },
+    { crate = "surf", reason = "HTTP client: network access only after consent (NFR-SEC-004, IFX-081)" },
+]
 
 [sources]
 unknown-registry = "deny"
@@ -39,5 +52,14 @@ unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 
 [advisories]
-# Advisories are checked in CI with network access; see .github/workflows.
-ignore = []
+# Checked by the CI job "Licences and sources" (cargo deny check advisories licenses sources
+# bans), which fetches the RustSec advisory database.
+ignore = [
+    # zbus 5 split crates, declared unmaintained after their merge into zbus 6. They reach us
+    # only through eframe -> egui-winit -> accesskit_winit -> accesskit_unix (Linux
+    # accessibility over D-Bus); no release of that chain uses zbus 6 yet. Unmaintained, not
+    # vulnerable: drop these when eframe moves to zbus 6.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant, unmaintained; only via eframe's accesskit_unix, no zbus 6 release in that chain" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names, unmaintained; only via eframe's accesskit_unix, no zbus 6 release in that chain" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, unmaintained; only via eframe's accesskit_unix, no zbus 6 release in that chain" },
+]

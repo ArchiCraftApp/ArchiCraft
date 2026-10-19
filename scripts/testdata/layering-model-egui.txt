@@ -1,0 +1,5 @@
+archicraft-model v0.1.0 (/src/crates/archicraft-model)
+glam v0.34.1
+egui v0.36.2
+epaint v0.36.2
+serde v1.0.229
