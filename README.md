@@ -66,6 +66,13 @@ implementation and viewer composition (SRS IFX-006); it needs Node.js and
 network access to fetch the pinned reference code. CI runs all of this on
 Windows, macOS and Linux, plus a licence check with cargo-deny.
 
+## Implementing with Claude Code
+
+Implementation runs through the bead loop: one task (bead) per Claude Code session, tests
+first, an automatic gate, an independent review, and a pull request that merges on green CI.
+Start with the tutorial in [docs/loop-tutorial.md](docs/loop-tutorial.md); the design and its
+rules are in [docs/loop.md](docs/loop.md).
+
 ## Repository layout
 
 | Path | Content |
@@ -75,8 +82,8 @@ Windows, macOS and Linux, plus a licence check with cargo-deny.
 | `crates/archicraft-ifcx` | IFCX reader and writer (`ifcx_alpha` adapter), bundled schemas |
 | `crates/archicraft-app` | The desktop application (eframe, egui, wgpu) |
 | `conformance/` | IFX-006 check with buildingSMART's reference code (test-only) |
-| `scripts/` | Packaging (macOS DMG) |
-| `docs/` | SRS and technology choices |
+| `scripts/` | Packaging (macOS DMG), the bead loop (`scripts/loop/`) |
+| `docs/` | SRS, technology choices, roadmap, implementation status, the bead loop |
 
 ## License
 
