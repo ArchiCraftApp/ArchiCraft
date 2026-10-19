@@ -18,12 +18,16 @@ env:
 
 jobs:
   # Build and test on all three required platforms (SRS NFR-PORT-001…003).
+  # Branch protection requires the ubuntu-24.04, windows-latest and macos-15-intel jobs
+  # (scripts/loop/setup-github.sh). macos-latest (Apple silicon, NFR-PORT-002) runs on every
+  # push and pull request but does not gate merges: GitHub's arm64 macOS runners ran short
+  # of capacity on 2026-10-19 and blocked every merge (docs/loop.md, Enforcement).
   test:
     name: Test (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-latest, macos-15-intel, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

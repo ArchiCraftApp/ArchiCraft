@@ -967,7 +967,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | ID | Pri | Status | Effort | Gap / evidence |
 |---|---|---|---|---|
 | NFR-PORT-001 | M | partial | S | CI is a headless build-and-test on Windows Server runners; nothing verifies that the GUI starts on Windows 11 x64 (wgpu adapter, rfd dialogs, DPI). No release build or smoke run is recorded. |
-| NFR-PORT-002 | M | partial | S | Only one macOS version is tested; the clause 'current and previous major version' is not covered. No GUI smoke run, no bundle/notarisation. |
+| NFR-PORT-002 | M | partial | S | CI tests macOS 26 on Apple silicon (`macos-latest`, not a required check for merging, see docs/loop.md) and macOS 15 only on Intel (`macos-15-intel`, required); the previous major version on Apple silicon is not covered. No GUI smoke run, no bundle/notarisation. |
 | NFR-PORT-003 | M | partial | S | CI pins Ubuntu 24.04 although the current LTS at this date is 26.04; no GUI smoke run (Vulkan driver, XDG portal) in CI or on record. |
 | NFR-PORT-004 | M | done | none | Done. ; note there is no .gitattributes guarding golden files against CRLF conversion (harmless today because they are single-line files without a trailing newline). |
 | NFR-PORT-005 | M | done | none | Done. by inspection; there is no automated check at 200 % and the built-in UI zoom shortcut (Ctrl/Cmd + = / - / 0) is not listed in the Keyboard shortcuts window. |

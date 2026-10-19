@@ -59,7 +59,23 @@ Instructions are soft; these are not:
 | Hook `stop-gate` (Stop) | A bead session does not end with uncommitted code that has not passed the gate and the review; it runs the gate, blocks at most three times per tree, and `pause.sh` is the explicit way out |
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
 | CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop`; headless layering; the hooks' self-test |
-| Branch protection on `main` | Auto-merge waits for all seven CI checks on three operating systems |
+| Branch protection on `main` | Auto-merge waits for the seven required CI checks on three operating systems; the required macOS check runs on Intel (below) |
+
+**Which macOS job gates.** The required macOS check is `Test (macos-15-intel)`: macOS 15 on
+Intel. On 2026-10-19 GitHub's hosted arm64 macOS runners ran short of capacity; the
+`Test (macos-latest)` jobs were never picked up, GitHub cancelled them after 15 minutes, and
+no PR could merge while that check was required. `Test (macos-latest)` (Apple silicon, macOS
+26 at that date, NFR-PORT-002) still runs on every push and pull request but does not gate
+auto-merge, so a capacity shortage costs coverage, not merges. A `Test (macos-latest)` that
+ran and failed is a real failure all the same: file it as a bead. GitHub retires the macOS 15
+runner images, `macos-15-intel` included, in fall 2027
+([changelog of 2025-09-19](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/);
+no exact day announced yet, and a deprecation notice with brownouts comes first). By then move
+the required check to `macos-26-intel`, the Intel label of macOS 26
+([changelog of 2026-02-26](https://github.blog/changelog/2026-02-26-macos-26-is-now-generally-available-for-github-hosted-runners/)),
+or back to `macos-latest`: the matrix in `.github/workflows/ci.yml` and the contexts in
+`scripts/loop/setup-github.sh`, which an admin runs again. The current labels are listed in
+[actions/runner-images](https://github.com/actions/runner-images#available-images).
 
 The hooks are wired in `.claude/settings.json`; each resolves its script from the git
 top level of the session's working directory, so worktree sessions run their own branch's

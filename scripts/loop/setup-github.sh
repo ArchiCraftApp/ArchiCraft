@@ -4,6 +4,10 @@
 # - the labels the loop uses (format-change, large-change, loop);
 # - main protected by the CI checks, so auto-merge waits for green CI on all three OSes.
 #   Admins are not bound by it (enforce_admins false), so the owner can still repair main.
+#   The macOS job that gates is macos-15-intel, not macos-latest (Apple silicon): GitHub's
+#   arm64 macOS runners ran short of capacity on 2026-10-19 and no PR could merge. The Apple
+#   silicon job still runs on every PR (NFR-PORT-002) without gating; docs/loop.md has the why
+#   and the date GitHub retires macos-15-intel.
 # Usage: scripts/loop/setup-github.sh
 set -euo pipefail
 command -v gh >/dev/null || { echo "gh is not installed: brew install gh && gh auth login"; exit 1; }
@@ -28,7 +32,7 @@ gh api -X PUT "repos/$repo/branches/main/protection" --input - >/dev/null <<'EOF
     "contexts": [
       "Test (ubuntu-24.04)",
       "Test (windows-latest)",
-      "Test (macos-latest)",
+      "Test (macos-15-intel)",
       "Format and clippy",
       "IFCX conformance (buildingSMART reference code)",
       "Licences and sources",
