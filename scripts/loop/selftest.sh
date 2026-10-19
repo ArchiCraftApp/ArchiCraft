@@ -15,14 +15,34 @@ mkdir -p "$repo/scripts" "$work/bin" "$repo/crates/demo/src" "$repo/crates/demo/
 cp -R "$src" "$repo/scripts/loop"
 cat >"$work/bin/bd" <<'EOF'
 #!/usr/bin/env bash
-# Stub: bd show <id> --json answers from FAKE_BD_STATUS and FAKE_BD_LABELS; the rest succeeds.
-if [ "$1" = show ]; then
-    jq -n --arg id "$2" --arg s "${FAKE_BD_STATUS:-in_progress}" --arg l "${FAKE_BD_LABELS:-}" \
-        '[{id: $id, status: $s, issue_type: "task", labels: ($l | split(",") | map(select(. != "")))}]'
-fi
+# Stub: bd show <id> --json answers from FAKE_BD_STATUS and FAKE_BD_LABELS; list, children
+# and close work on the JSON array in FAKE_BD_DB (closed ids go to FAKE_BD_DB.closed).
+db="${FAKE_BD_DB:-}"
+case "$1" in
+    show)
+        jq -n --arg id "$2" --arg s "${FAKE_BD_STATUS:-in_progress}" --arg l "${FAKE_BD_LABELS:-}" \
+            '[{id: $id, status: $s, issue_type: "task", labels: ($l | split(",") | map(select(. != "")))}]'
+        ;;
+    list)
+        label="" status=""
+        while [ $# -gt 0 ]; do
+            case "$1" in --label) label="$2"; shift ;; --status) status="$2"; shift ;; esac
+            shift
+        done
+        [ -n "$db" ] || { echo '[]'; exit 0; }
+        jq --arg l "$label" --arg s "$status" \
+            '[.[] | select(($l == "" or ((.labels // []) | index($l))) and ($s == "" or .status == $s))]' "$db"
+        ;;
+    children)
+        [ -n "$db" ] || { echo '[]'; exit 0; }
+        jq --arg p "$2" '[.[] | select(.parent == $p)]' "$db"
+        ;;
+    close) [ -n "$db" ] && echo "$2" >>"$db.closed" ;;
+esac
 exit 0
 EOF
-chmod +x "$work/bin/bd"
+printf '#!/bin/sh\nexit 0\n' >"$work/bin/gh"
+chmod +x "$work/bin/bd" "$work/bin/gh"
 export PATH="$work/bin:$PATH"
 cd "$repo" || exit 2
 git init -q -b main
@@ -180,6 +200,26 @@ git commit -qam loop
 expect "loop change in a feature bead" fail "$(ci bead/archicraft-ab12.1-demo 'archicraft-ab12.1: x' format-change)"
 expect "loop change in a loop bead" pass "$(ci bead/archicraft-ab12.1-demo 'archicraft-ab12.1: x' format-change,loop)"
 expect "loop change outside the loop" pass "$(ci claude/setup 'Set up the loop' format-change)"
+
+# --- sweep -------------------------------------------------------------------------------------
+export FAKE_BD_DB="$work/beads.json"
+cat >"$FAKE_BD_DB" <<'EOF'
+[
+  {"id": "x-area", "status": "open", "labels": ["split"]},
+  {"id": "x-done", "status": "in_progress", "labels": ["loop-split"]},
+  {"id": "x-done.1", "status": "closed", "parent": "x-done"},
+  {"id": "x-busy", "status": "in_progress", "labels": ["loop-split"]},
+  {"id": "x-busy.1", "status": "closed", "parent": "x-busy"},
+  {"id": "x-busy.2", "status": "open", "parent": "x-busy"},
+  {"id": "x-empty", "status": "in_progress", "labels": ["loop-split"]}
+]
+EOF
+: >"$FAKE_BD_DB.closed"
+bash scripts/loop/sweep.sh >/dev/null 2>"$work/sweep.err" || { failed=$((failed + 1)); echo "FAIL sweep exited non-zero"; }
+[ -s "$work/sweep.err" ] && { failed=$((failed + 1)); echo "FAIL sweep wrote to stderr:"; cat "$work/sweep.err"; }
+expect "sweep closes only a loop-split parent whose children are all closed" "x-done" \
+    "$(tr '\n' ' ' <"$FAKE_BD_DB.closed" | sed 's/ $//')"
+unset FAKE_BD_DB
 
 [ -f "$work/crashes" ] && failed=$((failed + $(wc -l <"$work/crashes")))
 echo "loop selftest: $passed passed, $failed failed"

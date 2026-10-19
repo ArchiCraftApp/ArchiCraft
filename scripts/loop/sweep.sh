@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Start of every loop iteration (docs/loop.md): closes in-progress beads whose PR has merged,
-# closes split parents whose children are all closed, and reports what still waits: open PRs,
+# closes loop-split parents whose children are all closed, and reports what still waits: open PRs,
 # PRs closed without merging, beads flagged for a human, and epics ready for their demo.
 # Read-only towards GitHub; it checks each PR once and never polls.
 # Usage: scripts/loop/sweep.sh
@@ -20,11 +20,14 @@ bd list --status in_progress --json --limit 0 |
         esac
     done
 
-# A split bead (label split) is a container: it closes when all of its children are closed.
-bd list --label split --json --limit 0 | jq -r '.[] | select(.status != "closed") | .id' |
+# A bead the loop split (label loop-split; plain "split" is an area label of the split tool) is
+# a container: it closes once it has children and all of them are closed.
+bd list --label loop-split --json --limit 0 | jq -r '.[] | select(.status != "closed") | .id' |
     while read -r id; do
-        open="$(bd children "$id" --json | jq '[.[] | select(.status != "closed")] | length')"
-        [ "$open" = 0 ] && bd close "$id" --reason "All child beads closed" >/dev/null && echo "closed   $id (split, children done)"
+        read -r total open < <(bd children "$id" --json | jq -r '"\(length) \([.[] | select(.status != "closed")] | length)"')
+        if [ "${total:-0}" -gt 0 ] && [ "$open" = 0 ]; then
+            bd close "$id" --reason "All child beads closed" >/dev/null && echo "closed   $id (split, children done)"
+        fi
     done
 
 humans="$(bd list --label human --json --limit 0 | jq -r '.[] | select(.status != "closed") | "\(.id) \(.title)"')"
