@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Local status dashboard for the bead loop: beads, agent sessions, pull requests and history.
 
-Serves one page on 127.0.0.1 that keeps itself up to date. Read-only: it runs bd, gh, git,
-ps and lsof, reads the Claude Code transcripts of this repository's sessions, and never
-changes a bead, a branch or a PR. Python 3 standard library only.
+Serves one page on 127.0.0.1 that keeps itself up to date. It runs bd, gh, git, ps and lsof
+and reads the Claude Code transcripts of this repository's sessions. It changes nothing on its
+own: only the Cleanup panel does, after a preview and a confirmation on the page (stop stale
+sessions, remove finished worktrees and branches, run the sweep). Python 3 standard library only.
 
 Agent state comes from two sources: whether a `claude` process runs in the session's
 worktree, and where the session's transcript stands (inside a turn or after it ended).
@@ -15,8 +16,12 @@ Usage: scripts/dashboard.py [--port 8765] [--interval 20] [--no-open]
 import argparse
 import concurrent.futures
 import json
+import os
 import re
+import secrets
+import signal
 import subprocess
+import tempfile
 import threading
 import time
 import webbrowser
@@ -93,7 +98,7 @@ def slim(b):
 OPEN_FIELDS = ("number,title,state,isDraft,headRefName,url,createdAt,updatedAt,labels,"
                "autoMergeRequest,mergeStateStatus,mergeable,reviewDecision,statusCheckRollup,"
                "additions,deletions,changedFiles")
-ALL_FIELDS = "number,title,state,headRefName,url,createdAt,mergedAt,closedAt"
+ALL_FIELDS = "number,title,state,headRefName,headRefOid,url,createdAt,mergedAt,closedAt"
 
 
 def collect_prs():
@@ -166,6 +171,8 @@ def worktrees():
             cur["branch"] = line[7:].removeprefix("refs/heads/")
         elif line == "detached":
             cur["branch"] = "(detached)"
+        elif line.startswith("prunable"):
+            cur["prunable"] = True
     for t in trees:
         m = BEAD_BRANCH.match(t.get("branch", ""))
         t["bead"] = m.group(1) if m else None
@@ -331,7 +338,7 @@ def loop_status(path):
     return fields
 
 
-def collect_sessions():
+def collect_sessions(with_loops=True):
     trees = worktrees()
     procs = claude_processes()
     sessions = TRANSCRIPTS.scan()
@@ -355,7 +362,8 @@ def collect_sessions():
         s.setdefault("procs", []).append(p)
 
     with concurrent.futures.ThreadPoolExecutor(8) as pool:
-        loops = {t["path"]: pool.submit(loop_status, t["path"]) for t in trees if t["bead"]}
+        loops = {t["path"]: pool.submit(loop_status, t["path"])
+                 for t in trees if t["bead"] and with_loops}
         loops = {k: f.result() for k, f in loops.items()}
     return {"trees": trees, "sessions": sessions, "loops": loops}
 
@@ -553,6 +561,284 @@ class Snapshots:
             pass
 
 
+# --- cleanup -----------------------------------------------------------------------------
+# Candidates are computed fresh for the preview and again right before anything runs, so an
+# action only happens to something that still qualifies. Nothing runs without the page's
+# confirmation; every action is logged to <git common dir>/loop-dashboard/cleanup.log.
+
+CLEANUP_BRANCHES = re.compile(r"^(bead|claude)/")
+CLEANUP_LOCK = threading.Lock()
+
+
+def is_ancestor(commit, of):
+    return subprocess.run(["git", "merge-base", "--is-ancestor", commit, of], cwd=ROOT,
+                          capture_output=True).returncode == 0
+
+
+def cleanup_log(line):
+    try:
+        STATE_DIR.mkdir(exist_ok=True)
+        with open(STATE_DIR / "cleanup.log", "a") as fh:
+            fh.write(f"{datetime.now(timezone.utc).isoformat()} {line}\n")
+    except OSError:
+        pass
+
+
+def branch_safety(tip, pr):
+    """Why deleting a branch at <tip> loses nothing, or None when it would lose commits."""
+    if is_ancestor(tip, "origin/main"):
+        return "no commits beyond main"
+    if pr and pr["state"] in ("MERGED", "CLOSED") and pr.get("headRefOid") and is_ancestor(tip, pr["headRefOid"]):
+        return f"its commits are kept in PR #{pr['number']}"
+    return None
+
+
+def compute_cleanup():
+    subprocess.run(["git", "fetch", "--quiet", "origin", "main"], cwd=ROOT, capture_output=True, timeout=60)
+    now = time.time()
+    with concurrent.futures.ThreadPoolExecutor(3) as pool:
+        fb, fp, fs = (pool.submit(collect_beads), pool.submit(collect_prs),
+                      pool.submit(collect_sessions, False))
+        B, P, S = fb.result(), fp.result(), fs.result()
+    status = {b["id"]: b["status"] for b in B["beads"]}
+    prs_by_branch = {}
+    for p in sorted(P["all"], key=lambda p: p["createdAt"], reverse=True):
+        prs_by_branch.setdefault(p["headRefName"], []).append(p)
+    latest_pr = lambda br: (prs_by_branch.get(br) or [None])[0]
+    open_pr = lambda br: any(p["state"] == "OPEN" for p in prs_by_branch.get(br, []))
+    trees = S["trees"]
+    checked_out = {t.get("branch") for t in trees}
+    cands = []
+
+    # Sessions: stale, or idle on a bead that is closed.
+    stoppable = set()
+    for s in S["sessions"]:
+        if not s.get("procs"):
+            continue
+        state = session_state(s, now)
+        m = BEAD_BRANCH.match(s["branch"] or "") or BEAD_TITLE.match(s["title"] or "")
+        bead = m.group(1) if m else None
+        orchestrator = bool(re.match(r"bead loop", s["title"] or "", re.I) or "bead-loop" in (s["branch"] or ""))
+        if state == "stale":
+            why = f"inside a turn with no output for {dur_text(now - (s['last'] or now))}"
+        elif state in ("waiting", "quiet") and bead and status.get(bead) == "closed" and not orchestrator:
+            why = f"{'idle' if state == 'waiting' else 'quiet'} on {bead}, which is closed"
+        else:
+            continue
+        pids = [p["pid"] for p in s["procs"]]
+        stoppable.update(pids)
+        tree = tree_of(s["cwd"], trees)
+        cands.append({"id": f"session:{s['id']}", "kind": "session", "pids": pids,
+                      "label": s["title"] or s["id"], "detail": f"{tree['name'] if tree else s['cwd']} · pid {', '.join(map(str, pids))}",
+                      "why": why, "action": "stop the process (the transcript stays)"})
+
+    # Worktrees whose work is finished.
+    procs_in = {}
+    for s in S["sessions"]:
+        for p in s.get("procs", []):
+            t = tree_of(p["cwd"], trees)
+            if t:
+                procs_in.setdefault(t["path"], []).append(p["pid"])
+    last_in = {}
+    for s in S["sessions"]:
+        t = tree_of(s["cwd"], trees)
+        if t and s["last"]:
+            last_in[t["path"]] = max(last_in.get(t["path"], 0), s["last"])
+    for t in trees:
+        if t["path"] == str(ROOT):
+            continue
+        cid = f"worktree:{t['path']}"
+        if t.get("prunable"):
+            cands.append({"id": cid, "kind": "worktree", "label": t["name"], "path": t["path"],
+                          "detail": t["path"], "why": "its directory is gone",
+                          "action": "git worktree prune", "prune": True})
+            continue
+        br = t.get("branch")
+        if not br or br == "(detached)":
+            continue
+        pr, bead = latest_pr(br), t.get("bead")
+        if bead and status.get(bead) == "in_progress":
+            continue
+        if bead and status.get(bead) == "closed":
+            why = f"bead {bead} is closed"
+        elif pr and pr["state"] == "MERGED":
+            why = f"PR #{pr['number']} merged"
+        elif pr and pr["state"] == "CLOSED":
+            why = f"PR #{pr['number']} closed without merging"
+        elif not pr and now - last_in.get(t["path"], 0) > ENDED_WINDOW and \
+                subprocess.run(["git", "merge-base", "--is-ancestor", "HEAD", "origin/main"],
+                               cwd=t["path"], capture_output=True).returncode == 0:
+            why = "no commits beyond main and no session for 24 h"
+        else:
+            continue
+        if open_pr(br):
+            continue
+        blocked = []
+        running = procs_in.get(t["path"], [])
+        if any(pid not in stoppable for pid in running):
+            blocked.append("a session is running in it")
+        try:
+            dirty = [l for l in run(["git", "status", "--porcelain"], cwd=t["path"]).splitlines() if l]
+        except RuntimeError as e:
+            dirty, blocked = [], blocked + [str(e)[:120]]
+        if dirty:
+            blocked.append(f"{len(dirty)} uncommitted or untracked files")
+        tip = run(["git", "rev-parse", "HEAD"], cwd=t["path"]).strip()
+        safe = branch_safety(tip, pr)
+        if not safe:
+            blocked.append("commits that are neither on main nor in a merged or closed PR")
+        note = " · stops its session first" if running and not blocked else ""
+        cands.append({"id": cid, "kind": "worktree", "label": t["name"], "path": t["path"],
+                      "branch": br, "pids": running, "detail": f"{br} · {t['path']}",
+                      "why": why + (f"; {safe}" if safe and safe not in why else "") + note,
+                      "action": f"git worktree remove, then delete branch {br}",
+                      "blocked": "; ".join(blocked) or None})
+
+    # Local branches without a worktree.
+    kept = []
+    for line in run(["git", "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"]).splitlines():
+        br, tip = line.split(" ", 1)
+        if not CLEANUP_BRANCHES.match(br) or br in checked_out or open_pr(br):
+            continue
+        m = BEAD_BRANCH.match(br)
+        if m and status.get(m.group(1)) == "in_progress":
+            continue
+        safe = branch_safety(tip, latest_pr(br))
+        if safe:
+            cands.append({"id": f"branch:{br}", "kind": "branch", "label": br, "branch": br,
+                          "detail": "local branch, no worktree", "why": safe, "action": "git branch -D"})
+        else:
+            kept.append(br)
+
+    # Remote branches of finished work.
+    try:
+        remote = run(["git", "ls-remote", "--heads", "origin"], timeout=30).splitlines()
+    except RuntimeError:
+        remote = []
+    for line in remote:
+        oid, ref = line.split("\t", 1)
+        br = ref.removeprefix("refs/heads/")
+        if not CLEANUP_BRANCHES.match(br) or open_pr(br) or br in checked_out:
+            continue
+        pr = latest_pr(br)
+        if pr and pr["state"] == "MERGED":
+            why = f"PR #{pr['number']} merged"
+        elif is_ancestor(oid, "origin/main"):
+            why = "no commits beyond main"
+        else:
+            continue
+        cands.append({"id": f"remote:{br}", "kind": "remote", "label": br, "branch": br,
+                      "detail": "branch on GitHub", "why": why, "action": f"git push origin --delete {br}"})
+
+    stale_refs = [l.split("[would prune] ", 1)[1] for l in
+                  run(["git", "remote", "prune", "origin", "--dry-run"]).splitlines() if "[would prune]" in l]
+    if stale_refs:
+        cands.append({"id": "prune:origin", "kind": "remote", "label": f"{len(stale_refs)} stale remote-tracking refs",
+                      "detail": ", ".join(stale_refs[:6]) + (" …" if len(stale_refs) > 6 else ""),
+                      "why": "their branches are gone on GitHub", "action": "git remote prune origin"})
+    return {"candidates": cands, "kept_branches": kept, "generated": epoch_to_iso(now)}
+
+
+def dur_text(sec):
+    return f"{round(sec / 60)} min" if sec < 3600 else f"{round(sec / 3600, 1)} h"
+
+
+def run_cleanup(ids):
+    """Runs the selected candidates that still qualify: sessions, then worktrees, then branches."""
+    results, wanted = {}, set(ids)
+
+    def fresh():
+        return {c["id"]: c for c in compute_cleanup()["candidates"]}
+
+    def do(cid, fn):
+        try:
+            msg = fn()
+            results[cid] = {"ok": True, "message": msg}
+            cleanup_log(f"ok   {cid}: {msg}")
+        except Exception as e:
+            results[cid] = {"ok": False, "message": str(e)[:400]}
+            cleanup_log(f"fail {cid}: {e}")
+
+    def stop(pids):
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        deadline = time.time() + 5
+        while time.time() < deadline and any(alive(p) for p in pids):
+            time.sleep(0.2)
+        return f"sent SIGTERM to {', '.join(map(str, pids))}"
+
+    with CLEANUP_LOCK:
+        cands = fresh()
+        for cid in sorted(wanted):
+            c = cands.get(cid)
+            if c and c["kind"] == "session":
+                do(cid, lambda c=c: stop(c["pids"]))
+        if any(r["ok"] for r in results.values()):
+            cands = fresh()
+        for cid in sorted(wanted):
+            c = cands.get(cid)
+            if not c or c["kind"] != "worktree":
+                continue
+            if c.get("blocked"):
+                results[cid] = {"ok": False, "message": f"skipped: {c['blocked']}"}
+                continue
+            def remove(c=c):
+                if c.get("prune"):
+                    run(["git", "worktree", "prune"])
+                    return "pruned"
+                if c.get("pids"):
+                    stop(c["pids"])
+                run(["git", "worktree", "remove", c["path"]], timeout=600)
+                run(["git", "branch", "-D", c["branch"]])
+                return f"removed {c['path']} and branch {c['branch']}"
+            do(cid, remove)
+        cands = fresh()
+        for cid in sorted(wanted):
+            c = cands.get(cid)
+            if not c or c["kind"] not in ("branch", "remote"):
+                continue
+            if cid == "prune:origin":
+                cmd, msg = ["git", "remote", "prune", "origin"], "pruned stale remote-tracking refs"
+            elif c["kind"] == "branch":
+                cmd, msg = ["git", "branch", "-D", c["branch"]], f"deleted {c['branch']}"
+            else:
+                cmd, msg = ["git", "push", "origin", "--delete", c["branch"]], f"deleted origin/{c['branch']}"
+            do(cid, lambda cmd=cmd, msg=msg: run(cmd, timeout=60) and msg or msg)
+        for cid in wanted - set(results):
+            results[cid] = {"ok": False, "message": "no longer a cleanup candidate, skipped"}
+    REFRESH.set()
+    return results
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def run_sweep():
+    """The sweep as the /bead skill runs it: the copy of scripts/loop on origin/main."""
+    with CLEANUP_LOCK:
+        run(["git", "fetch", "--quiet", "origin", "main"], timeout=60)
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = subprocess.run(["git", "archive", "origin/main", "scripts/loop"], cwd=ROOT,
+                                     capture_output=True, check=True, timeout=60).stdout
+            subprocess.run(["tar", "-x", "-C", tmp], input=archive, check=True)
+            p = subprocess.run(["bash", f"{tmp}/scripts/loop/sweep.sh"], cwd=ROOT,
+                               capture_output=True, text=True, timeout=600)
+    out = (p.stdout + p.stderr).strip()
+    cleanup_log(f"sweep exit {p.returncode}: {out[:2000]!r}")
+    REFRESH.set()
+    return {"ok": p.returncode == 0, "output": out or "(no output)"}
+
+
 # --- refresh loop and server -------------------------------------------------------------
 
 RAW = {}
@@ -595,8 +881,36 @@ def refresher(interval):
         REFRESH.clear()
 
 
+TOKEN = secrets.token_hex(16)
+PORT = 8765
+
+
 class Handler(BaseHTTPRequestHandler):
+    def local_host(self):
+        # Refuses requests addressed to another host name (DNS rebinding).
+        return self.headers.get("Host") in (f"127.0.0.1:{PORT}", f"localhost:{PORT}")
+
+    def do_POST(self):
+        # Changes need the page's token: another site cannot read it, so it cannot send it.
+        if not self.local_host() or self.headers.get("X-Dashboard-Token") != TOKEN:
+            return self.reply(403, "text/plain", b"forbidden")
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+            if self.path == "/api/cleanup/preview":
+                result = compute_cleanup()
+            elif self.path == "/api/cleanup/run":
+                result = run_cleanup([str(i) for i in body.get("ids", [])])
+            elif self.path == "/api/sweep":
+                result = run_sweep()
+            else:
+                return self.reply(404, "text/plain", b"not found")
+        except Exception as e:
+            result = {"error": str(e)[:1000]}
+        self.reply(200, "application/json", json.dumps(result).encode())
+
     def do_GET(self):
+        if not self.local_host():
+            return self.reply(403, "text/plain", b"forbidden")
         if self.path.startswith("/api/state"):
             if "refresh=1" in self.path:
                 REFRESH.set()
@@ -604,7 +918,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.dumps(STATE).encode()
             self.reply(200, "application/json", body)
         elif self.path in ("/", "/index.html"):
-            self.reply(200, "text/html; charset=utf-8", PAGE.encode())
+            self.reply(200, "text/html; charset=utf-8", PAGE.replace("__TOKEN__", TOKEN).encode())
         else:
             self.reply(404, "text/plain", b"not found")
 
@@ -682,21 +996,31 @@ a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
 details summary{cursor:pointer;color:var(--mute);margin-top:8px}
 .empty{color:var(--mute);font-style:italic}
 .charts{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))}
-.chart h3{margin:0 0 2px}.chart .sub{color:var(--mute);font-size:11px;margin-bottom:6px}
+.chart h3{margin:0 0 2px}.chart > div:last-child{min-height:170px}.chart .sub{color:var(--mute);font-size:11px;margin-bottom:6px}
 .legend{display:flex;gap:12px;font-size:11px;color:var(--mute);margin-bottom:4px;flex-wrap:wrap}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 svg text{fill:var(--mute);font-size:10px}
 svg .grid{stroke:var(--grid);stroke-width:1}
 svg .hit{fill:transparent}
 svg .hit:hover{fill:color-mix(in srgb,var(--fg) 6%,transparent)}
+.cl-group{margin-top:10px}.cl-group h3{display:flex;gap:8px;align-items:center;margin:6px 0}
+.cl-item{display:grid;grid-template-columns:22px 1fr;gap:2px 6px;padding:5px 0;border-top:1px solid var(--line)}
+.cl-item input{margin:2px 0 0;width:14px;height:14px}.cl-item.blocked{opacity:.65}
+.cl-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+pre.out{background:var(--chip);border-radius:6px;padding:8px;white-space:pre-wrap;font-size:12px;max-height:240px;overflow:auto}
 #tip{position:fixed;pointer-events:none;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12px;box-shadow:0 4px 14px rgba(0,0,0,.15);z-index:10;display:none;max-width:320px}
 #tip i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
 </style></head><body>
 <header><h1>ArchiCraft · bead loop</h1>
 <span class="live" id="live"><span class="dot bg-mute"></span>connecting…</span>
 <span class="meta" id="meta"></span>
+<button onclick="document.getElementById('cleanup-wrap').scrollIntoView({behavior:'smooth'})">Cleanup</button>
 <button onclick="load(true)" title="Collect fresh data now">Refresh now</button></header>
 <main id="main"></main>
+<main id="cleanup-wrap" style="padding-top:0"></main>
 <div id="tip"></div>
 <script>
 const $ = s => document.querySelector(s);
@@ -916,6 +1240,7 @@ function drawCharts() {
 
 // --- page ---------------------------------------------------------------------------------
 function render(s) {
+  const scroll = scrollY;  // charts are drawn after a layout pass; keep the reader's place
   const open = new Set([...document.querySelectorAll("details[open]")].map(d => d.dataset.key));
   const out = [];
   for (const [k, v] of Object.entries(s.errors || {})) out.push(`<div class="err"><b>${esc(k)}</b> could not be read, showing its last good data: ${esc(v)}</div>`);
@@ -973,6 +1298,8 @@ function render(s) {
   $("#main").innerHTML = out.join("");
   document.querySelectorAll("details[data-key]").forEach(d => { if (open.has(d.dataset.key)) d.open = true; });
   drawCharts();
+  renderCleanup();
+  scrollTo(0, scroll);
 }
 
 function setRange(r) { range = r; try { localStorage.setItem("range", r); } catch {} render(S); }
@@ -1006,6 +1333,72 @@ document.addEventListener("mousemove", e => {
   tip.style.left = Math.min(e.clientX + 14, innerWidth - r.width - 8) + "px";
   tip.style.top = (e.clientY + 14 + r.height > innerHeight ? e.clientY - r.height - 10 : e.clientY + 14) + "px";
 });
+// --- cleanup ------------------------------------------------------------------------------
+const TOKEN = "__TOKEN__";
+const CL = {data: null, sel: new Set(), busy: null, lastRun: null, sweep: null, error: null};
+const GROUPS = [["session", "Stale sessions", "Stopping a session ends its process; the transcript stays and the app can resume it."],
+  ["worktree", "Finished worktrees", "Removes the worktree directory (build output included) and its local branch."],
+  ["branch", "Leftover local branches", "Branches with no worktree whose commits are on main or kept in a closed PR."],
+  ["remote", "Remote branches and refs", "Deletes branches on GitHub whose PR merged; prunes refs to branches GitHub already deleted."]];
+async function post(path, body) {
+  const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json", "X-Dashboard-Token": TOKEN}, body: JSON.stringify(body || {})});
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  const j = await r.json(); if (j.error) throw new Error(j.error); return j;
+}
+async function clBusy(msg, fn) {
+  CL.busy = msg; CL.error = null; renderCleanup();
+  try { await fn(); } catch (e) { CL.error = String(e.message || e); }
+  CL.busy = null; renderCleanup();
+}
+const clFind = () => clBusy("Looking for cleanup candidates…", async () => {
+  CL.data = await post("/api/cleanup/preview");
+  const ids = new Set(CL.data.candidates.map(c => c.id)); CL.sel = new Set([...CL.sel].filter(i => ids.has(i)));
+});
+function clToggle(id, on) { on ? CL.sel.add(id) : CL.sel.delete(id); renderCleanup(); }
+function clGroup(kind, on) { CL.data.candidates.filter(c => c.kind === kind && !c.blocked).forEach(c => on ? CL.sel.add(c.id) : CL.sel.delete(c.id)); renderCleanup(); }
+function clRun() {
+  const chosen = CL.data.candidates.filter(c => CL.sel.has(c.id));
+  if (!chosen.length) return;
+  const lines = chosen.slice(0, 25).map(c => `• ${c.label}: ${c.action}`).join("\n") + (chosen.length > 25 ? `\n… and ${chosen.length - 25} more` : "");
+  if (!confirm(`Clean up ${chosen.length} item${chosen.length > 1 ? "s" : ""}? This cannot be undone.\n\n${lines}`)) return;
+  clBusy(`Cleaning up ${chosen.length} items…`, async () => {
+    const res = await post("/api/cleanup/run", {ids: chosen.map(c => c.id)});
+    CL.lastRun = chosen.map(c => ({label: c.label, ...(res[c.id] || {ok: false, message: "no result"})}));
+    CL.sel.clear(); CL.data = await post("/api/cleanup/preview"); load(true);
+  });
+}
+function clSweep() {
+  if (!confirm("Run the sweep now? It closes in-progress beads whose PR merged and split parents whose children are all closed (scripts/loop/sweep.sh as on origin/main).")) return;
+  clBusy("Running the sweep…", async () => { CL.sweep = await post("/api/sweep"); load(true); });
+}
+function renderCleanup() {
+  const el = $("#cleanup-wrap"); if (!el) return;
+  const willClose = [...(S?.in_progress || []).filter(b => b.flag === "merged"), ...(S?.split || []).filter(b => b.flag === "done")];
+  let body = `<div class="cl-actions"><button onclick="clFind()" ${CL.busy ? "disabled" : ""}>${CL.data ? "Look again" : "Find cleanup candidates"}</button>
+    <button onclick="clSweep()" ${CL.busy ? "disabled" : ""}>Run sweep</button>
+    <span class="small mute">${willClose.length ? `The sweep would close ${willClose.map(b => esc(b.id)).join(", ")}.` : "Nothing for the sweep to close right now."}</span>
+    ${CL.busy ? `<span class="small"><span class="dot bg-run pulse"></span>${CL.busy}</span>` : ""}</div>`;
+  if (CL.error) body += `<div class="err" style="margin-top:8px">${esc(CL.error)}</div>`;
+  if (CL.sweep) body += `<h3>Sweep ${CL.sweep.ok ? '<span class="ok">done</span>' : '<span class="bad">failed</span>'}</h3><pre class="out">${esc(CL.sweep.output)}</pre>`;
+  if (CL.lastRun) body += `<h3>Last cleanup</h3>` + CL.lastRun.map(r => `<div class="small">${r.ok ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'} ${esc(r.label)} <span class="mute">${esc(r.message)}</span></div>`).join("");
+  if (CL.data) {
+    const cands = CL.data.candidates;
+    if (!cands.length) body += `<div class="empty" style="margin-top:8px">Nothing to clean up.</div>`;
+    for (const [kind, title, note] of GROUPS) {
+      const items = cands.filter(c => c.kind === kind); if (!items.length) continue;
+      const free = items.filter(c => !c.blocked), all = free.length && free.every(c => CL.sel.has(c.id));
+      body += `<div class="cl-group"><h3><input type="checkbox" ${all ? "checked" : ""} ${free.length ? "" : "disabled"} onchange="clGroup('${kind}', this.checked)">${title} <span class="n small mute">${items.length}</span></h3><div class="small mute">${note}</div>` +
+        items.map(c => `<label class="cl-item ${c.blocked ? "blocked" : ""}"><input type="checkbox" ${CL.sel.has(c.id) ? "checked" : ""} ${c.blocked || CL.busy ? "disabled" : ""} onchange="clToggle(${esc(JSON.stringify(c.id))}, this.checked)">
+          <div><b>${esc(c.label)}</b> <span class="small mute">${esc(c.detail || "")}</span><div class="small">${esc(c.why)}${c.blocked ? ` · <span class="bad">kept: ${esc(c.blocked)}</span>` : ` · <span class="mute">${esc(c.action)}</span>`}</div></div></label>`).join("") + `</div>`;
+    }
+    if (CL.data.kept_branches?.length) body += det("kept", `${CL.data.kept_branches.length} branches kept: they have commits that are neither on main nor in a merged or closed PR`, `<div class="small">${CL.data.kept_branches.map(esc).join("<br>")}</div>`);
+    const n = CL.sel.size;
+    body += `<div class="cl-actions" style="margin-top:12px"><button class="danger" onclick="clRun()" ${n && !CL.busy ? "" : "disabled"}>Clean up ${n} selected</button>
+      <span class="small mute">Each item is checked again right before it runs. Actions are logged to loop-dashboard/cleanup.log in the git directory.</span></div>`;
+  }
+  el.innerHTML = sec("Cleanup", null, body, "wide");
+}
+
 let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(drawCharts, 150); });
 load(); setInterval(load, 5000); setInterval(tick, 1000);
 </script></body></html>
@@ -1013,14 +1406,14 @@ load(); setInterval(load, 5000); setInterval(tick, 1000);
 
 
 def main():
-    global SNAPSHOTS
+    global SNAPSHOTS, PORT
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--interval", type=int, default=20, help="seconds between data refreshes")
     ap.add_argument("--no-open", action="store_true", help="do not open a browser")
     args = ap.parse_args()
 
-    SNAPSHOTS = Snapshots()
+    SNAPSHOTS, PORT = Snapshots(), args.port
     threading.Thread(target=refresher, args=(args.interval,), daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://127.0.0.1:{args.port}/"
