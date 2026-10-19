@@ -1,7 +1,11 @@
 //! Triangle meshes and their validity checks (IFX-032, IFX-038).
+//!
+//! Points that coincide within the model tolerance are one point when a mesh
+//! is checked or its outlines and edges are extracted (NFR-ACC-003).
 
 use std::collections::{HashMap, HashSet};
 
+use archicraft_model::tolerance::{Welder, near_zero};
 use glam::{DVec2, DVec3};
 
 /// A triangle list. Coordinates are in metres.
@@ -48,19 +52,18 @@ impl std::fmt::Display for MeshIssue {
 /// indices (IFX-038).
 pub const MAX_MESH_POINTS: usize = 65_535;
 
-/// Quantisation step used to merge coincident points when checking a mesh.
-/// IFCX coordinates are written rounded to 10⁻⁶ m (IFX-007).
-const MERGE_STEP: f64 = 1e-6;
+/// The largest coordinate magnitude of some points, the scale of their
+/// rounding errors.
+fn magnitude(points: &[DVec3]) -> f64 {
+    points.iter().map(|p| p.abs().max_element()).fold(0.0, f64::max)
+}
 
-type Key2 = (i64, i64);
-type Key3 = (i64, i64, i64);
-
-fn key(p: DVec3) -> Key3 {
-    (
-        (p.x / MERGE_STEP).round() as i64,
-        (p.y / MERGE_STEP).round() as i64,
-        (p.z / MERGE_STEP).round() as i64,
-    )
+/// True if the cross product `(b - a) × (c - a)` (twice the triangle's area)
+/// vanishes up to rounding. Slivers are real geometry and not degenerate,
+/// however small their area.
+fn is_degenerate(a: DVec3, b: DVec3, c: DVec3) -> bool {
+    let (u, v) = (b - a, c - a);
+    near_zero(u.cross(v).length(), magnitude(&[a, b, c]) * (u.length() + v.length()))
 }
 
 impl TriMesh {
@@ -116,9 +119,17 @@ impl TriMesh {
         )
     }
 
+    /// Welds the points that coincide within the model tolerance
+    /// (NFR-ACC-003) and returns the welded point number of every point.
+    fn welded_ids(&self) -> Vec<usize> {
+        let mut welder = Welder::new();
+        self.points.iter().map(|p| welder.weld(*p)).collect()
+    }
+
     /// Checks IFX-032 and the point limit of IFX-038: closed and 2-manifold
-    /// once coincident points are merged, consistently oriented outwards, with
-    /// no degenerate or duplicate triangles and no unreferenced points.
+    /// once points that coincide within the model tolerance are merged
+    /// (NFR-ACC-003), consistently oriented outwards, with no degenerate or
+    /// duplicate triangles and no unreferenced points.
     pub fn check_closed(&self) -> Result<(), MeshIssue> {
         if self.indices.is_empty() || self.points.is_empty() {
             return Err(MeshIssue::Empty);
@@ -130,17 +141,9 @@ impl TriMesh {
             return Err(MeshIssue::IndexOutOfRange);
         }
         let mut used = vec![false; self.points.len()];
-        let mut merged: HashMap<Key3, u32> = HashMap::new();
-        let ids: Vec<u32> = self
-            .points
-            .iter()
-            .map(|p| {
-                let next = merged.len() as u32;
-                *merged.entry(key(*p)).or_insert(next)
-            })
-            .collect();
-        let mut seen_triangles: HashSet<[u32; 3]> = HashSet::new();
-        let mut edges: HashMap<(u32, u32), i32> = HashMap::new();
+        let ids = self.welded_ids();
+        let mut seen_triangles: HashSet<[usize; 3]> = HashSet::new();
+        let mut edges: HashMap<(usize, usize), i32> = HashMap::new();
         for t in self.indices.chunks_exact(3) {
             for &i in t {
                 used[i as usize] = true;
@@ -150,7 +153,7 @@ impl TriMesh {
                 return Err(MeshIssue::DegenerateTriangle);
             }
             let [pa, pb, pc] = [t[0], t[1], t[2]].map(|i| self.points[i as usize]);
-            if (pb - pa).cross(pc - pa).length() < 1e-12 {
+            if is_degenerate(pa, pb, pc) {
                 return Err(MeshIssue::DegenerateTriangle);
             }
             let mut sorted = [a, b, c];
@@ -192,7 +195,8 @@ impl TriMesh {
 
     /// The outline of the faces that look up (+Z), as segments in plan. For
     /// extruded bodies this is the footprint. Used for projected lines in plan
-    /// views.
+    /// views. Plan points that coincide within the model tolerance are one
+    /// point (NFR-ACC-003), so features smaller than 0.01 mm draw no lines.
     pub fn up_facing_outline(&self) -> Vec<[DVec2; 2]> {
         self.facing_outline(true)
     }
@@ -203,17 +207,19 @@ impl TriMesh {
     }
 
     fn facing_outline(&self, up: bool) -> Vec<[DVec2; 2]> {
-        let mut edges: HashMap<(Key2, Key2), (DVec2, DVec2, i32)> = HashMap::new();
-        let key2 = |p: DVec2| -> Key2 { ((p.x / MERGE_STEP).round() as i64, (p.y / MERGE_STEP).round() as i64) };
+        let mut welder: Welder<DVec2> = Welder::new();
+        let mut edges: HashMap<(usize, usize), (DVec2, DVec2, i32)> = HashMap::new();
         for [a, b, c] in self.triangles() {
-            let normal = (b - a).cross(c - a);
+            let (u, v) = (b - a, c - a);
+            let normal = u.cross(v);
             let facing = if up { normal.z } else { -normal.z };
-            if facing <= 1e-12 * normal.length().max(1e-12) {
+            // Vertical faces (facing zero up to rounding) belong to neither.
+            if facing <= 0.0 || near_zero(facing, magnitude(&[a, b, c]) * (u.length() + v.length())) {
                 continue;
             }
             for (p, q) in [(a, b), (b, c), (c, a)] {
                 let (p, q) = (p.truncate(), q.truncate());
-                let (kp, kq) = (key2(p), key2(q));
+                let (kp, kq) = (welder.weld(p), welder.weld(q));
                 if kp == kq {
                     continue;
                 }
@@ -235,14 +241,17 @@ impl TriMesh {
     }
 
     /// Edges between faces that are not coplanar (and open edges), for the
-    /// "shaded with edges" display (VIEW-050).
+    /// "shaded with edges" display (VIEW-050). Points that coincide within
+    /// the model tolerance are welded first (NFR-ACC-003).
     pub fn feature_edges(&self, min_angle_deg: f64) -> Vec<[DVec3; 2]> {
         let cos_limit = min_angle_deg.to_radians().cos();
-        let mut edges: HashMap<(Key3, Key3), (DVec3, DVec3, Vec<DVec3>)> = HashMap::new();
-        for [a, b, c] in self.triangles() {
+        let ids = self.welded_ids();
+        let mut edges: HashMap<(usize, usize), (DVec3, DVec3, Vec<DVec3>)> = HashMap::new();
+        for t in self.indices.chunks_exact(3) {
+            let [a, b, c] = [t[0], t[1], t[2]].map(|i| self.points[i as usize]);
+            let [ia, ib, ic] = [t[0], t[1], t[2]].map(|i| ids[i as usize]);
             let normal = (b - a).cross(c - a).normalize_or_zero();
-            for (p, q) in [(a, b), (b, c), (c, a)] {
-                let (kp, kq) = (key(p), key(q));
+            for ((p, kp), (q, kq)) in [((a, ia), (b, ib)), ((b, ib), (c, ic)), ((c, ic), (a, ia))] {
                 if kp == kq {
                     continue;
                 }
@@ -264,7 +273,8 @@ fn ray_triangle(origin: DVec3, dir: DVec3, a: DVec3, b: DVec3, c: DVec3) -> Opti
     let e2 = c - a;
     let p = dir.cross(e2);
     let det = e1.dot(p);
-    if det.abs() < 1e-14 {
+    // The ray runs in the triangle's plane, or the triangle is degenerate.
+    if near_zero(det, e1.length() * dir.length() * e2.length()) {
         return None;
     }
     let inv = 1.0 / det;
@@ -279,7 +289,9 @@ fn ray_triangle(origin: DVec3, dir: DVec3, a: DVec3, b: DVec3, c: DVec3) -> Opti
         return None;
     }
     let t = e2.dot(q) * inv;
-    (t > 1e-9).then_some(t)
+    // Hits at the origin itself (up to rounding) or behind it do not count.
+    let scale = magnitude(&[origin, a, b, c]) / dir.length();
+    (t > 0.0 && !near_zero(t, scale)).then_some(t)
 }
 
 #[cfg(test)]
@@ -334,5 +346,84 @@ mod tests {
         let m = unit_box();
         assert_eq!(m.up_facing_outline().len(), 4);
         assert_eq!(m.feature_edges(1.0).len(), 12);
+    }
+
+    const MICROMETRE: f64 = 1e-6;
+
+    /// The unit box with the top face's copy of the corner (1, 1, 1) moved
+    /// within the top plane.
+    fn box_with_moved_corner(offset: DVec3) -> TriMesh {
+        let mut m = unit_box();
+        let corner = m.points.iter().position(|p| *p == DVec3::ONE).unwrap();
+        m.points[corner] += offset;
+        m
+    }
+
+    /// NFR-ACC-003: copies of a corner 5 µm apart are one point; 20 µm apart
+    /// they are two, and the box is open.
+    #[test]
+    fn vertices_closer_than_the_model_tolerance_are_welded() {
+        let near = box_with_moved_corner(DVec3::new(-3.0, -4.0, 0.0) * MICROMETRE);
+        assert_eq!(near.check_closed(), Ok(()));
+        assert_eq!(near.feature_edges(1.0).len(), 12);
+        let far = box_with_moved_corner(DVec3::new(-12.0, -16.0, 0.0) * MICROMETRE);
+        assert_eq!(far.check_closed(), Err(MeshIssue::OpenOrNonManifold));
+        assert_eq!(
+            far.feature_edges(1.0).len(),
+            14,
+            "two open edges on each side of the gap"
+        );
+    }
+
+    /// NFR-ACC-003: the plan outline welds points 5 µm apart, so the shared
+    /// diagonal of two triangles cancels; 20 µm apart it is drawn.
+    #[test]
+    fn plan_outline_welds_coincident_points() {
+        let square = |gap: DVec2| {
+            let mut m = TriMesh::default();
+            m.add_face(&[DVec3::ZERO, DVec3::X, DVec3::new(1.0, 1.0, 0.0)], &[[0, 1, 2]]);
+            let moved = DVec2::ONE + gap;
+            m.add_face(&[DVec3::ZERO, moved.extend(0.0), DVec3::Y], &[[0, 1, 2]]);
+            m
+        };
+        assert_eq!(square(DVec2::new(3.0, -4.0) * MICROMETRE).up_facing_outline().len(), 4);
+        assert_eq!(
+            square(DVec2::new(12.0, -16.0) * MICROMETRE).up_facing_outline().len(),
+            6
+        );
+        assert!(square(DVec2::ZERO).down_facing_outline().is_empty());
+    }
+
+    /// EDT-019 limits: two 0.1 mm edges whose outline turns by 0.1° span
+    /// about 8.7e-12 m², below the square of the model tolerance, and are
+    /// still a real triangle.
+    #[test]
+    fn sliver_triangles_are_not_degenerate() {
+        let a = DVec3::new(10.0, 20.0, 3.0);
+        let b = a - DVec3::X * 1e-4;
+        let turn = 0.1_f64.to_radians();
+        let c = a + DVec3::new(turn.cos(), turn.sin(), 0.0) * 1e-4;
+        let sliver = TriMesh {
+            points: vec![a, b, c],
+            indices: vec![0, 1, 2],
+        };
+        assert_ne!(sliver.check_closed(), Err(MeshIssue::DegenerateTriangle));
+        let flat = TriMesh {
+            points: vec![a, b, a + (b - a) * 0.5],
+            indices: vec![0, 1, 2],
+        };
+        assert_eq!(flat.check_closed(), Err(MeshIssue::DegenerateTriangle));
+    }
+
+    #[test]
+    fn rays_do_not_hit_at_their_origin() {
+        let m = unit_box();
+        // From a point on the top face, looking down, the bottom is hit.
+        let t = m.ray_hit(DVec3::new(0.5, 0.5, 1.0), DVec3::NEG_Z).unwrap();
+        assert!((t - 1.0).abs() < 1e-12, "{t}");
+        // Far from the project origin as well (NFR-ACC-001).
+        let far = m.translated(DVec3::new(90_000.0, -90_000.0, 0.0));
+        let t = far.ray_hit(DVec3::new(90_000.5, -89_999.5, 1.0), DVec3::NEG_Z).unwrap();
+        assert!((t - 1.0).abs() < 1e-9, "{t}");
     }
 }

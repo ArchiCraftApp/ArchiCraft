@@ -6,11 +6,13 @@
 //! material's cut fill), parts below it down to the bottom of the view range
 //! are drawn **projected** (their top outline), and parts above it up to the
 //! top of the view range are drawn **overhead** (dashed). Cut regions of the
-//! same material are merged, so joined walls show no seam.
+//! same material are merged, so joined walls show no seam. A part whose top
+//! or bottom lies within the model tolerance of the cut plane is not cut
+//! (NFR-ACC-003).
 
 use std::collections::BTreeMap;
 
-use archicraft_model::{Element, ElementId, MaterialId, Project, StoreyId};
+use archicraft_model::{Element, ElementId, MODEL_TOLERANCE, MaterialId, Project, StoreyId};
 use geo::{LineString, MultiPolygon, Polygon};
 use glam::DVec2;
 
@@ -77,8 +79,6 @@ impl ViewRange {
     }
 }
 
-const EPS: f64 = 1e-9;
-
 fn ring_coords(ring: &LineString<f64>) -> Vec<DVec2> {
     let mut points: Vec<DVec2> = ring.0.iter().map(|c| DVec2::new(c.x, c.y)).collect();
     if points.len() > 1 && points.first() == points.last() {
@@ -132,16 +132,16 @@ pub fn plan_drawing(
             let Some((lo, hi)) = part.mesh.bounds() else {
                 continue;
             };
-            if lo.z < range.cut - EPS && hi.z > range.cut + EPS {
+            if lo.z < range.cut - MODEL_TOLERANCE && hi.z > range.cut + MODEL_TOLERANCE {
                 let polygons = loops_to_polygons(slice_loops(&part.mesh, range.cut));
                 by_material
                     .entry(part.material)
                     .or_default()
                     .extend(polygons.iter().cloned());
                 plan.cut.extend(polygons);
-            } else if hi.z <= range.cut + EPS && hi.z >= range.bottom - EPS {
+            } else if hi.z <= range.cut + MODEL_TOLERANCE && hi.z >= range.bottom - MODEL_TOLERANCE {
                 plan.projected.extend(part.mesh.up_facing_outline());
-            } else if lo.z >= range.cut - EPS && lo.z <= range.top + EPS {
+            } else if lo.z >= range.cut - MODEL_TOLERANCE && lo.z <= range.top + MODEL_TOLERANCE {
                 plan.overhead.extend(part.mesh.down_facing_outline());
             }
         }
