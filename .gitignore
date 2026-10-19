@@ -11,3 +11,9 @@ kb-scraper/
 
 # Rust build output
 /target/
+
+# cargo-fuzz build output, corpus, crash artefacts and coverage (fuzz/)
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/coverage/

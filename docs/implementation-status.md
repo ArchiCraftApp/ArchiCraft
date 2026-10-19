@@ -148,8 +148,8 @@ Reference models: RM-S, RM-M, RM-L and RX-1…n are all absent; the two golden f
 - `catch_unwind` as a safety net: crates/archicraft-geometry/src/evaluate.rs:69 hides geometry panics as 'failed unexpectedly' problems and depends on panic=unwind; root causes are not surfaced in tests.
 - `TriMesh.indices` are u32 but IFX-038/`MAX_MESH_POINTS` is 65535 and `check_closed` is only called in tests; `writer.rs` does not verify closedness or the point limit before writing (mesh.rs:49, writer.rs:220-227).
 - Tessellation settings (`ProjectSettings.tessellation`, project.rs:27-43) are stored, validated, written to IFCX and editable in the Project dialog but unused because no curved geometry exists.
-- Conformance build artifacts are not git-ignored: `git check-ignore` reports conformance/.ifc5, conformance/node_modules and conformance/.build as NOT ignored (.gitignore covers only .dolt, *.db, kb-scraper, /target), so running conformance/run.sh locally dirties the tree.
-- deny.toml:42 claims 'Advisories are checked in CI' but .github/workflows/ci.yml:79 runs `cargo deny check licenses sources bans` without `advisories`; Cargo.lock also carries two thiserror majors (1.0.69 and 2.0.21) under `multiple-versions = "warn"`.
+- Corrected 2026-10-19 (archicraft-76n0), not debt: conformance build artefacts are git-ignored. The tracked conformance/.gitignore ignores node_modules/, .build/ and .ifc5/ (now also test-results/ and playwright-report/); an earlier entry here reported them as not ignored because `git check-ignore` had been run on non-existent paths without a trailing slash.
+- Cargo.lock carries two thiserror majors (1.0.69 and 2.0.21) under `multiple-versions = "warn"` in deny.toml. (RustSec advisories are checked in CI since archicraft-76n0; deny.toml ignores three unmaintained zbus 5 crates reached only through eframe's accesskit_unix.)
 - Technology-choices drift: docs/technology-choices.md:39 and :120-122 name lyon for plan tessellation and insta/cargo-fuzz for testing, but none are dependencies; plan fills are triangulated with spade (geometry/triangulate.rs) and drawn via egui painter, and there are no snapshot or fuzz tests. Schema files from IFCx.dev have an unknown licence (crates/archicraft-ifcx/schemas/README.md).
 - UI test coverage is thin: crates/archicraft-app/tests/ui.rs has 4 label-based tests and no screenshot/snapshot tests; dialogs, plan input and 3D are untested at the UI level.
 - Project settings dialog issues up to four separate commands on OK (dialogs.rs:609-615: SetInfo, SetSettings, SetSpatialNames, SetLocation), so one OK can create several undo steps and partially apply if one is rejected.
@@ -969,7 +969,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | NFR-PORT-001 | M | partial | S | CI is a headless build-and-test on Windows Server runners; nothing verifies that the GUI starts on Windows 11 x64 (wgpu adapter, rfd dialogs, DPI). No release build or smoke run is recorded. |
 | NFR-PORT-002 | M | partial | S | CI tests macOS only for releases and by hand (.github/workflows/macos.yml: macOS 26 and 15 on Apple silicon, the newest two GitHub's runners offer, see docs/loop.md); Apple's current major version is covered only once GitHub offers it, no pull request runs macOS, and no run is on record yet. No GUI smoke run, no bundle/notarisation. |
 | NFR-PORT-003 | M | partial | S | CI pins Ubuntu 24.04 although the current LTS at this date is 26.04; no GUI smoke run (Vulkan driver, XDG portal) in CI or on record. |
-| NFR-PORT-004 | M | done | none | Done. ; note there is no .gitattributes guarding golden files against CRLF conversion (harmless today because they are single-line files without a trailing newline). |
+| NFR-PORT-004 | M | done | none | Done. Guarded by .gitattributes (`*.ifcx -text` keeps golden files byte-exact, `*.snap text eol=lf`); the Windows CI test job checks out with core.autocrlf=true and reproduces the golden files (docs/testing.md). |
 | NFR-PORT-005 | M | done | none | Done. by inspection; there is no automated check at 200 % and the built-in UI zoom shortcut (Ctrl/Cmd + = / - / 0) is not listed in the Keyboard shortcuts window. |
 | NFR-PORT-006 | M | partial | S | Second clause missing: minimum and reference hardware are not published with releases. There is no release process (only ci.yml in .github/workflows), README has no hardware section, and the concrete machines are undecided (SRS O… |
 
@@ -978,19 +978,19 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | ID | Pri | Status | Effort | Gap / evidence |
 |---|---|---|---|---|
 | NFR-MNT-001 | M | done | none | Done: Command enum (Serialize/Deserialize) crates/archicraft-model/src/command.rs:34-92 |
-| NFR-MNT-002 | M | done | none | Done: model, geometry and ifcx crates have no UI dependency: crates/archicraft-model/Cargo.toml:11-16, crates/archicraft-geometry/Cargo.toml:11-17, crates/archicraft-ifcx/Cargo.toml:11-17 |
+| NFR-MNT-002 | M | done | none | Done: model, geometry and ifcx crates have no UI dependency, guarded by scripts/check-layering.sh in the CI job Repository guards and the bead gate (docs/testing.md). |
 | NFR-MNT-003 | M | partial | M | The 'reference models of Section 7.3' (RM-S house of ~300 elements, RM-M, RM-L) do not exist; the golden and conformance inputs are two tiny samples (storey_with_walls_and_slab, two_storey_shell in crates/archicraft-model/src/sam… |
-| NFR-MNT-004 | M | done | none | Done. ; the crate carries the workspace version (0.1.0) and the IFCX version is expressed by the adapter name (ifcx_alpha) plus IFX-090 dispatch. |
+| NFR-MNT-004 | M | done | none | Done. The model and geometry crates do not depend on archicraft-ifcx, guarded by scripts/check-layering.sh in the CI job Repository guards (docs/testing.md); the crate carries the workspace version (0.1.0) and the IFCX version is expressed by the adapter name (ifcx_alpha) plus IFX-090 dispatch. |
 | NFR-MNT-005 | M | partial | L | No X junction, no three-wall node (fixture F6), no layered walls with skin priorities (F2, F7), no openings at element boundaries, no curved walls (F8), no beams or trims; most Section 4 cases are not implemented yet, so the regr… |
 
 ### 6.7 Security and privacy
 
 | ID | Pri | Status | Effort | Gap / evidence |
 |---|---|---|---|---|
-| NFR-SEC-001 | M | done | none | Done: No network crate in the dependency graph (Cargo.toml:40-66 |
+| NFR-SEC-001 | M | done | none | Done: no network crate in the dependency graph; deny.toml [bans] denies the HTTP client crates, checked by the CI job Licences and sources (docs/testing.md). |
 | NFR-SEC-002 | M | partial | M | Only Rust panics produce a crash report (crash.rs:66-89); native crashes in the GPU driver or a future C++ kernel, aborts and stack overflows are not captured (deferred in technology-choices.md:194, 271). The no-telemetry clause… |
 | NFR-SEC-003 | M | partial | M | No fuzzing: no cargo-fuzz target and no nightly CI job although D.9 requires at least 1 h per release (technology-choices.md:203 plans it). No unit tests for MAX_FILE_SIZE, MAX_IMPORTS or MAX_COMPOSITION_DEPTH. The 2 GB check run… |
-| NFR-SEC-004 | M | done | none | Done. now (the consent clause is vacuously met because no network access exists). When IFX-081 (S) adds fetching of remote import URIs, a consent prompt must be added and this requirement re-inspected. |
+| NFR-SEC-004 | M | done | none | Done. now (the consent clause is vacuously met because no network access exists). When IFX-081 (S) adds fetching of remote import URIs, a consent prompt must be added and this requirement re-inspected. Until then deny.toml [bans] denies the HTTP client crates (CI job Licences and sources); ifcx-interop lifts the ban together with the consent prompt. |
 
 ### 6.8 Localization and units
 
@@ -1014,5 +1014,5 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | ID | Pri | Status | Effort | Gap / evidence |
 |---|---|---|---|---|
 | NFR-LEG-001 | M | partial | S | No inventory artifact is committed or published (cargo deny list / cargo-about output, THIRD-PARTY notices). The bundled IFCx.dev schema files are shipped third-party content with no identified licence (crates/archicraft-ifcx/sch… |
-| NFR-LEG-002 | M | done | none | Done. . Keep the untracked 'Archicad KB scraper' corpus (.gitignore:9) out of the repository; product-name trademark check (O-17) is a separate open issue. |
+| NFR-LEG-002 | M | done | none | Done. Guarded by scripts/check-legal.sh in the CI job Repository guards (trademarks outside scripts/legal-allowlist.txt, images, library parts and templates outside scripts/asset-allowlist.txt), with a negative self-test (docs/testing.md). Keep the untracked 'Archicad KB scraper' corpus (.gitignore:9) out of the repository; product-name trademark check (O-17) is a separate open issue. |
 | NFR-LEG-003 | S | partial | S | No test consumes the R2 examples yet (RX-1…n of SRS 7.3 need third-party IFCX reading, IFX-081/082, increment 3); a fetch-at-test-time harness that feeds the examples to the reader is missing, and the reader currently rejects thi… |

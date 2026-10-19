@@ -1,0 +1,6 @@
+# NFR-PORT-004: files are platform-independent, so checkouts must not rewrite them.
+# IFCX files (golden files above all) keep their exact bytes on every platform: no end-of-line
+# conversion, but still diffed as text (do not mark them binary).
+*.ifcx -text
+# insta snapshots are compared byte for byte; keep LF on every checkout.
+*.snap text eol=lf

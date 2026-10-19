@@ -27,6 +27,11 @@ jobs:
         os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      # NFR-PORT-004: check out as a Windows developer would, with end-of-line conversion on;
+      # .gitattributes keeps the golden files byte-exact all the same.
+      - name: Enable end-of-line conversion (core.autocrlf=true)
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf true
       - uses: actions/checkout@v4
       - name: Install the pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
@@ -94,7 +99,8 @@ jobs:
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: scripts/loop/ci-check.sh
 
-  # NFR-LEG-001: licence inventory and policy (deny.toml).
+  # NFR-LEG-001: licence inventory and policy; RustSec advisories; NFR-SEC-001/NFR-SEC-004:
+  # no HTTP client crates (deny.toml).
   licences:
     name: Licences and sources
     runs-on: ubuntu-24.04
@@ -102,4 +108,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          command: check licenses sources bans
+          command: check advisories licenses sources bans
+
+  # Mechanical guards for done requirements (docs/testing.md, done-requirement traceability).
+  guards:
+    name: Repository guards
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - name: Layering of the headless crates (NFR-MNT-002, NFR-MNT-004)
+        run: scripts/check-layering.sh
+      - name: No unreviewed trademarks or third-party assets (NFR-LEG-002)
+        run: scripts/check-legal.sh
+      - name: Negative self-test of the guards
+        run: scripts/guards-selftest.sh

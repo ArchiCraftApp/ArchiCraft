@@ -1,0 +1,7 @@
+# Reviewed nominative references to the reference product or its maker (NFR-LEG-002), read by
+# scripts/check-legal.sh. docs/SRS.md, docs/technology-choices.md and
+# docs/implementation-status.md are exempt as a whole; every other hit needs an entry here.
+#
+# One entry per line: <path>: <text the line contains> # <why the reference is nominative>
+.gitignore: KB scraper and its corpus # names the locally kept reference corpus that this ignore rule keeps out of the repository
+docs/roadmap.md: definitions are primitive-based and contain no # states the requirement that no such content ships

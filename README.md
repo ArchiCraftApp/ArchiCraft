@@ -64,9 +64,15 @@ conformance/run.sh crates/archicraft-ifcx/tests/golden/*.ifcx
 The conformance check loads IFCX files with buildingSMART's reference
 implementation and viewer composition (SRS IFX-006); it needs Node.js and
 network access to fetch the pinned reference code. CI runs all of this on
-Windows and Linux, plus a licence check with cargo-deny. The tests run on
-macOS (Apple silicon) when a version tag `v*` is pushed, or by hand with
-`gh workflow run macos.yml`.
+Windows and Linux, plus cargo-deny (licences, advisories, sources and bans).
+The tests run on macOS (Apple silicon) when a version tag `v*` is pushed, or
+by hand with `gh workflow run macos.yml`.
+
+Repository guards keep done requirements done: `scripts/check-layering.sh`
+keeps UI crates out of the headless crates, `scripts/check-legal.sh` refuses
+trademarks and unlisted images, library parts and templates, and `deny.toml`
+refuses HTTP client crates, which is why adding such a dependency fails CI
+(see [docs/testing.md](docs/testing.md)).
 
 ## Implementing with Claude Code
 
@@ -84,8 +90,8 @@ rules are in [docs/loop.md](docs/loop.md).
 | `crates/archicraft-ifcx` | IFCX reader and writer (`ifcx_alpha` adapter), bundled schemas |
 | `crates/archicraft-app` | The desktop application (eframe, egui, wgpu) |
 | `conformance/` | IFX-006 check with buildingSMART's reference code (test-only) |
-| `scripts/` | Packaging (macOS DMG), the bead loop (`scripts/loop/`) |
-| `docs/` | SRS, technology choices, roadmap, implementation status, the bead loop |
+| `scripts/` | Packaging (macOS DMG), repository guards, the bead loop (`scripts/loop/`) |
+| `docs/` | SRS, technology choices, roadmap, implementation status, testing, the bead loop |
 
 ## License
 
