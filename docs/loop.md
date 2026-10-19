@@ -115,3 +115,27 @@ Once per repository, by an admin: `scripts/loop/setup-github.sh` (auto-merge, la
 required checks on `main`).
 
 After changing a hook or loop script: `scripts/loop/selftest.sh`.
+
+## Announcements
+
+Every change that reaches `main` is announced in the project's Signal group (user decision of
+2026-10-19): `.github/workflows/announce.yml` runs `scripts/announce-signal.sh` on each push to
+`main` and posts one short message with each merged PR's title (bead id left out) and link.
+PRs merge only on green CI, so nothing red is announced. Signal has no bot API, so the message
+goes through a self-hosted [signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api)
+whose account (a number of its own, or a device linked to an existing one) is a member of the
+group. GitHub's runners must reach it; put it behind a reverse proxy with TLS and a token.
+
+Once, by an admin, with the group id from `GET <url>/v1/groups/<number>` (`group.…`):
+
+```bash
+gh secret set SIGNAL_API_URL             # https://signal.example.org
+gh secret set SIGNAL_NUMBER              # the sending account, +43…
+gh secret set SIGNAL_GROUP_ID            # group.…
+gh secret set SIGNAL_API_AUTHORIZATION   # optional: "Bearer …" for the proxy
+```
+
+Without the first three secrets the job only leaves a notice. Preview a message without
+sending: `GITHUB_REPOSITORY=ArchiCraftApp/ArchiCraft BEFORE=<sha> AFTER=<sha>
+scripts/announce-signal.sh --dry-run`. To test the setup, start the workflow by hand
+(`gh workflow run announce.yml`); it announces the newest commit on `main` again.
