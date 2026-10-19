@@ -1,0 +1,42 @@
+name: macOS
+
+# NFR-PORT-002: build and test on macOS on Apple silicon, current and previous major version.
+# Runs only for a release (a version tag v*) and when started by hand, not on every push or
+# pull request: GitHub's hosted macOS runners were too slow or never picked the jobs up
+# (2026-10-19), and no pull request could merge while a macOS check was required
+# (docs/loop.md, Enforcement). Start it by hand with: gh workflow run macos.yml --ref <branch>
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS 26 and 15 on Apple silicon (arm64). When GitHub adds the next macOS major
+        # version, move both labels up by one.
+        os: [macos-26, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --workspace --all-targets --locked
+      - name: Test
+        run: cargo test --workspace --locked
