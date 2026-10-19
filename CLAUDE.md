@@ -58,6 +58,19 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 <!-- END BEADS INTEGRATION -->
 
 
+## Implementation loop
+
+All implementation work goes through the bead loop (`docs/loop.md`): one bead per session
+with `/bead [id]` (`.claude/skills/bead/SKILL.md`), several beads in fresh sessions with
+`/bead-loop [count] [epic]`. Hooks in `.claude/settings.json` enforce it: code under `crates/`
+is edited only on a `bead/<id>-<slug>` branch and committed only after `scripts/loop/gate.sh`
+and the `bead-reviewer` agent passed on the exact tree.
+
+Git authority on `bead/*` branches: the user authorised (2026-10-19) committing, pushing the
+branch, opening the PR and enabling squash auto-merge on green CI, all through
+`scripts/loop/land.sh`. Nothing is pushed to `main` directly, and PRs of beads labelled `loop`
+wait for the user's review. Everywhere else the conservative profile applies.
+
 ## Build & Test
 
 ```bash
@@ -67,6 +80,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 conformance/run.sh crates/archicraft-ifcx/tests/golden/*.ifcx   # IFX-006, needs Node.js
 ARCHICRAFT_BLESS=1 cargo test -p archicraft-ifcx --test roundtrip  # after an intended format change
+scripts/loop/gate.sh                                     # the bead gate: all of the above plus policy checks
+scripts/loop/selftest.sh                                 # after changing the loop's hooks or scripts
 ```
 
 ## Architecture Overview
