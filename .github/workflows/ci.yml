@@ -42,6 +42,13 @@ jobs:
         run: cargo build -p archicraft-app --all-targets --features perf --locked
       - name: Test with the perf feature
         run: cargo test -p archicraft-app --features perf --locked
+      # IFX-091 / NFR-MNT-004: the mock successor adapter behind successor-stub proves that a
+      # second IFCX version plugs into ADAPTERS; its tests only run with the feature
+      # (docs/ifcx-evolution.md).
+      - name: Test with the successor-stub feature
+        run: cargo test -p archicraft-ifcx --features successor-stub --locked
+      - name: clippy with the successor-stub feature
+        run: cargo clippy -p archicraft-ifcx --all-targets --features successor-stub --locked -- -D warnings
 
   lint:
     name: Format and clippy

@@ -31,7 +31,8 @@ cargo test -p archicraft-ifcx --features successor-stub
 cargo clippy -p archicraft-ifcx --all-targets --features successor-stub -- -D warnings
 ```
 
-The feature is not in `default` and no release enables it.
+The feature is not in `default` and no release enables it. CI's Test job runs both commands
+(`.github/workflows/ci.yml`).
 
 ## Runbook for a real successor
 
