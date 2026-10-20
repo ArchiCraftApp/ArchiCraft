@@ -12,7 +12,8 @@
 mod common;
 
 use archicraft_app::ArchiCraftApp;
-use archicraft_app::tools::{ToolKind, ToolOutcome, WallMode};
+use archicraft_app::input::{InputConsumer, Outcome};
+use archicraft_app::tools::{ToolKind, WallMode};
 use archicraft_app::views::camera::Camera2d;
 use archicraft_app::workspace::{Pane, SceneKey};
 use archicraft_model::glam::DVec2;
@@ -581,8 +582,8 @@ fn view_014_plan_navigation_pans_zooms_and_fits() {
 fn run_tool(h: &mut App, storey: StoreyId, points: &[(f64, f64)]) {
     let ws = h.state_mut().workspace();
     for &(x, y) in points {
-        let outcome = ws.tool.add_point(&ws.doc.project, storey, DVec2::new(x, y));
-        if let ToolOutcome::Execute(command) = outcome {
+        let outcome = ws.tool.commit(&ws.doc.project, storey, DVec2::new(x, y));
+        if let Outcome::Execute(command) = outcome {
             assert!(ws.execute(command));
         }
     }
