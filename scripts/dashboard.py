@@ -6,7 +6,10 @@ and reads the Claude Code transcripts of this repository's sessions. It changes 
 own: only the Cleanup panel does, after a preview and a confirmation on the page (stop stale
 sessions, remove finished worktrees and branches, run the sweep). Python 3 standard library only.
 
-The Code map page (/code) shows the Rust modules of origin/main as a component map and as a
+The Roadmap page (/roadmap) shows how far the roadmap has come: the epics of docs/roadmap.md
+placed by their dependencies with the share of their task estimates that is done, the
+increments with their exit criteria, the SRS requirement status of docs/implementation-status.md
+and the pace of the last 7 days. The Code map page (/code) shows the Rust modules of origin/main as a component map and as a
 dependency graph, coloured by how recently or how much they changed, with the files that open
 PRs and running sessions are changing now.
 
@@ -834,6 +837,142 @@ def code_view():
 STATES_TEXT = {"working": "working", "quiet": "quiet", "stale": "stale", "waiting": "idle"}
 
 
+# --- roadmap -----------------------------------------------------------------------------
+# docs/roadmap.md (epics, increments, dependencies, engineer-days) and
+# docs/implementation-status.md (one status per SRS requirement) as they are on origin/main,
+# joined with the live beads: how far each epic, each increment and the SRS have come.
+
+ROADMAP = {"sha": None, "doc": None}
+REQ_ROW = re.compile(r"^\| ([A-Z]+-[A-Z0-9-]+) \| ([MSC]) \| ([a-z-]+) \|")
+AS_ROW = re.compile(r"^\| (AS-\d+) \| ([a-z-]+) \|")
+
+
+def parse_roadmap(text):
+    epics, ids, exits = [], {}, {}
+    for m in re.finditer(r"^### \d+\. `([^`]+)` \((archicraft-[a-z0-9]+)\)", text, re.M):
+        ids[m.group(1)] = m.group(2)
+    for m in re.finditer(r"^### Increment (\d+)[^\n]*\n\nExit criterion: ([^\n]+)", text, re.M):
+        exits[m.group(1)] = m.group(2).strip()
+    table = text[text.index("## Epic table"):]
+    for line in table.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 8 or not cells[0].isdigit():
+            continue
+        msc = [int(x) for x in cells[6].split("/")] if re.fullmatch(r"\d+/\d+/\d+/\d+", cells[6]) else [0, 0, 0, 0]
+        key = cells[1].strip("`")
+        epics.append({"n": int(cells[0]), "key": key, "title": cells[2], "inc": int(cells[3]),
+                      "prio": int(cells[4]), "days": int(cells[5]), "must": msc[0], "should": msc[1],
+                      "could": msc[2], "done_reqs": msc[3], "id": ids.get(key),
+                      "deps": re.findall(r"`([^`]+)`", cells[7])})
+    # Earliest start in engineer-days with unlimited parallelism, as the roadmap's schedule shape.
+    by_key = {e["key"]: e for e in epics}
+    def start(e, seen=()):
+        if "start" not in e:
+            e["start"] = max([start(by_key[d], seen + (e["key"],)) + by_key[d]["days"]
+                              for d in e["deps"] if d in by_key and d not in seen] or [0])
+        return e["start"]
+    for e in epics:
+        start(e)
+    return {"epics": epics, "exits": exits}
+
+
+def parse_status(text):
+    reqs, scenarios = {}, {}
+    for line in text.splitlines():
+        m = REQ_ROW.match(line)
+        if m:
+            reqs[m.group(1)] = (m.group(2), m.group(3))
+            continue
+        m = AS_ROW.match(line)
+        if m:
+            scenarios[m.group(1)] = m.group(2)
+    return reqs, scenarios
+
+
+def status_counts(reqs):
+    out = {}
+    for prio, status in reqs.values():
+        out.setdefault(prio, {}).setdefault(status, 0)
+        out[prio][status] += 1
+    return out
+
+
+def build_roadmap_doc(sha):
+    roadmap = parse_roadmap(run(["git", "show", f"{sha}:docs/roadmap.md"]))
+    reqs, scenarios = parse_status(run(["git", "show", f"{sha}:docs/implementation-status.md"]))
+    history = []
+    for line in run(["git", "log", "--format=%h %ct", sha, "--", "docs/implementation-status.md"]).splitlines():
+        h, ct = line.split()
+        try:
+            r, _ = parse_status(run(["git", "show", f"{h}:docs/implementation-status.md"]))
+        except RuntimeError:
+            continue
+        c = status_counts(r)
+        history.append({"t": int(ct), "sha": h,
+                        **{f"{s}_{p}": c.get(p, {}).get(s, 0) for p in "MSC" for s in ("done", "partial")}})
+    return {"sha": sha, **roadmap, "reqs": status_counts(reqs), "scenarios": scenarios,
+            "req_history": sorted(history, key=lambda r: r["t"])}
+
+
+def roadmap_view():
+    sha = run(["git", "rev-parse", "--short", "origin/main"]).strip()
+    if ROADMAP["sha"] != sha:
+        ROADMAP["doc"], ROADMAP["sha"] = build_roadmap_doc(sha), sha
+    doc = ROADMAP["doc"]
+    with LOCK:
+        agents = [a for a in STATE.get("agents") or [] if a["state"] != "ended" and a["bead"]]
+    raw_beads = RAW.get("beads") or collect_beads()  # before the first refresh has finished
+    beads = raw_beads["beads"]
+    ready = {b["id"] for b in raw_beads["ready"]}
+    by_id = {b["id"]: b for b in beads}
+    kids = {}
+    for b in beads:
+        if b.get("parent"):
+            kids.setdefault(b["parent"], []).append(b)
+    live = {a["bead"]: a for a in agents}
+    now = time.time()
+
+    def leaves(bid):
+        out = []
+        for c in kids.get(bid, []):
+            out.extend(leaves(c["id"]) if c["id"] in kids else [c])
+        return out
+    epics = []
+    for e in doc["epics"]:
+        b = by_id.get(e["id"]) or {}
+        ls = leaves(e["id"]) if e["id"] else []
+        est = lambda x: x.get("estimated_minutes") or 0
+        total = sum(est(x) for x in ls) or 0
+        done = sum(est(x) for x in ls if x["status"] == "closed")
+        # A task under the epic that was split counts through its children.
+        tasks = sorted(kids.get(e["id"], []), key=lambda x: (x["status"] == "closed", x.get("priority", 9), x["id"]))
+        task_rows = []
+        for t in tasks:
+            tl = leaves(t["id"]) if t["id"] in kids else [t]
+            task_rows.append({"id": t["id"], "title": t["title"], "status": t["status"],
+                              "est": sum(est(x) for x in tl), "done": sum(est(x) for x in tl if x["status"] == "closed"),
+                              "children": len(tl) if t["id"] in kids else 0,
+                              "ready": t["id"] in ready or any(x["id"] in ready for x in tl),
+                              "live": [live[x["id"]]["state"] for x in tl if x["id"] in live]})
+        state = ("done" if b.get("status") == "closed" else
+                 "in_progress" if any(x["status"] in ("in_progress", "closed") for x in ls) else "planned")
+        epics.append({**e, "status": b.get("status"), "state": state, "est_total": total, "est_done": done,
+                      "leaves": len(ls), "leaves_done": sum(x["status"] == "closed" for x in ls),
+                      "in_progress": sum(x["status"] == "in_progress" for x in ls),
+                      "live": [{"bead": x["id"], "state": live[x["id"]]["state"]} for x in ls if x["id"] in live],
+                      "tasks": task_rows})
+
+    # Pace: estimates closed per day over the last 7 days, from the beads under any roadmap epic.
+    under = {x["id"] for e in doc["epics"] if e["id"] for x in leaves(e["id"])}
+    week = sum((b.get("estimated_minutes") or 0) for b in beads if b["id"] in under and b["status"] == "closed"
+               and (iso_to_epoch(b.get("closed_at")) or 0) > now - 7 * 86400)
+    closed_times = sorted([iso_to_epoch(b.get("closed_at")), b.get("estimated_minutes") or 0]
+                          for b in beads if b["id"] in under and b["status"] == "closed" and b.get("closed_at"))
+    return {"sha": sha, "epics": epics, "exits": doc["exits"], "reqs": doc["reqs"], "scenarios": doc["scenarios"],
+            "req_history": doc["req_history"], "pace_minutes_per_day": week / 7, "closed": closed_times,
+            "generated": epoch_to_iso(now)}
+
+
 # --- cleanup -----------------------------------------------------------------------------
 # Candidates are computed fresh for the preview and again right before anything runs, so an
 # action only happens to something that still qualifies. Nothing runs without the page's
@@ -1196,6 +1335,14 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 body = json.dumps({"error": str(e)[:1000]}).encode()
             self.reply(200, "application/json", body)
+        elif self.path.startswith("/api/roadmap"):
+            try:
+                body = json.dumps(roadmap_view()).encode()
+            except Exception as e:
+                body = json.dumps({"error": str(e)[:1000]}).encode()
+            self.reply(200, "application/json", body)
+        elif self.path in ("/roadmap", "/roadmap/"):
+            self.reply(200, "text/html; charset=utf-8", PAGE_ROADMAP.encode())
         elif self.path in ("/code", "/code/"):
             self.reply(200, "text/html; charset=utf-8", PAGE_CODE.encode())
         elif self.path in ("/", "/index.html"):
@@ -1299,7 +1446,7 @@ pre.out{background:var(--chip);border-radius:6px;padding:8px;white-space:pre-wra
 #tip i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
 </style></head><body>
 <header><h1>ArchiCraft · bead loop</h1>
-<nav class="tabs"><a class="on" href="/">Status</a><a href="/code">Code map</a></nav>
+<nav class="tabs"><a href="/roadmap">Roadmap</a><a class="on" href="/">Status</a><a href="/code">Code map</a></nav>
 <span class="live" id="live"><span class="dot bg-mute"></span>connecting…</span>
 <span class="meta" id="meta"></span>
 <button onclick="document.getElementById('cleanup-wrap').scrollIntoView({behavior:'smooth'})">Cleanup</button>
@@ -1728,7 +1875,7 @@ PAGE_CODE = r"""<!doctype html>
 .stat div{font-size:11px;color:var(--mute)}.stat b{display:block;font-size:16px;color:var(--fg);font-variant-numeric:tabular-nums}
 </style></head><body>
 <header><h1>ArchiCraft · bead loop</h1>
-<nav class="tabs"><a href="/">Status</a><a class="on" href="/code">Code map</a></nav>
+<nav class="tabs"><a href="/roadmap">Roadmap</a><a href="/">Status</a><a class="on" href="/code">Code map</a></nav>
 <span class="live" id="live"><span class="dot bg-mute pulse"></span>loading the code base…</span>
 <span class="meta" id="meta"></span></header>
 <div class="wrap">
@@ -2105,6 +2252,229 @@ async function load() {
     const liveKey = JSON.stringify(d.live);
     $("#live").innerHTML = `<span class="dot bg-ok pulse"></span>live · origin/main ${esc(d.sha)} · checked ${new Date(d.generated).toLocaleTimeString()}`;
     if (d.sha !== lastSha || liveKey !== lastLive) { const first = !D; D = d; lastSha = d.sha; lastLive = liveKey; if (first) graphReset = true; render(); }
+  } catch (e) { $("#live").innerHTML = `<span class="dot bg-bad"></span><span class="bad">${esc(e.message || "dashboard server not reachable")}</span>`; }
+}
+let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 150); });
+load(); setInterval(load, 20000);
+</script></body></html>
+""".replace("/*BASE*/", BASE_CSS)
+
+
+PAGE_ROADMAP = r"""<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ArchiCraft Roadmap</title>
+<style>/*BASE*/
+.hero{display:grid;grid-template-columns:minmax(260px,1.3fr) repeat(3,minmax(180px,1fr));gap:12px}
+@media (max-width:1000px){.hero{grid-template-columns:1fr 1fr}}
+@media (max-width:600px){.hero{grid-template-columns:1fr}}
+.tile{background:var(--chip);border-radius:8px;padding:10px 12px;min-width:0}
+.tile .k{font-size:11px;color:var(--mute)}
+.tile .big{font-size:48px;font-weight:600;line-height:1.05;font-variant-numeric:tabular-nums}
+.tile .mid{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.track{height:10px;background:var(--card);border-radius:5px;overflow:hidden;display:flex;gap:2px;margin:8px 0 6px}
+.track i{display:block;height:100%}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.as{font-size:11px;border-radius:4px;padding:1px 6px;background:var(--card);display:inline-flex;gap:4px;align-items:center}
+#gantt svg text{font-size:10px}
+.bar-lbl{pointer-events:none;font-size:10px}
+.epic{cursor:pointer}.epic.dim{opacity:.3}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px}
+.inc{border-top:1px solid var(--line);padding:9px 0}.inc:first-of-type{border-top:0;padding-top:0}
+.inc .row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.req-row{display:grid;grid-template-columns:70px 1fr 120px;gap:8px;align-items:center;margin:6px 0;font-size:12px}
+.seg-bar{height:14px;display:flex;gap:2px;border-radius:4px;overflow:hidden;background:var(--chip)}
+.seg-bar i{display:block;height:100%}
+.task{display:grid;grid-template-columns:16px 1fr auto;gap:6px;padding:4px 0;border-top:1px solid var(--line);font-size:12px;align-items:baseline}
+.task:first-child{border-top:0}
+</style></head><body>
+<header><h1>ArchiCraft · bead loop</h1>
+<nav class="tabs"><a class="on" href="/roadmap">Roadmap</a><a href="/">Status</a><a href="/code">Code map</a></nav>
+<span class="live" id="live"><span class="dot bg-mute pulse"></span>loading the roadmap…</span>
+<span class="meta" id="meta"></span></header>
+<main id="main"></main>
+<div id="tip"></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const tipAttr = html => `data-tip="${esc(html)}"`;
+const h = m => Math.round(m / 60).toLocaleString();
+const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
+const sec = (title, body, cls = "", right = "") => `<section class="${cls}"><h2>${title}${right ? `<span class="right">${right}</span>` : ""}</h2>${body}</section>`;
+let R = null, selected = null, hover = null;
+const STATE = {done: ["--ok", "done"], in_progress: ["--s1", "in progress"], planned: ["--mute", "planned"]};
+const AS = {done: ["bg-ok", "passes"], partial: ["bg-warn", "partial"], "not-yet-possible": ["bg-mute", "not yet possible"], missing: ["bg-mute", "missing"]};
+
+function incStats(n) {
+  const es = R.epics.filter(e => !n || e.inc === n);
+  return {epics: es.length, done: es.filter(e => e.state === "done").length, active: es.filter(e => e.state === "in_progress").length,
+    est: es.reduce((s, e) => s + e.est_total, 0), estDone: es.reduce((s, e) => s + e.est_done, 0),
+    days: es.reduce((s, e) => s + e.days, 0), end: Math.max(0, ...es.map(e => e.start + e.days)),
+    tasks: es.reduce((s, e) => s + e.leaves, 0), tasksDone: es.reduce((s, e) => s + e.leaves_done, 0),
+    live: es.reduce((s, e) => s + e.live.length, 0)};
+}
+function reqTotals() {
+  const out = {done: 0, partial: 0, missing: 0, all: 0};
+  for (const p of "MSC") for (const [k, v] of Object.entries(R.reqs[p] || {})) { out[k] = (out[k] || 0) + v; out.all += v; }
+  return out;
+}
+
+// --- hero -----------------------------------------------------------------------------------
+function hero() {
+  const i1 = incStats(1), all = incStats(0), rt = reqTotals(), M = R.reqs.M || {}, mAll = Object.values(M).reduce((a, b) => a + b, 0);
+  const first = R.req_history[0], last = R.req_history[R.req_history.length - 1];
+  const gainedM = first && last ? last.done_M - first.done_M : 0;
+  const pace = R.pace_minutes_per_day, left = i1.est - i1.estDone, days = pace > 0 ? left / pace : null;
+  const eta = days ? new Date(Date.now() + days * 86400000).toLocaleDateString(undefined, {day: "numeric", month: "short", year: "numeric"}) : null;
+  const incSegs = [1, 2, 3, 4].map(n => { const s = incStats(n); return `<i style="width:${100 * s.est / all.est}%;background:linear-gradient(90deg,var(--s1) ${pct(s.estDone, s.est)}%,color-mix(in srgb,var(--mute) 25%,transparent) 0)" ${tipAttr(`<b>Increment ${n}</b><br>${pct(s.estDone, s.est)}% · ${h(s.estDone)} of ${h(s.est)} h estimated`)}></i>`; }).join("");
+  const scen = Object.entries(R.scenarios).map(([k, v]) => `<span class="as" ${tipAttr(`${k}: ${(AS[v] || ["", v])[1]}`)}><span class="dot ${(AS[v] || ["bg-mute"])[0]}" style="margin:0"></span>${k}</span>`).join("");
+  return sec("Where we are", `<div class="hero">
+    <div class="tile"><div class="k">Increment 1 · core modeller</div><div class="big">${pct(i1.estDone, i1.est)}%</div>
+      <div class="track"><i style="width:${pct(i1.estDone, i1.est)}%;background:var(--s1)"></i></div>
+      <div class="small mute">${h(i1.estDone)} of ${h(i1.est)} h of estimates done · ${i1.tasksDone} of ${i1.tasks} tasks · ${i1.done} of ${i1.epics} epics closed, ${i1.active} under way</div></div>
+    <div class="tile"><div class="k">Whole roadmap</div><div class="mid">${pct(all.estDone, all.est)}%</div>
+      <div class="track" style="height:12px">${incSegs}</div>
+      <div class="small mute">four increments, ${R.epics.length} epics, ${all.days} engineer-days planned · ${all.tasksDone} of ${all.tasks} tasks done</div></div>
+    <div class="tile"><div class="k">SRS requirements done</div><div class="mid">${rt.done} <span class="small mute">of ${rt.all}</span></div>
+      <div class="track" style="height:12px"><i style="width:${pct(rt.done, rt.all)}%;background:var(--ok)"></i><i style="width:${pct(rt.partial, rt.all)}%;background:var(--warn)"></i></div>
+      <div class="small mute">Must: ${M.done || 0} of ${mAll} done${gainedM ? `, +${gainedM} since ${new Date(first.t * 1000).toLocaleDateString(undefined, {day: "numeric", month: "short"})}` : ""} · ${rt.partial} partial</div></div>
+    <div class="tile"><div class="k">Pace</div><div class="mid">${(pace / 60).toFixed(1)} h<span class="small mute"> of estimates a day</span></div>
+      <div class="small mute" style="margin-top:6px">average of the last 7 days${eta ? ` · increment 1 at this pace: about ${Math.round(days)} days, around ${eta}` : ""}</div>
+      <div class="k" style="margin-top:8px">Acceptance scenarios</div><div class="chips">${scen}</div></div>
+  </div>`, "wide");
+}
+
+// --- gantt ----------------------------------------------------------------------------------
+let boxes = {};
+function gantt(el) {
+  const W = Math.max(640, el.clientWidth), lw = 170, rowH = 22, end = Math.max(...R.epics.map(e => e.start + e.days)), x = d => lw + d / end * (W - lw - 10);
+  let y = 22, g = "", grid = "";
+  for (let d = 0; d <= end; d += 10) grid += `<line class="grid" x1="${x(d)}" x2="${x(d)}" y1="16" y2="100%"/><text x="${x(d)}" y="11" text-anchor="middle">${d}</text>`;
+  boxes = {};
+  for (const n of [1, 2, 3, 4]) {
+    const es = R.epics.filter(e => e.inc === n).sort((a, b) => a.start - b.start || b.days - a.days), lanes = [];
+    for (const e of es) { let i = lanes.findIndex(endD => endD <= e.start); if (i < 0) { i = lanes.length; lanes.push(0); } lanes[i] = e.start + e.days; e.lane = i; }
+    const bandH = lanes.length * rowH + 14, s = incStats(n);
+    g += `<rect x="0" y="${y}" width="${W}" height="${bandH}" fill="${n % 2 ? "var(--chip)" : "transparent"}" opacity=".5" rx="6"/>
+      <text x="8" y="${y + 16}" style="font-size:12px;font-weight:600;fill:var(--fg)">Increment ${n}</text>
+      <text x="8" y="${y + 30}">${pct(s.estDone, s.est)}% · ${s.done}/${s.epics} epics</text>
+      <text x="8" y="${y + 43}" ${tipAttr(`<b>Exit criterion</b><br>${esc(R.exits[n] || "")}`)} style="text-decoration:underline dotted">exit criterion</text>`;
+    for (const e of es) {
+      const bx = x(e.start) + 1, bw = Math.max(4, x(e.start + e.days) - x(e.start) - 2), by = y + 7 + e.lane * rowH, bh = rowH - 5;
+      boxes[e.key] = {x0: bx, x1: bx + bw, y: by + bh / 2};
+      const p = e.est_total ? e.est_done / e.est_total : 0, col = e.state === "done" ? "var(--ok)" : "var(--s1)";
+      const name = e.key.length * 5.6 + 34 < bw ? e.key : e.key.length * 5.6 < bw ? e.key : bw > 30 ? e.key.slice(0, Math.floor(bw / 6) - 1) + "…" : "";
+      g += `<g class="epic" data-key="${esc(e.key)}" ${tipAttr(`<b>${esc(e.title)}</b><br><span class="mute">${esc(e.key)} · ${esc(e.id || "")}</span><br>${e.days} engineer-days, from day ${e.start}<br>${pct(e.est_done, e.est_total)}% done · ${e.leaves_done} of ${e.leaves} tasks · ${h(e.est_done)} of ${h(e.est_total)} h${e.live.length ? `<br><span style="color:var(--run)">●</span> ${e.live.length} agent session${e.live.length > 1 ? "s" : ""} working` : ""}${e.deps.length ? `<br>needs ${esc(e.deps.join(", "))}` : ""}`)}>
+        <rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="4" fill="var(--card)" stroke="${e.key === selected ? "var(--fg)" : "var(--line)"}" stroke-width="${e.key === selected ? 2 : 1}"/>
+        ${p > 0 ? `<rect x="${bx}" y="${by}" width="${Math.max(3, bw * p)}" height="${bh}" rx="4" fill="${col}" opacity="${e.state === "done" ? 1 : .85}"/>` : ""}
+        <text class="bar-lbl" x="${bx + 5}" y="${by + bh / 2 + 3.5}" style="fill:${p > .45 ? "#fff" : "var(--fg)"}">${esc(name)}</text>
+        ${e.live.length ? `<circle cx="${bx + bw - 6}" cy="${by + bh / 2}" r="3.5" fill="var(--run)" class="${e.live.some(l => l.state === "working") ? "pulse" : ""}"/>` : ""}</g>`;
+    }
+    y += bandH + 6;
+  }
+  el.innerHTML = `<svg width="${W}" height="${y}"><g>${grid}</g>${g}<g id="deps"></g></svg>`;
+  el.querySelectorAll(".epic").forEach(n => {
+    n.onmouseenter = () => { hover = n.dataset.key; depLines(); };
+    n.onmouseleave = () => { hover = null; depLines(); };
+    n.onclick = () => { selected = selected === n.dataset.key ? null : n.dataset.key; render(); };
+  });
+  depLines();
+}
+function depLines() {
+  const k = hover || selected, el = $("#deps"); if (!el) return;
+  if (!k) { el.innerHTML = ""; document.querySelectorAll(".epic").forEach(n => n.classList.remove("dim")); return; }
+  const e = R.epics.find(x => x.key === k), users = R.epics.filter(x => x.deps.includes(k)).map(x => x.key), rel = new Set([k, ...e.deps, ...users]);
+  document.querySelectorAll(".epic").forEach(n => n.classList.toggle("dim", !rel.has(n.dataset.key)));
+  const link = (a, b, col) => { const p = boxes[a], q = boxes[b]; if (!p || !q) return "";
+    const mx = (p.x1 + q.x0) / 2; return `<path d="M${p.x1},${p.y} C${mx},${p.y} ${mx},${q.y} ${q.x0},${q.y}" fill="none" stroke="var(${col})" stroke-width="1.6" opacity=".85"/>`; };
+  el.innerHTML = e.deps.map(d => link(d, k, "--s2")).join("") + users.map(u => link(k, u, "--s1")).join("");
+}
+
+// --- increments and requirements --------------------------------------------------------------
+function increments() {
+  return sec("Increments", [1, 2, 3, 4].map(n => { const s = incStats(n);
+    return `<div class="inc"><div class="row"><b>Increment ${n}</b><span class="small mute">${s.epics} epics · ${s.days} engineer-days · ends at day ${s.end}</span></div>
+      <div class="track" style="background:var(--chip)"><i style="width:${pct(s.estDone, s.est)}%;background:var(--s1)"></i></div>
+      <div class="small"><b>${pct(s.estDone, s.est)}%</b> <span class="mute">· ${h(s.estDone)} of ${h(s.est)} h · ${s.tasksDone} of ${s.tasks} tasks · ${s.done} epics closed, ${s.active} under way${s.live ? ` · <span style="color:var(--run)">●</span> ${s.live} agents working` : ""}</span></div>
+      <div class="small mute" style="margin-top:3px">Exit: ${esc(R.exits[n] || "")}</div></div>`; }).join(""));
+}
+function requirements() {
+  const rows = [["M", "Must"], ["S", "Should"], ["C", "Could"]].map(([p, l]) => { const c = R.reqs[p] || {}, t = (c.done || 0) + (c.partial || 0) + (c.missing || 0);
+    return `<div class="req-row"><span>${l}</span><div class="seg-bar" ${tipAttr(`<b>${l}</b>: ${c.done || 0} done, ${c.partial || 0} partial, ${c.missing || 0} missing`)}>
+      <i style="width:${100 * (c.done || 0) / t}%;background:var(--ok)"></i><i style="width:${100 * (c.partial || 0) / t}%;background:var(--warn)"></i></div>
+      <span class="small mute">${c.done || 0} done · ${c.partial || 0} partial · ${t}</span></div>`; }).join("");
+  return sec("SRS requirements", `<div class="legend"><span><i style="background:var(--ok)"></i>done</span><span><i style="background:var(--warn)"></i>partial</span><span><i style="background:var(--chip)"></i>missing</span></div>${rows}
+    <h3>Done over time <span class="small mute">from docs/implementation-status.md on main</span></h3><div id="reqchart"></div>`);
+}
+function reqChart(el) {
+  const H = R.req_history; if (H.length < 2) { el.innerHTML = `<div class="empty small">Not enough history yet.</div>`; return; }
+  const W = el.clientWidth || 400, Hh = 150, m = {l: 34, r: 60, t: 10, b: 18}, t0 = H[0].t, t1 = Math.max(Date.now() / 1000, H[H.length - 1].t);
+  const S = [["Must done", r => r.done_M, "--s1"], ["All done", r => r.done_M + r.done_S + r.done_C, "--s2"]];
+  // The counts move by a few requirements at a time, so the axis spans the data, not 0..max.
+  const vals = H.flatMap(r => S.map(s => s[1](r))), lo = Math.max(0, Math.floor(Math.min(...vals) * .9 / 5) * 5), hi = Math.ceil(Math.max(...vals) * 1.05 / 5) * 5 || 5;
+  const x = t => m.l + (t - t0) / (t1 - t0) * (W - m.l - m.r), y = v => m.t + (Hh - m.t - m.b) * (1 - (v - lo) / (hi - lo));
+  let g = "";
+  for (const f of [0, .5, 1]) { const v = lo + (hi - lo) * f; g += `<line class="grid" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text x="${m.l - 5}" y="${y(v) + 3}" text-anchor="end">${Math.round(v)}</text>`; }
+  g += `<text x="${m.l}" y="${Hh - 3}">${new Date(t0 * 1000).toLocaleDateString(undefined, {day: "numeric", month: "short"})}</text><text x="${W - m.r}" y="${Hh - 3}" text-anchor="end">now</text>`;
+  for (const [label, f, col] of S) {
+    const pts = H.map(r => [x(r.t), y(f(r))]); pts.push([x(t1), y(f(H[H.length - 1]))]);
+    g += `<polyline points="${pts.map(p => p.join(",")).join(" ")}" fill="none" stroke="var(${col})" stroke-width="2" stroke-linejoin="round"/>
+      <circle cx="${pts[pts.length - 1][0]}" cy="${pts[pts.length - 1][1]}" r="4" fill="var(${col})" stroke="var(--card)" stroke-width="2"/>
+      <text x="${pts[pts.length - 1][0] + 8}" y="${pts[pts.length - 1][1] + 3}" style="fill:var(--fg)">${f(H[H.length - 1])} ${label.split(" ")[0].toLowerCase()}</text>`;
+  }
+  H.forEach((r, i) => { const x0 = i ? (x(H[i - 1].t) + x(r.t)) / 2 : m.l, x1 = i < H.length - 1 ? (x(r.t) + x(H[i + 1].t)) / 2 : W - m.r;
+    g += `<rect class="hit" x="${x0}" y="${m.t}" width="${Math.max(1, x1 - x0)}" height="${Hh - m.t - m.b}" ${tipAttr(`<b>${new Date(r.t * 1000).toLocaleString()}</b> · ${r.sha}<br>Must done: ${r.done_M} · all done: ${r.done_M + r.done_S + r.done_C}<br>partial: ${r.partial_M + r.partial_S + r.partial_C}`)}/>`; });
+  el.innerHTML = `<div class="legend">${S.map(([l, , c]) => `<span><i style="background:var(${c})"></i>${l}</span>`).join("")}</div><svg width="${W}" height="${Hh}">${g}</svg>`;
+}
+
+// --- detail -----------------------------------------------------------------------------------
+function taskRow(t) {
+  const icon = t.status === "closed" ? '<span class="ok">✓</span>' : t.live.length ? '<span class="dot bg-run pulse" style="margin:0"></span>' : t.status === "in_progress" ? '<span class="run">◐</span>' : t.ready ? '<span class="ok">○</span>' : '<span class="mute">○</span>';
+  return `<div class="task">${icon}<span><span class="id">${esc(t.id)}</span> ${esc(t.title)}${t.children ? ` <span class="small mute">(split into ${t.children})</span>` : ""}${t.ready && t.status !== "closed" ? ' <span class="chip ok">ready</span>' : ""}</span>
+    <span class="small mute nowrap">${t.est ? `${h(t.done)}/${h(t.est)} h` : ""}</span></div>`;
+}
+function detail() {
+  if (!selected) {
+    const active = R.epics.filter(e => e.state === "in_progress");
+    return sec("Under way", active.length ? active.map(e => `<h3 style="cursor:pointer" onclick="selected='${esc(e.key)}';render()">${esc(e.title)} <span class="small mute">${pct(e.est_done, e.est_total)}% · ${e.leaves_done}/${e.leaves} tasks</span></h3>` +
+      e.tasks.filter(t => t.status !== "closed" && (t.status === "in_progress" || t.live.length || t.ready)).slice(0, 6).map(taskRow).join("")).join("")
+      : `<div class="empty">No epic is under way yet.</div>`, "wide", `<span class="small mute">click a bar for an epic's tasks · ✓ done · ● agent working · ◐ in progress · ○ ready or open</span>`);
+  }
+  const e = R.epics.find(x => x.key === selected), users = R.epics.filter(x => x.deps.includes(e.key));
+  const link = k => `<span class="chip" style="cursor:pointer" onclick="selected='${esc(k)}';render()">${esc(k)}</span>`;
+  return sec(`${esc(e.title)}`, `<div class="small mute">${esc(e.key)} · ${esc(e.id || "")} · increment ${e.inc} · P${e.prio} · ${e.days} engineer-days from day ${e.start} · requirements M ${e.must} / S ${e.should} / C ${e.could}${e.done_reqs ? ` (+${e.done_reqs} already done)` : ""}</div>
+    <div class="track" style="background:var(--chip);max-width:520px"><i style="width:${pct(e.est_done, e.est_total)}%;background:${e.state === "done" ? "var(--ok)" : "var(--s1)"}"></i></div>
+    <div class="small"><b>${pct(e.est_done, e.est_total)}%</b> <span class="mute">· ${h(e.est_done)} of ${h(e.est_total)} h · ${e.leaves_done} of ${e.leaves} tasks done · ${e.in_progress} in progress</span></div>
+    <div style="margin:8px 0">${e.deps.length ? `<span class="small mute">needs </span>${e.deps.map(link).join("")}` : '<span class="small mute">no prerequisites</span>'}${users.length ? ` <span class="small mute">· unblocks </span>${users.map(x => link(x.key)).join("")}` : ""}</div>
+    ${e.tasks.map(taskRow).join("")}`, "wide", `<button onclick="selected=null;render()">Close</button>`);
+}
+
+function render() {
+  if (!R) return;
+  const scroll = scrollY;
+  $("#main").innerHTML = hero() + sec("Roadmap", `<div class="small mute" style="margin-bottom:6px">Epics placed by their dependencies: earliest start in engineer-days with unlimited parallelism, as in docs/roadmap.md. The filled part of a bar is the share of its task estimates that is done. Hover a bar for what it needs (orange) and unblocks (blue).</div><div id="gantt"></div>`, "wide") +
+    detail() + increments() + requirements();
+  gantt($("#gantt")); reqChart($("#reqchart"));
+  scrollTo(0, scroll);
+}
+
+const tip = $("#tip");
+document.addEventListener("mousemove", e => {
+  const t = e.target.closest && e.target.closest("[data-tip]");
+  if (!t) { tip.style.display = "none"; return; }
+  tip.innerHTML = t.dataset.tip; tip.style.display = "block";
+  const r = tip.getBoundingClientRect();
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - r.width - 8) + "px";
+  tip.style.top = (e.clientY + 14 + r.height > innerHeight ? e.clientY - r.height - 10 : e.clientY + 14) + "px";
+});
+let lastKey = null;
+async function load() {
+  try {
+    const r = await fetch("/api/roadmap"), d = await r.json();
+    if (d.error) throw new Error(d.error);
+    $("#live").innerHTML = `<span class="dot bg-ok pulse"></span>live · origin/main ${esc(d.sha)} · checked ${new Date(d.generated).toLocaleTimeString()}`;
+    const key = JSON.stringify([d.sha, d.epics.map(e => [e.est_done, e.state, e.live.length, e.tasks.map(t => t.status + t.live.length)])]);
+    if (key !== lastKey) { lastKey = key; R = d; render(); }
   } catch (e) { $("#live").innerHTML = `<span class="dot bg-bad"></span><span class="bad">${esc(e.message || "dashboard server not reachable")}</span>`; }
 }
 let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 150); });
