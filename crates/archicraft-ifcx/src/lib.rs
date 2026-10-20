@@ -6,7 +6,10 @@
 //! model in the declared `archicraft::` namespace.
 //!
 //! The format-specific code lives in versioned adapter modules ([`alpha`]),
-//! isolated from the domain model and geometry (NFR-MNT-004).
+//! isolated from the domain model and geometry (NFR-MNT-004). [`load`] picks
+//! the adapter from the table [`ADAPTERS`] by the file's `ifcxVersion`; each
+//! adapter migrates files of earlier ArchiCraft format versions before
+//! reading them ([`alpha::migrate`], IFX-091).
 
 pub mod alpha;
 pub mod container;
@@ -39,17 +42,40 @@ pub fn save(
     (alpha::writer::to_bytes(&outcome.file, pretty), outcome.warnings)
 }
 
+/// The reader of one IFCX version (IFX-090).
+#[derive(Debug)]
+pub struct Adapter {
+    /// The `header.ifcxVersion` this adapter reads.
+    pub version: &'static str,
+    /// Reads a parsed file of that version; [`ReadOutcome::source_version`]
+    /// names the adapter's version.
+    pub read: fn(&IfcxFile) -> Result<ReadOutcome, Problem>,
+}
+
+/// Every IFCX version an ArchiCraft release has written, and its reader
+/// (IFX-090). A new IFCX version adds an entry and keeps the old ones, so
+/// that existing project files keep opening (IFX-091).
+pub const ADAPTERS: &[Adapter] = &[Adapter {
+    version: alpha::writer::IFCX_VERSION,
+    read: alpha::reader::read,
+}];
+
 /// Reads a project from IFCX bytes. Every IFCX version that an ArchiCraft
 /// release has written is read here (IFX-090).
 pub fn load(bytes: &[u8]) -> Result<ReadOutcome, Problem> {
     let file = validate::parse(bytes)?;
-    match file.header.ifcx_version.as_str() {
-        alpha::writer::IFCX_VERSION => alpha::reader::read(&file),
-        other => Err(Problem::error(
+    let version = file.header.ifcx_version.as_str();
+    let Some(adapter) = ADAPTERS.iter().find(|a| a.version == version) else {
+        let supported: Vec<&str> = ADAPTERS.iter().map(|a| a.version).collect();
+        return Err(Problem::error(
             None,
-            format!("the IFCX version “{other}” is not supported; this release reads {WRITTEN_VERSION}"),
-        )),
-    }
+            format!(
+                "the IFCX version “{version}” is not supported; this release reads {}",
+                supported.join(", ")
+            ),
+        ));
+    };
+    (adapter.read)(&file)
 }
 
 /// Reads a project file, checking its size against the 2 GB limit of

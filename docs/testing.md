@@ -25,6 +25,14 @@ an intended format change, regenerate them the same way:
 ARCHICRAFT_BLESS=1 cargo test -p archicraft-ifcx --test corrupt
 ```
 
+The files in `crates/archicraft-ifcx/tests/formats/` are not golden files: each is a copy of a
+golden file as an earlier format version wrote it (`format-1.ifcx`: two-storey-shell at
+FORMAT_VERSION 1), and every later release must keep loading it without problems
+(`cargo test -p archicraft-ifcx --test formats`, IFX-090, IFX-091). They are frozen: no bless
+loop writes them, and `frozen_format_fixtures_never_change` fails with “frozen format fixture
+changed” when their bytes change. A format bump adds a new frozen file and a migration step
+(crates/archicraft-ifcx/src/alpha/migrate.rs); it never regenerates an old one.
+
 Blessing never happens to get a test green. The gate refuses golden-file edits on beads without
 the `format-change` label, and the pull request shows the regenerated files' diff next to the
 code that changed them; the reviewer checks that every changed byte follows from the intended
@@ -213,7 +221,7 @@ request; the CI step is the regression check.
 | IFX-022 | IsExternal true for exterior and false for interior walls, absent for a slab with an undefined position | Test: `ifx_022_is_external_follows_the_known_position` (ifcx) |
 | IFX-025 | The stair hole of `two_storey_shell` is part of the slab body mesh; no IfcOpeningElement, no Void or opening child | Test: `ifx_025_slab_holes_are_geometry_not_openings` (ifcx) |
 | IFX-061 | Every `archicraft::` attribute is declared in `schemas` with a value description that covers every member it carries, through nested objects and arrays | Test: `ifx_061_every_archicraft_attribute_has_a_complete_value_description` (ifcx) |
-| IFX-090 | The writer emits only `ifcx_alpha` (`WRITTEN_VERSION`), compact and indented; `load` dispatches on ifcxVersion and refuses another version by name | Test: `ifx_090_one_written_version_and_load_dispatches_on_it` (ifcx); also `malformed_input_is_rejected_without_panicking` (roundtrip.rs) |
+| IFX-090 | The writer emits only `ifcx_alpha` (`WRITTEN_VERSION`), compact and indented; `load` dispatches on ifcxVersion through the adapter table `ADAPTERS` and refuses another version by name, naming every supported version; the frozen format-1 fixture loads with `source_version` `ifcx_alpha` and saves as `ifcx_alpha` | Test: `ifx_090_one_written_version_and_load_dispatches_on_it` (ifcx); also `malformed_input_is_rejected_without_panicking` (roundtrip.rs) and tests/formats.rs (all tests) |
 | PRJ-008 | A damaged file loads all valid parts; every skipped or repaired record (non-object layer, malformed views, missing tool defaults, bad or missing counters, an invalid info field, wrong element flags, a non-numeric colour, an invalid ground storey, an invalid wall) is reported at its project or element node, and per collection loaded plus reported-skipped records equal the records in the file; the app shows the load report | Test: `no_record_disappears_silently` and one test per fixture (corrupt.rs: `crates/archicraft-ifcx/tests/corrupt.rs`); `a_damaged_file_opens_with_the_load_report` (ui.rs: `crates/archicraft-app/tests/ui.rs`); also `invalid_elements_are_skipped_and_reported`, `missing_references_are_repaired_and_reported` (roundtrip.rs) |
 
 Rows with "Test:" name `cargo test` functions, which the "Test" step of the "Test" job runs on
