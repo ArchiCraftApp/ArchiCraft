@@ -60,7 +60,8 @@ jobs:
   conformance:
     name: IFCX conformance (buildingSMART reference code)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # The job's budget: it takes 1 to 3 minutes (cold Rust cache), so a hang fails it early.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Install the pinned Rust toolchain (rust-toolchain.toml)
@@ -98,7 +99,8 @@ jobs:
         with:
           name: viewer-screenshots
           path: conformance/test-results/*.png
-          if-no-files-found: warn
+          # The release check needs them: a run that wrote none fails.
+          if-no-files-found: error
 
   # docs/loop.md: the bead-loop rules every pull request keeps, the headless-crate layering
   # and the self-test of the loop's hooks. A required check for auto-merge.

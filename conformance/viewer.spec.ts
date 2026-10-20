@@ -8,7 +8,8 @@
 //
 // Everything is served by page.route: the harness from this directory and the four schema
 // imports from crates/archicraft-ifcx/schemas. Any other request is aborted and fails the
-// test, so the step runs offline.
+// test before the other checks, so the step runs offline and says so when it does not. A
+// request for a localhost path the harness does not serve fails the test the same way.
 
 import { expect, test, type Page } from "@playwright/test";
 import * as fs from "fs";
@@ -64,9 +65,15 @@ function expectedFromFile(ifcx: Ifcx) {
     };
 }
 
-/** Serves the harness and the bundled schemas; records every request that leaves both. */
-async function openViewer(page: Page): Promise<{ outside: string[]; console: string[] }> {
+type Session = { outside: string[]; unserved: string[]; console: string[] };
+
+/**
+ * Serves the harness and the bundled schemas; records every request that leaves both and
+ * every localhost path the harness does not serve.
+ */
+async function openViewer(page: Page): Promise<Session> {
     const outside: string[] = [];
+    const unserved: string[] = [];
     const consoleErrors: string[] = [];
     page.on("request", (request) => {
         const url = request.url();
@@ -89,13 +96,20 @@ async function openViewer(page: Page): Promise<{ outside: string[]; console: str
         if (url.startsWith(`${ORIGIN}/`)) {
             const served = SERVED[new URL(url).pathname];
             if (served) return route.fulfill({ path: path.join(here, served[0]), contentType: served[1] });
-            return route.fulfill({ status: 204 });
+            unserved.push(url);
+            return route.fulfill({ status: 404 });
         }
         return route.abort("blockedbyclient");
     });
     await page.goto(`${ORIGIN}/`);
     await page.waitForFunction(() => typeof window.loadIfcx === "function");
-    return { outside, console: consoleErrors };
+    return { outside, unserved, console: consoleErrors };
+}
+
+/** Fails when the viewer reached beyond what the harness serves (IFX-006: offline). */
+function checkOffline(session: Session) {
+    if (session.outside.length > 0) throw new Error(`requests left the machine: ${session.outside.join(", ")}`);
+    if (session.unserved.length > 0) throw new Error(`the harness does not serve ${session.unserved.join(", ")}`);
 }
 
 type RenderAnalysis = { geometry: number; colourPixels: number[] };
@@ -163,7 +177,14 @@ async function checkInViewer(page: Page, ifcx: Ifcx, screenshot?: string): Promi
     const session = await openViewer(page);
     const viewport = page.locator(".viewport");
     const background = await viewport.screenshot({ scale: "css" });
-    const tree: TreeNode = await page.evaluate((json) => window.loadIfcx(json), ifcx as unknown);
+    const loaded = await page.evaluate((json) => window.loadIfcx(json), ifcx as unknown).then(
+        (tree: TreeNode) => ({ tree }),
+        (error: Error) => ({ error }),
+    );
+    // A request the harness cannot answer explains whatever fails after it, so it comes first.
+    checkOffline(session);
+    if ("error" in loaded) throw loaded.error;
+    const tree = loaded.tree;
     const render = await viewport.screenshot({ scale: "css", path: screenshot });
 
     const summary = checkSpatialTree(tree);
@@ -187,8 +208,8 @@ async function checkInViewer(page: Page, ifcx: Ifcx, screenshot?: string): Promi
     if (missing.length > 0) {
         throw new Error(`the render does not show the material colours ${missing.map((c) => JSON.stringify(c)).join(", ")}`);
     }
+    checkOffline(session);
     if (session.console.length > 0) throw new Error(`the viewer logged errors: ${session.console.join("; ")}`);
-    if (session.outside.length > 0) throw new Error(`requests left the machine: ${session.outside.join(", ")}`);
     return (
         `${describeTree(summary)} (file: ${expected.storeys} storeys, ${expected.elements} elements), ` +
         `${(analysis.geometry * 100).toFixed(0)} % geometry, ${expected.colours.length}/${expected.colours.length} colours`
@@ -260,5 +281,12 @@ test.describe("broken copy", () => {
         const geometry = mesh.attributes!["usd::usdgeom::mesh"];
         geometry.faceVertexIndices[0] = geometry.points.length;
         await expectRejected(page, ifcx, `${viewerPath(ifcx, mesh.path)} has the index ${geometry.points.length}, out of range`, testInfo);
+    });
+
+    test("an import that is not bundled", async ({ page }, testInfo) => {
+        const ifcx = readIfcx(base) as Ifcx & { imports: { uri: string }[] };
+        const uri = "https://ifcx.dev/@example.org/not-bundled@v1.ifcx";
+        ifcx.imports.push({ uri });
+        await expectRejected(page, ifcx, `requests left the machine: ${uri}`, testInfo);
     });
 });

@@ -64,8 +64,10 @@ for (const file of files) {
     try {
         ifcx = JSON.parse(fs.readFileSync(file, "utf8"));
     } catch (e) {
+        // Neither step can run on a file that does not parse; both say so.
         failures++;
         console.log(`FAIL (a) ifcx-core ${name}: ${message(e)}`);
+        console.log(`FAIL (b1) compose3 ${name}: ${message(e)}`);
         continue;
     }
 
