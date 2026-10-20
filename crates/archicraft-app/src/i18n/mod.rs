@@ -375,10 +375,21 @@ mod tests {
 
     #[test]
     fn a_missing_key_is_visible_and_logged_once() {
+        // tracing caches each callsite's interest globally. While a single
+        // dispatcher is registered, a callsite first hit on another test
+        // thread asks only that thread's (no-op) default and caches "never",
+        // which hides the warning from this thread's subscriber. A second
+        // live dispatcher makes every registration ask all of them, ours too.
+        let _second_dispatcher = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
         let warnings = Arc::new(AtomicUsize::new(0));
         let subscriber = tracing_subscriber::registry().with(CountWarnings(Arc::clone(&warnings)));
         let localizer = Rc::new(Localizer::english());
         tracing::subscriber::with_default(subscriber, || {
+            // What a parallel test may do first: report a problem on a thread
+            // without a subscriber.
+            std::thread::spawn(|| Localizer::english().format("dlg-other-thread", None))
+                .join()
+                .unwrap();
             with(Rc::clone(&localizer), || {
                 assert_eq!(tr!("dlg-no-such-message"), "dlg-no-such-message");
                 assert_eq!(tr!("dlg-no-such-message", count = 2), "dlg-no-such-message");

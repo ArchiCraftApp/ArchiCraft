@@ -33,19 +33,37 @@ live in the worktree's git dir (`git rev-parse --git-path loop`), never in the r
 `scripts/loop/status.sh` shows where a worktree stands.
 
 **Stop rules.** Three gate failures on the same problem or two failed reviews: the bead gets
-the label `human`, the session pauses (`scripts/loop/pause.sh "<reason>"`) and the loop stops.
-The same applies when a decision belongs to the user.
+the label `human` and the session pauses (`scripts/loop/pause.sh "<reason>"`); the orchestrator
+reports the bead in its `Needs you:` line and carries on with other beads. The same applies
+when a decision belongs to the user.
 
 ## Several beads
 
-`/bead-loop [count] [epic]` (`.claude/skills/bead-loop/SKILL.md`) runs in an orchestrator
-session that never edits code. It starts each ready bead in its own fresh session and worktree
-with `/bead <id>`, verifies the PR and auto-merge after the session reports, and stops after
-`count` beads, at the first blocker, or when an epic's tasks are all closed. Beads run one at
-a time; two only on request and only when they share no crate label. A loop bead's PR with
-auto-merge on counts like a feature bead's. One that waits for the user (see below) is reported,
-and the run carries on with beads not labelled `loop`. No loop bead starts while another loop
-bead's PR is open, merging by itself or waiting, because loop beads edit the same files.
+`/bead-loop [count] [parallel] [epic] [loop]` (`.claude/skills/bead-loop/SKILL.md`) runs in an
+orchestrator session that never edits code, and only one such session runs at a time: two
+pick the same beads and coordinate through the user. In the desktop app, sessions start only
+in a turn the user triggered, never in one a sub-session's report triggered (user decisions of
+2026-10-20). So each user turn (`/bead-loop` or "continue") sweeps and starts a whole batch at
+once: up to `parallel` (default 3) ready beads, each in its own fresh session and worktree with
+`/bead <id>`, whose crate labels overlap neither each other nor beads still in progress. Beads
+labelled `loop` are picked only when the user passes `loop`, at most one per batch and none
+while another loop bead's PR is open, because loop beads edit the same files. A red `main` (the
+sweep's `ATTENTION windows` line or a failed CI run on `main`) becomes a P0 bead labelled
+`red-main` that starts first in the next batch, without asking.
+
+Turns triggered by the bead sessions' reports only verify each PR and auto-merge and report.
+Nobody waits on a merge: the app's PR monitor wakes a session on a CI failure, a conflict or
+a review comment, never on a merge. A bead counts once its PR is open with auto-merge on, or
+waits for the user (see below); a bead blocked by a bead whose PR is still open is not ready
+and goes into a later batch, and the sweep closes merged beads. The run stops after `count`
+beads or when an epic's tasks are all closed.
+
+**Reports.** A bead session ends with at most 4 lines:
+`<id> ✅ PR #N (auto-merge|waits for you|blocked): <what changed>`, then `Needs you: -` or the
+one thing the user has to do. The orchestrator reports one line per bead and a `Needs you:`
+line only when something does, without restating the sessions' reports. Details only on
+request. A review finding becomes a loop bead (priority 3) only when it caused a real defect;
+anything less goes into `bd remember`.
 
 **Demo checkpoint.** An epic closes only after the user tried it: the orchestrator builds and
 launches the app from `main`, lists what the epic delivered, and closes the epic on the user's
@@ -71,19 +89,19 @@ Instructions are soft; these are not:
 covers only `main` and version tags `v*`, so pushing a bead branch does not start a second run
 (before 2026-10-20 every bead PR ran it twice, in two concurrency groups).
 
-**Windows runs on `main` and nightly.** No Windows test job runs on a pull request, and no
-Windows job is a required check: the Windows test job took 10 to 17 minutes where Linux took
-1.5 to 9, and every bead waited for it (user decision of 2026-10-20; the conformance matrix
-below follows it). The workflow `.github/workflows/windows.yml` builds and tests on
-`windows-latest`, with `core.autocrlf=true` as a Windows developer checks out (NFR-PORT-004),
-on every push to `main`, nightly and when started by hand (`gh workflow run windows.yml --ref
-<branch>`). So a Windows-only failure lands on `main` and shows up after the merge: `sweep.sh`
-looks at the newest finished run on `main` that was not cancelled and prints `ATTENTION
-windows: …` with its link when it did not pass. `/bead-loop` stops at that line, as at every
-`ATTENTION`, and the fix becomes a P0 bead that runs next. Branch protection names its required
-checks, so a change to that list in `setup-github.sh` takes effect only when the user runs the
-script again (Setup): for the change that dropped the Windows check, before its PR merges,
-since that PR's own run no longer reports `Test (windows-latest)`.
+**Windows runs on `main` and nightly.** No Windows job runs on a pull request, and none is a
+required check: the Windows test job took 10 to 17 minutes where Linux took 1.5 to 9, and every
+bead waited for it (user decision of 2026-10-20; the conformance matrix below follows it). The
+workflow `.github/workflows/windows.yml` builds and tests on `windows-latest`, with
+`core.autocrlf=true` as a Windows developer checks out (NFR-PORT-004), on every push to `main`,
+nightly and when started by hand (`gh workflow run windows.yml --ref <branch>`). So a
+Windows-only failure lands on `main` and shows up after the merge: `sweep.sh` looks at the
+newest finished run on `main` that was not cancelled and prints `ATTENTION windows: …` with its
+link when it did not pass. `/bead-loop` turns that line into a P0 bead labelled `red-main` and
+starts it first in its next batch. Branch protection names its required checks, so a change to
+that list in `setup-github.sh` takes effect only when the user runs the script again (Setup):
+for the change that dropped the Windows check, before its PR merges, since that PR's own run no
+longer reports `Test (windows-latest)`.
 
 **macOS runs only for releases and the nightly conformance matrix.** No macOS job runs on a
 push or pull request, and none is a required check. On 2026-10-19 GitHub's hosted macOS runners
