@@ -391,7 +391,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | ELM-002 | S | missing | L | No Preset resource, no storage in project/template/IFCX, no preset management (rename, delete, reorder, search), no preset selector in the settings dialog, no apply-to-selection including layer. |
 | ELM-003 | S | missing | M | No pick-up or inject commands, no latch mode, no compatibility filter between kinds. Building blocks exist: wall_defaults()/slab_defaults() derive defaults from an element (properties.rs:83-112), 3D picking exists (views/view3d.r… |
 | ELM-004 | M | done | none | Done: crates/archicraft-model/src/element.rs:277-278 (Element.name) |
-| ELM-019 | S | partial | S | Prefix is hard-coded per kind (KindTag::name_prefix); not configurable in the project or template. |
+| ELM-019 | S | partial | S | Prefix is fixed per kind in its KindDescriptor (name_prefix); not configurable in the project or template. |
 | ELM-005 | M | partial | S | Absolute elevation is not shown anywhere (properties show only Base offset / Elevation offset, properties.rs:314-324,453-463; derived() 541-575 shows length/area/volume only). Changing the home storey always relinks; there is no… |
 | ELM-006 | M | partial | S | Implemented for walls only; columns, curtain walls, stairs and storey-spanning openings do not exist yet and must reuse TopLink when added. |
 | ELM-007 | M | missing | M | No vertical move exists, so nothing offers re-association after a move; editing Base offset / Elevation offset in the properties panel does not trigger an offer; no bulk 're-associate selection with storeys by elevation' command… |

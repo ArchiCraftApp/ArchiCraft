@@ -542,9 +542,12 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
     }
 }
 
-/// The name counters (ELM-019). An invalid, negative or missing counter is
-/// repaired to the number of elements of its kind, so that automatic names
-/// do not repeat; a counter above the largest value is clamped to it.
+/// The name counters (ELM-019), keyed by kind code. An invalid, negative or
+/// missing counter is repaired to the number of elements of its kind, so that
+/// automatic names do not repeat; a counter above the largest value is
+/// clamped to it. A kind without a tool has no counter until it has named
+/// elements. Counters of kinds this build does not know are ignored: their
+/// elements are skipped and reported on their own.
 fn read_counters(
     map: Result<&Object, String>,
     project: &Project,
@@ -555,38 +558,45 @@ fn read_counters(
         let n = project.elements.values().filter(|e| e.tag() == tag).count();
         u32::try_from(n).unwrap_or(u32::MAX)
     };
-    let (walls, slabs) = (count(KindTag::Wall), count(KindTag::Slab));
     let mut report = Report::new(problems, path, "counters");
+    let mut counters = NameCounters::default();
     let map = match map {
         Ok(map) => map,
         Err(e) => {
+            let counts: Vec<String> = KindTag::ALL
+                .iter()
+                .map(|&kind| format!("{}: {}", kind.label().to_lowercase(), count(kind)))
+                .collect();
             report.repaired(format!(
-                "{e}; the number of walls ({walls}) and slabs ({slabs}) is used"
+                "{e}; the number of elements of each kind ({}) is used",
+                counts.join(", ")
             ));
-            return NameCounters {
-                wall: walls,
-                slab: slabs,
-            };
+            for &kind in KindTag::ALL {
+                counters.set(kind, count(kind));
+            }
+            return counters;
         }
     };
-    let mut counter = |key: &str, existing: u32| match integer(map, key) {
-        Ok(v) if v < 0 => {
-            report.repaired(format!("“{key}” is negative; {existing} is used"));
-            existing
-        }
-        Ok(v) => u32::try_from(v).unwrap_or_else(|_| {
-            report.repaired(format!("“{key}” is out of range; {} is used", u32::MAX));
-            u32::MAX
-        }),
-        Err(e) => {
-            report.repaired(format!("{e}; {existing} is used"));
-            existing
-        }
-    };
-    NameCounters {
-        wall: counter("wall", walls),
-        slab: counter("slab", slabs),
+    for &kind in KindTag::ALL {
+        let (key, existing) = (kind.code(), count(kind));
+        let value = match integer(map, key) {
+            Ok(v) if v < 0 => {
+                report.repaired(format!("“{key}” is negative; {existing} is used"));
+                existing
+            }
+            Ok(v) => u32::try_from(v).unwrap_or_else(|_| {
+                report.repaired(format!("“{key}” is out of range; {} is used", u32::MAX));
+                u32::MAX
+            }),
+            Err(_) if !map.contains_key(key) && !kind.descriptor().has_tool && existing == 0 => 0,
+            Err(e) => {
+                report.repaired(format!("{e}; {existing} is used"));
+                existing
+            }
+        };
+        counters.set(kind, value);
     }
+    counters
 }
 
 /// The template's tool defaults, with its material and layer found by name
@@ -797,11 +807,7 @@ fn read_element(
         report.skipped("its ArchiCraft data is not an object");
         return None;
     };
-    let kind = match code(common, "kind", |c| match c {
-        "wall" => Some(KindTag::Wall),
-        "slab" => Some(KindTag::Slab),
-        _ => None,
-    }) {
+    let kind = match code(common, "kind", KindTag::from_code) {
         Ok(kind) => kind,
         Err(e) => {
             report.skipped(e);
@@ -819,10 +825,8 @@ fn read_element(
         report.repaired("the layer does not exist; the first layer is used");
         layer = project.layers[0].id;
     }
-    let default_class = match kind {
-        KindTag::Wall => IfcClass::Wall,
-        KindTag::Slab => IfcClass::Slab,
-    };
+    // ELM-011: a class the kind does not allow falls back to its default.
+    let default_class = kind.descriptor().default_class;
     let ifc_class = match class_code(node).and_then(IfcClass::from_code) {
         Some(c) if kind.ifc_classes().contains(&c) => c,
         _ => {

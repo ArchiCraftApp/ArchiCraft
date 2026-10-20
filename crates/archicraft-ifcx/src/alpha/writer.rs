@@ -14,8 +14,8 @@ use std::collections::HashSet;
 use archicraft_geometry::{ModelGeometry, TriMesh};
 use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
-use archicraft_model::project::{SlabDefaults, WallDefaults};
-use archicraft_model::{Element, ElementKind, MaterialId, Project, ReferenceLine, TopLink};
+use archicraft_model::project::{NameCounters, SlabDefaults, WallDefaults};
+use archicraft_model::{Element, ElementKind, KindTag, MaterialId, Project, ReferenceLine, TopLink};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
@@ -205,8 +205,19 @@ fn project_attribute(p: &Project) -> Value {
             "name": v.name,
             "projection": v.projection.code(),
         })).collect::<Vec<_>>(),
-        "counters": {"wall": p.counters.wall, "slab": p.counters.slab},
+        "counters": counters(&p.counters),
     })
+}
+
+/// Name counters (ELM-019) by kind code: every kind that has a tool, so that
+/// files keep the same keys, plus any other kind with a non-zero counter.
+fn counters(counters: &NameCounters) -> Value {
+    KindTag::ALL
+        .iter()
+        .filter(|kind| kind.descriptor().has_tool || counters.get(**kind) != 0)
+        .map(|&kind| (kind.code().to_owned(), json!(counters.get(kind))))
+        .collect::<Map<_, _>>()
+        .into()
 }
 
 fn element_attributes(e: &Element) -> (&'static str, Value) {

@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use archicraft_model::material::{FillPattern, MaterialCategory};
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, VolumeUnit};
-use archicraft_model::{Position, SlabReference};
+use archicraft_model::{KindTag, Position, SlabReference};
 
 /// Version of the ArchiCraft schema written by this release.
 pub const FORMAT_VERSION: u32 = 1;
@@ -71,6 +71,18 @@ fn optional(mut value: Value) -> Value {
         map.insert("optional".into(), Value::Bool(true));
     }
     value
+}
+
+/// The name counters (ELM-019): one integer per kind that has a tool, keyed
+/// by kind code. Counters of other kinds are written only when non-zero and
+/// are not declared.
+fn counters() -> Value {
+    let fields: Vec<(&str, Value)> = KindTag::ALL
+        .iter()
+        .filter(|kind| kind.descriptor().has_tool)
+        .map(|kind| (kind.code(), integer()))
+        .collect();
+    object(&fields)
 }
 
 fn rgb() -> Value {
@@ -219,7 +231,7 @@ fn project() -> Value {
                 ("projection", enumeration(["perspective", "parallel"])),
             ])),
         ),
-        ("counters", object(&[("wall", integer()), ("slab", integer())])),
+        ("counters", counters()),
     ])
 }
 

@@ -322,16 +322,13 @@ fn plan_add_elements(project: &Project, elements: &[Element]) -> Result<Vec<Edit
         return Err(CommandError::NoChange);
     }
     let mut edits = Vec::with_capacity(elements.len() + 1);
-    let mut counters = project.counters;
+    let mut counters = project.counters.clone();
     for (i, element) in elements.iter().enumerate() {
         if project.element(element.id).is_some() || elements[..i].iter().any(|e| e.id == element.id) {
             return Err(CommandError::Invalid("An element with this ID already exists.".into()));
         }
         let element = validate::validate_element(project, element).map_err(CommandError::Invalid)?;
-        match element.tag() {
-            KindTag::Wall => counters.wall += 1,
-            KindTag::Slab => counters.slab += 1,
-        }
+        counters.bump(element.tag());
         edits.push(Edit::InsertElement {
             index: project.elements.len() + i,
             element,
@@ -564,10 +561,13 @@ fn check_tool_defaults(project: &Project, defaults: &ToolDefaults) -> Result<(),
             return invalid("The default material does not exist.");
         }
     }
-    if !KindTag::Wall.ifc_classes().contains(&defaults.wall.ifc_class)
-        || !KindTag::Slab.ifc_classes().contains(&defaults.slab.ifc_class)
-    {
-        return invalid("The default IFC class is not allowed for this tool.");
+    for (kind, class) in [
+        (KindTag::Wall, defaults.wall.ifc_class),
+        (KindTag::Slab, defaults.slab.ifc_class),
+    ] {
+        if !kind.descriptor().ifc_classes.contains(&class) {
+            return invalid("The default IFC class is not allowed for this tool.");
+        }
     }
     let probe_wall = crate::kinds::Wall {
         start: DVec2::ZERO,
