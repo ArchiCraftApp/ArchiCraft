@@ -54,10 +54,11 @@ scripts/loop/start-bead.sh <id>
 ```
 
 It refuses epics and blocked beads, cuts `bead/<id>-<slug>` from the latest `origin/main`
-(or resumes it), claims the bead and clones the warm build cache. `scripts/loop/status.sh`
-shows where a resumed bead stands. The claim's lease (`expires in 4 mins`) needs no renewal:
-beads run one at a time, and the lease only matters when two sessions might claim the same
-bead. Then read, in full:
+(or resumes it), claims the bead and clones the warm build cache. Like the sweep it runs as it
+is on `origin/main`: when this worktree's `scripts/loop` differs, it re-executes that copy.
+`scripts/loop/status.sh` shows where a resumed bead stands. The claim's lease
+(`expires in 4 mins`) needs no renewal: beads run one at a time, and the lease only matters
+when two sessions might claim the same bead. Then read, in full:
 
 - `bd show <id>`: description (why and what), acceptance criteria, design, notes. The notes
   line `SRS: …` lists the requirement IDs.

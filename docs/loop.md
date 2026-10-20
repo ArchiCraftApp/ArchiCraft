@@ -13,7 +13,7 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | Step | What happens | Tool |
 |---|---|---|
 | 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report closes bd refused, waiting PRs, beads for a human, epics due for a demo. The copy on `origin/main` runs, since a new worktree may be cut from an older `main` | `scripts/loop/sweep.sh` |
-| 1 Claim | Claim the bead, branch `bead/<id>-<slug>` from `origin/main`, clone the warm build cache | `scripts/loop/start-bead.sh <id>` |
+| 1 Claim | Claim the bead, branch `bead/<id>-<slug>` from `origin/main`, clone the warm build cache. It re-executes the copy on `origin/main` when the worktree's `scripts/loop` differs | `scripts/loop/start-bead.sh <id>` |
 | 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines (a top-level `#[cfg(test)] mod tests` does not count), or with separable criteria | `bd create --parent` |
 | 3 Tests first | Every acceptance criterion becomes a failing test | |
 | 4 Implement | CLAUDE.md conventions; rustfmt runs after every edit | |
