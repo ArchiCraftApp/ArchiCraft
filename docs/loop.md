@@ -62,7 +62,7 @@ Instructions are soft; these are not:
 | Hook `review-verdict` (SubagentStop) | The reviewer's `VERDICT: PASS` stamps the tree, only when the gate passed on it |
 | Hook `stop-gate` (Stop) | A bead session does not end with uncommitted code that has not passed the gate and the review; it runs the gate, blocks at most three times per tree, and `pause.sh` is the explicit way out |
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
-| CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop`; headless layering; the hooks' self-test |
+| CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop` (labels read live at run time, since `gh pr create` attaches them after the PR is opened); headless layering; the hooks' self-test |
 | Branch protection on `main` | Auto-merge waits for the six required CI checks on Linux and Windows; macOS runs only for releases (below) |
 
 **macOS runs only for releases.** No macOS job runs on a push or pull request, and none is a
