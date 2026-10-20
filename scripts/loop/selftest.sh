@@ -499,6 +499,27 @@ out="$(land loop)"
 expect "land.sh leaves auto-merge off for a loop bead that moves a CI workflow away" "" "$(merge_calls)"
 unset FAKE_GH_LOG
 
+# --- start-bead.sh runs as it is on origin/main ------------------------------------------------
+git switch -q main
+# origin/main's start-bead.sh says where it ran from; the worktree's copy, one commit older, does not.
+{ sed -n 1p scripts/loop/start-bead.sh; echo 'echo "start-bead ran from $(dirname "${BASH_SOURCE[0]}")"'
+    sed 1d scripts/loop/start-bead.sh; } >"$work/start-bead.sh"
+cat "$work/start-bead.sh" >scripts/loop/start-bead.sh
+git commit -qam "start-bead marker" && git push -q origin main
+git switch -q -c stale HEAD~1
+mkdir -p "$work/tmp"
+start_bead() { FAKE_BD_STATUS=in_progress TMPDIR="$work/tmp" bash scripts/loop/start-bead.sh "$1" 2>&1; }
+out="$(start_bead archicraft-sb01)"
+expect "start-bead.sh in a worktree cut from an older main runs origin/main's copy, once" 1 \
+    "$(grep -c "^start-bead ran from $work/tmp/loop-start-bead\.[^/]*/scripts/loop$" <<<"$out")"
+expect "start-bead.sh cuts the bead branch from origin/main" "$(git rev-parse origin/main)" "$(git rev-parse HEAD)"
+expect "start-bead.sh removes origin/main's copy when done" "" "$(ls -A "$work/tmp")"
+mkdir -p "$work/keep"
+out="$(LOOP_START_BASE_COPY="$work/keep" start_bead archicraft-sb01)"
+expect "start-bead.sh runs its own copy when it matches origin/main" 1 "$(grep -c '^start-bead ran from scripts/loop$' <<<"$out")"
+expect "start-bead.sh keeps a directory that a leaked LOOP_START_BASE_COPY names" yes \
+    "$([ -d "$work/keep" ] && echo yes || echo no)"
+
 [ -f "$work/crashes" ] && failed=$((failed + $(wc -l <"$work/crashes")))
 echo "loop selftest: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]
