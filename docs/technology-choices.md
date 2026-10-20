@@ -44,7 +44,7 @@ These limits apply to all of v1, not only to the first prototype. They were alig
 | IFCX reading and writing | serde, serde_json, uuid; our own attribute validator and number formatting |
 | Project file | The `.ifcx` file itself; autosave writes a recovery copy |
 | Errors and logging | thiserror, anyhow, tracing; crash reports from a panic hook |
-| Testing | cargo test, insta, egui_kittest, jsonschema, cargo-fuzz; buildingSMART's reference code and viewer for conformance (test-only, under Node.js) |
+| Testing | cargo test, insta, egui_kittest, jsonschema, cargo-fuzz, syn (dev-only, the literal-string lint); buildingSMART's reference code and viewer for conformance (test-only, under Node.js) |
 | Licence checks | cargo-deny |
 
 All of these are licensed under MIT, Apache-2.0, or a choice of both; the planned Manifold library is Apache-2.0. The Node.js test tools are not shipped.
@@ -205,6 +205,7 @@ How the main window (SRS UI-001) maps onto egui. The Archicad names are only for
 - `cargo test` for unit tests.
 - **insta:** snapshot tests of generated IFCX, reviewed as JSON diffs.
 - **egui_kittest:** UI tests that find widgets by label via AccessKit, plus screenshot comparisons rendered with wgpu. Made by the egui maintainers.
+- **syn** (with proc-macro2 for line numbers), dev-only: the literal-string lint (`crates/archicraft-app/tests/string_lint.rs`) parses the sources of archicraft-app and archicraft-model and fails on user-visible string literals outside the message catalogue (SRS NFR-L10N-001). A real Rust parser instead of a text search, so attributes, test modules and log macros are skipped reliably. Not shipped.
 - **jsonschema:** validates our output against a JSON Schema of the IFCX container, either generated from `ifcx.tsp` with the TypeSpec compiler or taken from ifcx.dev once buildingSMART publishes it there.
 - **Conformance (SRS IFX-006 and NFR-MNT-003, both Must):** on every change, CI loads our test files with schema validation in buildingSMART's reference code (`src/ifcx-core` at the commit the SRS pins). It also checks the spatial tree in their viewer (`src/viewer`), in a headless browser driven by Playwright. Both run under Node.js; they are test tools and aren't shipped. The visual check in the hosted IFC5 viewer stays manual, once per release.
 - **cargo-fuzz:** fuzzes the IFCX reader for at least an hour per release (SRS NFR-REL-007, Appendix D.9). It needs a nightly toolchain, so it runs in its own CI job.
@@ -312,8 +313,9 @@ Figures from lib.rs on 2026-10-16.
 | fluent-syntax | 0.12.0 | 2025-05-22 | 2.6 M | MIT/Apache | Project Fluent; released with fluent-bundle |
 | unic-langid | 0.9.6 | 2025-05-09 | 3.2 M | MIT/Apache | Zibi Braniecki and Manish Goregaokar |
 | criterion | 0.8.2 | 2026-02-04 | 22.6 M | MIT/Apache | Dev-dependency for the benches; default features (rayon, plotters) off |
+| syn | 3.0.9 | 2026-10-12 | 246 M | MIT/Apache | David Tolnay; dev-dependency for the literal-string lint, with proc-macro2 (already in the tree) for line numbers |
 
-The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them. The criterion row was added on 2026-10-20 the same way.
+The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them. The criterion and syn rows were added on 2026-10-20 the same way.
 
 serde, serde_json, uuid, thiserror, anyhow, tracing, bytemuck and insta are among the most widely used crates in the Rust ecosystem and were not checked individually. Not checked yet: the tools added when aligning with the SRS (cargo-fuzz, cargo-deny, Playwright) and the planned HTTP client. Playwright is pinned as `@playwright/test` 1.63.0 (2026-09-04, Apache-2.0) with the three.js release the pinned viewer loads (0.177.0, MIT), both in `conformance/package.json`; like Node.js they are CI test tools, and Playwright's browser download never happens in the product.
 
