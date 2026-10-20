@@ -143,11 +143,24 @@ CI catches it in the pull request.
 `guard-bash` judges all its rules (pushes, PR merges, commits, writes to the stamps, the
 reviewer's commands) by the commands a line runs (`scripts/loop/hooks/shell-commands.awk`),
 including those in `$(...)`, `find -exec`, behind wrappers such as `xargs`, `sudo` or
-`timeout`, in `sh -c` and `eval`, and in scripts fed to a shell; a git command's checks run in
-the directory its `-C` options name. Other quoted arguments and heredoc bodies are data: a grep
-pattern, a commit message or a bead note may name `git push --force`, `gh pr merge`,
-`git commit`, `rm` or the state dir (the state dir only on a line that writes no file, since a
-path can reach a write through a variable or a pipe).
+`timeout`, in `sh -c`, `eval` and `parallel`, and in scripts fed to a shell; a git command's
+checks run in the directory its `-C` options name. Other quoted arguments and heredoc bodies are
+data: a grep pattern, a commit message or a bead note may name `git push --force`,
+`gh pr merge`, `git commit`, `rm` or the state dir (the state dir only on a line that writes no
+file, since a path can reach a write through a variable or a pipe). A file counts as written by
+a redirection, `rm`, `mv`, `cp`, `touch`, `tee`, `truncate`, `ln`, `chmod`, `install`, `mkdir`,
+`rmdir`, `patch`, `dd of=`, `sed -i`, `perl -i` and `find -delete`, and for the reviewer also by
+the git subcommands that change the work tree or the index (`git apply`, `git merge-file`,
+`git checkout-index`, ...); calling the loop's own `loop_stamp_write` is refused whatever its
+arguments.
+
+What command-line matching cannot see: code that a program runs from its own arguments or
+files. An interpreter's script (`python3 -c`, `node -e`, `ruby -e`, `perl -e` without `-i`), a
+write inside a quoted program (`sed`'s `w` command, `awk '{print > "f"}'`), a command run
+through `su -c` or `script -c`, a script file the line runs, and build tools that run project
+code (`make`, `cargo run`, build scripts, `npm install`) can all write files, the stamps among
+them, without the guard noticing. A stamp written that way still names a tree, so it covers only
+that exact tree; CI runs the gate again on every pull request.
 
 Beads labelled `loop` change the loop itself. Every review finding that a script could have
 caught becomes such a bead, so the gate gets stricter over time. Since the user's decision of

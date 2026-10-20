@@ -315,6 +315,25 @@ check "reviewer runs the selftest and greps its output" allow \
 check "reviewer checks out behind a wrapper" deny "$(reviewer 'timeout 60 git checkout -- .')"
 check "reviewer fixes with clippy" deny "$(reviewer 'cargo clippy --fix --allow-dirty')"
 check "reviewer greps for --fix" allow "$(reviewer 'grep -rn -- --fix scripts/loop')"
+# Writers beyond the file utilities (archicraft-rrh5): dd of=, install, mkdir, rmdir, patch,
+# perl -i, and the git subcommands that write the work tree or the index.
+check "reviewer writes with dd" deny "$(reviewer 'dd if=/dev/zero of=crates/demo/src/lib.rs bs=1 count=1')"
+check "reviewer reads with dd" allow "$(reviewer 'dd if=crates/demo/src/lib.rs bs=16 count=1 2>/dev/null')"
+check "reviewer copies with install" deny "$(reviewer 'install -m 644 /tmp/x crates/demo/src/lib.rs')"
+check "reviewer makes a directory" deny "$(reviewer 'mkdir -p crates/demo/src/new')"
+check "reviewer removes a directory" deny "$(reviewer 'rmdir crates/demo/src/new')"
+check "reviewer patches" deny "$(reviewer 'patch -p1 < /tmp/fix.diff')"
+check "reviewer applies a patch with git" deny "$(reviewer 'git apply /tmp/fix.diff')"
+check "reviewer merges a file with git" deny "$(reviewer 'git merge-file a.rs base.rs b.rs')"
+check "reviewer merges the index with git" deny "$(reviewer 'git merge-index git-merge-one-file -a')"
+check "reviewer checks out the index with git" deny "$(reviewer 'git checkout-index -f -a')"
+check "reviewer edits with perl -i" deny "$(reviewer "perl -i -pe 's/a/b/' crates/demo/src/lib.rs")"
+check "reviewer edits with perl -pi.bak" deny "$(reviewer "perl -pi.bak -e 's/a/b/' crates/demo/src/lib.rs")"
+check "reviewer reads with perl" allow "$(reviewer "perl -MList::Util -ne 'print if /-i/' crates/demo/src/lib.rs")"
+check "reviewer removes through parallel" deny "$(reviewer 'ls crates | parallel -j 2 rm -f {}')"
+check "reviewer removes through a quoted parallel command" deny "$(reviewer "parallel 'rm -f {}' ::: a b")"
+check "reviewer greps through parallel" allow "$(reviewer "parallel grep -n demo ::: crates/demo/src/lib.rs")"
+check "reviewer greps for the new writers" allow "$(reviewer "grep -nE 'mkdir|rmdir|install|patch|dd of=|perl -i' docs/a.md")"
 check "heredoc that quotes the stamp dir" allow \
     "$(hook guard-bash "$(bash_input $'cat > docs/a.md <<\'EOF\'\nStamps: $(git rev-parse --git-path loop) > gate.ok\nEOF')")"
 check "bd note that quotes the stamp dir" allow \
@@ -337,6 +356,16 @@ check "writing in the state dir through a pipe" deny \
     "$(hook guard-bash "$(bash_input 'git rev-parse --git-path loop | xargs -I{} touch {}/pause')")"
 check "reading a log in the state dir after a cd" allow \
     "$(hook guard-bash "$(bash_input 'cd "$(git rev-parse --git-path loop)" && tail -n 20 gate-test.log')")"
+# The loop's own writer, called by hand (archicraft-rrh5).
+check "writing a stamp with loop_stamp_write" deny \
+    "$(hook guard-bash "$(bash_input 'source scripts/loop/lib.sh && loop_stamp_write review.ok "$(loop_tree_hash)"')")"
+check "writing a stamp with loop_stamp_write through bash -c" deny \
+    "$(hook guard-bash "$(bash_input "bash -c 'source scripts/loop/lib.sh; loop_stamp_write gate.ok x'")")"
+check "grep for loop_stamp_write" allow "$(hook guard-bash "$(bash_input 'grep -rn loop_stamp_write scripts/loop')")"
+check "writing a stamp with dd" deny \
+    "$(hook guard-bash "$(bash_input 'echo x | dd of="$(git rev-parse --git-path loop)/review.ok" 2>/dev/null')")"
+check "writing a stamp with install" deny "$(hook guard-bash "$(bash_input "install /tmp/x $(loop_dir)/gate.ok")")"
+check "writing a stamp with perl -i" deny "$(hook guard-bash "$(bash_input "perl -pi -e 's/^/x/' $(loop_dir)/gate.ok")")"
 commands() { printf '%s\n' "$1" | awk -f scripts/loop/hooks/shell-commands.awk | cut -f1 | LC_ALL=C sort | paste -sd ' ' -; }
 expect "a commit message in a heredoc is data" "cat git" \
     "$(commands $'git commit -m "$(cat <<\'EOF\'\nSay "hi" > there; rm -rf x\nEOF\n)"')"
