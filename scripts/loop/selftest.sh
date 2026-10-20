@@ -374,12 +374,16 @@ expect "status.sh does not count another bead's review" "  review: not passed on
     "$(bash scripts/loop/status.sh | grep '^  review:')"
 stamp review.ok
 expect "status.sh shows a review of this tree" "  review: passed on this tree" "$(bash scripts/loop/status.sh | grep '^  review:')"
-for f in scripts/package-macos.sh .codex/hooks.json .cursor/hooks.json; do
+for f in scripts/package-macos.sh .codex/hooks.json .cursor/hooks.json CLAUDE.md AGENTS.md docs/SRS.md; do
     mkdir -p "$(dirname "$f")" && echo '# minor fix' >"$f"
     stamp gate.ok
     check "code commit after a fix to $f and a new gate" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
     rm -f "$f"
 done
+echo '# minor fix' >README.md
+stamp gate.ok
+check "code commit after a README.md fix and a new gate" allow "$(hook guard-bash "$(bash_input 'git commit -am x')")"
+rm -f README.md
 echo '# minor fix' >>scripts/loop/gate.sh
 stamp gate.ok
 check "code commit after a loop-file fix and a new gate" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
@@ -565,9 +569,9 @@ printf '%s\n' 'pub fn demo() {}' 'pub fn added() {}' '#[cfg(test)]' 'pub fn help
     'mod tests {' '    #[test]' '    fn old() {' '    }' '    #[test]' '    fn new() {}' '}' \
     'mod after {' '    pub fn h() {}' '}' >crates/demo/src/lib.rs
 # A module after the test module, which clippy's items_after_test_module allows, counts (3).
-# A new source file (1 line before its one-line test module, 1 after); an out-of-line test module declaration and a
-# test-only module not named tests, which clippy does not keep last, count like any other line (4);
-# an integration test does not count.
+# A new source file (1 line before its one-line test module, 1 after); an out-of-line test
+# module declaration and a test-only module not named tests, which clippy does not keep last,
+# count like any other line (4); an integration test does not count.
 printf 'pub fn extra() {}\n#[cfg(test)] mod tests { fn t() {} }\npub fn after() {}\n' >crates/demo/src/extra.rs
 printf '#[cfg(test)]\nmod tests;\n#[cfg(test)]\nmod fixtures {}\n' >crates/demo/src/other.rs
 printf '#[test]\nfn it() {}\n' >crates/demo/tests/it.rs
