@@ -82,13 +82,15 @@ _To be completed: egui_kittest UI snapshots._
 
 ## Conformance
 
-`conformance/run.sh` loads IFCX files with buildingSMART's reference implementation and viewer
-composition at the pinned commit (IFX-006); CI runs it on the reference models and the golden
-files. Its build output (`.ifc5/`, `node_modules/`, `.build/`, and the Playwright
+`conformance/run.sh` checks IFCX files against buildingSMART's reference code at the pinned
+commit (IFX-006) in three steps per file: (a) the reference implementation loads it with schema
+validation, (b1) the viewer's composition gives the expected spatial tree in Node, and (b2) the
+viewer itself, in headless Chromium driven by Playwright, shows that tree, renders geometry and
+every material colour. CI runs it on the reference models and the golden files and uploads one
+viewer screenshot per file for the manual release check. `conformance/README.md` describes the
+steps. Its build output (`.ifc5/`, `node_modules/`, `.build/`, and the Playwright
 `test-results/` and `playwright-report/`) is ignored by `conformance/.gitignore`, so a local
 run leaves `git status` clean.
-
-_To be completed: the headless Playwright run of the reference viewer._
 
 ## Fixture registry
 

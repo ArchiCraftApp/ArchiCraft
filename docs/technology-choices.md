@@ -315,7 +315,7 @@ Figures from lib.rs on 2026-10-16.
 
 The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them. The criterion row was added on 2026-10-20 the same way.
 
-serde, serde_json, uuid, thiserror, anyhow, tracing, bytemuck and insta are among the most widely used crates in the Rust ecosystem and were not checked individually. Not checked yet: the tools added when aligning with the SRS (cargo-fuzz, cargo-deny, Playwright) and the planned HTTP client.
+serde, serde_json, uuid, thiserror, anyhow, tracing, bytemuck and insta are among the most widely used crates in the Rust ecosystem and were not checked individually. Not checked yet: the tools added when aligning with the SRS (cargo-fuzz, cargo-deny, Playwright) and the planned HTTP client. Playwright is pinned as `@playwright/test` 1.63.0 (2026-09-04, Apache-2.0) with the three.js release the pinned viewer loads (0.177.0, MIT), both in `conformance/package.json`; like Node.js they are CI test tools, and Playwright's browser download never happens in the product.
 
 ## References
 
