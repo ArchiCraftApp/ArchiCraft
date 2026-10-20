@@ -1,0 +1,43 @@
+# cargo-fuzz targets (NFR-REL-007, NFR-SEC-003, SRS Appendix D.9; docs/testing.md, Fuzzing).
+# Its own Cargo workspace, excluded from the main one: it needs a nightly toolchain
+# (`cargo +nightly fuzz ...`) and never ships. Its licences are listed by hand in
+# docs/testing.md (Fuzzing), because cargo deny checks the main workspace only.
+[package]
+name = "archicraft-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "CC-BY-4.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.12"
+archicraft-model = { path = "../crates/archicraft-model" }
+archicraft-geometry = { path = "../crates/archicraft-geometry" }
+archicraft-ifcx = { path = "../crates/archicraft-ifcx" }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "ifcx_load"
+path = "fuzz_targets/ifcx_load.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ifcx_validate"
+path = "fuzz_targets/ifcx_validate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "units_parse"
+path = "fuzz_targets/units_parse.rs"
+test = false
+doc = false
+bench = false
