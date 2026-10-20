@@ -271,20 +271,38 @@ committed (NFR-LEG-003); the script keeps the list of example paths. Existing co
 stay, so later runs build on earlier ones. The output (`fuzz/target/`, `fuzz/corpus/`,
 `fuzz/artifacts/`, `fuzz/coverage/`) is git-ignored: `git status` is clean after a run.
 
-**Local run.** Install the tools once, seed, then run a target:
+**Local run.** Install the tools once, seed, then run a target for some minutes (10 when
+left out):
 
 ```sh
 rustup toolchain install nightly --profile minimal --component rustfmt
-cargo +nightly install cargo-fuzz --locked
+cargo install cargo-fuzz --version 0.13.2 --locked
 scripts/fuzz-corpus.sh
-cargo +nightly fuzz run ifcx_load -- -dict=fuzz/dict/ifcx.dict \
-    -rss_limit_mb=2048 -timeout=10 -max_len=4194304 -max_total_time=600
+scripts/fuzz-run.sh ifcx_load 10
 ```
 
-The limits make memory-hungry and slow inputs findings too: a crafted file that exhausts
-memory or stalls the reader is a denial of service, in scope of NFR-SEC-003. libFuzzer
-truncates seeds above `-max_len` (Tekla House is about 40 MB). `cargo +nightly fmt --check`
-in `fuzz/` checks the targets' formatting.
+`scripts/fuzz-run.sh` holds the run flags the nightly job uses too:
+`-rss_limit_mb=2048 -timeout=10 -max_len=4194304`, plus `-dict=fuzz/dict/ifcx.dict` for the
+IFCX targets. The limits make memory-hungry and slow inputs findings too: a crafted file that
+exhausts memory or stalls the reader is a denial of service, in scope of NFR-SEC-003.
+libFuzzer truncates seeds above `-max_len` (Tekla House is about 40 MB). Further libFuzzer
+flags go straight to `cargo +nightly fuzz run <target> -- <flags>`.
+`cargo +nightly fmt --check` in `fuzz/` checks the targets' formatting.
+
+**Nightly job.** `.github/workflows/fuzz.yml` runs every night at 02:17 UTC on `main` with
+10 minutes per target, and by hand with a duration of 1 to 100 minutes per target
+(`gh workflow run fuzz.yml -f minutes=<n>`). It is the only CI job with a nightly toolchain.
+It checks the formatting of `fuzz/`, restores the corpus of the newest earlier run from the
+Actions cache (key prefix `fuzz-corpus-`), seeds it with `scripts/fuzz-corpus.sh`, builds the
+targets (and fails when that changes `fuzz/Cargo.lock`), then runs `ifcx_load`,
+`ifcx_validate` and `units_parse` one after another with `scripts/fuzz-run.sh`, within
+GitHub's 6-hour job cap. Each target runs even when an earlier one found something. The
+grown corpus is minimised (`cargo +nightly fuzz cmin`: one input per coverage feature,
+truncated to `-max_len`) and saved under a new key, after a finding too, so the next run
+starts from it. A run by hand refuses a duration outside 1 to 100 minutes.
+Any crash, timeout or out-of-memory input fails the job and is uploaded as the
+`fuzz-findings` artefact (the contents of `fuzz/artifacts/`, kept for 30 days); download it
+with `gh run download <run id> -n fuzz-findings` and promote each input as described next.
 
 **Promoting a finding.** A crash, timeout or out-of-memory input lands in
 `fuzz/artifacts/<target>/`. Minimise it with
@@ -298,7 +316,8 @@ The directory starts with the inputs of `malformed_input_is_rejected_without_pan
 `crates/archicraft-model/src/units.rs` instead.
 
 **Release rule.** Before every release, each target runs for at least one hour on the seeded
-corpus (D.9) without a finding; findings are fixed and promoted first.
+corpus (D.9) without a finding: `gh workflow run fuzz.yml -f minutes=60` (about three and a
+half hours in all). Findings are fixed and promoted first.
 
 **Licences.** The fuzz crate is outside the workspace, so `cargo deny` does not list it;
 this paragraph is its entry in the licence inventory (NFR-LEG-001). Beyond the ArchiCraft
@@ -310,8 +329,6 @@ uses it: the fuzz binaries are a test tool and are never distributed.
 
 **Preference import.** When SET-004 adds the preference import, its epic adds a
 `prefs_import` target here and seeds it with exported preference files.
-
-_To be completed: the nightly and on-demand fuzz workflow (archicraft-76tg.2)._
 
 ## Security review
 
