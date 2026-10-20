@@ -46,6 +46,19 @@ pub struct SceneKey {
     pub selection: Vec<ElementId>,
 }
 
+impl SceneKey {
+    /// The scene every 3D view shows: the selection is the one of the plans,
+    /// so it stays synchronised between views (UI-007).
+    pub fn of(ws: &Workspace) -> Self {
+        let mut selection: Vec<ElementId> = ws.selection.iter().copied().collect();
+        selection.sort();
+        Self {
+            revision: ws.doc.project.revision,
+            selection,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Workspace {
     pub doc: Document,

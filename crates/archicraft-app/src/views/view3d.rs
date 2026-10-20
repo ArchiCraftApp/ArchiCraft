@@ -199,15 +199,8 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
     let dark = ui.visuals().dark_mode;
     match render_state {
         Some(rs) => {
+            let key = SceneKey::of(ws);
             let renderer = ws.renderer.get_or_insert_with(|| Renderer3d::new(rs));
-            let key = SceneKey {
-                revision: ws.doc.project.revision,
-                selection: {
-                    let mut s: Vec<ElementId> = ws.selection.iter().copied().collect();
-                    s.sort();
-                    s
-                },
-            };
             if ws.scene.as_ref().is_none_or(|(k, _)| *k != key) {
                 let selection = ws.selection.clone();
                 let data = build_scene(&ws.doc.project, &geometry, &selection, None);

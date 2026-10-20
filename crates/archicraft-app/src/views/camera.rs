@@ -313,6 +313,32 @@ mod tests {
         assert_eq!(h.next(a), Some(b));
     }
 
+    /// VIEW-014: previous/next zoom walks at least 20 stored steps back and
+    /// forth.
+    #[test]
+    fn zoom_history_keeps_20_steps() {
+        let cameras: Vec<Camera2d> = (0..=25)
+            .map(|i| Camera2d {
+                scale: 10.0 + f64::from(i),
+                ..Camera2d::default()
+            })
+            .collect();
+        let mut h = ZoomHistory::default();
+        for camera in &cameras[..25] {
+            h.record(*camera);
+        }
+        let mut current = cameras[25];
+        for expected in cameras[5..25].iter().rev() {
+            current = h.previous(current).expect("a previous zoom");
+            assert_eq!(current, *expected);
+        }
+        for expected in &cameras[6..=25] {
+            current = h.next(current).expect("a next zoom");
+            assert_eq!(current, *expected);
+        }
+        assert_eq!(h.next(current), None);
+    }
+
     #[test]
     fn center_ray_hits_target() {
         for projection in [Projection::Perspective, Projection::Parallel] {

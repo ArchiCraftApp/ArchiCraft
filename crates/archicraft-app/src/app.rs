@@ -52,6 +52,17 @@ enum Prompt {
     },
 }
 
+impl Prompt {
+    fn title(&self) -> &str {
+        match self {
+            Prompt::Unsaved(_) => "Save changes?",
+            Prompt::Message { title, .. } => title,
+            Prompt::LoadReport => "The project was opened with problems",
+            Prompt::OverwriteNewer { .. } => "Overwrite a newer file?",
+        }
+    }
+}
+
 pub struct ArchiCraftApp {
     dirs: DataDirs,
     ws: Workspace,
@@ -84,6 +95,14 @@ impl std::fmt::Debug for ArchiCraftApp {
             .field("ws", &self.ws)
             .finish_non_exhaustive()
     }
+}
+
+/// The number of modifier keys a shortcut needs.
+fn modifier_count(m: egui::Modifiers) -> usize {
+    [m.alt, m.ctrl, m.shift, m.mac_cmd, m.command]
+        .into_iter()
+        .filter(|&b| b)
+        .count()
 }
 
 fn default_tree(ws: &Workspace) -> Tree<Pane> {
@@ -140,6 +159,19 @@ impl ArchiCraftApp {
     /// The workspace, for tests.
     pub fn workspace(&mut self) -> &mut Workspace {
         &mut self.ws
+    }
+
+    /// The layout of the views, for tests that build a split (UI-007).
+    #[doc(hidden)]
+    pub fn tree_mut(&mut self) -> &mut Tree<Pane> {
+        &mut self.tree
+    }
+
+    /// The title of the open application prompt, for tests
+    /// (NFR-USE-004).
+    #[doc(hidden)]
+    pub fn prompt_title(&self) -> Option<String> {
+        self.prompt.as_ref().map(|p| p.title().to_owned())
     }
 
     /// Lowers the file size limit, so that tests can open an oversized file
@@ -480,7 +512,13 @@ impl ArchiCraftApp {
         let typing = ctx.text_edit_focused();
         let drawing = self.ws.tool.is_drawing();
         let mut triggered = Vec::new();
-        for action in Action::ALL {
+        // egui ignores an extra Shift when matching a shortcut, so the ones
+        // with more modifiers go first: Ctrl+Shift+Tab is the previous tab,
+        // not the next one (UI-006), Shift+F zooms to the selection, not to
+        // the window (VIEW-014).
+        let mut actions = Action::ALL;
+        actions.sort_by_key(|a| std::cmp::Reverse(a.shortcut().map_or(0, |s| modifier_count(s.modifiers))));
+        for action in actions {
             let Some(shortcut) = action.shortcut() else {
                 continue;
             };
@@ -568,9 +606,9 @@ impl ArchiCraftApp {
         let mut follow_up: Option<FollowUp> = None;
         let modal = egui::Modal::new(Id::new("prompt")).show(ctx, |ui| {
             ui.set_max_width(480.0);
+            ui.heading(prompt.title());
             match &prompt {
                 Prompt::Unsaved(then) => {
-                    ui.heading("Save changes?");
                     ui.label(format!(
                         "“{}” has unsaved changes. Save them before continuing?",
                         self.ws.doc.display_name()
@@ -594,15 +632,13 @@ impl ArchiCraftApp {
                         }
                     });
                 }
-                Prompt::Message { title, text } => {
-                    ui.heading(title);
+                Prompt::Message { text, .. } => {
                     ui.label(text);
                     if ui.button("OK").clicked() {
                         close = true;
                     }
                 }
                 Prompt::LoadReport => {
-                    ui.heading("The project was opened with problems");
                     ui.label("Everything that could be read was loaded. These objects were skipped, repaired or replaced:");
                     egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                         for p in &self.load_problems {
@@ -614,7 +650,6 @@ impl ArchiCraftApp {
                     }
                 }
                 Prompt::OverwriteNewer { save_as } => {
-                    ui.heading("Overwrite a newer file?");
                     ui.label(
                         "This file was written by a newer version of ArchiCraft. Saving it with this version may lose data that this version does not know.",
                     );
