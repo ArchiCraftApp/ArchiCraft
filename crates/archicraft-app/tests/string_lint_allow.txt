@@ -27,8 +27,8 @@ crates/archicraft-model/src/template.rs::LAYERS | * | data table: default layer 
 crates/archicraft-model/src/template.rs::MATERIALS | * | data table: default material names and codes of the metric template (project data)
 crates/archicraft-model/src/fixtures.rs | * | test fixture registry (SRS Appendix D.7): fixture titles, sources and check messages read by tests and docs, not shown in the UI
 crates/archicraft-model/src/samples.rs | * | reference models for the golden files and conformance tests (project data)
-crates/archicraft-model/src/element.rs::KindTag::name_prefix | "W" | prefix of generated wall names such as W-1 (project data)
-crates/archicraft-model/src/element.rs::KindTag::name_prefix | "SL" | prefix of generated slab names such as SL-1 (project data)
+crates/archicraft-model/src/kinds/wall.rs::Wall | "W" | KindDescriptor::name_prefix: prefix of generated wall names such as W-1 (project data)
+crates/archicraft-model/src/kinds/slab.rs::Slab | "SL" | KindDescriptor::name_prefix: prefix of generated slab names such as SL-1 (project data)
 
 # File-format keywords.
 crates/archicraft-model/src/element.rs::IfcClass::code | * | keyword table: IFC class names written to IFCX (bsi::ifc::class)
