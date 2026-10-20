@@ -9,12 +9,17 @@
 //! isolated from the domain model and geometry (NFR-MNT-004). [`load`] picks
 //! the adapter from the table [`ADAPTERS`] by the file's `ifcxVersion`; each
 //! adapter migrates files of earlier ArchiCraft format versions before
-//! reading them ([`alpha::migrate`], IFX-091).
+//! reading them ([`alpha::migrate`], IFX-091). The cargo feature
+//! `successor-stub` adds a mock successor version (`successor`) that proves
+//! the table takes a second IFCX version; docs/ifcx-evolution.md is the
+//! runbook for adopting a real one.
 
 pub mod alpha;
 pub mod container;
 pub mod json;
 pub mod registry;
+#[cfg(feature = "successor-stub")]
+pub mod successor;
 pub mod validate;
 
 use std::path::Path;
@@ -54,11 +59,19 @@ pub struct Adapter {
 
 /// Every IFCX version an ArchiCraft release has written, and its reader
 /// (IFX-090). A new IFCX version adds an entry and keeps the old ones, so
-/// that existing project files keep opening (IFX-091).
-pub const ADAPTERS: &[Adapter] = &[Adapter {
-    version: alpha::writer::IFCX_VERSION,
-    read: alpha::reader::read,
-}];
+/// that existing project files keep opening (IFX-091). With the feature
+/// `successor-stub` the mock successor follows `ifcx_alpha`.
+pub const ADAPTERS: &[Adapter] = &[
+    Adapter {
+        version: alpha::writer::IFCX_VERSION,
+        read: alpha::reader::read,
+    },
+    #[cfg(feature = "successor-stub")]
+    Adapter {
+        version: successor::IFCX_VERSION,
+        read: successor::reader::read,
+    },
+];
 
 /// Reads a project from IFCX bytes. Every IFCX version that an ArchiCraft
 /// release has written is read here (IFX-090).
