@@ -193,3 +193,29 @@ fn a_damaged_file_opens_with_the_load_report() {
     harness.run_steps(2);
     assert!(harness.query_by_label("The project was opened with problems").is_none());
 }
+
+/// IFX-008: the Preferences window offers indented, human-readable IFCX;
+/// confirming it with OK makes the next save indented.
+#[test]
+fn preferences_offer_indented_ifcx_output() {
+    let mut harness = harness("indented-ifcx");
+    assert!(!harness.state_mut().workspace().prefs.indented_ifcx);
+    harness.get_by_label("File").click();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Preferences").click();
+    // A new window takes clicks only once it has been laid out and shown.
+    harness.run_steps(4);
+    harness.get_by_label("Indented IFCX (human-readable)").click();
+    harness.run_steps(2);
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    assert!(harness.state_mut().workspace().prefs.indented_ifcx);
+
+    let dir = std::env::temp_dir().join(format!("archicraft-ui-indented-save-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("indented.ifcx");
+    assert!(harness.state_mut().save_to(&path));
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with("{\n  \"header\": {\n"), "{}", &text[..40]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

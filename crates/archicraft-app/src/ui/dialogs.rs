@@ -752,6 +752,13 @@ impl Dialogs {
                     ui.label("Show wall reference lines");
                     ui.checkbox(&mut draft.show_reference_lines, "");
                     ui.end_row();
+                    // IFX-008: compact by default; autosaves stay compact.
+                    ui.label("Saved files");
+                    ui.checkbox(&mut draft.indented_ifcx, "Indented IFCX (human-readable)")
+                        .on_hover_text(
+                            "Easier to read and compare, but the files become larger. Autosaves stay compact.",
+                        );
+                    ui.end_row();
                 });
             ui.separator();
             ui.horizontal(|ui| {

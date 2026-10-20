@@ -88,8 +88,11 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         working-directory: conformance
         run: npx playwright install-deps chromium
-      - name: Write the reference models
-        run: cargo run --locked -p archicraft-ifcx --example reference_models -- target/reference-models
+      # IFX-008: the indented layout too, as <name>-indented.ifcx.
+      - name: Write the reference models, compact and indented
+        run: |
+          cargo run --locked -p archicraft-ifcx --example reference_models -- target/reference-models
+          cargo run --locked -p archicraft-ifcx --example reference_models -- --indented target/reference-models
       - name: Load them with the reference implementation, viewer composition and viewer
         run: conformance/run.sh target/reference-models/*.ifcx crates/archicraft-ifcx/tests/golden/*.ifcx
       - name: Upload the viewer screenshots for the release check
