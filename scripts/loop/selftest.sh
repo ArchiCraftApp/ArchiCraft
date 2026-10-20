@@ -197,6 +197,27 @@ check "auto-merge off for a PR that changes a CI workflow" allow \
 check "auto-merge for a PR named by a variable" deny "$(hook guard-bash "$(bash_input 'gh pr merge "$url" --auto --squash')")"
 check "auto-merge for a PR whose files cannot be listed" deny \
     "$(FAKE_GH_FAIL=1 hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
+# The push, merge and commit rules also look at the commands a line runs: a bead note, a commit
+# message or a grep pattern may name them (hooks/shell-commands.awk).
+main_bash() { hook guard-bash "$(bash_input "$1")"; }
+check "force push in another directory" deny "$(main_bash 'git -C crates push --force origin bead/x')"
+check "force push behind global options" deny "$(main_bash 'git -c push.default=current push -f')"
+check "force push through sh -c" deny "$(main_bash "sh -c 'git push -uf origin bead/x'")"
+check "force push in a substitution" deny "$(main_bash 'echo "$(git push origin +bead/x)"')"
+check "push to main by its full ref" deny "$(main_bash 'git push origin HEAD:refs/heads/main')"
+check "push to a quoted main" deny "$(main_bash 'git push origin "HEAD:main"')"
+check "merge without auto, with --auto elsewhere on the line" deny "$(main_bash 'gh pr merge 12 --squash; echo --auto')"
+check "merge without auto through sh -c" deny "$(main_bash "bash -c 'gh pr merge 12 --squash'")"
+check "bd note that quotes a force push" allow "$(main_bash "bd update x --append-notes 'denied: git push --force origin main'")"
+check "force push after a bd note that quotes git -C" deny \
+    "$(main_bash "bd update x --append-notes 'ran git -C /nowhere status' && git push -f origin bead/x")"
+check "bd note that quotes a merge without auto" allow \
+    "$(main_bash 'bd update x --append-notes "gh pr merge 12 --squash --admin was refused"')"
+check "commit message that quotes a force push and a merge" allow \
+    "$(main_bash 'git commit -qm "Refuse git push --force and gh pr merge 12 --squash"')"
+check "commit message in a heredoc that quotes a force push" allow \
+    "$(main_bash $'git commit -F - <<\'EOF\'\ngit push -f origin main\ngh pr merge 12 --admin\nEOF')"
+check "grep for a force push and a merge" allow "$(main_bash "grep -rnE 'git push (-f|--force)|gh pr merge [0-9]+ --squash' docs")"
 check "writing a stamp" deny "$(hook guard-bash "$(bash_input "echo x > $(loop_dir)/review.ok")")"
 check "reading a gate log" allow "$(hook guard-bash "$(bash_input "tail -n 50 $(loop_dir)/gate-test.log")")"
 check "reviewer runs tests" allow "$(hook guard-bash "$(bash_input 'cargo test -p demo walls 2>&1 | tail -n 40' bead-reviewer)")"
@@ -263,6 +284,13 @@ xargs --max-args 1 cp -t d; watch -n 1 "ln -s a b"; ssh -p 22 host rm w; strace 
 
 echo 'pub fn demo() { let _x = 1; }' >crates/demo/src/lib.rs
 check "code commit without stamps" deny "$(hook guard-bash "$(bash_input 'git add -A && git commit -m x')")"
+check "code commit in another directory without stamps" deny "$(main_bash 'git -C crates/demo commit -am x')"
+check "code commit through sh -c without stamps" deny "$(main_bash "sh -c 'git commit -am x'")"
+check "grep for git commit with ungated code" allow "$(main_bash 'grep -rn "git commit" scripts/loop | head')"
+check "bd note that quotes a commit with ungated code" allow \
+    "$(main_bash "bd update x --append-notes 'git commit -am x was refused: no gate'")"
+git init -q "$work/plain"
+check "commit in a repository without the loop" allow "$(main_bash "git -C '$work/plain' commit -am x")"
 stamp gate.ok
 check "code commit with the gate only" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
 stamp review.ok
