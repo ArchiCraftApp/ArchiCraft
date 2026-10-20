@@ -120,6 +120,16 @@ impl Document {
         plan
     }
 
+    /// True if the geometry, and the plan of `storey` if given, are
+    /// evaluated for the current revision: the end of an edit's latency
+    /// (NFR-PERF-006).
+    #[cfg(feature = "perf")]
+    pub fn is_current(&self, storey: Option<StoreyId>) -> bool {
+        let revision = self.project.revision;
+        self.geometry.revision == revision
+            && storey.is_none_or(|s| self.plans.get(&s).is_some_and(|(rev, _)| *rev == revision))
+    }
+
     /// The name shown in the window title: the file name, or the project
     /// name for an unsaved project.
     pub fn display_name(&self) -> String {

@@ -97,6 +97,8 @@ pub fn menu_bar(ui: &mut Ui, ws: &Workspace, problems_open: bool) -> (Option<Act
                 action = Some(Action::Problems);
                 ui.close();
             }
+            #[cfg(feature = "perf")]
+            crate::perf::menu_item(ui);
         });
         ui.menu_button("Design", |ui| {
             item(ui, Action::ToolSelect, true, &mut action);
