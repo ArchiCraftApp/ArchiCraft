@@ -18,10 +18,12 @@ fi
 # A pull_request run checks out refs/pull/N/merge, the PR merged into the base as it is now, while
 # BASE_SHA stays at the base the PR was opened against: diffing the merge against its first parent
 # leaves out what the base received since. Elsewhere (no merge commit) BASE_SHA is the base.
+# --no-renames lists both paths of a move: rename detection prints only the new one, which lets a
+# file moved out of a guarded path pass (archicraft-95eq).
 if git rev-parse --verify --quiet HEAD^2 >/dev/null; then
-    changed="$(git diff --name-only HEAD^1 HEAD)"
+    changed="$(git diff --no-renames --name-only HEAD^1 HEAD)"
 else
-    changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
+    changed="$(git diff --no-renames --name-only "$BASE_SHA"...HEAD)"
 fi
 labelled() { [[ ",$PR_LABELS," == *",$1,"* ]]; }
 status=0

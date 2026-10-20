@@ -447,6 +447,20 @@ pr_merge bead/archicraft-ab14-golden
 expect "PR merge commit with a golden change without label" fail "$(ci bead/archicraft-ab14-golden 'archicraft-ab14: x')"
 expect "PR merge commit with a golden change with label" pass \
     "$(ci bead/archicraft-ab14-golden 'archicraft-ab14: x' format-change)"
+# A move out of the guarded paths still changes them: git diff's rename detection would print only
+# the new path (archicraft-95eq).
+git switch -q -c bead/archicraft-ab15-move "$base"
+git mv scripts/loop/gate.sh docs/gate.sh
+git commit -qm "move a loop file"
+expect "loop file moved out in a feature bead" fail "$(ci bead/archicraft-ab15-move 'archicraft-ab15: x')"
+pr_merge bead/archicraft-ab15-move
+expect "PR merge commit moving a loop file out in a feature bead" fail \
+    "$(ci bead/archicraft-ab15-move 'archicraft-ab15: x')"
+git switch -q -c bead/archicraft-ab16-move "$base"
+git mv crates/demo/tests/golden/a.ifcx docs/a.ifcx
+git commit -qm "move a golden file"
+expect "golden file moved out without label" fail "$(ci bead/archicraft-ab16-move 'archicraft-ab16: x')"
+expect "golden file moved out with label" pass "$(ci bead/archicraft-ab16-move 'archicraft-ab16: x' format-change)"
 git switch -q bead/archicraft-ab12.1-demo
 
 # --- sweep -------------------------------------------------------------------------------------
