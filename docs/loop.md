@@ -12,7 +12,7 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 
 | Step | What happens | Tool |
 |---|---|---|
-| 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report closes bd refused, waiting PRs, beads for a human, epics due for a demo. The copy on `origin/main` runs, since a new worktree may be cut from an older `main` | `scripts/loop/sweep.sh` |
+| 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report closes bd refused, waiting PRs, beads for a human, epics due for a demo; fast-forward the main checkout to `origin/main` when it is on `main` (git hooks off), or report as `stale` why not. The copy on `origin/main` runs, since a new worktree may be cut from an older `main` | `scripts/loop/sweep.sh` |
 | 1 Claim | Claim the bead, branch `bead/<id>-<slug>` from `origin/main`, clone the warm build cache. It re-executes the copy on `origin/main` when the worktree's `scripts/loop` differs | `scripts/loop/start-bead.sh <id>` |
 | 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines (a top-level `#[cfg(test)] mod tests` does not count), or with separable criteria | `bd create --parent` |
 | 3 Tests first | Every acceptance criterion becomes a failing test | |
@@ -86,9 +86,13 @@ command runs the main checkout's `scripts/loop/hooks/dispatch.sh`, which takes t
 working directory from the hook input (`cwd`) and runs the hook script of that tree: a worktree
 session runs its own branch's hook scripts, and `selftest.sh` checks this with a worktree. What
 still comes from the main checkout is the wiring, the dispatcher, `/bead`, `/bead-loop` and the
-`bead-reviewer` agent; a change to those applies once the main checkout is updated
-([loop-tutorial.md](loop-tutorial.md), section 3). Command-line matching is a guardrail, not
-a sandbox: CI and branch protection are the gates that cannot be bypassed.
+`bead-reviewer` agent; a change to those applies once the main checkout is updated. Loop PRs
+merge by themselves, so `sweep.sh` updates it at the start of every bead: a fast-forward to
+`origin/main` while it is on `main`, with git hooks off (the beads post-merge hook can block bd
+for minutes). Git refuses when local changes would be overwritten or local `main` has commits
+of its own; the sweep then reports a `stale` line and carries on, and the user pulls by hand
+([loop-tutorial.md](loop-tutorial.md), section 3). Command-line matching is a guardrail, not a
+sandbox: CI and branch protection are the gates that cannot be bypassed.
 
 `guard-edit` sees only the Edit and Write tools. A file changed through Bash (`sed -i`, a
 heredoc, a script) bypasses it, on `main` as on a bead branch. Only the stamps catch such a
