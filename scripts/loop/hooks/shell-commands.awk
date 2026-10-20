@@ -4,11 +4,11 @@
 # and the wrappers in WRAP (sudo, env, xargs, timeout, ...) are dropped. A write redirection is
 # listed as ">" and its target (/dev/null, /dev/stdout and /dev/stderr left out). The commands
 # inside $(...), `...`, <(...), >(...) and find -exec are listed too, and the scripts of sh -c,
-# eval, watch, ssh and env -S, and what a shell reads on its standard input (a heredoc, or every
-# argument on a line that pipes into it) are scanned as command lines; the text of a substitution
-# also stays in the word it belongs to. Other heredoc bodies and quoted words are data. It reads
-# the common cases, it is not a shell: a guardrail, not a sandbox. POSIX awk (BSD awk on macOS,
-# mawk on Ubuntu).
+# eval, watch, ssh, parallel and env -S, and what a shell reads on its standard input (a heredoc,
+# or every argument on a line that pipes into it) are scanned as command lines; the text of a
+# substitution also stays in the word it belongs to. Other heredoc bodies and quoted words are
+# data. It reads the common cases, it is not a shell: a guardrail, not a sandbox. POSIX awk (BSD
+# awk on macOS, mawk on Ubuntu).
 
 BEGIN {
     TAB = "\t"
@@ -29,6 +29,9 @@ BEGIN {
     WRAP["command"] = WRAP["builtin"] = WRAP["time"] = WRAP["nohup"] = WRAP["setsid"] = "^$"
     WRAP["chronic"] = WRAP["unbuffer"] = WRAP["valgrind"] = "^$"
     WRAP["strace"] = "^-[abeEIoOpPsSuX]$"; WRAP["ltrace"] = "^-[aADeFlnopsuwx]$"
+    # GNU parallel's options that take their value as the next word; its command (the words up to
+    # ::: or ::::) runs through a shell.
+    PARALLEL_OPTS = "^-[jSadICNnLEsP]$|^--(jobs|sshlogin|arg-file|delimiter|colsep|max-args|max-lines|max-chars|workdir|wd|tmpdir|timeout|joblog|results|tagstring|tag-string|env|halt|delay|retries|memfree|load|nice|basefile|bf|return|transferfile|tf)$"
 }
 { text = text (NR > 1 ? "\n" : "") $0 }
 END {
@@ -241,8 +244,8 @@ function heredocs(s, p,    n, q, k, e, line, body) {
 }
 
 # Prints the command in words a[k..m] without its keywords, assignments and wrappers, then the
-# commands it runs in turn: find -exec, the scripts of sh -c, eval, watch, ssh and env -S. A shell
-# without a script file reads its standard input (shell_stdin).
+# commands it runs in turn: find -exec, the scripts of sh -c, eval, watch, ssh, parallel and
+# env -S. A shell without a script file reads its standard input (shell_stdin).
 function run(a, k, m,    w, j, prog, line, b, nb, script, opt_c, opt_s) {
     while (k <= m) {
         if (a[k] ~ /^[A-Za-z_][A-Za-z0-9_]*\+?=/) { k++; continue }
@@ -285,15 +288,16 @@ function run(a, k, m,    w, j, prog, line, b, nb, script, opt_c, opt_s) {
         }
         if (opt_c && j <= m) enqueue(a[j])
         else if (!opt_c && (opt_s || j > m || a[j] == "-")) shell_stdin = 1 # no script file
-    } else if (prog ~ /^(eval|watch|ssh)$/) { # watch and ssh run their words through a shell
+    } else if (prog ~ /^(eval|watch|ssh|parallel)$/) { # these run their words through a shell
         j = k + 1
         if (prog == "watch") for (; j <= m && a[j] ~ /^-/; j++) if (a[j] ~ /^(-n|--interval)$/) j++
         if (prog == "ssh") {
             for (; j <= m && a[j] ~ /^-/; j++) if (a[j] ~ /^-[BbcDEeFIiJLlmOoPpQRSWw]$/) j++
             j++ # the host
         }
+        if (prog == "parallel") for (; j <= m && a[j] ~ /^-/; j++) if (a[j] ~ PARALLEL_OPTS) j++
         script = ""
-        for (; j <= m; j++) script = script " " a[j]
+        for (; j <= m && !(prog == "parallel" && a[j] ~ /^::::?\+?$/); j++) script = script " " a[j]
         enqueue(script)
     }
 }

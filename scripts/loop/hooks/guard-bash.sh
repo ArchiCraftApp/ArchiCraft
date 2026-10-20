@@ -7,7 +7,8 @@
 #   passing review (loop_review_valid);
 # - no auto-merge for a PR that changes the CI workflows or the hook wiring: it waits for the user.
 # All of them are judged by the commands the line runs (shell-commands.awk): quoted arguments and
-# heredoc bodies that mention a command or the loop's state dir do not count.
+# heredoc bodies that mention a command do not count, and a quoted mention of the loop's state dir
+# counts only on a line that writes.
 # Pattern matching on the command line is a guardrail, not a sandbox; CI is the final gate.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
@@ -19,15 +20,18 @@ cmd="$(hook_field .tool_input.command)"
 cmds="$(printf '%s\n' "$cmd" | awk -f "$(dirname "${BASH_SOURCE[0]}")/shell-commands.awk")"
 t=$'\t'
 runs() { grep -Eq -- "$1" <<<"$cmds"; }
-# Commands that write files: a redirection, a file utility, sed -i, find -delete.
-write_re="^(>|rm|mv|cp|touch|tee|truncate|ln|chmod)($t|\$)|^sed$t(.*$t)?(-[a-zA-Z]*i|--in-place)|^find$t(.*$t)?-delete($t|\$)"
+# Commands that write files: a redirection, a file utility, dd of=, patch, sed -i, perl -i (in a
+# cluster of perl's flags that take no value, so -MList::Util is not -i), find -delete.
+write_re="^(>|rm|mv|cp|touch|tee|truncate|ln|chmod|install|mkdir|rmdir|patch)($t|\$)|^dd$t(.*$t)?of="
+write_re+="|^sed$t(.*$t)?(-[a-zA-Z]*i|--in-place)|^perl$t(.*$t)?-[0-9aclnpstTuUvwWX]*i|^find$t(.*$t)?-delete($t|\$)"
 writes="$(grep -E -- "$write_re" <<<"$cmds")"
 # A line that writes and runs any command naming the state dir: the write itself, a cd into it, or
 # a variable or pipe that carries the path to the write. A heredoc body that is data never counts;
 # a quoted mention (a bd note, a commit message) counts only on a line that writes.
 state_re='\.git/([^[:space:]]*/)?loop|git-path[[:space:]]+loop|(gate|review)\.(ok|fail)|stop-blocks'
 
-if [ -n "$writes" ] && grep -Eq -- "$state_re" <<<"$cmds"; then
+# The loop's own writer (lib.sh) run from the command line writes a stamp whatever its arguments.
+if runs "^loop_stamp_write($t|\$)" || { [ -n "$writes" ] && grep -Eq -- "$state_re" <<<"$cmds"; }; then
     hook_deny "The loop's stamps are written only by scripts/loop/gate.sh, the review hook and scripts/loop/pause.sh. Reading the gate logs is fine."
 fi
 
@@ -37,7 +41,7 @@ if [ "$HOOK_AGENT" = bead-reviewer ]; then
     # --fix rewrites files in any tool (cargo clippy --fix); only a search pattern may name it.
     fixes="$(grep -E -- "$t--fix(=|$t|\$)" <<<"$cmds" | grep -Ev -- "^(grep|egrep|fgrep|rg)$t")"
     if [ -n "$writes" ] || [ -n "$fixes" ] ||
-        runs "^git$git_opts$t(add|commit|push|reset|checkout|switch|restore|stash|clean|rebase|merge|cherry-pick|rm|mv)($t|\$)" ||
+        runs "^git$git_opts$t(add|commit|push|reset|checkout|switch|restore|stash|clean|rebase|merge|cherry-pick|rm|mv|apply|merge-file|merge-index|checkout-index)($t|\$)" ||
         runs "^cargo($t[-+][^$t]*)*$t(fmt|fix|add|remove|update)($t|\$)" ||
         runs "^bd($t-[^$t]*)*$t(update|close|create|delete|dep|label|remember|forget|human)($t|\$)|^gh($t|\$)"; then
         hook_deny "The bead reviewer only reads: git diff/log/show/status, bd show, grep, cargo check/test. Report the problem as a finding instead."
