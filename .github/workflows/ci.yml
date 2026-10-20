@@ -40,6 +40,14 @@ jobs:
         run: cargo build --workspace --all-targets --locked
       - name: Test
         run: cargo test --workspace --locked
+      # NFR-PERF-001: the frame-time and latency instrumentation is off by default; build
+      # and test it on one OS so the feature-gated code cannot rot (docs/performance/README.md).
+      - name: Build with the perf feature
+        if: runner.os == 'Linux'
+        run: cargo build -p archicraft-app --all-targets --features perf --locked
+      - name: Test with the perf feature
+        if: runner.os == 'Linux'
+        run: cargo test -p archicraft-app --features perf --locked
 
   lint:
     name: Format and clippy
@@ -53,6 +61,8 @@ jobs:
         run: cargo fmt --all --check
       - name: clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: clippy with the perf feature (NFR-PERF-001)
+        run: cargo clippy -p archicraft-app --all-targets --features perf --locked -- -D warnings
 
   # IFX-006 / NFR-MNT-003: load every reference model with buildingSMART's
   # reference implementation, its viewer composition and the viewer itself in headless
