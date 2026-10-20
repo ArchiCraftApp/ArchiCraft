@@ -14,6 +14,7 @@ mod surface;
 mod typed;
 
 use archicraft_model::glam::DVec2;
+use archicraft_model::tolerance::coincident;
 use archicraft_model::units::{NumberFormat, UnitSettings, parse_angle, parse_length};
 use archicraft_model::{Command, Project, StoreyId};
 
@@ -142,7 +143,7 @@ impl PointInput {
             let base = match ctx.expects {
                 Expect::Angle { centre } => ctx
                     .previous
-                    .filter(|p| p.distance(centre) > 1e-12)
+                    .filter(|p| !coincident(*p, centre))
                     .map_or(0.0, |p| (p - centre).to_angle()),
                 _ => 0.0,
             };
@@ -195,8 +196,14 @@ impl PointInput {
                 }
             }
             KeyInput::Backspace => {
-                if self.typed.active_text().pop().is_none() {
+                if self.typed.is_empty() {
                     consumer.backspace();
+                } else if self.typed.active_text().pop().is_none() {
+                    self.typed.field = match self.typed.field {
+                        Field::Distance => Field::Angle,
+                        Field::Angle => Field::Distance,
+                    };
+                    self.typed.active_text().pop();
                 }
                 Effect::None
             }
@@ -248,8 +255,6 @@ mod tests {
 
     use super::*;
     use crate::tools::{SlabMode, ToolKind, ToolState, WallMode};
-
-    const TOLERANCE: f64 = 1e-6;
 
     /// How a [`TransformStub`] places the result.
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -332,7 +337,7 @@ mod tests {
                 self.base = Some(point);
                 return Outcome::Continue;
             };
-            if self.last.is_some_and(|p| p.distance(point) < TOLERANCE) {
+            if self.last.is_some_and(|p| coincident(p, point)) {
                 return Outcome::Continue;
             }
             let delta = point - base;
@@ -754,6 +759,15 @@ mod tests {
         env.key(&mut input, &mut tool, KeyInput::Backspace);
         assert_eq!(input.typed.distance, "1");
         env.key(&mut input, &mut tool, KeyInput::Backspace);
+        assert!(input.typed.is_empty());
+        assert_eq!(tool.points.len(), 1, "typed text goes before points");
+
+        // Typed text in the other field also goes first.
+        env.key(&mut input, &mut tool, text("3"));
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        env.key(&mut input, &mut tool, KeyInput::Backspace);
+        assert!(input.typed.is_empty());
+        assert_eq!(tool.points.len(), 1);
         env.key(&mut input, &mut tool, KeyInput::Backspace);
         assert!(tool.points.is_empty());
         assert_eq!(

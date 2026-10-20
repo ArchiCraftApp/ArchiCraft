@@ -356,7 +356,6 @@ fn draw_snap_marker(painter: &egui::Painter, p: Pos2, snap: SnapKind, color: Col
     }
 }
 
-/// Characters that a typed length or angle may contain (INP-003, INP-005).
 /// Shows the plan of `storey` and handles its input.
 pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());

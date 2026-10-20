@@ -13,6 +13,7 @@ use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::Command;
 use archicraft_model::glam::DVec2;
 use common::{assert_present, harness};
+use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 
@@ -52,6 +53,41 @@ fn tool_buttons_and_properties_follow_each_other() {
     harness.run_steps(2);
     assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Slab);
     harness.get_by_label("Slab tool defaults");
+}
+
+/// NFR-USE-003, INP-001: the status line names the next input of the wall
+/// tool and lists the keys of that step, generated from its hints.
+#[test]
+fn status_line_shows_the_step_prompt_and_its_keys() {
+    let mut harness = harness("prompt");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    assert_present(
+        &harness,
+        "Wall: click the start point of the reference line · R cycles the reference line",
+    );
+    let pos = {
+        let ws = harness.state_mut().workspace();
+        ws.plan_views[&ws.active_storey].last_rect.center()
+    };
+    harness.hover_at(pos);
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().tool.points.len(), 1);
+    assert_present(
+        &harness,
+        "Wall chain: click the next point or type a distance · Tab switches between distance and angle \
+         · Shift constrains angles · Enter or double-click ends the chain · Backspace removes the last point \
+         · Esc cancels the input",
+    );
 }
 
 #[test]
