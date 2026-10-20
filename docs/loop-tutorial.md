@@ -6,8 +6,8 @@ to start work, what happens meanwhile, and when you are needed. How the loop wor
 
 ## In short
 
-The backlog is a set of small tasks, called beads, in `bd`. Claude works them one at a time:
-each bead in its own session and branch, tests first, checked by a script, reviewed by a
+The backlog is a set of small tasks, called beads, in `bd`. Claude works them one bead per
+session: each in its own branch, tests first, checked by a script, reviewed by a
 second Claude that did not write the code, and then a pull request that GitHub merges by
 itself once CI is green on Linux (Windows is tested on `main` and nightly, macOS when a
 version is released).
@@ -39,16 +39,21 @@ else runs without you.
 |---|---|
 | `/bead-loop 5` | Works the next five ready beads, highest priority first, across all epics. |
 | `/bead-loop 20 archicraft-0n41` | Works only on that epic, until it is complete or 20 beads are done. |
+| `/bead-loop 6 2` | Works six beads, at most two at a time. |
+| `/bead-loop 3 loop` | Also picks beads labelled `loop` (changes to the loop itself), which are skipped otherwise. |
 | `/bead` | Works the single next ready bead in this session. |
 | `/bead archicraft-ooz9.2` | Works exactly that bead in this session. |
 
 With `/bead-loop`, the session you typed it in coordinates. It never writes code itself: it
-starts one session per bead (they appear in the sidebar), checks each result and starts the
-next. Beads run one after another.
+starts a batch of up to three beads at once, one session each (they appear in the sidebar),
+whose crates do not overlap, and checks each result. Run only one coordinator at a time. When
+a batch has reported, it lists one line per bead and a `Needs you:` line when something does;
+type `continue` to start the next batch.
 
 Start with small numbers (3 to 5). Each bead is a full working session, so you see cost and
-quality before you let a run go longer. Without an epic, the coordinator rarely has to wait:
-while one pull request is still in CI, it usually finds an independent bead elsewhere.
+quality before you let a run go longer. The coordinator never waits for a merge: a bead
+counts once its pull request is open with auto-merge on, and beads that build on it go into a
+later batch.
 
 ## 2. While it runs
 
@@ -67,9 +72,10 @@ You do not need to watch. If you want to:
 
 **When the coordinator pauses**, it says why:
 
-- *Waiting for a merge*: every ready bead depends on a pull request that is still in CI. Type
-  `continue` once it has merged. This happens often when you restrict a run to one epic,
-  because the beads of an epic usually build on each other.
+- *Batch reported*: type `continue` for the next batch, whenever you like.
+- *Nothing ready*: every ready bead depends on a pull request that is still in CI. Type
+  `continue` later; there is no need to watch for the merge. This happens often when you
+  restrict a run to one epic, because the beads of an epic usually build on each other.
 - *Count reached*: start the next run when you like.
 - One of the three cases in the next section.
 

@@ -48,7 +48,9 @@ main checkout to `origin/main` (`updated`), or says why it could not (`stale`): 
 - the id in `$ARGUMENTS`, if given;
 - otherwise, if this worktree is already on a `bead/*` branch, resume that bead;
 - otherwise the first entry of
-  `bd ready --json --limit 0 --exclude-type epic --exclude-label human` (sorted by priority).
+  `bd ready --json --limit 0 --exclude-type epic --exclude-label human,loop` (sorted by
+  priority). Beads labelled `loop` (changes to the loop itself) are picked only when the user
+  names one or asks for loop beads.
 
 ## 1. Claim and branch
 
@@ -60,8 +62,8 @@ It refuses epics and blocked beads, cuts `bead/<id>-<slug>` from the latest `ori
 (or resumes it), claims the bead and clones the warm build cache. Like the sweep it runs as it
 is on `origin/main`: when this worktree's `scripts/loop` differs, it re-executes that copy.
 `scripts/loop/status.sh` shows where a resumed bead stands. The claim's lease
-(`expires in 4 mins`) needs no renewal: beads run one at a time, and the lease only matters
-when two sessions might claim the same bead. Then read, in full:
+(`expires in 4 mins`) needs no renewal: a single orchestrator hands out distinct beads, and the
+lease only matters when two sessions might claim the same bead. Then read, in full:
 
 - `bd show <id>`: description (why and what), acceptance criteria, design, notes. The notes
   line `SRS: …` lists the requirement IDs.
@@ -87,7 +89,7 @@ To split: create child beads with
 `--description`, `--acceptance` (a subset of the parent's criteria, together covering all of
 them), `--estimate` and a notes line `SRS: …` for the IDs it serves. A child takes only the
 crate labels (`archicraft-model`, `archicraft-geometry`, `archicraft-ifcx`, `archicraft-app`)
-of the crates it touches, because `/bead-loop` runs two beads at once only when they share no
+of the crates it touches, because `/bead-loop` runs beads at once only when they share no
 crate label; it keeps the parent's other labels where they apply (`format-change` only on the
 child that changes the format). Each child must leave `main` green on its own; order them
 with `bd dep add <later> <earlier>`. A cross-cutting test (a scan or grep over all crates)
@@ -184,9 +186,22 @@ iteration. Before you end the session:
 
 - `bd remember` anything a later bead needs and the code does not say.
 - File every follow-up as a bead (`discovered-from:<id>`).
-- If the review found something a script could have caught, file a bead with label `loop`
-  that adds the check to the gate: the loop gets stricter with every repeated finding.
-- Report: bead id, PR link, what changed, which tests prove it, anything skipped.
+- If the review found something a script could have caught, and it caused a real defect
+  (a bug, a broken requirement or a convention the code violated, not a style or wording
+  point), file a bead with label `loop` at priority 3 that adds the check to the gate. Record
+  anything less with `bd remember`. Loop beads cost the user reviews, so they stay rare.
+- Report in at most 4 lines, nothing else (details only when the user asks):
+
+  ```
+  <id> ✅ PR #<n> (auto-merge): <one line: what changed>
+  Needs you: -
+  ```
+
+  The status is ✅ (PR open or merged), ⏸ (paused, label `human`) or ❌ (no PR); the
+  bracket says `auto-merge`, `waits for you` (`land.sh` left auto-merge off) or `blocked`.
+  `Needs you:` names the one thing the user has to do, or `-`. Two more lines at most, only
+  for what the user must know: a `refused` or `stale` sweep line, a skipped criterion, a
+  follow-up bead.
 
 ## Stop rules
 
