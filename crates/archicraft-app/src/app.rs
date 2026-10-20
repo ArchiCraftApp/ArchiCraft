@@ -167,6 +167,12 @@ impl ArchiCraftApp {
         &mut self.tree
     }
 
+    /// The frame and latency samples so far (NFR-PERF-001).
+    #[cfg(feature = "perf")]
+    pub fn perf(&self) -> &crate::perf::PerfRecorder {
+        &self.ws.perf
+    }
+
     /// The title of the open application prompt, for tests
     /// (NFR-USE-004).
     #[doc(hidden)]
@@ -553,6 +559,8 @@ impl ArchiCraftApp {
             && self.ws.doc.needs_autosave()
             && self.last_autosave.elapsed() >= interval
         {
+            #[cfg(feature = "perf")]
+            let started = Instant::now();
             let geometry = self.ws.doc.geometry();
             self.autosaver.request(
                 session,
@@ -563,6 +571,10 @@ impl ArchiCraftApp {
             );
             self.ws.doc.mark_autosaved();
             self.last_autosave = Instant::now();
+            #[cfg(feature = "perf")]
+            self.ws
+                .perf
+                .record(crate::perf::Metric::AutosaveBlocking, started.elapsed());
         }
         ctx.request_repaint_after(Duration::from_secs(30));
     }
@@ -756,6 +768,50 @@ impl ArchiCraftApp {
         }
     }
 
+    /// Advances a scripted measurement (`ARCHICRAFT_PERF_SCRIPT`): opens its
+    /// view, moves the camera every frame, drops the warm-up frames and quits
+    /// at the end; `on_exit` writes the results.
+    #[cfg(feature = "perf")]
+    fn drive_script(&mut self, ctx: &egui::Context) {
+        let Some(run) = self.ws.perf.script_mut() else {
+            return;
+        };
+        let script = run.script;
+        match run.advance() {
+            Some(frame) => {
+                if frame == crate::perf::WARM_UP_FRAMES {
+                    self.ws.perf.reset_samples();
+                }
+                if let Some(pane) = script.pane(&self.ws) {
+                    if frame == 0 {
+                        self.open_pane(pane);
+                    }
+                    script.step(&mut self.ws, pane, frame);
+                }
+                // egui repaints only on input: without this the run would
+                // measure idle time.
+                ctx.request_repaint();
+            }
+            None if !self.quit_confirmed => {
+                self.quit_confirmed = true;
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
+            None => {}
+        }
+    }
+
+    /// Closes a pending edit sample once the geometry and the active plan
+    /// show the new revision (NFR-PERF-006).
+    #[cfg(feature = "perf")]
+    fn settle_edit(&mut self) {
+        let storey = match self.ws.active_pane {
+            Some(Pane::Plan(storey)) => Some(storey),
+            _ => None,
+        };
+        let current = self.ws.doc.is_current(storey);
+        self.ws.perf.edit_settled(self.ws.doc.project.revision, current);
+    }
+
     fn handle_requests(&mut self) {
         for request in std::mem::take(&mut self.ws.requests) {
             match request {
@@ -839,8 +895,12 @@ impl egui_tiles::Behavior<Pane> for Behavior<'_> {
 
 impl eframe::App for ArchiCraftApp {
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
+        #[cfg(feature = "perf")]
+        self.ws.perf.begin_frame();
         i18n::install(Rc::clone(&self.localizer));
         let ctx = ui.ctx().clone();
+        #[cfg(feature = "perf")]
+        self.drive_script(&ctx);
         for state in self.released.drain(..) {
             state.release(frame.wgpu_render_state());
         }
@@ -900,6 +960,8 @@ impl eframe::App for ArchiCraftApp {
             }
         });
 
+        #[cfg(feature = "perf")]
+        crate::perf::window(&ctx, &self.ws.perf);
         if let Some(prefs) = self.dialogs.show(&ctx, &mut self.ws) {
             self.ws.prefs = prefs;
             self.save_prefs();
@@ -914,6 +976,12 @@ impl eframe::App for ArchiCraftApp {
             self.guard(&ctx, Then::Open(Some(path)));
         }
         self.autosave(&ctx);
+        #[cfg(feature = "perf")]
+        {
+            self.settle_edit();
+            let interval = ctx.input(|i| i.unstable_dt);
+            self.ws.perf.end_frame(Duration::from_secs_f32(interval.max(0.0)));
+        }
     }
 
     fn on_exit(&mut self) {
@@ -921,6 +989,11 @@ impl eframe::App for ArchiCraftApp {
         self.save_prefs();
         if let Some(session) = self.session.take() {
             session.end();
+        }
+        #[cfg(feature = "perf")]
+        match self.ws.perf.write_results(self.dirs.root()) {
+            Ok(path) => tracing::info!(path = %path.display(), "{}", self.ws.perf.summary()),
+            Err(e) => tracing::warn!("performance results not written: {e}"),
         }
     }
 }

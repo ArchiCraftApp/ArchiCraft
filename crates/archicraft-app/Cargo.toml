@@ -15,6 +15,11 @@ path = "src/lib.rs"
 name = "archicraft"
 path = "src/main.rs"
 
+[features]
+# Frame-time and latency instrumentation (NFR-PERF-001, docs/performance/README.md).
+# Off by default: without it no measurement code is compiled.
+perf = []
+
 [dependencies]
 archicraft-geometry.workspace = true
 archicraft-ifcx.workspace = true

@@ -76,6 +76,9 @@ pub struct Workspace {
     pub active_pane: Option<Pane>,
     pub status: Option<Status>,
     pub requests: Vec<Request>,
+    /// Frame and latency samples (NFR-PERF-001).
+    #[cfg(feature = "perf")]
+    pub perf: crate::perf::PerfRecorder,
 }
 
 impl Workspace {
@@ -95,6 +98,8 @@ impl Workspace {
             active_pane: Some(Pane::Plan(active_storey)),
             status: None,
             requests: Vec::new(),
+            #[cfg(feature = "perf")]
+            perf: crate::perf::PerfRecorder::from_env(),
         }
     }
 
@@ -135,8 +140,12 @@ impl Workspace {
     /// (NFR-REL-005). Returns true on success.
     pub fn execute(&mut self, command: Command) -> bool {
         let label = command.label();
+        #[cfg(feature = "perf")]
+        let started = Instant::now();
         match self.doc.execute(command) {
             Ok(()) => {
+                #[cfg(feature = "perf")]
+                self.perf.edit_executed(self.doc.project.revision, started);
                 self.info(label);
                 true
             }
