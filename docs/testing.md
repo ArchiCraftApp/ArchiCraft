@@ -197,4 +197,6 @@ path from file content to execution, and that the bans and their reasons still a
 
 ## Performance
 
-_To be completed: the performance harness and its budgets._
+The criterion benches, the bench-model registry and how to run them are described in
+[docs/performance/README.md](performance/README.md). _To be completed: the budgets and the CI
+regression gate._
