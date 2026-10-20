@@ -35,11 +35,15 @@ use archicraft_model::{
 };
 use std::fmt::Display;
 
+use std::borrow::Cow;
+
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
+use super::migrate::{self, Migration};
 use super::schema::{self, FORMAT_VERSION};
+use super::writer::IFCX_VERSION;
 use crate::container::IfcxFile;
 use crate::validate::{self, FlatNode, Problem};
 
@@ -51,6 +55,9 @@ pub struct ReadOutcome {
     /// The file was written by a newer ArchiCraft version (IFX-062); it must
     /// not be overwritten without confirmation.
     pub newer_format: bool,
+    /// The IFCX version the file was read as (IFX-090). When it is not
+    /// [`crate::WRITTEN_VERSION`], saving converts the file to that version.
+    pub source_version: &'static str,
 }
 
 type Object = Map<String, Value>;
@@ -443,11 +450,12 @@ fn read_settings(map: &Object, report: &mut Report<'_>) -> ProjectSettings {
     }
 }
 
-fn read_project_data(attr: &Object, path: &str, problems: &mut Vec<Problem>) -> ProjectData {
+/// Reads the project attribute of a file migrated to format `current`.
+fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec<Problem>) -> ProjectData {
     let mut newer_format = false;
     let mut report = Report::new(problems, path, "project");
     match text(attr, "formatVersion").map(|v| v.parse::<u32>()) {
-        Ok(Ok(version)) if version > FORMAT_VERSION => {
+        Ok(Ok(version)) if version > current => {
             newer_format = true;
             report.warn(format!(
                 "the file was written by a newer ArchiCraft version (format {version}); data this version does not know may be lost on saving"
@@ -916,11 +924,21 @@ fn read_element(
     }
 }
 
-/// Reads a document written by ArchiCraft. Fails only if the file holds no
-/// ArchiCraft project at all.
+/// Reads a document written by ArchiCraft, after migrating it from an
+/// earlier ArchiCraft format (IFX-062, IFX-091). Fails only if the file holds
+/// no ArchiCraft project at all.
 pub fn read(file: &IfcxFile) -> Result<ReadOutcome, Problem> {
-    let mut problems: Vec<Problem> = validate::validate(file);
-    let nodes = validate::flatten(file);
+    read_with(file, migrate::MIGRATIONS, FORMAT_VERSION)
+}
+
+/// [`read`] with another migration chain up to format `current`, so that
+/// tests can run synthetic migrations.
+pub(crate) fn read_with(file: &IfcxFile, migrations: &[Migration], current: u32) -> Result<ReadOutcome, Problem> {
+    let mut problems = Vec::new();
+    let mut file = Cow::Borrowed(file);
+    migrate::upgrade(&mut file, migrations, current, &mut problems);
+    problems.extend(validate::validate(&file));
+    let nodes = validate::flatten(&file);
 
     let Some((root_path, root)) = nodes.iter().find(|(_, n)| n.attributes.contains_key(schema::PROJECT)) else {
         return Err(Problem::error(
@@ -934,7 +952,7 @@ pub fn read(file: &IfcxFile) -> Result<ReadOutcome, Problem> {
             "the ArchiCraft project data is not an object",
         ));
     };
-    let mut data = read_project_data(project_attr, root_path, &mut problems);
+    let mut data = read_project_data(project_attr, root_path, current, &mut problems);
     let mut root_report = Report::new(&mut problems, root_path, "project");
     let project_id = ProjectId::from_uuid(node_uuid(root_path, &mut root_report));
     data.info.name = name(root).unwrap_or_else(|| "Untitled project".into());
@@ -1081,5 +1099,6 @@ pub fn read(file: &IfcxFile) -> Result<ReadOutcome, Problem> {
         project,
         problems,
         newer_format: data.newer_format,
+        source_version: IFCX_VERSION,
     })
 }

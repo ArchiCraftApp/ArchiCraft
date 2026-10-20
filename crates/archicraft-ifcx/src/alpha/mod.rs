@@ -2,6 +2,7 @@
 //! writes (CON-2, IFX-090). A future IFCX version gets a sibling module; the
 //! domain model and geometry crates do not change (NFR-MNT-004).
 
+pub mod migrate;
 pub mod reader;
 pub mod schema;
 pub mod writer;
