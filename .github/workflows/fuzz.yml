@@ -1,0 +1,129 @@
+name: Fuzz
+
+# NFR-REL-007, NFR-SEC-003, SRS Appendix D.9: coverage-guided fuzzing of every parser of
+# external files with the cargo-fuzz targets in fuzz/ (docs/testing.md, Fuzzing). Runs every
+# night for 10 minutes per target, and by hand with a duration; the release run (D.9: at
+# least one hour per target) is
+#   gh workflow run fuzz.yml -f minutes=60
+# The targets run one after another in one job, within GitHub's 6-hour job cap. The corpus
+# is kept in the Actions cache, so every run starts from what earlier runs found. Any crash,
+# timeout or out-of-memory input fails the job and is uploaded as the fuzz-findings artefact.
+# The nightly toolchain is installed in this job only; everything else stays on the pinned
+# toolchain of rust-toolchain.toml.
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Minutes per target (nightly 10, release run at least 60, at most 100)"
+        type: number
+        required: true
+        default: 10
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  # A scheduled run has no inputs: it uses the nightly duration. A run by hand keeps its
+  # input as given, so "Check the duration" refuses 0 instead of replacing it.
+  MINUTES: ${{ github.event_name == 'schedule' && 10 || inputs.minutes }}
+
+jobs:
+  fuzz:
+    name: Fuzz (${{ github.event_name == 'schedule' && 10 || inputs.minutes }} min per target)
+    runs-on: ubuntu-24.04
+    # Three targets of at most 100 minutes each, plus the build and the seeding.
+    timeout-minutes: 350
+    steps:
+      - name: Check the duration
+        run: |
+          case "$MINUTES" in
+            ''|*[!0-9]*) echo "::error::minutes must be a whole number, got '$MINUTES'"; exit 1 ;;
+          esac
+          if [ "$MINUTES" -lt 1 ] || [ "$MINUTES" -gt 100 ]; then
+            echo "::error::minutes must be between 1 and 100 (three targets in the 6-hour job cap), got $MINUTES"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - name: Install the nightly toolchain (cargo-fuzz needs it)
+        run: rustup toolchain install nightly --profile minimal --component rustfmt
+      # Keyed by the pinned toolchain: caches the seeding example's build and ~/.cargo/bin,
+      # where cargo-fuzz lands. fuzz/target is left out, it changes with every nightly.
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: rustfmt (fuzz/)
+        working-directory: fuzz
+        run: cargo +nightly fmt --check
+      # The key is new on every run, so every run saves its corpus; the prefix restores the
+      # newest corpus of an earlier run.
+      - name: Restore the corpus of earlier runs
+        uses: actions/cache/restore@v4
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: fuzz-corpus-
+      - name: Seed the corpus (scripts/fuzz-corpus.sh)
+        run: scripts/fuzz-corpus.sh
+      - name: Build the fuzz targets
+        id: build
+        run: |
+          cargo +nightly fuzz build
+          git diff --exit-code -- fuzz/Cargo.lock
+      # scripts/fuzz-run.sh holds the run flags: a crash, a slow input (timeout) and a
+      # memory-hungry one (out of memory) are findings, and libFuzzer exits non-zero on each.
+      # Each target runs even when an earlier one found something, so one finding does not
+      # hide another.
+      - name: Fuzz ifcx_load
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: scripts/fuzz-run.sh ifcx_load "$MINUTES"
+      - name: Fuzz ifcx_validate
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: scripts/fuzz-run.sh ifcx_validate "$MINUTES"
+      - name: Fuzz units_parse
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: scripts/fuzz-run.sh units_parse "$MINUTES"
+      # Keeps one input per new coverage feature, truncated to -max_len, so the cached corpus
+      # stays small (every run saves a new cache entry) and the seeds added again by
+      # scripts/fuzz-corpus.sh do not pile up.
+      - name: Minimise the corpus
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          for target in ifcx_load ifcx_validate units_parse; do
+            cargo +nightly fuzz cmin "$target" -- -rss_limit_mb=2048 -timeout=10 -max_len=4194304
+          done
+          du -sh fuzz/corpus/*
+      - name: Save the corpus for the next run
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/cache/save@v4
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}-${{ github.run_attempt }}
+      # Crash, timeout and out-of-memory inputs (fuzz/artifacts/<target>/); promote them to
+      # crates/archicraft-ifcx/tests/fuzz-regressions/ as docs/testing.md (Fuzzing) describes.
+      - name: Upload the findings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Fail on any finding
+        if: ${{ !cancelled() }}
+        run: |
+          findings="$(find fuzz/artifacts -type f 2>/dev/null || true)"
+          if [ -n "$findings" ]; then
+            echo "::error::the fuzzers found inputs that crash, stall or exhaust memory:"
+            echo "$findings"
+            exit 1
+          fi

@@ -66,7 +66,9 @@ implementation and viewer composition (SRS IFX-006); it needs Node.js and
 network access to fetch the pinned reference code. CI runs all of this on
 Windows and Linux, plus cargo-deny (licences, advisories, sources and bans).
 The tests run on macOS (Apple silicon) when a version tag `v*` is pushed, or
-by hand with `gh workflow run macos.yml`.
+by hand with `gh workflow run macos.yml`. The IFCX reader and the typed-input
+parser are fuzzed every night, and for an hour per target before a release
+(`gh workflow run fuzz.yml -f minutes=60`; docs/testing.md, Fuzzing).
 
 Repository guards keep done requirements done: `scripts/check-layering.sh`
 keeps UI crates out of the headless crates, `scripts/check-legal.sh` refuses
