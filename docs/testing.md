@@ -189,8 +189,72 @@ _To be completed: rows for the other done requirements._
 
 ## Fuzzing
 
-_To be completed: cargo-fuzz targets, seed corpus and the nightly fuzz job. Their output
-(`fuzz/target/`, `fuzz/corpus/`, `fuzz/artifacts/`, `fuzz/coverage/`) is git-ignored._
+Every parser of external files is fuzzed with a coverage-guided fuzzer (NFR-REL-007,
+NFR-SEC-003, SRS Appendix D.9). `fuzz/` holds the cargo-fuzz targets as their own Cargo
+workspace: the root `Cargo.toml` excludes it, so the stable build, clippy and `cargo deny`
+never see it, and only fuzzing needs a nightly toolchain.
+
+| Target | Input | What may not happen |
+|---|---|---|
+| `ifcx_load` | arbitrary bytes | a panic along the application's open path: `archicraft_ifcx::load`, then `ModelGeometry::evaluate`, `save` and `load` again; a rejection without a message |
+| `ifcx_validate` | arbitrary bytes | a panic in `validate::parse` or `validate::validate` |
+| `units_parse` | arbitrary UTF-8 | a panic in `parse_length` (every length unit) or `parse_angle` (every angle unit) with every number format; a non-finite accepted value |
+
+`fuzz/dict/ifcx.dict` is the libFuzzer dictionary for the IFCX targets: JSON tokens, every
+object key of the golden files (IFCX structure, `bsi::`, `usd::` and `archicraft::`
+attributes and their fields) and frequent values. Extend it when the format gains keys.
+
+**Corpus.** `scripts/fuzz-corpus.sh` seeds `fuzz/corpus/<target>/` with both reference models
+(written by the `reference_models` example), the golden files, every corrupt fixture of
+`crates/archicraft-ifcx/tests/corrupt/` and four R2 examples (Hello Wall, the PCERT sample
+scene's architecture model, Tekla House, the ACCA building), plus typed lengths and angles
+for `units_parse`. The R2 examples are fetched from IFC5-development at the commit
+`conformance/run.sh` pins, through the blob-filtered clone in `conformance/.ifc5`, and never
+committed (NFR-LEG-003); the script keeps the list of example paths. Existing corpus entries
+stay, so later runs build on earlier ones. The output (`fuzz/target/`, `fuzz/corpus/`,
+`fuzz/artifacts/`, `fuzz/coverage/`) is git-ignored: `git status` is clean after a run.
+
+**Local run.** Install the tools once, seed, then run a target:
+
+```sh
+rustup toolchain install nightly --profile minimal --component rustfmt
+cargo +nightly install cargo-fuzz --locked
+scripts/fuzz-corpus.sh
+cargo +nightly fuzz run ifcx_load -- -dict=fuzz/dict/ifcx.dict \
+    -rss_limit_mb=2048 -timeout=10 -max_len=4194304 -max_total_time=600
+```
+
+The limits make memory-hungry and slow inputs findings too: a crafted file that exhausts
+memory or stalls the reader is a denial of service, in scope of NFR-SEC-003. libFuzzer
+truncates seeds above `-max_len` (Tekla House is about 40 MB). `cargo +nightly fmt --check`
+in `fuzz/` checks the targets' formatting.
+
+**Promoting a finding.** A crash, timeout or out-of-memory input lands in
+`fuzz/artifacts/<target>/`. Minimise it with
+`cargo +nightly fuzz tmin <target> fuzz/artifacts/<target>/<file>`, fix the cause, and commit
+the minimised input to `crates/archicraft-ifcx/tests/fuzz-regressions/` under a name that
+says what it exercises, with the `.ifcx` extension (so `.gitattributes` keeps its bytes).
+`crates/archicraft-ifcx/tests/fuzz_regressions.rs` replays every file there along the
+`ifcx_load` path on stable, in the test jobs of `ci.yml` (Linux, Windows) and `macos.yml`.
+The directory starts with the inputs of `malformed_input_is_rejected_without_panicking`
+(tests/roundtrip.rs). A `units_parse` finding becomes a unit test in
+`crates/archicraft-model/src/units.rs` instead.
+
+**Release rule.** Before every release, each target runs for at least one hour on the seeded
+corpus (D.9) without a finding; findings are fixed and promoted first.
+
+**Licences.** The fuzz crate is outside the workspace, so `cargo deny` does not list it;
+this paragraph is its entry in the licence inventory (NFR-LEG-001). Beyond the ArchiCraft
+crates and the main workspace's dependencies, `fuzz/Cargo.lock` adds `libfuzzer-sys`
+((MIT OR Apache-2.0) AND NCSA: the bundled libFuzzer sources come from LLVM, whose older
+files are under the permissive University of Illinois/NCSA licence) and `arbitrary`
+(MIT OR Apache-2.0). NCSA is not in the `deny.toml` allow list because nothing that ships
+uses it: the fuzz binaries are a test tool and are never distributed.
+
+**Preference import.** When SET-004 adds the preference import, its epic adds a
+`prefs_import` target here and seeds it with exported preference files.
+
+_To be completed: the nightly and on-demand fuzz workflow (archicraft-76tg.2)._
 
 ## Security review
 

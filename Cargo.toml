@@ -6,6 +6,8 @@ members = [
     "crates/archicraft-ifcx",
     "crates/archicraft-app",
 ]
+# The cargo-fuzz targets are their own workspace on a nightly toolchain (docs/testing.md).
+exclude = ["fuzz"]
 default-members = [
     "crates/archicraft-model",
     "crates/archicraft-geometry",
