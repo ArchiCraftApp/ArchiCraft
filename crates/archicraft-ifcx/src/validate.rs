@@ -107,8 +107,8 @@ pub fn flatten(file: &IfcxFile) -> IndexMap<String, FlatNode> {
     nodes
 }
 
-/// The attribute schemas visible to a file: the bundled imports it names,
-/// then its own declarations.
+/// The attribute schemas visible to a file: its own declarations, then the
+/// imports it names.
 #[derive(Debug)]
 pub struct SchemaSet {
     schemas: HashMap<String, ValueDescription>,
@@ -116,8 +116,10 @@ pub struct SchemaSet {
 
 impl SchemaSet {
     /// Collects schemas, reporting imports that cannot be resolved locally
-    /// and declarations that cannot be parsed.
-    pub fn for_file(file: &IfcxFile, problems: &mut Vec<Problem>) -> Self {
+    /// and declarations that cannot be parsed. An import is resolved from
+    /// `extra` (import URI, schema document) before the bundled registry, so
+    /// that a test can resolve a schema ArchiCraft does not ship (IFX-092).
+    pub fn for_file(file: &IfcxFile, extra: &[(&str, &IfcxFile)], problems: &mut Vec<Problem>) -> Self {
         let mut schemas = HashMap::new();
         for (id, value) in &file.schemas {
             match SchemaEntry::parse(value) {
@@ -128,9 +130,14 @@ impl SchemaSet {
             }
         }
         for import in &file.imports {
-            match registry::bundled(&import.uri) {
-                Some(bundled) => {
-                    for (id, value) in &bundled.schemas {
+            let source = extra
+                .iter()
+                .find(|(uri, _)| *uri == import.uri)
+                .map(|(_, file)| *file)
+                .or_else(|| registry::bundled(&import.uri));
+            match source {
+                Some(source) => {
+                    for (id, value) in &source.schemas {
                         if let Ok(entry) = SchemaEntry::parse(value) {
                             schemas.insert(id.clone(), entry.value);
                         }
@@ -378,8 +385,16 @@ pub fn parse(bytes: &[u8]) -> Result<IfcxFile, Problem> {
 /// loads it with schema checks enabled (IFX-006 a), plus a single-root check
 /// (IFX-013) and dangling references (IFX-083).
 pub fn validate(file: &IfcxFile) -> Vec<Problem> {
+    validate_with(file, &[])
+}
+
+/// [`validate`] with extra schema documents by import URI, resolved before
+/// the bundled ones. Production code validates against the bundled registry
+/// only; this lets a test check a file that imports a schema not bundled,
+/// such as a published `archicraft::` schema (IFX-092).
+pub fn validate_with(file: &IfcxFile, extra: &[(&str, &IfcxFile)]) -> Vec<Problem> {
     let mut problems = Vec::new();
-    let schemas = SchemaSet::for_file(file, &mut problems);
+    let schemas = SchemaSet::for_file(file, extra, &mut problems);
     let nodes = flatten(file);
     problems.extend(check_attributes(&nodes, &schemas));
     match roots(&nodes) {

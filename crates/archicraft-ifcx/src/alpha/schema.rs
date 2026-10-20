@@ -3,9 +3,14 @@
 //! Every attribute ArchiCraft writes in its own namespace is declared in the
 //! file's `schemas` section, so the file validates on its own. The
 //! `formatVersion` in `archicraft::project` versions this schema (IFX-062).
+//! [`document`] puts the same declarations into a standalone schema document
+//! that could be published on ifcx.dev (IFX-092).
 
 use indexmap::IndexMap;
 use serde_json::{Value, json};
+
+use super::writer::IFCX_VERSION;
+use crate::container::{Header, IfcxFile};
 
 use archicraft_model::material::{FillPattern, MaterialCategory};
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, VolumeUnit};
@@ -235,7 +240,7 @@ fn project() -> Value {
     ])
 }
 
-/// The `schemas` section written to every file.
+/// The `schemas` section written to every file (IFX-061).
 pub fn declarations() -> IndexMap<String, Value> {
     let mut schemas = IndexMap::new();
     schemas.insert(PROJECT.to_owned(), json!({"value": project()}));
@@ -281,4 +286,25 @@ pub fn declarations() -> IndexMap<String, Value> {
         ])}),
     );
     schemas
+}
+
+/// The `archicraft::` schema as a standalone, schema-only IFCX document, in
+/// the shape of the bundled standard schemas: no imports, no data and
+/// [`declarations`] as its `schemas`. `header.dataVersion` is the
+/// [`FORMAT_VERSION`] it describes. This is what would be published on
+/// ifcx.dev under ArchiCraft's own namespace (IFX-092); the writer keeps
+/// declaring the schema in-file (IFX-005, IFX-061).
+pub fn document(timestamp: &str) -> IfcxFile {
+    IfcxFile {
+        header: Header {
+            id: "archicraft".to_owned(),
+            ifcx_version: IFCX_VERSION.to_owned(),
+            data_version: FORMAT_VERSION.to_string(),
+            author: "ArchiCraft".to_owned(),
+            timestamp: timestamp.to_owned(),
+        },
+        imports: Vec::new(),
+        schemas: declarations(),
+        data: Vec::new(),
+    }
 }
