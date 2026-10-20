@@ -64,7 +64,8 @@ conformance/run.sh crates/archicraft-ifcx/tests/golden/*.ifcx
 The conformance check loads IFCX files with buildingSMART's reference
 implementation and viewer composition (SRS IFX-006); it needs Node.js and
 network access to fetch the pinned reference code. CI runs all of this on
-Windows and Linux, plus cargo-deny (licences, advisories, sources and bans).
+Linux, plus cargo-deny (licences, advisories, sources and bans); the tests run
+on Windows for every change to `main` and nightly.
 The tests run on macOS (Apple silicon) when a version tag `v*` is pushed, or
 by hand with `gh workflow run macos.yml`. The conformance check runs on Linux,
 Windows and macOS every night, and on Linux and Windows for pull requests that

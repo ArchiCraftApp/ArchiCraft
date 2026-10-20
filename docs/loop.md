@@ -12,7 +12,7 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 
 | Step | What happens | Tool |
 |---|---|---|
-| 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report closes bd refused, waiting PRs, beads for a human, epics due for a demo; fast-forward the main checkout to `origin/main` when it is on `main` (git hooks off), or report as `stale` why not. The copy on `origin/main` runs, since a new worktree may be cut from an older `main` | `scripts/loop/sweep.sh` |
+| 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report closes bd refused, waiting PRs, beads for a human, epics due for a demo, a failed newest Windows run on `main` (`ATTENTION`); fast-forward the main checkout to `origin/main` when it is on `main` (git hooks off), or report as `stale` why not. The copy on `origin/main` runs, since a new worktree may be cut from an older `main` | `scripts/loop/sweep.sh` |
 | 1 Claim | Claim the bead, branch `bead/<id>-<slug>` from `origin/main`, clone the warm build cache. It re-executes the copy on `origin/main` when the worktree's `scripts/loop` differs | `scripts/loop/start-bead.sh <id>` |
 | 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines (a top-level `#[cfg(test)] mod tests` does not count), or with separable criteria | `bd create --parent` |
 | 3 Tests first | Every acceptance criterion becomes a failing test | |
@@ -65,7 +65,27 @@ Instructions are soft; these are not:
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
 | CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop` (labels read live at run time, since `gh pr create` attaches them after the PR is opened); headless layering; the hooks' self-test |
 | CI workflow `User review` | A PR that changes `.github/workflows/` or `.claude/settings.json` (or `LOOP_USER_REVIEW_PATHS`) gets the failing status `User review`, decided by the base's `scripts/loop/ci-user-review.sh` (`pull_request_target`), never by the PR's own scripts |
-| Branch protection on `main` | Auto-merge waits for the seven required CI checks on Linux and Windows and the status `User review`; macOS runs only for releases and the nightly conformance matrix (below) |
+| Branch protection on `main` | Auto-merge waits for the six required CI checks on Linux and the status `User review`; Windows runs on `main`, nightly and by hand, macOS only for releases and the nightly conformance matrix (below) |
+
+**A bead PR runs CI once.** `ci.yml` runs for the `pull_request` event; its `push` trigger
+covers only `main` and version tags `v*`, so pushing a bead branch does not start a second run
+(before 2026-10-20 every bead PR ran it twice, in two concurrency groups).
+
+**Windows runs on `main` and nightly.** No Windows test job runs on a pull request, and no
+Windows job is a required check: the Windows test job took 10 to 17 minutes where Linux took
+1.5 to 9, and every bead waited for it (user decision of 2026-10-20). The one Windows job on a
+pull request is the Windows leg of the conformance matrix (below), on pull requests that change
+the model, geometry, IFCX or conformance code; it is not required either, so no bead waits for
+it. The workflow `.github/workflows/windows.yml` builds and tests on `windows-latest`, with
+`core.autocrlf=true` as a Windows developer checks out (NFR-PORT-004), on every push to `main`,
+nightly and when started by hand (`gh workflow run windows.yml --ref <branch>`). So a
+Windows-only failure lands on `main` and shows up after the merge: `sweep.sh` looks at the
+newest finished run on `main` that was not cancelled and prints `ATTENTION windows: …` with its
+link when it did not pass. `/bead-loop` stops at that line, as at every `ATTENTION`, and the
+fix becomes a P0 bead that runs next. Branch protection names its required checks, so a change
+to that list in `setup-github.sh` takes effect only when the user runs the script again
+(Setup): for the change that dropped the Windows check, before its PR merges, since that PR's
+own run no longer reports `Test (windows-latest)`.
 
 **macOS runs only for releases and the nightly conformance matrix.** No macOS job runs on a
 push or pull request, and none is a required check. On 2026-10-19 GitHub's hosted macOS runners

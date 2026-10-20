@@ -210,7 +210,7 @@ How the main window (SRS UI-001) maps onto egui. The Archicad names are only for
 - **Conformance (SRS IFX-006 and NFR-MNT-003, both Must):** on every change, CI loads our test files with schema validation in buildingSMART's reference code (`src/ifcx-core` at the commit the SRS pins). It also checks the spatial tree in their viewer (`src/viewer`), in a headless browser driven by Playwright. Both run under Node.js; they are test tools and aren't shipped. The visual check in the hosted IFC5 viewer stays manual, once per release.
 - **cargo-fuzz:** fuzzes the IFCX reader for at least an hour per release (SRS NFR-REL-007, Appendix D.9). It needs a nightly toolchain, so it runs in its own CI job.
 - **cargo-deny:** checks every dependency's licence against the selection criteria and lists them all, which gives the licence inventory of SRS NFR-LEG-001.
-- CI builds and tests on Windows and Linux on every change, and on macOS (Apple silicon) for releases and by hand (docs/loop.md).
+- CI builds and tests on Linux on every change, on Windows on `main` and nightly, and on macOS (Apple silicon) for releases and by hand (docs/loop.md).
 - Write our own test IFCX files. The IFC5-development repository asks users not to create derivatives of its examples, so tests that read those examples (SRS AS-06) fetch them at test time instead of storing them in the repository (SRS NFR-LEG-003).
 
 ## Changed since the first recommendation

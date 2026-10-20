@@ -100,15 +100,15 @@ steps. Its build output (`.ifc5/`, `node_modules/`, `.build/`, and the Playwrigh
 `test-results/` and `playwright-report/`) is ignored by `conformance/.gitignore`, so a local
 run leaves `git status` clean.
 
-**On every platform.** The CI job runs on Linux for every push. The conformance matrix
-(`.github/workflows/conformance-matrix.yml`) runs the same check on Linux, Windows (Git Bash)
-and macOS nightly and by hand, and on Linux and Windows for every pull request that changes
-`crates/archicraft-model`, `crates/archicraft-geometry`, `crates/archicraft-ifcx`,
-`conformance/` or the workflow itself (no macOS job runs on a pull request, docs/loop.md); a
-docs-only pull request does not start it, and none of its jobs is a required check. Its last
-job, "Same PASS lines on every OS", fails unless the runs print the same `PASS` lines
-(`conformance/compare-runs.sh`, compared as sorted sets) and none prints `FAIL`. Each OS
-uploads its screenshots as `viewer-screenshots-<OS>`.
+**On every platform.** The CI job runs on Linux for every pull request and every push to
+`main`. The conformance matrix (`.github/workflows/conformance-matrix.yml`) runs the same check
+on Linux, Windows (Git Bash) and macOS nightly and by hand, and on Linux and Windows for every
+pull request that changes `crates/archicraft-model`, `crates/archicraft-geometry`,
+`crates/archicraft-ifcx`, `conformance/` or the workflow itself (no macOS job runs on a pull
+request, docs/loop.md); a docs-only pull request does not start it, and none of its jobs is a
+required check. Its last job, "Same PASS lines on every OS", fails unless the runs print the
+same `PASS` lines (`conformance/compare-runs.sh`, compared as sorted sets) and none prints
+`FAIL`. Each OS uploads its screenshots as `viewer-screenshots-<OS>`.
 
 **Release checklist.** The checks that run by hand once per release, the hosted IFC5 viewer of
 IFX-006 (b) above all, are in [docs/test-plan/release-checklist.md](test-plan/release-checklist.md).
@@ -252,8 +252,9 @@ request; the CI step is the regression check.
 | PRJ-008 | A damaged file loads all valid parts; every skipped or repaired record (non-object layer, malformed views, missing tool defaults, bad or missing counters, an invalid info field, wrong element flags, a non-numeric colour, an invalid ground storey, an invalid wall) is reported at its project or element node, and per collection loaded plus reported-skipped records equal the records in the file; the app shows the load report | Test: `no_record_disappears_silently` and one test per fixture (corrupt.rs: `crates/archicraft-ifcx/tests/corrupt.rs`); `a_damaged_file_opens_with_the_load_report` (ui.rs: `crates/archicraft-app/tests/ui.rs`); also `invalid_elements_are_skipped_and_reported`, `missing_references_are_repaired_and_reported` (roundtrip.rs) |
 
 Rows with "Test:" name `cargo test` functions, which the "Test" step of the "Test" job runs on
-Linux and Windows for every push and pull request, and `.github/workflows/macos.yml` on macOS
-for releases. Unless another file is named, they live in
+Linux for every pull request and push to `main`, `.github/workflows/windows.yml` on Windows for
+every push to `main` and nightly, and `.github/workflows/macos.yml` on macOS for releases.
+Unless another file is named, they live in
 `crates/archicraft-model/tests/done_requirements.rs`, which builds every project from the
 default template and changes it only through commands; tests named with a file in
 parentheses already existed and are not repeated there. Tests marked "(app)" live in
@@ -338,7 +339,7 @@ with `gh run download <run id> -n fuzz-findings` and promote each input as descr
 the minimised input to `crates/archicraft-ifcx/tests/fuzz-regressions/` under a name that
 says what it exercises, with the `.ifcx` extension (so `.gitattributes` keeps its bytes).
 `crates/archicraft-ifcx/tests/fuzz_regressions.rs` replays every file there along the
-`ifcx_load` path on stable, in the test jobs of `ci.yml` (Linux, Windows) and `macos.yml`.
+`ifcx_load` path on stable, in the test jobs of `ci.yml` (Linux), `windows.yml` and `macos.yml`.
 The directory starts with the inputs of `malformed_input_is_rejected_without_panicking`
 (tests/roundtrip.rs). A `units_parse` finding becomes a unit test in
 `crates/archicraft-model/src/units.rs` instead.
