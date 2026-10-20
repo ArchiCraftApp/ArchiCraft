@@ -132,9 +132,10 @@ scripts/loop/gate.sh
 ```
 
 fmt, clippy `-D warnings`, the workspace tests, headless layering, golden files, the diff
-budget, a clean `.beads/`, IFCX conformance when IFCX code changed and licences when
-manifests changed. Fix each failure at its cause. Never weaken or delete a test, add an
-`#[allow]`, bless golden files or edit the loop scripts to get green.
+budget, a clean `.beads/`, no change to the loop's guardrails (`LOOP_SELF_PATHS`) without the
+label `loop`, IFCX conformance when IFCX code changed and licences when manifests changed. Fix
+each failure at its cause. Never weaken or delete a test, add an `#[allow]`, bless golden files
+or edit the loop scripts to get green.
 
 ## 6. Review
 
