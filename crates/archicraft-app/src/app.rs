@@ -25,6 +25,20 @@ use crate::views::plan;
 use crate::views::view3d::{self, View3dState, model_bounds};
 use crate::workspace::{Pane, Request, Workspace};
 
+/// The extensions the open and save dialogs list (IFX-001). Backups end in
+/// `.bak` or `.bakN` and are therefore not listed (PRJ-005).
+pub const IFCX_EXTENSIONS: &[&str] = &["ifcx"];
+
+/// The path a save writes to: `path` with `.ifcx` added when the chosen name
+/// has no extension (IFX-001).
+pub fn with_ifcx_extension(path: PathBuf) -> PathBuf {
+    if path.extension().is_none() {
+        path.with_extension(IFCX_EXTENSIONS[0])
+    } else {
+        path
+    }
+}
+
 /// What to do once unsaved changes are saved or discarded.
 #[derive(Clone, Debug, PartialEq)]
 enum Then {
@@ -249,14 +263,13 @@ impl ArchiCraftApp {
             (Some(path), false) => path.clone(),
             _ => {
                 let mut dialog = rfd::FileDialog::new()
-                    .add_filter("IFCX project", &["ifcx"])
-                    .set_file_name(format!("{}.ifcx", self.ws.doc.project.info.name));
+                    .add_filter("IFCX project", IFCX_EXTENSIONS)
+                    .set_file_name(format!("{}.{}", self.ws.doc.project.info.name, IFCX_EXTENSIONS[0]));
                 if let Some(dir) = self.ws.doc.path.as_ref().and_then(|p| p.parent()) {
                     dialog = dialog.set_directory(dir);
                 }
                 match dialog.save_file() {
-                    Some(p) if p.extension().is_none() => p.with_extension("ifcx"),
-                    Some(p) => p,
+                    Some(p) => with_ifcx_extension(p),
                     None => return false,
                 }
             }
@@ -310,7 +323,11 @@ impl ArchiCraftApp {
                 }
             }
             Then::Open(path) => {
-                let path = path.or_else(|| rfd::FileDialog::new().add_filter("IFCX project", &["ifcx"]).pick_file());
+                let path = path.or_else(|| {
+                    rfd::FileDialog::new()
+                        .add_filter("IFCX project", IFCX_EXTENSIONS)
+                        .pick_file()
+                });
                 if let Some(path) = path {
                     self.open_path(&path);
                 }
