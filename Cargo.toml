@@ -58,6 +58,16 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 jsonschema = { version = "0.58.6", default-features = false }
 
+# Performance benches (NFR-PERF-001, docs/performance/README.md). Without the
+# default rayon and plotters features: no plots, the JSON estimates under
+# target/criterion are what the regression gate reads.
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+
+# Localization (NFR-L10N-001): Fluent message catalogues in archicraft-app.
+fluent-bundle = "0.16.0"
+fluent-syntax = "0.12.0"
+unic-langid = "0.9.6"
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 missing_debug_implementations = "warn"

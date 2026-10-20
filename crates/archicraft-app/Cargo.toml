@@ -15,6 +15,11 @@ path = "src/lib.rs"
 name = "archicraft"
 path = "src/main.rs"
 
+[features]
+# Frame-time and latency instrumentation (NFR-PERF-001, docs/performance/README.md).
+# Off by default: without it no measurement code is compiled.
+perf = []
+
 [dependencies]
 archicraft-geometry.workspace = true
 archicraft-ifcx.workspace = true
@@ -23,11 +28,14 @@ bytemuck.workspace = true
 eframe.workspace = true
 egui.workspace = true
 egui_tiles.workspace = true
+fluent-bundle.workspace = true
+fluent-syntax.workspace = true
 rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+unic-langid.workspace = true
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe"] }

@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use archicraft_model::validate::validate_ring;
-use archicraft_model::{Element, ElementId, ElementKind, MaterialId, Project};
+use archicraft_model::{Element, ElementId, ElementKind, MODEL_TOLERANCE, MaterialId, Project};
 use glam::{DVec2, DVec3};
 
 use crate::GeometryError;
@@ -146,14 +146,15 @@ fn square_footprint(start: DVec2, end: DVec2, offsets: (f64, f64)) -> Footprint 
 }
 
 /// Evaluates one element. `footprint` is the junction-resolved footprint of a
-/// wall, if available.
+/// wall, if available. An element whose height is below the model tolerance
+/// (NFR-ACC-003) has no body.
 pub fn evaluate_element(
     project: &Project,
     element: &Element,
     footprint: Option<&Footprint>,
 ) -> Result<ElementGeometry, GeometryError> {
     let (bottom, top) = local_extent(project, element)?;
-    if top - bottom < 1e-6 {
+    if top - bottom < MODEL_TOLERANCE {
         return Err(GeometryError::InvalidExtent);
     }
     match &element.kind {

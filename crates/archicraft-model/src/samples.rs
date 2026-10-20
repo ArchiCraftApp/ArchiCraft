@@ -5,7 +5,9 @@
 use glam::DVec2;
 
 use crate::command::{Command, History};
-use crate::element::{ElementKind, Position, ReferenceLine};
+use crate::element::{ElementKind, KindTag, Position};
+use crate::ids::ElementId;
+use crate::kinds::ReferenceLine;
 use crate::project::Project;
 use crate::template::default_metric_project;
 
@@ -82,6 +84,83 @@ pub fn two_storey_shell() -> Project {
     project
 }
 
+/// Distance between the origins of neighbouring tiles of [`tiled_shell`],
+/// in metres. The 12 m x 9 m shell leaves gaps of 8 m and 11 m, so no
+/// junction forms between tiles.
+pub const TILE_PITCH: f64 = 20.0;
+
+/// Tiles per side of the `tiled_shell` bench model: 9 x 9 shells of 12
+/// elements give 972 elements.
+pub const BENCH_TILES: usize = 9;
+
+/// [`two_storey_shell`] repeated on an `n` x `n` grid with [`TILE_PITCH`]
+/// spacing, built by copying its walls and slabs through `AddElements`.
+///
+/// Provisional bench model (NFR-PERF-001): it stands in for the seeded
+/// 1,000/5,000/20,000-element models of `element-kind-framework` and for
+/// RM-M/RM-L (SRS 7.3), which replace it.
+pub fn tiled_shell(n: usize) -> Project {
+    let mut project = two_storey_shell();
+    let mut history = History::default();
+    project.info.name = format!("Tiled shell {n} x {n}");
+    let tile: Vec<_> = project.elements.values().cloned().collect();
+    for (i, j) in (0..n).flat_map(|i| (0..n).map(move |j| (i, j))).skip(1) {
+        let offset = DVec2::new(i as f64, j as f64) * TILE_PITCH;
+        let (mut walls, mut slabs) = (0, 0);
+        let copies = tile
+            .iter()
+            .map(|element| {
+                let mut copy = element.clone();
+                copy.id = ElementId::new();
+                copy.kind.translate(offset);
+                let nth = match copy.tag() {
+                    KindTag::Wall => &mut walls,
+                    KindTag::Slab => &mut slabs,
+                };
+                copy.name = project.next_element_name(copy.tag(), *nth);
+                *nth += 1;
+                copy
+            })
+            .collect();
+        execute(&mut project, &mut history, Command::AddElements(copies));
+    }
+    project
+}
+
+/// A model the performance benches run on (NFR-PERF-001).
+#[derive(Clone, Copy, Debug)]
+pub struct BenchModel {
+    /// Stable id, the last part of every bench id
+    /// (`ifcx/save/two_storey_shell`): the regression gate compares by id.
+    pub id: &'static str,
+    /// Whether the CI regression gate runs it; RM-M and RM-L will not.
+    pub ci: bool,
+    pub build: fn() -> Project,
+}
+
+/// The `tiled_shell` bench model: [`tiled_shell`] with [`BENCH_TILES`].
+pub fn tiled_shell_bench() -> Project {
+    tiled_shell(BENCH_TILES)
+}
+
+/// The bench models, the single extension point for larger models: the
+/// seeded stand-ins and RM-M/RM-L are appended here (`ci: false` for those
+/// too slow for CI).
+pub fn bench_models() -> Vec<BenchModel> {
+    vec![
+        BenchModel {
+            id: "two_storey_shell",
+            ci: true,
+            build: two_storey_shell,
+        },
+        BenchModel {
+            id: "tiled_shell",
+            ci: true,
+            build: tiled_shell_bench,
+        },
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,5 +172,38 @@ mod tests {
         let p = two_storey_shell();
         assert_eq!(p.elements.len(), 12);
         assert!(p.integrity_problems().is_empty());
+    }
+
+    /// NFR-PERF-001: the bench models, in registry order, with their element
+    /// counts; both run in CI.
+    #[test]
+    fn bench_models_are_registered_with_their_sizes() {
+        let models = bench_models();
+        let ids: Vec<&str> = models.iter().map(|m| m.id).collect();
+        assert_eq!(ids, ["two_storey_shell", "tiled_shell"]);
+        assert!(models.iter().all(|m| m.ci), "{models:?}");
+        let counts: Vec<usize> = models.iter().map(|m| (m.build)().elements.len()).collect();
+        assert_eq!(counts, [12, 972]);
+    }
+
+    /// The tiled shell repeats the two-storey shell on an n x n grid with
+    /// unique element names, and stays valid.
+    #[test]
+    fn tiled_shell_repeats_the_shell_on_a_grid() {
+        let p = tiled_shell(2);
+        assert_eq!(p.elements.len(), 4 * 12);
+        assert!(p.integrity_problems().is_empty());
+        let mut names: Vec<&str> = p.elements.values().map(|e| e.name.as_str()).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), p.elements.len(), "element names are unique");
+        let max_x = p
+            .elements
+            .values()
+            .filter_map(|e| e.as_wall())
+            .map(|w| w.start.x.max(w.end.x))
+            .fold(f64::MIN, f64::max);
+        assert_eq!(max_x, TILE_PITCH + 12.0);
+        assert_eq!(tiled_shell(1).elements.len(), 12);
     }
 }

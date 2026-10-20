@@ -1,11 +1,12 @@
 //! The geometric coincidence tolerance and the helpers that apply it
 //! (NFR-ACC-003, SRS Appendix D.1: model tolerance 0.01 mm).
 //!
-//! [`MODEL_TOLERANCE`] is the only tolerance literal of the model, geometry
-//! and snapping code; every other item of this module is derived from it, so
+//! [`MODEL_TOLERANCE`] is the only tolerance literal of the model and
+//! geometry crates; every other item of this module is derived from it, so
 //! that the tolerance can later become a project setting (EDT-019) by
 //! threading it through these helpers. A source scan
-//! (`tests/tolerance_scan.rs`) keeps it that way.
+//! (`tests/tolerance_scan.rs`) keeps it that way. The snapping code still
+//! has its own epsilons and joins the scan once they are retired.
 //!
 //! Comparisons fall into three groups:
 //!
@@ -43,8 +44,8 @@ pub const MODEL_TOLERANCE: f64 = 1e-5;
 /// only; WAL-020).
 pub const JOIN_TOLERANCE: f64 = MODEL_TOLERANCE;
 
-/// Two directions are parallel if the sine of the angle between them is
-/// below this: the angle by which a direction turns to deviate by
+/// Two directions are parallel if the sine of the angle between them is at
+/// most this: the angle by which a direction turns to deviate by
 /// [`MODEL_TOLERANCE`] over one metre (about 0.00057°). Over one metre this
 /// keeps every angle that can be drawn distinct from a straight line.
 pub const ANGLE_TOLERANCE: f64 = MODEL_TOLERANCE / 1.0;
@@ -121,9 +122,11 @@ pub trait WeldPoint: Copy {
     fn coincides(self, other: Self) -> bool;
 }
 
-/// An index of the grid followed by its two neighbours.
+/// An index of the grid followed by its two neighbours. Indices saturate at
+/// the ends of `i64` (infinite coordinates or beyond about 9.2e13 m), where
+/// the neighbours repeat the index itself.
 const fn around(index: i64) -> [i64; 3] {
-    [index, index - 1, index + 1]
+    [index, index.saturating_sub(1), index.saturating_add(1)]
 }
 
 impl WeldPoint for DVec2 {
@@ -360,5 +363,22 @@ mod tests {
         assert_eq!(welder3.weld(p - DVec3::splat(2.0 * MICROMETRE)), 0);
         assert_eq!(welder3.weld(p + DVec3::Z * 20.0 * MICROMETRE), 1);
         assert_eq!(welder3.into_points(), [p, p + DVec3::Z * 20.0 * MICROMETRE]);
+    }
+
+    #[test]
+    fn welder_accepts_points_beyond_the_grid() {
+        // Cell indices saturate for infinite coordinates and beyond about
+        // 9.2e13 m; the neighbourhood of a saturated cell must not overflow.
+        // A non-finite point coincides with nothing, not even itself.
+        let mut welder = Welder::new();
+        let huge = DVec2::new(1e20, -1e20);
+        assert_eq!(welder.weld(DVec2::new(f64::INFINITY, 0.0)), 0);
+        assert_eq!(welder.weld(DVec2::new(f64::NEG_INFINITY, 1e20)), 1);
+        assert_eq!(welder.weld(huge), 2);
+        assert_eq!(welder.find(huge), Some(2));
+        assert_eq!(welder.find(DVec2::new(f64::INFINITY, 0.0)), None);
+        let mut welder3 = Welder::new();
+        assert_eq!(welder3.weld(DVec3::new(f64::INFINITY, f64::NEG_INFINITY, 1e20)), 0);
+        assert_eq!(DVec2::neighbourhood((i64::MAX, i64::MIN)).count(), 9);
     }
 }

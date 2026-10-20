@@ -11,6 +11,7 @@ use egui::{Context, Id, RichText, Ui};
 use super::actions::Action;
 use super::widgets::{self, Edited};
 use crate::persistence::prefs::{Preferences, SeparatorChoice, ThemeChoice};
+use crate::tr;
 use crate::workspace::{Request, Workspace};
 
 /// Asking how to handle the elements of a storey being deleted (STR-004).
@@ -80,7 +81,8 @@ impl Dialogs {
         self.materials_window(ctx, ws);
         self.project_window(ctx, ws);
         self.settings_window(ctx, ws);
-        self.info_windows(ctx);
+        self.shortcuts_window(ctx);
+        self.about_window(ctx);
         self.preferences_window(ctx)
     }
 
@@ -637,7 +639,7 @@ impl Dialogs {
         self.settings = open;
     }
 
-    fn info_windows(&mut self, ctx: &Context) {
+    fn shortcuts_window(&mut self, ctx: &Context) {
         egui::Window::new("Keyboard shortcuts")
             .open(&mut self.shortcuts)
             .resizable(true)
@@ -665,14 +667,21 @@ impl Dialogs {
                     }
                 });
             });
-        egui::Window::new("About ArchiCraft")
+    }
+
+    /// The About window (NFR-SEC-001, NFR-SEC-002), with its text from the
+    /// message catalogue (NFR-L10N-001). The fixed id keeps the window's
+    /// place when the language changes its title.
+    fn about_window(&mut self, ctx: &Context) {
+        egui::Window::new(tr!("dlg-about-title"))
+            .id(Id::new("about-window"))
             .open(&mut self.about)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.heading(format!("ArchiCraft {}", env!("CARGO_PKG_VERSION")));
-                ui.label("A desktop modeller for buildings that saves IFCX (IFC5).");
-                ui.label(format!("Writes {} files.", archicraft_ifcx::WRITTEN_VERSION));
-                ui.label("Works offline. Sends no data anywhere; crash reports stay on this computer.");
+                ui.heading(tr!("dlg-about-heading", version = env!("CARGO_PKG_VERSION")));
+                ui.label(tr!("dlg-about-summary"));
+                ui.label(tr!("dlg-about-format", version = archicraft_ifcx::WRITTEN_VERSION));
+                ui.label(tr!("dlg-about-privacy"));
             });
     }
 

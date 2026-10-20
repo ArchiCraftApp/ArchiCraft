@@ -4,6 +4,19 @@
 //! Reading is lenient (IFX-083): every part that can be read is loaded, and
 //! every skipped, repaired or placeholder object is reported with the reason
 //! (PRJ-008, NFR-REL-004). Nothing is dropped silently.
+//!
+//! Every report names its record and says what happened to it, as
+//! “<record> skipped: <reason>” (an error: the record was not loaded) or
+//! “<record> repaired: <reason>” (a warning: the record was loaded with a
+//! default or corrected value). The report's path is the node holding the
+//! record: the project node for project-level records (settings, materials,
+//! layers, views, tool defaults, counters), else the storey or element node.
+//!
+//! An absent field is damage, like a present field of the wrong type or out
+//! of range, because the writer writes every field. The exceptions are the
+//! optional fields the writer leaves out when they are not set: a material's
+//! cut-fill `background`, a storey's `cutPlaneHeight` and the settings'
+//! `planGrid` (files from before INP-013). Their absence is no problem.
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
@@ -11,14 +24,17 @@ use archicraft_model::project::{
     Building, Location, NameCounters, Projection, Site, SlabDefaults, Tessellation, ToolDefaults, View3d, WallDefaults,
 };
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
+use archicraft_model::template::default_metric_project;
 use archicraft_model::tolerance::MODEL_TOLERANCE;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit};
-use archicraft_model::validate::validate_element;
+use archicraft_model::validate::{valid_grid_origin, valid_grid_spacing, validate_element};
 use archicraft_model::{
-    BuildingId, Element, ElementId, ElementKind, IfcClass, KindTag, Layer, LayerId, MaterialId, Position, Project,
-    ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab, SlabReference, Storey, StoreyId, StoreyList,
-    TopLink, ViewId, Wall,
+    BuildingId, Element, ElementId, ElementKind, IfcClass, KindTag, Layer, LayerId, MaterialId, PlanGrid, Position,
+    Project, ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab, SlabReference, Storey, StoreyId,
+    StoreyList, TopLink, ViewId, Wall,
 };
+use std::fmt::Display;
+
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use uuid::Uuid;
@@ -39,31 +55,70 @@ pub struct ReadOutcome {
 
 type Object = Map<String, Value>;
 
-/// Collects problems for one node.
+/// Collects problems for one record, reported at the node `path`.
 struct Report<'a> {
     problems: &'a mut Vec<Problem>,
     path: String,
+    /// Names the record in every message, for example “layer record 1” or
+    /// “element W-001”.
+    record: String,
 }
 
-impl Report<'_> {
+impl<'a> Report<'a> {
+    fn new(problems: &'a mut Vec<Problem>, path: &str, record: impl Into<String>) -> Self {
+        Self {
+            problems,
+            path: path.to_owned(),
+            record: record.into(),
+        }
+    }
+
     fn warn(&mut self, message: impl Into<String>) {
         self.problems.push(Problem::warning(Some(&self.path), message));
     }
 
-    fn error(&mut self, message: impl Into<String>) {
+    /// The record was not loaded (PRJ-008).
+    fn skipped(&mut self, reason: impl Display) {
+        let message = format!("{} skipped: {reason}", self.record);
         self.problems.push(Problem::error(Some(&self.path), message));
     }
 
-    /// Unwraps a field, or reports it and uses `default`.
+    /// The record was loaded with a default or corrected value (PRJ-008).
+    fn repaired(&mut self, reason: impl Display) {
+        let message = format!("{} repaired: {reason}", self.record);
+        self.warn(message);
+    }
+
+    /// Unwraps a field, or reports the record as repaired and uses `default`.
     fn or<T>(&mut self, result: Result<T, String>, default: T) -> T {
         match result {
             Ok(v) => v,
             Err(e) => {
-                self.warn(format!("{e}; a default value is used"));
+                self.repaired(format!("{e}; a default value is used"));
                 default
             }
         }
     }
+
+    /// An optional field the writer may leave out: absent is `None`, present
+    /// but invalid is reported and left out.
+    fn optional<T>(&mut self, map: &Object, key: &str, read: impl Fn(&Object, &str) -> Result<T, String>) -> Option<T> {
+        if !map.contains_key(key) {
+            return None;
+        }
+        match read(map, key) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                self.repaired(format!("{e}; it is left out"));
+                None
+            }
+        }
+    }
+}
+
+/// Names the record at `index` of a project-level list, like “layer record 1”.
+fn record(what: &str, index: usize) -> String {
+    format!("{what} record {index}")
 }
 
 fn field<'v>(map: &'v Object, key: &str) -> Result<&'v Value, String> {
@@ -144,8 +199,11 @@ fn points(value: &Value) -> Result<Vec<DVec2>, String> {
 }
 
 fn rgb(map: &Object, key: &str) -> Result<Rgb, String> {
-    let items = array(map, key)?;
-    let values: Vec<f64> = items.iter().filter_map(Value::as_f64).collect();
+    let values = array(map, key)?
+        .iter()
+        .map(Value::as_f64)
+        .collect::<Option<Vec<f64>>>()
+        .ok_or_else(|| format!("“{key}” has a non-numeric component"))?;
     match values.as_slice() {
         [r, g, b] if values.iter().all(|c| (0.0..=1.0).contains(c)) => Ok(Rgb([*r, *g, *b])),
         _ => Err(format!("“{key}” is not a colour")),
@@ -191,7 +249,7 @@ fn name(node: &FlatNode) -> Option<String> {
 
 fn node_uuid(path: &str, report: &mut Report<'_>) -> Uuid {
     Uuid::parse_str(path).unwrap_or_else(|_| {
-        report.warn("the path is not a UUID; the object gets a new identity");
+        report.repaired("the path is not a UUID; the object gets a new identity");
         Uuid::new_v4()
     })
 }
@@ -210,22 +268,17 @@ fn children_with_class<'n>(
         .collect()
 }
 
-fn read_material(record: &Value, problems: &mut Vec<Problem>) -> Option<Material> {
-    let Some(map) = record.as_object() else {
-        problems.push(Problem::warning(
-            None,
-            "a material record is not an object and was skipped",
-        ));
+/// Material record `index` of the project at `path`.
+fn read_material(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem>) -> Option<Material> {
+    let mut report = Report::new(problems, path, record("material", index));
+    let Some(map) = value.as_object() else {
+        report.skipped("it is not an object");
         return None;
-    };
-    let mut report = Report {
-        problems,
-        path: map.get("id").and_then(Value::as_str).unwrap_or("material").to_owned(),
     };
     let id = match uuid(map, "id") {
         Ok(id) => MaterialId::from_uuid(id),
         Err(e) => {
-            report.error(format!("material skipped: {e}"));
+            report.skipped(e);
             return None;
         }
     };
@@ -249,11 +302,11 @@ fn read_material(record: &Value, problems: &mut Vec<Problem>) -> Option<Material
         cut_fill: CutFill {
             pattern: report.or(code(&fill, "pattern", FillPattern::from_code), FillPattern::Solid),
             foreground: report.or(rgb(&fill, "foreground"), color),
-            background: rgb(&fill, "background").ok(),
+            background: report.optional(&fill, "background", rgb),
         },
     };
     if let Err(e) = material.validate() {
-        report.warn(format!("material “{}” repaired: {e}", material.name));
+        report.repaired(format!("“{}”: {e}; the values are corrected", material.name));
         material.opacity = material.opacity.clamp(0.0, 1.0);
         material.priority = material.priority.clamp(Material::MIN_PRIORITY, Material::MAX_PRIORITY);
         if material.name.trim().is_empty() {
@@ -263,16 +316,17 @@ fn read_material(record: &Value, problems: &mut Vec<Problem>) -> Option<Material
     Some(material)
 }
 
-fn read_layer(record: &Value, problems: &mut Vec<Problem>) -> Option<Layer> {
-    let map = record.as_object()?;
-    let mut report = Report {
-        problems,
-        path: map.get("id").and_then(Value::as_str).unwrap_or("layer").to_owned(),
+/// Layer record `index` of the project at `path`.
+fn read_layer(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem>) -> Option<Layer> {
+    let mut report = Report::new(problems, path, record("layer", index));
+    let Some(map) = value.as_object() else {
+        report.skipped("it is not an object");
+        return None;
     };
     let id = match uuid(map, "id") {
         Ok(id) => LayerId::from_uuid(id),
         Err(e) => {
-            report.error(format!("layer skipped: {e}"));
+            report.skipped(e);
             return None;
         }
     };
@@ -282,6 +336,65 @@ fn read_layer(record: &Value, problems: &mut Vec<Problem>) -> Option<Layer> {
         visible: report.or(boolean(map, "visible"), true),
         locked: report.or(boolean(map, "locked"), false),
     })
+}
+
+/// View record `index` of the project at `path`. A view has no field with a
+/// sensible default, so an invalid one skips the view.
+fn read_view(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem>) -> Option<View3d> {
+    let mut report = Report::new(problems, path, record("view", index));
+    let Some(map) = value.as_object() else {
+        report.skipped("it is not an object");
+        return None;
+    };
+    let view = uuid(map, "id").and_then(|id| {
+        Ok(View3d {
+            id: ViewId::from_uuid(id),
+            name: text(map, "name")?,
+            projection: code(map, "projection", Projection::from_code)?,
+        })
+    });
+    view.map_err(|e| report.skipped(e)).ok()
+}
+
+/// A two-component grid value, checked against the model's range.
+fn grid_vector(map: &Object, key: &str, valid: fn(DVec2) -> bool) -> Result<DVec2, String> {
+    let value = point(field(map, key)?).map_err(|e| format!("“{key}”: {e}"))?;
+    if valid(value) {
+        Ok(value)
+    } else {
+        Err(format!("“{key}” is out of range"))
+    }
+}
+
+/// The drafting grid of the plan views (INP-013). A missing `planGrid` is no
+/// problem: files written before it existed get the default grid. Inside a
+/// present grid, each invalid field is reported and falls back to its default.
+fn read_plan_grid(settings: &Object, report: &mut Report) -> PlanGrid {
+    let defaults = PlanGrid::default();
+    let Ok(map) = object(settings, "planGrid") else {
+        return defaults;
+    };
+    let mut grid = PlanGrid {
+        snap_step: report.or(grid_vector(map, "snapStep", valid_grid_spacing), defaults.snap_step),
+        snap_enabled: report.or(boolean(map, "snapEnabled"), defaults.snap_enabled),
+        main_spacing: report.or(
+            grid_vector(map, "mainSpacing", valid_grid_spacing),
+            defaults.main_spacing,
+        ),
+        auxiliary_spacing: report.or(
+            grid_vector(map, "auxiliarySpacing", valid_grid_spacing),
+            defaults.auxiliary_spacing,
+        ),
+        rotation: report.or(real(map, "rotation"), defaults.rotation),
+        origin: report.or(grid_vector(map, "origin", valid_grid_origin), defaults.origin),
+        visible: report.or(boolean(map, "visible"), defaults.visible),
+    };
+    if grid.auxiliary_spacing.cmpgt(grid.main_spacing).any() {
+        report.warn("“auxiliarySpacing” is larger than “mainSpacing”; the default spacings are used");
+        grid.main_spacing = defaults.main_spacing;
+        grid.auxiliary_spacing = defaults.auxiliary_spacing;
+    }
+    grid
 }
 
 /// Project-level data from `archicraft::project`, before storeys and
@@ -295,128 +408,118 @@ struct ProjectData {
     materials: Vec<Material>,
     tool_defaults: Option<Object>,
     views: Vec<View3d>,
-    counters: NameCounters,
+    /// The `counters` object, read once the elements are known.
+    counters: Result<Object, String>,
     newer_format: bool,
+}
+
+/// Display decimals: an integer from 0 to 8.
+fn decimals(map: &Object, key: &str) -> Result<u8, String> {
+    u8::try_from(integer(map, key)?)
+        .ok()
+        .filter(|v| *v <= 8)
+        .ok_or_else(|| format!("“{key}” is out of range"))
+}
+
+fn read_settings(map: &Object, report: &mut Report<'_>) -> ProjectSettings {
+    let defaults = ProjectSettings::default();
+    let units = UnitSettings {
+        length: report.or(code(map, "lengthUnit", LengthUnit::from_code), LengthUnit::Meter),
+        length_decimals: report.or(decimals(map, "lengthDecimals"), defaults.units.length_decimals),
+        angle: report.or(code(map, "angleUnit", AngleUnit::from_code), AngleUnit::DecimalDegrees),
+        angle_decimals: report.or(decimals(map, "angleDecimals"), defaults.units.angle_decimals),
+        slope: report.or(code(map, "slopeFormat", SlopeFormat::from_code), SlopeFormat::Degrees),
+        area: report.or(code(map, "areaUnit", AreaUnit::from_code), AreaUnit::SquareMeter),
+        volume: report.or(code(map, "volumeUnit", VolumeUnit::from_code), VolumeUnit::CubicMeter),
+    };
+    ProjectSettings {
+        units,
+        cut_plane_height: report.or(real(map, "cutPlaneHeight"), defaults.cut_plane_height),
+        tessellation: Tessellation {
+            chord_deviation: report.or(real(map, "chordDeviation"), defaults.tessellation.chord_deviation),
+            max_angle_deg: report.or(real(map, "maxSegmentAngle"), defaults.tessellation.max_angle_deg),
+        },
+        plan_grid: read_plan_grid(map, report),
+    }
 }
 
 fn read_project_data(attr: &Object, path: &str, problems: &mut Vec<Problem>) -> ProjectData {
     let mut newer_format = false;
-    {
-        let mut report = Report {
-            problems,
-            path: path.to_owned(),
-        };
-        match text(attr, "formatVersion").map(|v| v.parse::<u32>()) {
-            Ok(Ok(version)) if version > FORMAT_VERSION => {
-                newer_format = true;
-                report.warn(format!(
-                    "the file was written by a newer ArchiCraft version (format {version}); data this version does not know may be lost on saving"
-                ));
-            }
-            Ok(Ok(_)) => {}
-            _ => report.warn("the ArchiCraft format version is missing or invalid"),
+    let mut report = Report::new(problems, path, "project");
+    match text(attr, "formatVersion").map(|v| v.parse::<u32>()) {
+        Ok(Ok(version)) if version > FORMAT_VERSION => {
+            newer_format = true;
+            report.warn(format!(
+                "the file was written by a newer ArchiCraft version (format {version}); data this version does not know may be lost on saving"
+            ));
         }
+        Ok(Ok(_)) => {}
+        _ => report.warn("the ArchiCraft format version is missing or invalid"),
     }
-
-    let mut report = Report {
-        problems,
-        path: path.to_owned(),
-    };
-    let defaults = ProjectSettings::default();
     let settings_map = report.or(object(attr, "settings").cloned(), Object::new());
-    let units = UnitSettings {
-        length: report.or(
-            code(&settings_map, "lengthUnit", LengthUnit::from_code),
-            LengthUnit::Meter,
-        ),
-        length_decimals: report.or(
-            integer(&settings_map, "lengthDecimals").map(|v| v.clamp(0, 8) as u8),
-            defaults.units.length_decimals,
-        ),
-        angle: report.or(
-            code(&settings_map, "angleUnit", AngleUnit::from_code),
-            AngleUnit::DecimalDegrees,
-        ),
-        angle_decimals: report.or(
-            integer(&settings_map, "angleDecimals").map(|v| v.clamp(0, 8) as u8),
-            defaults.units.angle_decimals,
-        ),
-        slope: report.or(
-            code(&settings_map, "slopeFormat", SlopeFormat::from_code),
-            SlopeFormat::Degrees,
-        ),
-        area: report.or(
-            code(&settings_map, "areaUnit", AreaUnit::from_code),
-            AreaUnit::SquareMeter,
-        ),
-        volume: report.or(
-            code(&settings_map, "volumeUnit", VolumeUnit::from_code),
-            VolumeUnit::CubicMeter,
-        ),
-    };
-    let settings = ProjectSettings {
-        units,
-        cut_plane_height: report.or(real(&settings_map, "cutPlaneHeight"), defaults.cut_plane_height),
-        tessellation: Tessellation {
-            chord_deviation: report.or(
-                real(&settings_map, "chordDeviation"),
-                defaults.tessellation.chord_deviation,
-            ),
-            max_angle_deg: report.or(
-                real(&settings_map, "maxSegmentAngle"),
-                defaults.tessellation.max_angle_deg,
-            ),
-        },
-    };
     let location_map = report.or(object(attr, "location").cloned(), Object::new());
-    let survey = location_map.get("surveyPoint").map(point);
-    let location = Location {
-        altitude: report.or(real(&location_map, "altitude"), 0.0),
-        survey_point: match survey {
-            Some(Ok(p)) => [p.x, p.y],
-            _ => [0.0, 0.0],
-        },
-        true_north: report.or(real(&location_map, "trueNorth"), 0.0),
-    };
-    let info_map = report.or(object(attr, "info").cloned(), Object::new());
-    let info = ProjectInfo {
-        name: String::new(),
-        description: String::new(),
-        number: text(&info_map, "number").unwrap_or_default(),
-        client: text(&info_map, "client").unwrap_or_default(),
-        address: text(&info_map, "address").unwrap_or_default(),
-        author: text(&info_map, "author").unwrap_or_default(),
-    };
-    let ground = uuid(attr, "groundStorey").ok().map(StoreyId::from_uuid);
-    let tool_defaults = object(attr, "toolDefaults").ok().cloned();
-    let views: Vec<View3d> = array(attr, "views")
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|v| {
-                    let m = v.as_object()?;
-                    Some(View3d {
-                        id: ViewId::from_uuid(uuid(m, "id").ok()?),
-                        name: text(m, "name").ok()?,
-                        projection: code(m, "projection", Projection::from_code).ok()?,
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let counters_map = object(attr, "counters").cloned().unwrap_or_default();
-    let counters = NameCounters {
-        wall: integer(&counters_map, "wall").map_or(0, |v| v.clamp(0, i64::from(u32::MAX)) as u32),
-        slab: integer(&counters_map, "slab").map_or(0, |v| v.clamp(0, i64::from(u32::MAX)) as u32),
-    };
+    let info_map = report.or(object(attr, "info").cloned().map(Some), None);
+    // A missing ground storey is reported when the storeys are known.
+    let ground = attr.get("groundStorey").and_then(|_| match uuid(attr, "groundStorey") {
+        Ok(id) => Some(StoreyId::from_uuid(id)),
+        Err(e) => {
+            report.repaired(format!(
+                "{e}; the lowest storey at or above project zero is the ground storey"
+            ));
+            None
+        }
+    });
     let material_records = report.or(array(attr, "materials").cloned(), Vec::new());
     let layer_records = report.or(array(attr, "layers").cloned(), Vec::new());
-    drop(report);
+    let view_records = report.or(array(attr, "views").cloned(), Vec::new());
+    let counters = object(attr, "counters").cloned();
+
+    let settings = read_settings(&settings_map, &mut Report::new(problems, path, "project settings"));
+    let mut report = Report::new(problems, path, "project location");
+    let location = Location {
+        altitude: report.or(real(&location_map, "altitude"), 0.0),
+        survey_point: report.or(
+            field(&location_map, "surveyPoint")
+                .and_then(point)
+                .map(|p| [p.x, p.y])
+                .map_err(|e| format!("“surveyPoint”: {e}")),
+            [0.0, 0.0],
+        ),
+        true_north: report.or(real(&location_map, "trueNorth"), 0.0),
+    };
+    // A missing info object is reported once above, not field by field.
+    let info = info_map.map_or_else(ProjectInfo::default, |map| {
+        let mut report = Report::new(problems, path, "project information");
+        ProjectInfo {
+            number: report.or(text(&map, "number"), String::new()),
+            client: report.or(text(&map, "client"), String::new()),
+            address: report.or(text(&map, "address"), String::new()),
+            author: report.or(text(&map, "author"), String::new()),
+            ..ProjectInfo::default()
+        }
+    });
+    let tool_defaults = match object(attr, "toolDefaults") {
+        Ok(map) => Some(map.clone()),
+        Err(e) => {
+            Report::new(problems, path, "tool defaults").repaired(format!("{e}; the template defaults are used"));
+            None
+        }
+    };
     let materials = material_records
         .iter()
-        .filter_map(|m| read_material(m, problems))
+        .enumerate()
+        .filter_map(|(i, m)| read_material(i, m, path, problems))
         .collect();
-    let layers = layer_records.iter().filter_map(|l| read_layer(l, problems)).collect();
+    let layers = layer_records
+        .iter()
+        .enumerate()
+        .filter_map(|(i, l)| read_layer(i, l, path, problems))
+        .collect();
+    let views = view_records
+        .iter()
+        .enumerate()
+        .filter_map(|(i, v)| read_view(i, v, path, problems))
+        .collect();
     ProjectData {
         settings,
         location,
@@ -431,64 +534,135 @@ fn read_project_data(attr: &Object, path: &str, problems: &mut Vec<Problem>) -> 
     }
 }
 
+/// The name counters (ELM-019). An invalid, negative or missing counter is
+/// repaired to the number of elements of its kind, so that automatic names
+/// do not repeat; a counter above the largest value is clamped to it.
+fn read_counters(
+    map: Result<&Object, String>,
+    project: &Project,
+    path: &str,
+    problems: &mut Vec<Problem>,
+) -> NameCounters {
+    let count = |tag: KindTag| {
+        let n = project.elements.values().filter(|e| e.tag() == tag).count();
+        u32::try_from(n).unwrap_or(u32::MAX)
+    };
+    let (walls, slabs) = (count(KindTag::Wall), count(KindTag::Slab));
+    let mut report = Report::new(problems, path, "counters");
+    let map = match map {
+        Ok(map) => map,
+        Err(e) => {
+            report.repaired(format!(
+                "{e}; the number of walls ({walls}) and slabs ({slabs}) is used"
+            ));
+            return NameCounters {
+                wall: walls,
+                slab: slabs,
+            };
+        }
+    };
+    let mut counter = |key: &str, existing: u32| match integer(map, key) {
+        Ok(v) if v < 0 => {
+            report.repaired(format!("“{key}” is negative; {existing} is used"));
+            existing
+        }
+        Ok(v) => u32::try_from(v).unwrap_or_else(|_| {
+            report.repaired(format!("“{key}” is out of range; {} is used", u32::MAX));
+            u32::MAX
+        }),
+        Err(e) => {
+            report.repaired(format!("{e}; {existing} is used"));
+            existing
+        }
+    };
+    NameCounters {
+        wall: counter("wall", walls),
+        slab: counter("slab", slabs),
+    }
+}
+
+/// The template's tool defaults, with its material and layer found by name
+/// among `materials` and `layers`, else the first of each.
+fn template_tool_defaults(materials: &[Material], layers: &[Layer]) -> ToolDefaults {
+    let template = default_metric_project();
+    let material = |id: MaterialId| {
+        let name = template.material(id).map(|m| m.name.as_str());
+        materials
+            .iter()
+            .find(|m| Some(m.name.as_str()) == name)
+            .unwrap_or(&materials[0])
+            .id
+    };
+    let layer = |id: LayerId| {
+        let name = template.layer(id).map(|l| l.name.as_str());
+        layers
+            .iter()
+            .find(|l| Some(l.name.as_str()) == name)
+            .unwrap_or(&layers[0])
+            .id
+    };
+    let mut defaults = template.tool_defaults.clone();
+    defaults.wall.material = material(defaults.wall.material);
+    defaults.wall.layer = layer(defaults.wall.layer);
+    defaults.slab.material = material(defaults.slab.material);
+    defaults.slab.layer = layer(defaults.slab.layer);
+    defaults
+}
+
+/// The tool defaults of the project at `path`. Missing tool defaults were
+/// reported with the project data; the template's are used then, and they
+/// are the default of every invalid field.
 fn read_tool_defaults(
     map: Option<&Object>,
     materials: &[Material],
     layers: &[Layer],
+    path: &str,
     problems: &mut Vec<Problem>,
 ) -> ToolDefaults {
-    let first_material = materials[0].id;
-    let first_layer = layers[0].id;
-    let mut report = Report {
-        problems,
-        path: "toolDefaults".to_owned(),
+    let template = template_tool_defaults(materials, layers);
+    let Some(map) = map else {
+        return template;
     };
-    let empty = Object::new();
-    let map = map.unwrap_or(&empty);
+    let mut report = Report::new(problems, path, "tool defaults");
     let wall = report.or(object(map, "wall").cloned(), Object::new());
     let slab = report.or(object(map, "slab").cloned(), Object::new());
-    let material_ref = |m: &Object, report: &mut Report<'_>| {
-        let id = report.or(uuid(m, "material").map(MaterialId::from_uuid), first_material);
+    let material_ref = |m: &Object, default: MaterialId, report: &mut Report<'_>| {
+        let id = report.or(uuid(m, "material").map(MaterialId::from_uuid), default);
         if materials.iter().any(|m| m.id == id) {
             id
         } else {
-            report.warn("a tool's default material does not exist; the first material is used");
-            first_material
+            report.repaired("a tool's default material does not exist; the template default is used");
+            default
         }
     };
-    let layer_ref = |m: &Object, report: &mut Report<'_>| {
-        let id = report.or(uuid(m, "layer").map(LayerId::from_uuid), first_layer);
+    let layer_ref = |m: &Object, default: LayerId, report: &mut Report<'_>| {
+        let id = report.or(uuid(m, "layer").map(LayerId::from_uuid), default);
         if layers.iter().any(|l| l.id == id) {
             id
         } else {
-            report.warn("a tool's default layer does not exist; the first layer is used");
-            first_layer
+            report.repaired("a tool's default layer does not exist; the template default is used");
+            default
         }
     };
+    let (w, s) = (&template.wall, &template.slab);
     let wall_defaults = WallDefaults {
-        thickness: report.or(real(&wall, "thickness"), 0.25),
-        reference_line: report.or(reference_line(&wall), ReferenceLine::Outside),
-        base_offset: report.or(real(&wall, "baseOffset"), 0.0),
-        top: report.or(
-            object(&wall, "top").and_then(top_link),
-            TopLink::Relative {
-                storeys: 1,
-                offset: 0.0,
-            },
-        ),
-        material: material_ref(&wall, &mut report),
-        layer: layer_ref(&wall, &mut report),
-        position: report.or(code(&wall, "position", Position::from_code), Position::Exterior),
-        ifc_class: report.or(code(&wall, "ifcClass", IfcClass::from_code), IfcClass::Wall),
+        thickness: report.or(real(&wall, "thickness"), w.thickness),
+        reference_line: report.or(reference_line(&wall), w.reference_line),
+        base_offset: report.or(real(&wall, "baseOffset"), w.base_offset),
+        top: report.or(object(&wall, "top").and_then(top_link), w.top),
+        material: material_ref(&wall, w.material, &mut report),
+        layer: layer_ref(&wall, w.layer, &mut report),
+        position: report.or(code(&wall, "position", Position::from_code), w.position),
+        ifc_class: report.or(code(&wall, "ifcClass", IfcClass::from_code), w.ifc_class),
     };
     let slab_defaults = SlabDefaults {
-        thickness: report.or(real(&slab, "thickness"), 0.2),
-        reference: report.or(code(&slab, "reference", SlabReference::from_code), SlabReference::Top),
-        offset: report.or(real(&slab, "offset"), 0.0),
-        material: material_ref(&slab, &mut report),
-        layer: layer_ref(&slab, &mut report),
-        position: report.or(code(&slab, "position", Position::from_code), Position::Undefined),
-        ifc_class: report.or(code(&slab, "ifcClass", IfcClass::from_code), IfcClass::Slab),
+        thickness: report.or(real(&slab, "thickness"), s.thickness),
+        reference: report.or(code(&slab, "reference", SlabReference::from_code), s.reference),
+        offset: report.or(real(&slab, "offset"), s.offset),
+        material: material_ref(&slab, s.material, &mut report),
+        layer: layer_ref(&slab, s.layer, &mut report),
+        position: report.or(code(&slab, "position", Position::from_code), s.position),
+        ifc_class: report.or(code(&slab, "ifcClass", IfcClass::from_code), s.ifc_class),
     };
     ToolDefaults {
         wall: wall_defaults,
@@ -503,17 +677,22 @@ fn read_storeys(
 ) -> Vec<(Storey, Vec<String>)> {
     let mut storeys = Vec::new();
     for (path, node) in children_with_class(nodes, building, "IfcBuildingStorey") {
-        let mut report = Report {
+        let mut report = Report::new(
             problems,
-            path: path.clone(),
-        };
+            path,
+            format!("storey {}", name(node).as_deref().unwrap_or(path)),
+        );
         let id = StoreyId::from_uuid(node_uuid(path, &mut report));
+        let name = name(node).unwrap_or_else(|| {
+            report.repaired("it has no name; “Storey” is used");
+            "Storey".into()
+        });
         let attr = node.attributes.get(schema::STOREY).and_then(Value::as_object);
         let Some(attr) = attr else {
-            report.warn("storey without ArchiCraft data; elevation 0 and height 3 m are assumed");
+            report.repaired("it has no ArchiCraft data; elevation 0 and height 3 m are assumed");
             let storey = Storey {
                 id,
-                name: name(node).unwrap_or_else(|| "Storey".into()),
+                name,
                 elevation: 0.0,
                 height: 3.0,
                 cut_plane_height: None,
@@ -521,15 +700,17 @@ fn read_storeys(
             storeys.push((storey, node.children.values().flatten().cloned().collect()));
             continue;
         };
+        let mut height = report.or(real(attr, "height"), 3.0);
+        if height < MIN_STOREY_HEIGHT {
+            report.repaired(format!("“height” is below the minimum; {MIN_STOREY_HEIGHT} m is used"));
+            height = MIN_STOREY_HEIGHT;
+        }
         let storey = Storey {
             id,
-            name: name(node).unwrap_or_else(|| {
-                report.warn("storey without a name");
-                "Storey".into()
-            }),
+            name,
             elevation: report.or(real(attr, "elevation"), 0.0),
-            height: report.or(real(attr, "height"), 3.0).max(MIN_STOREY_HEIGHT),
-            cut_plane_height: real(attr, "cutPlaneHeight").ok(),
+            height,
+            cut_plane_height: report.optional(attr, "cutPlaneHeight", real),
         };
         storeys.push((storey, node.children.values().flatten().cloned().collect()));
     }
@@ -591,6 +772,11 @@ fn storey_list(mut storeys: Vec<Storey>, ground: Option<StoreyId>, problems: &mu
     }
 }
 
+/// Names an element node in reports, by its name if it has one.
+fn element_record(path: &str, node: &FlatNode) -> String {
+    format!("element {}", name(node).as_deref().unwrap_or(path))
+}
+
 fn read_element(
     project: &Project,
     path: &str,
@@ -598,11 +784,11 @@ fn read_element(
     storey: StoreyId,
     problems: &mut Vec<Problem>,
 ) -> Option<Element> {
-    let mut report = Report {
-        problems,
-        path: path.to_owned(),
+    let mut report = Report::new(problems, path, element_record(path, node));
+    let Some(common) = node.attributes.get(schema::ELEMENT).and_then(Value::as_object) else {
+        report.skipped("its ArchiCraft data is not an object");
+        return None;
     };
-    let common = node.attributes.get(schema::ELEMENT).and_then(Value::as_object)?;
     let kind = match code(common, "kind", |c| match c {
         "wall" => Some(KindTag::Wall),
         "slab" => Some(KindTag::Slab),
@@ -610,18 +796,19 @@ fn read_element(
     }) {
         Ok(kind) => kind,
         Err(e) => {
-            report.error(format!("element skipped: {e}"));
+            report.skipped(e);
             return None;
         }
     };
     let id = ElementId::from_uuid(node_uuid(path, &mut report));
     let name = name(node).unwrap_or_else(|| {
-        report.warn("element without a name");
-        format!("{}-?", kind.name_prefix())
+        let name = format!("{}-?", kind.name_prefix());
+        report.repaired(format!("it has no name; “{name}” is used"));
+        name
     });
     let mut layer = report.or(uuid(common, "layer").map(LayerId::from_uuid), project.layers[0].id);
     if project.layer(layer).is_none() {
-        report.warn(format!("{name}: the layer does not exist; the first layer is used"));
+        report.repaired("the layer does not exist; the first layer is used");
         layer = project.layers[0].id;
     }
     let default_class = match kind {
@@ -631,10 +818,7 @@ fn read_element(
     let ifc_class = match class_code(node).and_then(IfcClass::from_code) {
         Some(c) if kind.ifc_classes().contains(&c) => c,
         _ => {
-            report.warn(format!(
-                "{name}: unsupported IFC class; {} is used",
-                default_class.code()
-            ));
+            report.repaired(format!("unsupported IFC class; {} is used", default_class.code()));
             default_class
         }
     };
@@ -646,8 +830,8 @@ fn read_element(
         if project.material(id).is_some() {
             id
         } else {
-            report.warn(format!(
-                "{name}: the material does not exist; “{}” is used",
+            report.repaired(format!(
+                "the material does not exist; “{}” is used",
                 project.materials[0].name
             ));
             project.materials[0].id
@@ -656,7 +840,7 @@ fn read_element(
     let element_kind = match kind {
         KindTag::Wall => {
             let Some(attr) = node.attributes.get(schema::WALL).and_then(Value::as_object) else {
-                report.error(format!("{name} skipped: wall parameters are missing"));
+                report.skipped("wall parameters are missing");
                 return None;
             };
             let start = field(attr, "start").and_then(point);
@@ -664,7 +848,7 @@ fn read_element(
             let (start, end) = match (start, end) {
                 (Ok(s), Ok(e)) => (s, e),
                 (Err(e), _) | (_, Err(e)) => {
-                    report.error(format!("{name} skipped: {e}"));
+                    report.skipped(e);
                     return None;
                 }
             };
@@ -686,20 +870,20 @@ fn read_element(
         }
         KindTag::Slab => {
             let Some(attr) = node.attributes.get(schema::SLAB).and_then(Value::as_object) else {
-                report.error(format!("{name} skipped: slab parameters are missing"));
+                report.skipped("slab parameters are missing");
                 return None;
             };
             let outline = match field(attr, "outline").and_then(points) {
                 Ok(o) => o,
                 Err(e) => {
-                    report.error(format!("{name} skipped: {e}"));
+                    report.skipped(e);
                     return None;
                 }
             };
             let holes = match array(attr, "holes").and_then(|h| h.iter().map(points).collect()) {
                 Ok(h) => h,
                 Err(e) => {
-                    report.warn(format!("{name}: holes dropped: {e}"));
+                    report.repaired(format!("the holes are left out: {e}"));
                     Vec::new()
                 }
             };
@@ -719,14 +903,14 @@ fn read_element(
         storey,
         layer,
         ifc_class,
-        position: code(common, "position", Position::from_code).unwrap_or_default(),
-        locked: boolean(common, "locked").unwrap_or(false),
+        position: report.or(code(common, "position", Position::from_code), Position::default()),
+        locked: report.or(boolean(common, "locked"), false),
         kind: element_kind,
     };
     match validate_element(project, &element) {
         Ok(valid) => Some(valid),
         Err(e) => {
-            report.error(format!("{} skipped: {e}", element.name));
+            report.skipped(e);
             None
         }
     }
@@ -751,10 +935,7 @@ pub fn read(file: &IfcxFile) -> Result<ReadOutcome, Problem> {
         ));
     };
     let mut data = read_project_data(project_attr, root_path, &mut problems);
-    let mut root_report = Report {
-        problems: &mut problems,
-        path: root_path.clone(),
-    };
+    let mut root_report = Report::new(&mut problems, root_path, "project");
     let project_id = ProjectId::from_uuid(node_uuid(root_path, &mut root_report));
     data.info.name = name(root).unwrap_or_else(|| "Untitled project".into());
     data.info.description = root
@@ -772,12 +953,14 @@ pub fn read(file: &IfcxFile) -> Result<ReadOutcome, Problem> {
     if building.is_none() {
         root_report.warn("the project has no building; a building was added");
     }
-    let site_id = site.map_or_else(SiteId::new, |(p, _)| {
-        Uuid::parse_str(p).map_or_else(|_| SiteId::new(), SiteId::from_uuid)
-    });
-    let building_id = building.map_or_else(BuildingId::new, |(p, _)| {
-        Uuid::parse_str(p).map_or_else(|_| BuildingId::new(), BuildingId::from_uuid)
-    });
+    if data.views.is_empty() {
+        root_report.warn("the project has no views; a default view was added");
+        data.views.push(View3d {
+            id: ViewId::new(),
+            name: "3D perspective".into(),
+            projection: Projection::Perspective,
+        });
+    }
 
     if data.materials.is_empty() {
         root_report.warn("the project has no materials; a default material was added");
@@ -801,11 +984,17 @@ pub fn read(file: &IfcxFile) -> Result<ReadOutcome, Problem> {
         root_report.warn("the project has no layers; a default layer was added");
         data.layers.push(Layer::new("Default"));
     }
-    drop(root_report);
+    let site_id = site.map_or_else(SiteId::new, |(p, _)| {
+        SiteId::from_uuid(node_uuid(p, &mut Report::new(&mut problems, p, "site")))
+    });
+    let building_id = building.map_or_else(BuildingId::new, |(p, _)| {
+        BuildingId::from_uuid(node_uuid(p, &mut Report::new(&mut problems, p, "building")))
+    });
     let tool_defaults = read_tool_defaults(
         data.tool_defaults.as_ref(),
         &data.materials,
         &data.layers,
+        root_path,
         &mut problems,
     );
 
@@ -837,30 +1026,29 @@ pub fn read(file: &IfcxFile) -> Result<ReadOutcome, Problem> {
         elements: IndexMap::new(),
         tool_defaults,
         views: data.views,
-        counters: data.counters,
+        counters: NameCounters::default(),
         data_version: 0,
         revision: 0,
     };
-    if project.views.is_empty() {
-        project.views.push(View3d {
-            id: ViewId::new(),
-            name: "3D perspective".into(),
-            projection: Projection::Perspective,
-        });
-    }
     project.data_version = file.header.data_version.parse().unwrap_or_else(|_| {
         problems.push(Problem::warning(None, "the data version in the header is not a number"));
         0
     });
 
     for (storey, children) in &storey_entries {
-        if project.storeys.get(storey.id).is_none() {
-            continue;
-        }
+        let storey_lost = project.storeys.get(storey.id).is_none();
         for child in children {
+            // A missing child is reported by `validate`.
             let Some(node) = nodes.get(child.as_str()) else {
                 continue;
             };
+            if storey_lost {
+                if node.attributes.contains_key(schema::ELEMENT) {
+                    Report::new(&mut problems, child, element_record(child, node))
+                        .skipped(format!("its storey “{}” could not be read", storey.name));
+                }
+                continue;
+            }
             if !node.attributes.contains_key(schema::ELEMENT) {
                 problems.push(Problem::warning(
                     Some(child),
@@ -883,6 +1071,12 @@ pub fn read(file: &IfcxFile) -> Result<ReadOutcome, Problem> {
             }
         }
     }
+    project.counters = read_counters(
+        data.counters.as_ref().map_err(Clone::clone),
+        &project,
+        root_path,
+        &mut problems,
+    );
     Ok(ReadOutcome {
         project,
         problems,

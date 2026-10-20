@@ -34,7 +34,8 @@ gh api -X PUT "repos/$repo/branches/main/protection" --input - >/dev/null <<'EOF
       "Format and clippy",
       "IFCX conformance (buildingSMART reference code)",
       "Licences and sources",
-      "Loop policy"
+      "Loop policy",
+      "Repository guards"
     ]
   },
   "enforce_admins": false,

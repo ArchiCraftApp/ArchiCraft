@@ -8,9 +8,9 @@ use archicraft_model::{Command, CommandError, ElementId, StoreyId, ViewId};
 
 use crate::document::Document;
 use crate::persistence::prefs::Preferences;
+use crate::tools::ToolState;
 use crate::views::plan::PlanViewState;
 use crate::views::render3d::{GpuScene, Renderer3d};
-use crate::views::tools::ToolState;
 use crate::views::view3d::View3dState;
 
 /// A view shown in a tab (UI-006, VIEW-002).
@@ -46,6 +46,19 @@ pub struct SceneKey {
     pub selection: Vec<ElementId>,
 }
 
+impl SceneKey {
+    /// The scene every 3D view shows: the selection is the one of the plans,
+    /// so it stays synchronised between views (UI-007).
+    pub fn of(ws: &Workspace) -> Self {
+        let mut selection: Vec<ElementId> = ws.selection.iter().copied().collect();
+        selection.sort();
+        Self {
+            revision: ws.doc.project.revision,
+            selection,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Workspace {
     pub doc: Document,
@@ -63,6 +76,9 @@ pub struct Workspace {
     pub active_pane: Option<Pane>,
     pub status: Option<Status>,
     pub requests: Vec<Request>,
+    /// Frame and latency samples (NFR-PERF-001).
+    #[cfg(feature = "perf")]
+    pub perf: crate::perf::PerfRecorder,
 }
 
 impl Workspace {
@@ -82,6 +98,8 @@ impl Workspace {
             active_pane: Some(Pane::Plan(active_storey)),
             status: None,
             requests: Vec::new(),
+            #[cfg(feature = "perf")]
+            perf: crate::perf::PerfRecorder::from_env(),
         }
     }
 
@@ -122,8 +140,12 @@ impl Workspace {
     /// (NFR-REL-005). Returns true on success.
     pub fn execute(&mut self, command: Command) -> bool {
         let label = command.label();
+        #[cfg(feature = "perf")]
+        let started = Instant::now();
         match self.doc.execute(command) {
             Ok(()) => {
+                #[cfg(feature = "perf")]
+                self.perf.edit_executed(self.doc.project.revision, started);
                 self.info(label);
                 true
             }
@@ -202,7 +224,7 @@ impl Workspace {
     /// Selects every visible element of the active tool's kind on the active
     /// storey, or of every kind with the selection tool (SEL-004).
     pub fn select_all(&mut self) {
-        use crate::views::tools::ToolKind;
+        use crate::tools::ToolKind;
         let project = &self.doc.project;
         let kind = match self.tool.kind {
             ToolKind::Select => None,

@@ -8,6 +8,7 @@
 //! in-file schema and must match it. The composed tree must have no cycles.
 
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 
 use indexmap::IndexMap;
 use serde_json::Value;
@@ -318,15 +319,55 @@ pub fn dangling_references(nodes: &IndexMap<String, FlatNode>) -> Vec<Problem> {
     problems
 }
 
+/// The message for a file above the size limit, naming the limit in
+/// user-facing units (NFR-SEC-003).
+fn too_large(limit: u64) -> Problem {
+    const KB: u64 = 1024;
+    let size = match limit {
+        l if l >= KB * KB * KB && l % (KB * KB * KB) == 0 => format!("{} GB", l / (KB * KB * KB)),
+        l if l >= KB * KB && l % (KB * KB) == 0 => format!("{} MB", l / (KB * KB)),
+        l if l >= KB && l % KB == 0 => format!("{} KB", l / KB),
+        l => format!("{l} bytes"),
+    };
+    Problem::error(None, format!("the file is larger than the limit of {size}"))
+}
+
+/// Reads a whole file of at most `limit` bytes (Appendix D.9 file size,
+/// NFR-SEC-003). A `declared_len` above the limit is rejected before
+/// anything is read; the read itself stops one byte past the limit, so a
+/// file that grows while it is read, or whose length is unknown (`None`, for
+/// example a pipe), is rejected too.
+pub fn read_bounded(reader: impl Read, declared_len: Option<u64>, limit: u64) -> Result<Vec<u8>, Problem> {
+    if declared_len.is_some_and(|len| len > limit) {
+        return Err(too_large(limit));
+    }
+    let capacity = declared_len.unwrap_or(0).min(limit);
+    let mut bytes = Vec::with_capacity(usize::try_from(capacity).unwrap_or(0));
+    reader
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|e| Problem::error(None, format!("the file cannot be read: {e}")))?;
+    if bytes.len() as u64 > limit {
+        return Err(too_large(limit));
+    }
+    Ok(bytes)
+}
+
 /// Parses an IFCX document from bytes, enforcing the limits of Appendix D.9
-/// (file size, JSON nesting below 128 levels, imports). The JSON nesting
-/// limit is the recursion limit of `serde_json`.
+/// (file size, JSON nesting below 128 levels, imports; NFR-SEC-003). The
+/// JSON nesting limit is the recursion limit of `serde_json`.
 pub fn parse(bytes: &[u8]) -> Result<IfcxFile, Problem> {
     if bytes.len() > MAX_FILE_SIZE {
-        return Err(Problem::error(None, "the file is larger than 2 GB"));
+        return Err(too_large(MAX_FILE_SIZE as u64));
     }
-    let file: IfcxFile = serde_json::from_slice(bytes)
-        .map_err(|e| Problem::error(None, format!("the file is not a valid IFCX document: {e}")))?;
+    let file: IfcxFile = serde_json::from_slice(bytes).map_err(|e| {
+        // serde_json reports its recursion limit only in the message.
+        if e.to_string().starts_with("recursion limit exceeded") {
+            Problem::error(None, "the file is nested more than 127 levels deep")
+        } else {
+            Problem::error(None, format!("the file is not a valid IFCX document: {e}"))
+        }
+    })?;
     if file.imports.len() > MAX_IMPORTS {
         return Err(Problem::error(None, "the file has more than 32 imports"));
     }

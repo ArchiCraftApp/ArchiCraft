@@ -1,6 +1,7 @@
 //! The application window (UI-001, PRJ-003, PRJ-004, PRJ-008).
 
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -11,15 +12,16 @@ use egui::{Id, RichText, ThemePreference, Ui, ViewportCommand, WidgetText};
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 
 use crate::document::Document;
+use crate::i18n::{self, Localizer};
 use crate::persistence::autosave::{Abandoned, Autosaver, Session, find_abandoned};
 use crate::persistence::crash::{RecentLog, reports_since};
 use crate::persistence::prefs::{Preferences, ThemeChoice};
 use crate::persistence::{DataDirs, save_atomically};
+use crate::tools::ToolKind;
 use crate::ui::actions::Action;
 use crate::ui::dialogs::{self, Dialogs};
 use crate::ui::{browser, properties, shell};
 use crate::views::plan;
-use crate::views::tools::ToolKind;
 use crate::views::view3d::{self, View3dState, model_bounds};
 use crate::workspace::{Pane, Request, Workspace};
 
@@ -50,6 +52,17 @@ enum Prompt {
     },
 }
 
+impl Prompt {
+    fn title(&self) -> &str {
+        match self {
+            Prompt::Unsaved(_) => "Save changes?",
+            Prompt::Message { title, .. } => title,
+            Prompt::LoadReport => "The project was opened with problems",
+            Prompt::OverwriteNewer { .. } => "Overwrite a newer file?",
+        }
+    }
+}
+
 pub struct ArchiCraftApp {
     dirs: DataDirs,
     ws: Workspace,
@@ -66,7 +79,13 @@ pub struct ArchiCraftApp {
     newer_confirmed: bool,
     title: String,
     theme: Option<ThemeChoice>,
+    /// The user-interface language, installed at the start of every frame
+    /// (NFR-L10N-001).
+    localizer: Rc<Localizer>,
     released: Vec<View3dState>,
+    /// The largest file opened or recovered (Appendix D.9, NFR-SEC-003);
+    /// lowered only by tests.
+    file_size_limit: u64,
     _log: Arc<RecentLog>,
 }
 
@@ -76,6 +95,14 @@ impl std::fmt::Debug for ArchiCraftApp {
             .field("ws", &self.ws)
             .finish_non_exhaustive()
     }
+}
+
+/// The number of modifier keys a shortcut needs.
+fn modifier_count(m: egui::Modifiers) -> usize {
+    [m.alt, m.ctrl, m.shift, m.mac_cmd, m.command]
+        .into_iter()
+        .filter(|&b| b)
+        .count()
 }
 
 fn default_tree(ws: &Workspace) -> Tree<Pane> {
@@ -118,7 +145,9 @@ impl ArchiCraftApp {
             newer_confirmed: false,
             title: String::new(),
             theme: None,
+            localizer: Rc::new(Localizer::english()),
             released: Vec::new(),
+            file_size_limit: archicraft_ifcx::validate::MAX_FILE_SIZE as u64,
             _log: log,
         };
         if let Some(path) = open {
@@ -130,6 +159,37 @@ impl ArchiCraftApp {
     /// The workspace, for tests.
     pub fn workspace(&mut self) -> &mut Workspace {
         &mut self.ws
+    }
+
+    /// The layout of the views, for tests that build a split (UI-007).
+    #[doc(hidden)]
+    pub fn tree_mut(&mut self) -> &mut Tree<Pane> {
+        &mut self.tree
+    }
+
+    /// The frame and latency samples so far (NFR-PERF-001).
+    #[cfg(feature = "perf")]
+    pub fn perf(&self) -> &crate::perf::PerfRecorder {
+        &self.ws.perf
+    }
+
+    /// The title of the open application prompt, for tests
+    /// (NFR-USE-004).
+    #[doc(hidden)]
+    pub fn prompt_title(&self) -> Option<String> {
+        self.prompt.as_ref().map(|p| p.title().to_owned())
+    }
+
+    /// Lowers the file size limit, so that tests can open an oversized file
+    /// without writing 2 GB.
+    pub fn set_file_size_limit(&mut self, limit: u64) {
+        self.file_size_limit = limit;
+    }
+
+    /// Switches the user-interface language from the next frame on
+    /// (NFR-L10N-001), for example to the en-XA pseudo-locale in tests.
+    pub fn set_localizer(&mut self, localizer: Rc<Localizer>) {
+        self.localizer = localizer;
     }
 
     fn message(&mut self, title: &str, text: impl Into<String>) {
@@ -148,16 +208,10 @@ impl ArchiCraftApp {
         self.newer_confirmed = false;
     }
 
-    /// Opens a project file (PRJ-003, PRJ-008).
+    /// Opens a project file (PRJ-003, PRJ-008), checking its size before
+    /// reading it (NFR-SEC-003).
     pub fn open_path(&mut self, path: &Path) {
-        let bytes = match std::fs::read(path) {
-            Ok(b) => b,
-            Err(e) => {
-                self.message("Cannot open the project", format!("{}: {e}", path.display()));
-                return;
-            }
-        };
-        match archicraft_ifcx::load(&bytes) {
+        match archicraft_ifcx::load_path_with_limit(path, self.file_size_limit) {
             Ok(outcome) => {
                 let doc = Document::opened(
                     outcome.project,
@@ -266,9 +320,8 @@ impl ArchiCraftApp {
             Then::Recover(index) => {
                 if index < self.recovery.len() {
                     let abandoned = self.recovery.remove(index);
-                    match std::fs::read(&abandoned.model)
-                        .map_err(|e| e.to_string())
-                        .and_then(|b| archicraft_ifcx::load(&b).map_err(|p| p.to_string()))
+                    match archicraft_ifcx::load_path_with_limit(&abandoned.model, self.file_size_limit)
+                        .map_err(|p| p.to_string())
                     {
                         Ok(outcome) => {
                             let doc = Document::recovered(
@@ -465,7 +518,13 @@ impl ArchiCraftApp {
         let typing = ctx.text_edit_focused();
         let drawing = self.ws.tool.is_drawing();
         let mut triggered = Vec::new();
-        for action in Action::ALL {
+        // egui ignores an extra Shift when matching a shortcut, so the ones
+        // with more modifiers go first: Ctrl+Shift+Tab is the previous tab,
+        // not the next one (UI-006), Shift+F zooms to the selection, not to
+        // the window (VIEW-014).
+        let mut actions = Action::ALL;
+        actions.sort_by_key(|a| std::cmp::Reverse(a.shortcut().map_or(0, |s| modifier_count(s.modifiers))));
+        for action in actions {
             let Some(shortcut) = action.shortcut() else {
                 continue;
             };
@@ -500,6 +559,8 @@ impl ArchiCraftApp {
             && self.ws.doc.needs_autosave()
             && self.last_autosave.elapsed() >= interval
         {
+            #[cfg(feature = "perf")]
+            let started = Instant::now();
             let geometry = self.ws.doc.geometry();
             self.autosaver.request(
                 session,
@@ -510,6 +571,10 @@ impl ArchiCraftApp {
             );
             self.ws.doc.mark_autosaved();
             self.last_autosave = Instant::now();
+            #[cfg(feature = "perf")]
+            self.ws
+                .perf
+                .record(crate::perf::Metric::AutosaveBlocking, started.elapsed());
         }
         ctx.request_repaint_after(Duration::from_secs(30));
     }
@@ -553,9 +618,9 @@ impl ArchiCraftApp {
         let mut follow_up: Option<FollowUp> = None;
         let modal = egui::Modal::new(Id::new("prompt")).show(ctx, |ui| {
             ui.set_max_width(480.0);
+            ui.heading(prompt.title());
             match &prompt {
                 Prompt::Unsaved(then) => {
-                    ui.heading("Save changes?");
                     ui.label(format!(
                         "“{}” has unsaved changes. Save them before continuing?",
                         self.ws.doc.display_name()
@@ -579,15 +644,13 @@ impl ArchiCraftApp {
                         }
                     });
                 }
-                Prompt::Message { title, text } => {
-                    ui.heading(title);
+                Prompt::Message { text, .. } => {
                     ui.label(text);
                     if ui.button("OK").clicked() {
                         close = true;
                     }
                 }
                 Prompt::LoadReport => {
-                    ui.heading("The project was opened with problems");
                     ui.label("Everything that could be read was loaded. These objects were skipped, repaired or replaced:");
                     egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                         for p in &self.load_problems {
@@ -599,7 +662,6 @@ impl ArchiCraftApp {
                     }
                 }
                 Prompt::OverwriteNewer { save_as } => {
-                    ui.heading("Overwrite a newer file?");
                     ui.label(
                         "This file was written by a newer version of ArchiCraft. Saving it with this version may lose data that this version does not know.",
                     );
@@ -706,6 +768,50 @@ impl ArchiCraftApp {
         }
     }
 
+    /// Advances a scripted measurement (`ARCHICRAFT_PERF_SCRIPT`): opens its
+    /// view, moves the camera every frame, drops the warm-up frames and quits
+    /// at the end; `on_exit` writes the results.
+    #[cfg(feature = "perf")]
+    fn drive_script(&mut self, ctx: &egui::Context) {
+        let Some(run) = self.ws.perf.script_mut() else {
+            return;
+        };
+        let script = run.script;
+        match run.advance() {
+            Some(frame) => {
+                if frame == crate::perf::WARM_UP_FRAMES {
+                    self.ws.perf.reset_samples();
+                }
+                if let Some(pane) = script.pane(&self.ws) {
+                    if frame == 0 {
+                        self.open_pane(pane);
+                    }
+                    script.step(&mut self.ws, pane, frame);
+                }
+                // egui repaints only on input: without this the run would
+                // measure idle time.
+                ctx.request_repaint();
+            }
+            None if !self.quit_confirmed => {
+                self.quit_confirmed = true;
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
+            None => {}
+        }
+    }
+
+    /// Closes a pending edit sample once the geometry and the active plan
+    /// show the new revision (NFR-PERF-006).
+    #[cfg(feature = "perf")]
+    fn settle_edit(&mut self) {
+        let storey = match self.ws.active_pane {
+            Some(Pane::Plan(storey)) => Some(storey),
+            _ => None,
+        };
+        let current = self.ws.doc.is_current(storey);
+        self.ws.perf.edit_settled(self.ws.doc.project.revision, current);
+    }
+
     fn handle_requests(&mut self) {
         for request in std::mem::take(&mut self.ws.requests) {
             match request {
@@ -789,7 +895,12 @@ impl egui_tiles::Behavior<Pane> for Behavior<'_> {
 
 impl eframe::App for ArchiCraftApp {
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
+        #[cfg(feature = "perf")]
+        self.ws.perf.begin_frame();
+        i18n::install(Rc::clone(&self.localizer));
         let ctx = ui.ctx().clone();
+        #[cfg(feature = "perf")]
+        self.drive_script(&ctx);
         for state in self.released.drain(..) {
             state.release(frame.wgpu_render_state());
         }
@@ -849,6 +960,8 @@ impl eframe::App for ArchiCraftApp {
             }
         });
 
+        #[cfg(feature = "perf")]
+        crate::perf::window(&ctx, &self.ws.perf);
         if let Some(prefs) = self.dialogs.show(&ctx, &mut self.ws) {
             self.ws.prefs = prefs;
             self.save_prefs();
@@ -863,6 +976,12 @@ impl eframe::App for ArchiCraftApp {
             self.guard(&ctx, Then::Open(Some(path)));
         }
         self.autosave(&ctx);
+        #[cfg(feature = "perf")]
+        {
+            self.settle_edit();
+            let interval = ctx.input(|i| i.unstable_dt);
+            self.ws.perf.end_frame(Duration::from_secs_f32(interval.max(0.0)));
+        }
     }
 
     fn on_exit(&mut self) {
@@ -870,6 +989,11 @@ impl eframe::App for ArchiCraftApp {
         self.save_prefs();
         if let Some(session) = self.session.take() {
             session.end();
+        }
+        #[cfg(feature = "perf")]
+        match self.ws.perf.write_results(self.dirs.root()) {
+            Ok(path) => tracing::info!(path = %path.display(), "{}", self.ws.perf.summary()),
+            Err(e) => tracing::warn!("performance results not written: {e}"),
         }
     }
 }

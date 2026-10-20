@@ -1,5 +1,6 @@
 //! Vertical extrusion of plan polygons into closed meshes.
 
+use archicraft_model::MODEL_TOLERANCE;
 use glam::{DVec2, DVec3};
 
 use crate::GeometryError;
@@ -14,9 +15,11 @@ fn signed_area(ring: &[DVec2]) -> f64 {
 /// Extrudes a polygon with holes between `z0` and `z1` (`z0 < z1`). The
 /// outer ring may have either orientation; holes must lie inside it. Every
 /// planar face gets its own vertices (IFX-038), and the result is closed and
-/// oriented outwards (IFX-032).
+/// oriented outwards (IFX-032). Heights below the model tolerance
+/// (NFR-ACC-003) are rejected as zero; the 1 mm minimum height of elements is
+/// enforced earlier by validation.
 pub fn extrude(outer: &[DVec2], holes: &[Vec<DVec2>], z0: f64, z1: f64) -> Result<TriMesh, GeometryError> {
-    if z1 - z0 <= 1e-9 || !z0.is_finite() || !z1.is_finite() {
+    if z1 - z0 < MODEL_TOLERANCE || !z0.is_finite() || !z1.is_finite() {
         return Err(GeometryError::InvalidExtent);
     }
     let mut outer = outer.to_vec();
@@ -84,5 +87,42 @@ mod tests {
     fn rejects_empty_extent() {
         let outer = vec![DVec2::new(0.0, 0.0), DVec2::new(1.0, 0.0), DVec2::new(0.0, 1.0)];
         assert!(extrude(&outer, &[], 1.0, 1.0).is_err());
+        // Heights within the model tolerance are zero (NFR-ACC-003).
+        assert!(extrude(&outer, &[], 1.0, 1.0 + 0.000_005).is_err());
+        assert!(extrude(&outer, &[], 1.0, 1.0 + 0.000_020).is_ok());
+    }
+
+    /// EDT-019 limits with NFR-ACC-003: two 0.1 mm edges meet at `a`, where
+    /// the outline turns by 0.1°, so the triangle b–a–c has the sine of a
+    /// 0.1° corner and an area of ½ · (0.1 mm)² · sin 0.1° ≈ 8.7e-12 m²,
+    /// below the square of the model tolerance (1e-10 m²). It must be kept,
+    /// or the cap opens. The far corners keep it a Delaunay triangle.
+    #[test]
+    fn ring_at_the_edt_019_limits_triangulates_completely() {
+        use archicraft_model::validate::{MIN_CORNER_ANGLE_DEG, MIN_EDGE_LENGTH, validate_ring};
+
+        let edge = MIN_EDGE_LENGTH * 1.000_001;
+        let turn = MIN_CORNER_ANGLE_DEG.to_radians();
+        let a = DVec2::new(0.0, 0.0);
+        let b = a - DVec2::X * edge;
+        let c = a + DVec2::from_angle(turn) * edge;
+        let ring = vec![b, a, c, DVec2::new(0.5, 0.5), DVec2::new(-0.5, 0.5)];
+        assert_eq!(
+            validate_ring(&ring).unwrap(),
+            ring,
+            "the ring is valid and counter-clockwise"
+        );
+
+        let triangles = triangulate(&ring, &[]).unwrap();
+        let area = |t: &[usize; 3]| (ring[t[1]] - ring[t[0]]).perp_dot(ring[t[2]] - ring[t[0]]) / 2.0;
+        let sliver = triangles.iter().map(area).fold(f64::INFINITY, f64::min);
+        assert!(sliver > 8.0e-12 && sliver < 9.0e-12, "the sliver is kept: {sliver}");
+        let total: f64 = triangles.iter().map(area).sum();
+        assert!((total - signed_area(&ring)).abs() < 1e-12, "{total}");
+        assert_eq!(triangles.len(), ring.len() - 2);
+
+        let body = extrude(&ring, &[], 0.0, 3.0).unwrap();
+        assert_eq!(body.check_closed(), Ok(()));
+        assert!((body.signed_volume() - 3.0 * signed_area(&ring)).abs() < 1e-12);
     }
 }

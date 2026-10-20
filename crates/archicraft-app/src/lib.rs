@@ -3,8 +3,13 @@
 
 pub mod app;
 pub mod document;
+pub mod i18n;
+pub mod input;
 pub mod logging;
+#[cfg(feature = "perf")]
+pub mod perf;
 pub mod persistence;
+pub mod tools;
 pub mod ui;
 pub mod views;
 pub mod workspace;

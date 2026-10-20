@@ -18,9 +18,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The scanned source trees, relative to `crates/`. The geometry crate and
-/// the snapping module join once their own epsilons are retired.
-const SCANNED_ROOTS: [&str; 1] = ["archicraft-model/src"];
+/// The scanned source trees, relative to `crates/`. The whole geometry
+/// crate is scanned, so that a later module (Boolean operations, SOL-020) is
+/// checked automatically. The snapping module joins once its own epsilons
+/// are retired.
+const SCANNED_ROOTS: [&str; 2] = ["archicraft-model/src", "archicraft-geometry/src"];
 
 /// The one file that defines tolerances.
 const TOLERANCE_RS: &str = "archicraft-model/src/tolerance.rs";
@@ -363,7 +365,13 @@ fn only_model_tolerance_is_a_tolerance_constant() {
     for root in SCANNED_ROOTS {
         rust_files(&crates.join(root), &mut files);
     }
-    for required in [TOLERANCE_RS, VALIDATE_RS] {
+    let required_files = [
+        TOLERANCE_RS,
+        VALIDATE_RS,
+        "archicraft-geometry/src/lib.rs",
+        "archicraft-geometry/src/wall.rs",
+    ];
+    for required in required_files {
         assert!(files.iter().any(|f| f.ends_with(required)), "{required} is not scanned");
     }
     let problems: Vec<String> = files

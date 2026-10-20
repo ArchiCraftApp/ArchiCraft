@@ -14,6 +14,8 @@ pub mod json;
 pub mod registry;
 pub mod validate;
 
+use std::path::Path;
+
 use archicraft_geometry::ModelGeometry;
 use archicraft_model::Project;
 
@@ -48,4 +50,25 @@ pub fn load(bytes: &[u8]) -> Result<ReadOutcome, Problem> {
             format!("the IFCX version “{other}” is not supported; this release reads {WRITTEN_VERSION}"),
         )),
     }
+}
+
+/// Reads a project file, checking its size against the 2 GB limit of
+/// Appendix D.9 before reading it (NFR-SEC-003).
+pub fn load_path(path: &Path) -> Result<ReadOutcome, Problem> {
+    load_path_with_limit(path, validate::MAX_FILE_SIZE as u64)
+}
+
+/// [`load_path`] with another size limit, so that callers can test the
+/// limit without 2 GB files.
+pub fn load_path_with_limit(path: &Path, limit: u64) -> Result<ReadOutcome, Problem> {
+    let cannot_read = |e: std::io::Error| Problem::error(None, format!("the file cannot be read: {e}"));
+    let file = std::fs::File::open(path).map_err(cannot_read)?;
+    // A pipe or device has no length; an empty length is no promise either.
+    let declared_len = file
+        .metadata()
+        .ok()
+        .filter(|m| m.is_file() && m.len() > 0)
+        .map(|m| m.len());
+    let bytes = validate::read_bounded(file, declared_len, limit)?;
+    load(&bytes)
 }

@@ -7,7 +7,9 @@
 
 pub mod command;
 pub mod element;
+pub mod fixtures;
 pub mod ids;
+pub mod kinds;
 pub mod layer;
 pub mod material;
 pub mod project;
@@ -19,13 +21,12 @@ pub mod units;
 pub mod validate;
 
 pub use command::{Command, CommandError, History};
-pub use element::{
-    Element, ElementKind, IfcClass, KindTag, Position, ReferenceLine, Slab, SlabReference, TopLink, Wall,
-};
+pub use element::{Element, ElementKind, IfcClass, KindTag, Position, TopLink};
 pub use ids::{BuildingId, ElementId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
+pub use kinds::{ReferenceLine, Slab, SlabReference, Wall};
 pub use layer::Layer;
 pub use material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
-pub use project::{Project, ProjectInfo, ProjectSettings};
+pub use project::{PlanGrid, Project, ProjectInfo, ProjectSettings};
 pub use storey::{Storey, StoreyList};
 pub use tolerance::{ANGLE_TOLERANCE, JOIN_TOLERANCE, MODEL_TOLERANCE};
 

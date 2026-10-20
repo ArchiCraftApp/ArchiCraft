@@ -1,0 +1,38 @@
+name: Announce
+
+# Posts a short message to the project's Signal group for every change that reaches main: each
+# merged PR by title and link (user decision of 2026-10-19). PRs merge only on green CI, so a push
+# to main is a released change. Sent through a self-hosted signal-cli-rest-api; without the secrets
+# the job only leaves a notice. Setup: docs/loop.md, Announcements. Started by hand, it announces
+# the newest commit on the chosen branch again.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# No concurrency group: GitHub keeps only one pending run per group and cancels the others, which
+# would drop announcements when several PRs merge in a row.
+
+jobs:
+  signal:
+    name: Signal group
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Announce the new changes
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          SIGNAL_API_URL: ${{ secrets.SIGNAL_API_URL }}
+          SIGNAL_NUMBER: ${{ secrets.SIGNAL_NUMBER }}
+          SIGNAL_GROUP_ID: ${{ secrets.SIGNAL_GROUP_ID }}
+          SIGNAL_API_AUTHORIZATION: ${{ secrets.SIGNAL_API_AUTHORIZATION }}
+        run: scripts/announce-signal.sh

@@ -35,6 +35,7 @@ These limits apply to all of v1, not only to the first prototype. They were alig
 | Tables and SVG icons | egui_extras |
 | Menu bar and keyboard shortcuts | egui (drawn inside the window) |
 | File dialogs | rfd |
+| User-interface text | Fluent message catalogues (fluent-bundle, unic-langid) |
 | GPU rendering | wgpu, WGSL shaders, bytemuck |
 | 2D tessellation for plan views | lyon |
 | Math | glam |
@@ -104,6 +105,12 @@ How the main window (SRS UI-001) maps onto egui. The Archicad names are only for
 - Native open and save dialogs on all platforms. About 4.7 million downloads per month, MIT.
 - On Linux it uses XDG desktop portals, which need D-Bus and a portal backend. Standard desktops have both.
 - Considered and rejected: file dialogs drawn in egui. Users expect the native dialog.
+
+### User-interface text: Fluent
+
+- Every string the user reads comes from a [Fluent](https://projectfluent.org) message catalogue embedded in the application (`crates/archicraft-app/locales/`), looked up by key (SRS NFR-L10N-001). English is the default; a German catalogue (NFR-L10N-002) is added beside it without code changes.
+- **fluent-bundle** (with fluent-syntax for reading the catalogue files) instead of a hand-written key table, because the German translation needs CLDR plural rules and arguments in a different order. **unic-langid** names the languages. All three are Mozilla's Project Fluent crates; Firefox uses them.
+- Numbers are formatted with the user's number format before they are passed to a message (NFR-L10N-004), not by Fluent.
 
 ### GPU rendering: wgpu
 
@@ -301,6 +308,12 @@ Figures from lib.rs on 2026-10-16.
 | rfd | 0.17.2 | 2026-01-12 | 4.67 M | MIT | |
 | jsonschema | 0.58.6 | 2026-10-06 | 11.8 M | MIT | |
 | manifold3d (planned) | 0.4.1 | 2026-09-09 | 2.2 k | Apache/MIT | One owner |
+| fluent-bundle | 0.16.0 | 2025-05-22 | 2.5 M | MIT/Apache | Project Fluent (Mozilla), six owners; mature, few releases |
+| fluent-syntax | 0.12.0 | 2025-05-22 | 2.6 M | MIT/Apache | Project Fluent; released with fluent-bundle |
+| unic-langid | 0.9.6 | 2025-05-09 | 3.2 M | MIT/Apache | Zibi Braniecki and Manish Goregaokar |
+| criterion | 0.8.2 | 2026-02-04 | 22.6 M | MIT/Apache | Dev-dependency for the benches; default features (rayon, plotters) off |
+
+The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them. The criterion row was added on 2026-10-20 the same way.
 
 serde, serde_json, uuid, thiserror, anyhow, tracing, bytemuck and insta are among the most widely used crates in the Rust ecosystem and were not checked individually. Not checked yet: the tools added when aligning with the SRS (cargo-fuzz, cargo-deny, Playwright) and the planned HTTP client.
 

@@ -11,7 +11,7 @@
           {
             "type": "command",
             "timeout": 30,
-            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/session-context.sh\" ] && exec bash \"$d/scripts/loop/hooks/session-context.sh\"; exit 0"
+            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/dispatch.sh\" ] && exec bash \"$d/scripts/loop/hooks/dispatch.sh\" session-context; exit 0"
           }
         ]
       }
@@ -23,7 +23,7 @@
           {
             "type": "command",
             "timeout": 30,
-            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/guard-edit.sh\" ] && exec bash \"$d/scripts/loop/hooks/guard-edit.sh\"; exit 0"
+            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/dispatch.sh\" ] && exec bash \"$d/scripts/loop/hooks/dispatch.sh\" guard-edit; exit 0"
           }
         ]
       },
@@ -33,7 +33,7 @@
           {
             "type": "command",
             "timeout": 30,
-            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/guard-bash.sh\" ] && exec bash \"$d/scripts/loop/hooks/guard-bash.sh\"; exit 0"
+            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/dispatch.sh\" ] && exec bash \"$d/scripts/loop/hooks/dispatch.sh\" guard-bash; exit 0"
           }
         ]
       }
@@ -45,7 +45,7 @@
           {
             "type": "command",
             "timeout": 60,
-            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/format-rust.sh\" ] && exec bash \"$d/scripts/loop/hooks/format-rust.sh\"; exit 0"
+            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/dispatch.sh\" ] && exec bash \"$d/scripts/loop/hooks/dispatch.sh\" format-rust; exit 0"
           }
         ]
       }
@@ -57,7 +57,7 @@
           {
             "type": "command",
             "timeout": 30,
-            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/review-verdict.sh\" ] && exec bash \"$d/scripts/loop/hooks/review-verdict.sh\"; exit 0"
+            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/dispatch.sh\" ] && exec bash \"$d/scripts/loop/hooks/dispatch.sh\" review-verdict; exit 0"
           }
         ]
       }
@@ -68,7 +68,7 @@
           {
             "type": "command",
             "timeout": 1800,
-            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/stop-gate.sh\" ] && exec bash \"$d/scripts/loop/hooks/stop-gate.sh\"; exit 0"
+            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/dispatch.sh\" ] && exec bash \"$d/scripts/loop/hooks/dispatch.sh\" stop-gate; exit 0"
           }
         ]
       }

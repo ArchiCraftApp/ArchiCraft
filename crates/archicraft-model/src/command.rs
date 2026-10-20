@@ -569,7 +569,7 @@ fn check_tool_defaults(project: &Project, defaults: &ToolDefaults) -> Result<(),
     {
         return invalid("The default IFC class is not allowed for this tool.");
     }
-    let probe_wall = crate::element::Wall {
+    let probe_wall = crate::kinds::Wall {
         start: DVec2::ZERO,
         end: DVec2::X,
         thickness: defaults.wall.thickness,
@@ -607,6 +607,7 @@ fn check_settings(settings: &ProjectSettings) -> Result<(), CommandError> {
             "Display precision is limited to 8 decimals.".into(),
         ));
     }
+    settings.plan_grid.check().map_err(CommandError::Invalid)?;
     Ok(())
 }
 

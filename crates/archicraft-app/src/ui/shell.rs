@@ -8,9 +8,10 @@ use archicraft_model::project::Projection;
 use egui::{Button, RichText, Ui};
 
 use super::actions::Action;
+use crate::tools::ToolKind;
+use crate::tr;
 use crate::views::camera::ViewPreset;
 use crate::views::render3d::DisplayMode;
-use crate::views::tools::ToolKind;
 use crate::workspace::{Pane, Workspace};
 
 fn item(ui: &mut Ui, action: Action, enabled: bool, out: &mut Option<Action>) {
@@ -96,6 +97,8 @@ pub fn menu_bar(ui: &mut Ui, ws: &Workspace, problems_open: bool) -> (Option<Act
                 action = Some(Action::Problems);
                 ui.close();
             }
+            #[cfg(feature = "perf")]
+            crate::perf::menu_item(ui);
         });
         ui.menu_button("Design", |ui| {
             item(ui, Action::ToolSelect, true, &mut action);
@@ -108,7 +111,9 @@ pub fn menu_bar(ui: &mut Ui, ws: &Workspace, problems_open: bool) -> (Option<Act
             item(ui, Action::Materials, true, &mut action);
             item(ui, Action::ProjectSettings, true, &mut action);
         });
-        ui.menu_button("Help", |ui| {
+        // The menu titles move to the command registry (archicraft-5eu);
+        // Help is the pilot of the message catalogue (NFR-L10N-001).
+        ui.menu_button(tr!("menu-help"), |ui| {
             item(ui, Action::Shortcuts, true, &mut action);
             item(ui, Action::About, true, &mut action);
         });

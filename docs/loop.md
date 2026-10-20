@@ -13,7 +13,7 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | Step | What happens | Tool |
 |---|---|---|
 | 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report closes bd refused, waiting PRs, beads for a human, epics due for a demo. The copy on `origin/main` runs, since a new worktree may be cut from an older `main` | `scripts/loop/sweep.sh` |
-| 1 Claim | Claim the bead, branch `bead/<id>-<slug>` from `origin/main`, clone the warm build cache | `scripts/loop/start-bead.sh <id>` |
+| 1 Claim | Claim the bead, branch `bead/<id>-<slug>` from `origin/main`, clone the warm build cache. It re-executes the copy on `origin/main` when the worktree's `scripts/loop` differs | `scripts/loop/start-bead.sh <id>` |
 | 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines (a top-level `#[cfg(test)] mod tests` does not count), or with separable criteria | `bd create --parent` |
 | 3 Tests first | Every acceptance criterion becomes a failing test | |
 | 4 Implement | CLAUDE.md conventions; rustfmt runs after every edit | |
@@ -23,10 +23,11 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | 8 Close | Bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |
 
 The gate and the review stamp the exact tree they checked (`loop_tree_hash` in
-`scripts/loop/lib.sh`). Any later edit invalidates the gate stamp. The review stamp survives
-only edits outside code and the loop's own files (`loop_review_valid`): a trivial doc fix for
-a minor finding after a `PASS` needs a new gate run but no new review, and every other minor
-finding becomes a follow-up bead instead of another review round. Stamps, logs and counters
+`scripts/loop/lib.sh`). Any later edit invalidates the gate stamp. The review stamp belongs to
+the branch's bead and survives only edits to prose (`docs/` and top-level Markdown files,
+`loop_review_valid`, `LOOP_REVIEW_CARRY_PATHS`): a trivial doc fix for a minor finding after
+a `PASS` needs a new gate run but no new review, and every other minor finding becomes a
+follow-up bead instead of another review round. Stamps, logs and counters
 live in the worktree's git dir (`git rev-parse --git-path loop`), never in the repository.
 `scripts/loop/status.sh` shows where a worktree stands.
 
@@ -78,10 +79,16 @@ GitHub adds the next macOS major version, move both labels in `macos.yml` up by 
 ([actions/runner-images](https://github.com/actions/runner-images#available-images) lists
 the current labels).
 
-The hooks are wired in `.claude/settings.json`; each resolves its script from the git
-top level of the session's working directory, so worktree sessions run their own branch's
-version. Command-line matching is a guardrail, not a sandbox: CI and branch protection are
-the gates that cannot be bypassed.
+The hooks are wired in `.claude/settings.json`. Claude Code reads that file, the skills and
+the agents from the main checkout and starts the hook commands there, also for a session in a
+worktree (the desktop app passes the main checkout as `--project-config-root`). So each hook
+command runs the main checkout's `scripts/loop/hooks/dispatch.sh`, which takes the session's
+working directory from the hook input (`cwd`) and runs the hook script of that tree: a worktree
+session runs its own branch's hook scripts, and `selftest.sh` checks this with a worktree. What
+still comes from the main checkout is the wiring, the dispatcher, `/bead`, `/bead-loop` and the
+`bead-reviewer` agent; a change to those applies once the main checkout is updated
+([loop-tutorial.md](loop-tutorial.md), section 3). Command-line matching is a guardrail, not
+a sandbox: CI and branch protection are the gates that cannot be bypassed.
 
 `guard-edit` sees only the Edit and Write tools. A file changed through Bash (`sed -i`, a
 heredoc, a script) bypasses it, on `main` as on a bead branch. Only the stamps catch such a
@@ -115,3 +122,27 @@ Once per repository, by an admin: `scripts/loop/setup-github.sh` (auto-merge, la
 required checks on `main`).
 
 After changing a hook or loop script: `scripts/loop/selftest.sh`.
+
+## Announcements
+
+Every change that reaches `main` is announced in the project's Signal group (user decision of
+2026-10-19): `.github/workflows/announce.yml` runs `scripts/announce-signal.sh` on each push to
+`main` and posts one short message with each merged PR's title (bead id left out) and link.
+PRs merge only on green CI, so nothing red is announced. Signal has no bot API, so the message
+goes through a self-hosted [signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api)
+whose account (a number of its own, or a device linked to an existing one) is a member of the
+group. GitHub's runners must reach it; put it behind a reverse proxy with TLS and a token.
+
+Once, by an admin, with the group id from `GET <url>/v1/groups/<number>` (`group.…`):
+
+```bash
+gh secret set SIGNAL_API_URL             # https://signal.example.org
+gh secret set SIGNAL_NUMBER              # the sending account, +43…
+gh secret set SIGNAL_GROUP_ID            # group.…
+gh secret set SIGNAL_API_AUTHORIZATION   # optional: "Bearer …" for the proxy
+```
+
+Without the first three secrets the job only leaves a notice. Preview a message without
+sending: `GITHUB_REPOSITORY=ArchiCraftApp/ArchiCraft BEFORE=<sha> AFTER=<sha>
+scripts/announce-signal.sh --dry-run`. To test the setup, start the workflow by hand
+(`gh workflow run announce.yml`); it announces the newest commit on `main` again.

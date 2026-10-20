@@ -14,7 +14,8 @@ use egui::{
 };
 
 use super::camera::{Camera2d, ZoomHistory};
-use super::tools::{Field, Snap, SnapKind, SnapTargets, ToolKind, ToolOutcome, constrain, snap};
+use crate::input::{Field, Snap, SnapKind, SnapTargets, constrain, snap};
+use crate::tools::{ToolKind, ToolOutcome};
 use crate::workspace::{Pane, Request, Workspace};
 
 /// Per-view state of a plan view.
@@ -617,6 +618,10 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
             painter.text(galley_pos, Align2::LEFT_TOP, label, font, ui.visuals().text_color());
         }
         ui.ctx().set_cursor_icon(CursorIcon::Crosshair);
+        #[cfg(feature = "perf")]
+        if ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
+            ws.perf.pointer_feedback();
+        }
     }
     if let (Some(id), Some(p)) = (ws.hover, pointer)
         && let Some(e) = ws.doc.project.element(id)

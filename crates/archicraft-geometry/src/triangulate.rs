@@ -1,6 +1,7 @@
 //! Triangulation of polygons with holes, by constrained Delaunay
 //! triangulation (spade).
 
+use archicraft_model::tolerance::near_zero;
 use glam::DVec2;
 use spade::handles::FixedVertexHandle;
 use spade::{ConstrainedDelaunayTriangulation, HasPosition, Point2, Triangulation};
@@ -86,8 +87,14 @@ pub fn triangulate(outer: &[DVec2], holes: &[Vec<DVec2>]) -> Result<Vec<[usize; 
         if !inside {
             continue;
         }
-        let area = (all[b] - all[a]).perp_dot(all[c] - all[a]);
-        if area.abs() < 1e-14 {
+        // Drop only triangles that are flat up to rounding. Slivers are real
+        // geometry: an EDT-019 sliver (two 0.1 mm edges at 0.1°) has about
+        // 8.7e-12 m², below the square of the model tolerance (NFR-ACC-003),
+        // and dropping it would open the cap.
+        let (u, v) = (all[b] - all[a], all[c] - all[a]);
+        let area = u.perp_dot(v);
+        let magnitude = all[a].abs().max(all[b].abs()).max(all[c].abs()).max_element();
+        if near_zero(area, magnitude * (u.length() + v.length())) {
             continue;
         }
         triangles.push(if area > 0.0 { [a, b, c] } else { [a, c, b] });

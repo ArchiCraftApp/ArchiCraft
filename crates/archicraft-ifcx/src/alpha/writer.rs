@@ -143,6 +143,7 @@ fn material_record(m: &Material) -> Value {
 /// IFX-067).
 fn project_attribute(p: &Project) -> Value {
     let units = &p.settings.units;
+    let grid = &p.settings.plan_grid;
     json!({
         "formatVersion": FORMAT_VERSION.to_string(),
         "info": {
@@ -162,6 +163,15 @@ fn project_attribute(p: &Project) -> Value {
             "cutPlaneHeight": p.settings.cut_plane_height,
             "chordDeviation": p.settings.tessellation.chord_deviation,
             "maxSegmentAngle": p.settings.tessellation.max_angle_deg,
+            "planGrid": {
+                "snapStep": [grid.snap_step.x, grid.snap_step.y],
+                "snapEnabled": grid.snap_enabled,
+                "mainSpacing": [grid.main_spacing.x, grid.main_spacing.y],
+                "auxiliarySpacing": [grid.auxiliary_spacing.x, grid.auxiliary_spacing.y],
+                "rotation": grid.rotation,
+                "origin": [grid.origin.x, grid.origin.y],
+                "visible": grid.visible,
+            },
         },
         "location": {
             "altitude": p.site.location.altitude,

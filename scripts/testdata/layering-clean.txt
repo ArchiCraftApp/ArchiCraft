@@ -1,0 +1,6 @@
+archicraft-geometry v0.1.0 (/src/crates/archicraft-geometry)
+archicraft-model v0.1.0 (/src/crates/archicraft-model)
+glam v0.34.1
+serde_core v1.0.229
+indexmap v2.14.2
+serde v1.0.229
