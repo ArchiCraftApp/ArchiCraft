@@ -136,13 +136,25 @@ request; the CI step is the regression check.
 | NFR-MNT-001 | Every Command variant round-trips through serde_json, a recorded session replayed with `command::replay` rebuilds the same project, the journal lists Executed, Undone and Redone entries with labels | Test: `nfr_mnt_001_every_command_variant_round_trips_through_serde_json`, `nfr_mnt_001_replaying_a_recorded_session_rebuilds_the_project`, `nfr_mnt_001_the_journal_lists_executed_undone_and_redone_commands` |
 | NFR-ACC-002 | `parse_length` resolves 0.1 mm and 1/64 inch within 1e-15 m, and a typed 1.23456789 m is stored bit-identical | Test: `nfr_acc_002_input_resolves_0_1_mm_and_1_64_inch_at_full_precision`; also `display_rounding_does_not_lose_typed_precision` and `parses_imperial_fractions` (units.rs) |
 | NFR-ACC-005 | `format_length` and `format_angle` round to the unit settings while the stored values stay bit-identical; switching to mm with 1 decimal changes only the display | Test: `nfr_acc_005_values_are_rounded_only_for_display`; also `formats_lengths` (units.rs) |
+| UI-006 | Views are tabs; Ctrl+Tab activates the next and Ctrl+Shift+Tab the previous tab; a closed plan tab reopens from the project browser | Test: `ui_006_views_are_tabs_with_next_and_previous_tab_shortcuts` (app) |
+| UI-007 | A Linear split shows a plan and a 3D view side by side; a wall clicked in the plan is in the selection and in the 3D scene key | Test: `ui_007_plan_and_3d_side_by_side_share_the_selection` (app) |
+| STR-003 | Insert above, insert below, rename and delete in the Storeys dialog and in the browser's context menu; the browser lists an inserted storey in the next frame | Test: `str_003_storeys_are_inserted_renamed_and_deleted_from_dialog_and_browser` (app) |
+| STR-004 | The delete prompt shows the element count, "Move them…" with the target storey and "Delete them"; moving keeps the plan position (app half) | Test: `str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask` (app) |
+| NFR-USE-004 | Deleting an element opens no modal and Ctrl+Z undoes it; deleting a storey and New with unsaved changes ask | Test: `str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask` (app) |
+| VIEW-002 | A new project has a plan per storey (each opens from its browser row) and one perspective and one parallel 3D view | Test: `view_002_a_new_project_has_a_plan_per_storey_and_two_3d_views` (app) |
+| VIEW-014 | Middle-button pan, Ctrl+wheel and pinch zoom keep the point under the cursor within 1e-9 m, fit to window and zoom to selection; previous/next zoom walks 20 of 25 recorded steps | Test: `view_014_plan_navigation_pans_zooms_and_fits` (app), `zoom_history_keeps_20_steps` (camera.rs); also `plan_round_trip_and_zoom_anchor`, `zoom_history` (camera.rs) |
+| WAL-001 | The four wall mode buttons switch WallMode; chained walls share their ends, both rectangles create four walls sharing their corners | Test: `wal_001_wall_modes_single_chained_rectangle_and_rotated_rectangle` (app); also `wall_chain_closes_into_joined_walls`, `rectangle_tools` (tools/mod.rs) |
+| NFR-PORT-005 | The main window parts of UI-001 are present at 100, 150 and 200 % scaling | Test: `nfr_port_005_main_window_at_100_to_200_percent_scaling` (app) |
 
 Rows with "Test:" name `cargo test` functions, which the "Test" step of the "Test" job runs on
 Linux and Windows for every push and pull request, and `.github/workflows/macos.yml` on macOS
 for releases. Unless another file is named, they live in
 `crates/archicraft-model/tests/done_requirements.rs`, which builds every project from the
 default template and changes it only through commands; tests named with a file in
-parentheses already existed and are not repeated there.
+parentheses already existed and are not repeated there. Tests marked "(app)" live in
+`crates/archicraft-app/tests/done_requirements.rs`: they run the whole application with
+egui_kittest, without a GPU, find widgets by their accessible labels and share the harness of
+`crates/archicraft-app/tests/common/mod.rs`, which gives each test its own data folder.
 
 The negative self-test (`scripts/guards-selftest.sh`) runs each guard on a canned violation
 (`cargo tree` output in `scripts/testdata/`, and a scratch repository with a trademark line and

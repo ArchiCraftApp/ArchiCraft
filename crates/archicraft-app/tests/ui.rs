@@ -3,42 +3,18 @@
 
 #![allow(clippy::unwrap_used)]
 
+mod common;
+
 use std::rc::Rc;
-use std::sync::Arc;
 
 use archicraft_app::i18n::{self, Localizer};
-use archicraft_app::persistence::DataDirs;
-use archicraft_app::persistence::crash::RecentLog;
-use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::ToolKind;
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::Command;
 use archicraft_model::glam::DVec2;
+use common::{assert_present, harness};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-
-fn harness(name: &str) -> Harness<'static, ArchiCraftApp> {
-    let dir = std::env::temp_dir().join(format!("archicraft-ui-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let app = ArchiCraftApp::new(
-        DataDirs::at(&dir),
-        Preferences::default(),
-        Arc::new(RecentLog::default()),
-        None,
-    );
-    let mut harness = Harness::builder()
-        .with_size(egui::vec2(1400.0, 900.0))
-        .build_eframe(move |_| app);
-    harness.run_steps(3);
-    harness
-}
-
-fn assert_present(harness: &Harness<'static, ArchiCraftApp>, label: &str) {
-    assert!(
-        harness.query_all_by_label(label).next().is_some(),
-        "“{label}” is missing"
-    );
-}
 
 #[test]
 fn main_window_has_the_parts_of_ui_001() {
