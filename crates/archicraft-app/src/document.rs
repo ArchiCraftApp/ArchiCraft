@@ -9,7 +9,7 @@ use std::time::SystemTime;
 use archicraft_geometry::ModelGeometry;
 use archicraft_geometry::plan::{PlanDrawing, ViewRange, plan_drawing};
 use archicraft_ifcx::{Problem, WriteOptions};
-use archicraft_model::{Command, CommandError, History, Project, StoreyId};
+use archicraft_model::{Command, CommandError, History, Message, Project, StoreyId};
 
 use crate::persistence::utc_timestamp;
 
@@ -84,11 +84,11 @@ impl Document {
         self.history.execute(&mut self.project, command)
     }
 
-    pub fn undo(&mut self) -> Option<String> {
+    pub fn undo(&mut self) -> Option<Message> {
         self.history.undo(&mut self.project)
     }
 
-    pub fn redo(&mut self) -> Option<String> {
+    pub fn redo(&mut self) -> Option<Message> {
         self.history.redo(&mut self.project)
     }
 

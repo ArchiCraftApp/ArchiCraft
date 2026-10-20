@@ -19,6 +19,7 @@ use crate::element::{Element, ElementKind, KindTag, TopLink};
 use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
 use crate::layer::Layer;
 use crate::material::Material;
+use crate::message::Message;
 use crate::project::{Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
 use crate::storey::{Storey, StoreyList};
 use crate::validate;
@@ -108,38 +109,33 @@ pub enum CommandError {
 }
 
 impl Command {
-    /// Short label for menus and the history, for example "Delete 3 elements".
-    pub fn label(&self) -> String {
-        fn count(n: usize, what: &str) -> String {
-            if n == 1 {
-                format!("1 {what}")
-            } else {
-                format!("{n} {what}s")
-            }
-        }
+    /// Short label for menus and the history, for example "Delete 3
+    /// elements", as a message key (NFR-L10N-001).
+    pub fn label(&self) -> Message {
+        let elements = |key, n: usize| Message::new(key).count("count", n);
         match self {
-            Command::AddElements(e) if e.len() == 1 => format!("Create {}", e[0].tag().label().to_lowercase()),
-            Command::AddElements(e) => format!("Create {}", count(e.len(), "element")),
-            Command::DeleteElements(ids) => format!("Delete {}", count(ids.len(), "element")),
-            Command::UpdateElements(e) => format!("Edit {}", count(e.len(), "element")),
-            Command::MoveElements { ids, .. } => format!("Move {}", count(ids.len(), "element")),
-            Command::InsertStorey { .. } => "Insert storey".into(),
-            Command::DeleteStorey { .. } => "Delete storey".into(),
-            Command::RenameStorey { .. } => "Rename storey".into(),
-            Command::SetStoreyElevation { .. } => "Change storey elevation".into(),
-            Command::SetStoreyHeight { .. } => "Change storey height".into(),
-            Command::SetStoreyCutPlane { .. } => "Change cut plane".into(),
-            Command::AddLayer(_) => "New layer".into(),
-            Command::UpdateLayer(_) => "Change layer".into(),
-            Command::DeleteLayer { .. } => "Delete layer".into(),
-            Command::AddMaterial(_) => "New material".into(),
-            Command::UpdateMaterial(_) => "Change material".into(),
-            Command::DeleteMaterial { .. } => "Delete material".into(),
-            Command::SetToolDefaults(_) => "Change tool settings".into(),
-            Command::SetSettings(_) => "Change project settings".into(),
-            Command::SetInfo(_) => "Change project information".into(),
-            Command::SetSpatialNames { .. } => "Rename site and building".into(),
-            Command::SetLocation(_) => "Change project location".into(),
+            Command::AddElements(e) if e.len() == 1 => Message::new("model-label-create-kind").kind("kind", e[0].tag()),
+            Command::AddElements(e) => elements("model-label-create-elements", e.len()),
+            Command::DeleteElements(ids) => elements("model-label-delete-elements", ids.len()),
+            Command::UpdateElements(e) => elements("model-label-edit-elements", e.len()),
+            Command::MoveElements { ids, .. } => elements("model-label-move-elements", ids.len()),
+            Command::InsertStorey { .. } => Message::new("model-label-insert-storey"),
+            Command::DeleteStorey { .. } => Message::new("model-label-delete-storey"),
+            Command::RenameStorey { .. } => Message::new("model-label-rename-storey"),
+            Command::SetStoreyElevation { .. } => Message::new("model-label-storey-elevation"),
+            Command::SetStoreyHeight { .. } => Message::new("model-label-storey-height"),
+            Command::SetStoreyCutPlane { .. } => Message::new("model-label-cut-plane"),
+            Command::AddLayer(_) => Message::new("model-label-new-layer"),
+            Command::UpdateLayer(_) => Message::new("model-label-change-layer"),
+            Command::DeleteLayer { .. } => Message::new("model-label-delete-layer"),
+            Command::AddMaterial(_) => Message::new("model-label-new-material"),
+            Command::UpdateMaterial(_) => Message::new("model-label-change-material"),
+            Command::DeleteMaterial { .. } => Message::new("model-label-delete-material"),
+            Command::SetToolDefaults(_) => Message::new("model-label-tool-settings"),
+            Command::SetSettings(_) => Message::new("model-label-project-settings"),
+            Command::SetInfo(_) => Message::new("model-label-project-info"),
+            Command::SetSpatialNames { .. } => Message::new("model-label-spatial-names"),
+            Command::SetLocation(_) => Message::new("model-label-location"),
         }
     }
 
@@ -756,12 +752,14 @@ pub struct Transaction {
     inverse: Vec<Edit>,
 }
 
-/// A line of the command journal, for logs and crash reports.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A line of the command journal, for logs and crash reports: the command
+/// label as a [`Message`], whose key form stays readable without the
+/// catalogue.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum JournalEntry {
-    Executed(String),
-    Undone(String),
-    Redone(String),
+    Executed(Message),
+    Undone(Message),
+    Redone(Message),
 }
 
 /// The undo/redo history of an open project (UND-001, UND-002).
@@ -816,7 +814,7 @@ impl History {
     }
 
     /// Undoes the last command and returns its label.
-    pub fn undo(&mut self, project: &mut Project) -> Option<String> {
+    pub fn undo(&mut self, project: &mut Project) -> Option<Message> {
         let transaction = self.undo.pop_back()?;
         match apply_all(project, transaction.inverse.clone()) {
             Ok(_) => {
@@ -836,7 +834,7 @@ impl History {
     }
 
     /// Redoes the last undone command and returns its label.
-    pub fn redo(&mut self, project: &mut Project) -> Option<String> {
+    pub fn redo(&mut self, project: &mut Project) -> Option<Message> {
         let transaction = self.redo.pop()?;
         match apply_all(project, transaction.forward.clone()) {
             Ok(_) => {
@@ -860,11 +858,11 @@ impl History {
         !self.redo.is_empty()
     }
 
-    pub fn undo_label(&self) -> Option<String> {
+    pub fn undo_label(&self) -> Option<Message> {
         self.undo.back().map(|t| t.command.label())
     }
 
-    pub fn redo_label(&self) -> Option<String> {
+    pub fn redo_label(&self) -> Option<Message> {
         self.redo.last().map(|t| t.command.label())
     }
 

@@ -621,7 +621,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     if let (Some(id), Some(p)) = (ws.hover, pointer)
         && let Some(e) = ws.doc.project.element(id)
     {
-        let text = format!("{} · {}", e.name, e.tag().label());
+        let text = format!("{} · {}", e.name, crate::tr!(e.tag().label_key()));
         painter.text(
             p + egui::vec2(14.0, -14.0),
             Align2::LEFT_BOTTOM,

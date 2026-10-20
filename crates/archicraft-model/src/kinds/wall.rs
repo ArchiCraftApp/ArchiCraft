@@ -83,7 +83,9 @@ impl Kind for Wall {
     /// ELM-011: `IfcWall` by default, `IfcFooting` selectable; ELM-019:
     /// names `W-001`, `W-002`, …
     const DESCRIPTOR: KindDescriptor = KindDescriptor {
-        label: "Wall",
+        label_key: "model-kind-wall",
+        noun_key: "model-kind-wall-noun",
+        node_prefix: "Wall",
         code: "wall",
         name_prefix: "W",
         default_class: IfcClass::Wall,

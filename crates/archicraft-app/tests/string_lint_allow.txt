@@ -31,5 +31,10 @@ crates/archicraft-model/src/kinds/wall.rs::Wall | "W" | KindDescriptor::name_pre
 crates/archicraft-model/src/kinds/slab.rs::Slab | "SL" | KindDescriptor::name_prefix: prefix of generated slab names such as SL-1 (project data)
 
 # File-format keywords.
+crates/archicraft-model/src/kinds/wall.rs::Wall | "Wall" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Wall_1a2b3c4d (file format)
+crates/archicraft-model/src/kinds/slab.rs::Slab | "Slab" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Slab_1a2b3c4d (file format)
 crates/archicraft-model/src/element.rs::IfcClass::code | * | keyword table: IFC class names written to IFCX (bsi::ifc::class)
 crates/archicraft-model/src/material.rs::MaterialCategory::code | * | keyword table: IFC material category codes written to IFCX
+
+# Developer-facing errors.
+crates/archicraft-model/src/message.rs::Message::try_from | * | serde error for a journal or log entry with an unknown key or argument name, never shown in the UI

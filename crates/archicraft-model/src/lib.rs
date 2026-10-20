@@ -12,6 +12,7 @@ pub mod ids;
 pub mod kinds;
 pub mod layer;
 pub mod material;
+pub mod message;
 pub mod project;
 pub mod samples;
 pub mod storey;
@@ -26,6 +27,7 @@ pub use ids::{BuildingId, ElementId, LayerId, MaterialId, ProjectId, SiteId, Sto
 pub use kinds::{ReferenceLine, Slab, SlabReference, Wall};
 pub use layer::Layer;
 pub use material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
+pub use message::{Arg, Message};
 pub use project::{PlanGrid, Project, ProjectInfo, ProjectSettings};
 pub use storey::{Storey, StoreyList};
 pub use tolerance::{ANGLE_TOLERANCE, JOIN_TOLERANCE, MODEL_TOLERANCE};

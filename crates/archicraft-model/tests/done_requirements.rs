@@ -18,8 +18,8 @@ use archicraft_model::template::default_metric_project;
 use archicraft_model::units::{LengthUnit, NumberFormat, format_angle, format_length, parse_length};
 use archicraft_model::validate::validate_element;
 use archicraft_model::{
-    Command, CommandError, Element, ElementKind, History, Layer, LayerId, MaterialId, Project, Storey, StoreyId,
-    TopLink,
+    Command, CommandError, Element, ElementKind, History, KindTag, Layer, LayerId, MaterialId, Message, Project,
+    Storey, StoreyId, TopLink,
 };
 use common::{ground, wall};
 
@@ -44,11 +44,11 @@ fn assert_undo_redo_exact(p: &mut Project, h: &mut History, command: Command) {
     assert_ne!(after, before, "{label} changes the project");
     assert_eq!(h.undo_len(), depth + 1, "{label} is one undo step");
 
-    assert_eq!(h.undo(p).as_deref(), Some(label.as_str()));
+    assert_eq!(h.undo(p).as_ref(), Some(&label));
     assert_same_model(p, &before);
     assert_eq!(h.undo_len(), depth);
 
-    assert_eq!(h.redo(p).as_deref(), Some(label.as_str()));
+    assert_eq!(h.redo(p).as_ref(), Some(&label));
     assert_same_model(p, &after);
     assert_eq!(h.undo_len(), depth + 1);
 }
@@ -772,10 +772,10 @@ fn nfr_mnt_001_the_journal_lists_executed_undone_and_redone_commands() {
     assert_eq!(
         journal,
         [
-            JournalEntry::Executed("Create wall".into()),
-            JournalEntry::Executed("Rename storey".into()),
-            JournalEntry::Undone("Rename storey".into()),
-            JournalEntry::Redone("Rename storey".into()),
+            JournalEntry::Executed(Message::new("model-label-create-kind").kind("kind", KindTag::Wall)),
+            JournalEntry::Executed(Message::new("model-label-rename-storey")),
+            JournalEntry::Undone(Message::new("model-label-rename-storey")),
+            JournalEntry::Redone(Message::new("model-label-rename-storey")),
         ]
     );
 }

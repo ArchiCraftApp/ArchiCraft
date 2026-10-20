@@ -565,7 +565,7 @@ fn read_counters(
         Err(e) => {
             let counts: Vec<String> = KindTag::ALL
                 .iter()
-                .map(|&kind| format!("{}: {}", kind.label().to_lowercase(), count(kind)))
+                .map(|&kind| format!("{}: {}", kind.code(), count(kind)))
                 .collect();
             report.repaired(format!(
                 "{e}; the number of elements of each kind ({}) is used",

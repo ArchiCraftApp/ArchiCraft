@@ -62,13 +62,13 @@ pub fn menu_bar(ui: &mut Ui, ws: &Workspace, problems_open: bool) -> (Option<Act
                 .doc
                 .history
                 .undo_label()
-                .map_or_else(|| "Undo".to_owned(), |l| format!("Undo {l}"));
+                .map_or_else(|| "Undo".to_owned(), |l| format!("Undo {}", ws.render(&l)));
             item_labelled(ui, Action::Undo, &undo, ws.doc.history.can_undo(), &mut action);
             let redo = ws
                 .doc
                 .history
                 .redo_label()
-                .map_or_else(|| "Redo".to_owned(), |l| format!("Redo {l}"));
+                .map_or_else(|| "Redo".to_owned(), |l| format!("Redo {}", ws.render(&l)));
             item_labelled(ui, Action::Redo, &redo, ws.doc.history.can_redo(), &mut action);
             ui.separator();
             item(ui, Action::Delete, !ws.selection.is_empty(), &mut action);

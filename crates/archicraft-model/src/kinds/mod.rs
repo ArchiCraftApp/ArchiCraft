@@ -2,7 +2,7 @@
 //!
 //! Every element has a kind: the tool that created it. Each kind is one
 //! module holding its parameter payload and an implementation of [`Kind`],
-//! which carries the kind's [`KindDescriptor`] (label, file code, name
+//! which carries the kind's [`KindDescriptor`] (message keys, file code, name
 //! prefix, IFC classes) and its behaviour hooks; [`crate::element`] keeps the
 //! kind-independent element envelope. Project queries, validation and
 //! commands ask the descriptor or call the hooks instead of matching on
@@ -28,8 +28,16 @@ pub use self::wall::ReferenceLine;
 /// Static description of an element kind (ELM-011, ELM-019).
 #[derive(Debug, PartialEq, Eq)]
 pub struct KindDescriptor {
-    /// User-facing name, for example "Wall".
-    pub label: &'static str,
+    /// Message key of the kind's name as a label, for example
+    /// `model-kind-wall` ("Wall") (NFR-L10N-001).
+    pub label_key: &'static str,
+    /// Message key of the kind's noun in a sentence, with a `count`
+    /// argument for the plural, for example `model-kind-wall-noun` ("wall",
+    /// "walls"). [`crate::message::Arg::Kind`] arguments render with it.
+    pub noun_key: &'static str,
+    /// Prefix of the IFCX child keys of this kind's elements, for example
+    /// `Wall` in `Wall_1a2b3c4d`. Part of the file format, not translated.
+    pub node_prefix: &'static str,
     /// Stable identifier in files, for example `wall`.
     pub code: &'static str,
     /// Prefix of automatic element names, for example `W` for `W-001`
@@ -164,8 +172,15 @@ impl KindTag {
         Self::ALL.iter().copied().find(|k| k.code() == code)
     }
 
-    pub fn label(self) -> &'static str {
-        self.descriptor().label
+    /// Message key of the kind's label (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
+        self.descriptor().label_key
+    }
+
+    /// Message key of the kind's noun in a sentence, taking a `count`
+    /// argument (NFR-L10N-001).
+    pub fn noun_key(self) -> &'static str {
+        self.descriptor().noun_key
     }
 
     pub fn code(self) -> &'static str {

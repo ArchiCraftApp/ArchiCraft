@@ -52,7 +52,9 @@ impl Kind for Slab {
     /// ELM-011: `IfcSlab` by default, `IfcFooting` and `IfcCovering`
     /// selectable; ELM-019: names `SL-001`, `SL-002`, …
     const DESCRIPTOR: KindDescriptor = KindDescriptor {
-        label: "Slab",
+        label_key: "model-kind-slab",
+        noun_key: "model-kind-slab-noun",
+        node_prefix: "Slab",
         code: "slab",
         name_prefix: "SL",
         default_class: IfcClass::Slab,

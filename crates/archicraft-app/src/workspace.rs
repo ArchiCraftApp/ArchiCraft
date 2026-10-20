@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use archicraft_model::{Command, CommandError, ElementId, StoreyId, ViewId};
+use archicraft_model::{Command, CommandError, ElementId, Message, StoreyId, ViewId};
 
 use crate::document::Document;
 use crate::persistence::prefs::Preferences;
@@ -136,10 +136,16 @@ impl Workspace {
         });
     }
 
+    /// Renders a model message with the project units and the user's number
+    /// format (NFR-L10N-001).
+    pub fn render(&self, message: &Message) -> String {
+        crate::i18n::render(message, &self.doc.project.settings.units, &self.prefs.number_format())
+    }
+
     /// Executes a command and reports a rejection in the status line
     /// (NFR-REL-005). Returns true on success.
     pub fn execute(&mut self, command: Command) -> bool {
-        let label = command.label();
+        let label = self.render(&command.label());
         #[cfg(feature = "perf")]
         let started = Instant::now();
         match self.doc.execute(command) {
@@ -159,7 +165,7 @@ impl Workspace {
 
     pub fn undo(&mut self) {
         match self.doc.undo() {
-            Some(label) => self.info(format!("Undone: {label}")),
+            Some(label) => self.info(format!("Undone: {}", self.render(&label))),
             None => self.info("Nothing to undo"),
         }
         self.prune_selection();
@@ -167,7 +173,7 @@ impl Workspace {
 
     pub fn redo(&mut self) {
         match self.doc.redo() {
-            Some(label) => self.info(format!("Redone: {label}")),
+            Some(label) => self.info(format!("Redone: {}", self.render(&label))),
             None => self.info("Nothing to redo"),
         }
         self.prune_selection();
