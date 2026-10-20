@@ -17,7 +17,7 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines (a top-level `#[cfg(test)] mod tests` does not count), or with separable criteria | `bd create --parent` |
 | 3 Tests first | Every acceptance criterion becomes a failing test | |
 | 4 Implement | CLAUDE.md conventions; rustfmt runs after every edit | |
-| 5 Gate | fmt, clippy, tests, layering, golden files, diff budget, `.beads/`, conformance, licences | `scripts/loop/gate.sh` |
+| 5 Gate | fmt, clippy, tests, layering, golden files, diff budget, `.beads/`, loop guardrails only under label `loop`, conformance, licences | `scripts/loop/gate.sh` |
 | 6 Review | Fresh-context `bead-reviewer` agent; its verdict becomes the review stamp | `.claude/agents/bead-reviewer.md` |
 | 7 Land | Commit `<id>: <summary>`, push, PR, squash auto-merge on green CI (a PR that changes `.github/workflows/` or `.claude/settings.json` waits for the user) | `scripts/loop/land.sh` |
 | 8 Close | Bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |

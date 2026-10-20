@@ -464,6 +464,20 @@ expect_review "PASS on a gated tree" yes
 hook review-verdict "$(verdict $'1. Blocking\nVERDICT: FAIL')" >/dev/null
 expect_review "FAIL after a PASS" no
 
+# --- gate: the loop's guardrails, as CI's Loop policy checks them --------------------------------
+reset_state
+gate() { FAKE_BD_LABELS="$1" bash scripts/loop/gate.sh 2>&1; }
+echo '# tweak' >>scripts/loop/sweep.sh
+out="$(gate "")" && got=pass || got=fail
+expect "gate on a loop change in a feature bead" fail "$got"
+expect "gate fails only the loop-guardrails step" 1 "$(grep -c '^GATE FAIL: loop-guardrails$' <<<"$out")"
+expect "gate names the loop file a feature bead changes" 1 "$(grep -c '| scripts/loop/sweep\.sh$' <<<"$out")"
+out="$(gate loop)" && got=pass || got=fail
+expect "gate on a loop change in a loop bead" pass "$got"
+git checkout -q -- scripts/loop/sweep.sh
+out="$(gate "")" && got=pass || got=fail
+expect "gate on a feature bead without loop changes" pass "$got"
+
 # --- ci-check ----------------------------------------------------------------------------------
 reset_state
 base="$(git rev-parse main)"

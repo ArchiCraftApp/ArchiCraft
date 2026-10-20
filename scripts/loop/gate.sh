@@ -77,6 +77,25 @@ beads_check() {
 }
 step beads-export beads_check
 
+# The same rule as CI's Loop policy (ci-check.sh), checked before the PR exists (archicraft-tvy0).
+loop_self_check() {
+    local loop_self
+    [ -z "$bead" ] && return 0
+    loop_self="$(grep -E "$LOOP_SELF_PATHS" <<<"$changed" || true)"
+    [ -z "$loop_self" ] && return 0
+    if has_label loop; then
+        echo "loop guardrails changed under label loop:"
+        echo "$loop_self"
+        return 0
+    fi
+    echo "Only a bead labelled loop changes the loop's guardrails (CI's Loop policy refuses it too):"
+    echo "$loop_self"
+    echo "Restore them and file a bead with label loop for the change (docs/loop.md), or, when"
+    echo "this bead is about the loop, label it loop."
+    return 1
+}
+step loop-guardrails loop_self_check
+
 if grep -Eq '^(crates/archicraft-ifcx/|conformance/)' <<<"$changed"; then
     if command -v node >/dev/null; then
         conformance() {
