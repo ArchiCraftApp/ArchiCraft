@@ -122,6 +122,36 @@ stamp() { loop_stamp_write "$1" "$(loop_tree_hash)" test; }
 expect() { if [ "$2" = "$3" ]; then passed=$((passed + 1)); else failed=$((failed + 1)); echo "FAIL $1: expected $2, got $3"; fi; }
 reset_state() { rm -rf "$(loop_dir)"; git checkout -q -- . 2>/dev/null; git clean -qfd crates docs; }
 
+# --- dispatch ----------------------------------------------------------------------------------
+# Claude Code starts the hooks in the main checkout; dispatch.sh runs the copy of the tree named by
+# the hook input's cwd, so a worktree session runs its own branch's hooks.
+wt="$work/wt"
+git worktree add -q -b wt-probe "$wt" main
+printf 'source "$(dirname "${BASH_SOURCE[0]}")/common.sh"\nhook_deny "the worktree copy ran"\n' \
+    >"$wt/scripts/loop/hooks/guard-bash.sh"
+dispatch() { # dispatch <name> <cwd>: the dispatcher of the main checkout, as settings.json runs it
+    jq -nc --arg cwd "$2" '{cwd: $cwd, tool_name: "Bash", tool_input: {command: "ls"}}' |
+        bash scripts/loop/hooks/dispatch.sh "$1"
+}
+check "dispatch from a worktree runs the worktree's hook" deny "$(dispatch guard-bash "$wt")"
+check "dispatch from a worktree subdirectory runs the worktree's hook" deny "$(dispatch guard-bash "$wt/docs")"
+check "dispatch from the main checkout runs its own hook" allow "$(dispatch guard-bash "$repo")"
+check "dispatch from outside a repository runs the dispatcher's copy" allow "$(dispatch guard-bash "$work")"
+rm "$wt/scripts/loop/hooks/guard-bash.sh"
+check "dispatch from a tree without the hook runs the dispatcher's copy" allow "$(dispatch guard-bash "$wt")"
+git worktree remove --force "$wt" && git branch -q -D wt-probe
+# Every loop hook in the real settings.json goes through the dispatcher to a hook that exists.
+settings="$src/../../.claude/settings.json"
+if [ -f "$settings" ]; then
+    wiring="$(jq -r '.hooks[][].hooks[].command | select(test("scripts/loop"))' "$settings")"
+    expect "settings.json wires loop hooks" true "$([ -n "$wiring" ] && echo true || echo false)"
+    while read -r line; do
+        name="$(sed -nE 's|.*exec bash "\$d/scripts/loop/hooks/dispatch\.sh" ([a-z-]+); exit 0$|\1|p' <<<"$line")"
+        expect "settings.json runs a dispatched hook: $line" true \
+            "$([ -n "$name" ] && [ -f "$src/hooks/$name.sh" ] && echo true || echo false)"
+    done <<<"$wiring"
+fi
+
 # --- guard-edit --------------------------------------------------------------------------------
 check "code edit on main" deny "$(hook guard-edit "$(edit_input crates/demo/src/lib.rs)")"
 check "doc edit on main" allow "$(hook guard-edit "$(edit_input docs/a.md)")"
