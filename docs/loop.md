@@ -25,7 +25,8 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 The gate and the review stamp the exact tree they checked (`loop_tree_hash` in
 `scripts/loop/lib.sh`). Any later edit invalidates the gate stamp. The review stamp belongs to
 the branch's bead and survives only edits to prose (`docs/` and top-level Markdown files,
-`loop_review_valid`, `LOOP_REVIEW_CARRY_PATHS`): a trivial doc fix for a minor finding after
+`loop_review_valid`, `LOOP_REVIEW_CARRY_PATHS`; not `CLAUDE.md`, `AGENTS.md` or `docs/SRS.md`,
+which instruct agents or define requirements): a trivial doc fix for a minor finding after
 a `PASS` needs a new gate run but no new review, and every other minor finding becomes a
 follow-up bead instead of another review round. Stamps, logs and counters
 live in the worktree's git dir (`git rev-parse --git-path loop`), never in the repository.

@@ -14,6 +14,9 @@ LOOP_USER_REVIEW_PATHS='^(\.github/workflows/|\.claude/settings\.json$)'
 # gate run, not a new review (loop_review_valid). Everything else, the build and packaging
 # scripts and other agents' hook files included, needs a new review.
 LOOP_REVIEW_CARRY_PATHS='^(docs/|[^/]+\.md$)'
+# Markdown that is not just prose and needs a new review after all: the agent instructions and
+# the requirements the review checks the change against.
+LOOP_REVIEW_NO_CARRY_PATHS='^(CLAUDE\.md|AGENTS\.md|docs/SRS\.md)$'
 # Non-test source lines a bead branch may change before it must be split (label large-change lifts it).
 LOOP_DIFF_BUDGET="${LOOP_DIFF_BUDGET:-800}"
 # The Rust sources the diff budget counts (`#[cfg(test)] mod tests` left out, see loop_budget_lines).
@@ -105,7 +108,9 @@ loop_user_review_files() {
 # column 0, as rustfmt writes it (or the end of its line when it closes there). Whatever follows
 # the module counts: clippy's items_after_test_module, denied by the gate, stays silent when a
 # module follows it. Nested test modules, out-of-line `mod tests;`, test-only modules with other
-# names and other #[cfg(test)] items such as helpers still count.
+# names and other #[cfg(test)] items such as helpers still count. Strings are not parsed: a
+# column-0 `}` inside a multi-line string literal of the test module ends the cut early and the
+# rest of the module counts, which errs towards a larger diff (none in crates/ as of 2026-10-20).
 loop_strip_test_module() {
     awk '
         function open_module(line, rest) {
@@ -201,14 +206,15 @@ loop_review_ours() {
 }
 
 # The review of this branch's bead covers [tree] (default: the current one) when it passed on
-# exactly that tree, or on one that differs from it only in prose (LOOP_REVIEW_CARRY_PATHS): a
-# minor doc fix after a PASS needs a new gate run, not a new review (/bead step 6).
+# exactly that tree, or on one that differs from it only in prose (LOOP_REVIEW_CARRY_PATHS but
+# not LOOP_REVIEW_NO_CARRY_PATHS): a minor doc fix after a PASS needs a new gate run, not a new
+# review (/bead step 6).
 loop_review_valid() {
     local tree="${1:-$(loop_tree_hash)}" changed
     loop_review_ours || return 1
     loop_stamp_valid review.ok "$tree" && return 0
     changed="$(loop_changed_since_review "$tree")" || return 1
-    ! grep -Evq "$LOOP_REVIEW_CARRY_PATHS" <<<"$changed"
+    ! grep -Evq "$LOOP_REVIEW_CARRY_PATHS" <<<"$changed" && ! grep -Eq "$LOOP_REVIEW_NO_CARRY_PATHS" <<<"$changed"
 }
 
 # One bead as a JSON object (bd show prints an array).
