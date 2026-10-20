@@ -47,6 +47,11 @@ Without the feature the same file only checks that the stub stays out of the def
 The CI job Test runs the crate's tests and clippy with the feature (`.github/workflows/ci.yml`).
 [docs/ifcx-evolution.md](ifcx-evolution.md) is the runbook for adopting a real successor.
 
+`tests/schema_publication.rs` prepares publishing the `archicraft::` schema (IFX-092): it
+replaces the in-file `archicraft::` schemas of each golden file in memory with an import of the
+schema-only document that the example `archicraft_schema` writes, and checks with
+`validate::validate_with` that the file still validates. The golden files on disk stay unchanged.
+
 Blessing never happens to get a test green. The gate refuses golden-file edits on beads without
 the `format-change` label, and the pull request shows the regenerated files' diff next to the
 code that changed them; the reviewer checks that every changed byte follows from the intended

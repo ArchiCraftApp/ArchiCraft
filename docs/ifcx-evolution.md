@@ -77,3 +77,58 @@ Call the new version `ifcx_beta` below; use the name buildingSMART publishes.
 
 Check before merging: `cargo tree -p archicraft-model` and `cargo tree -p archicraft-geometry`
 are unchanged, and the diff touches neither crate (NFR-MNT-004).
+
+## Publishing the `archicraft::` schema
+
+SRS IFX-092 allows publishing the ArchiCraft schema on ifcx.dev under its own namespace. It is
+optional and not done yet; the code is ready for it:
+
+- `alpha::schema::document(timestamp)` (`crates/archicraft-ifcx/src/alpha/schema.rs`) is a
+  standalone, schema-only IFCX document in the shape of the bundled standard schemas: the
+  declarations of `schema::declarations()`, no imports, no data, `header.id` `archicraft` and
+  `header.dataVersion` the `FORMAT_VERSION` it describes.
+- The example `archicraft_schema` writes it, indented:
+  `cargo run -p archicraft-ifcx --example archicraft_schema -- archicraft@v1.ifcx [timestamp]`.
+  Without a timestamp (ISO 8601 UTC) the header gets the current time; pass the published one to
+  reproduce a published file byte for byte.
+- `validate::validate_with(file, extra)` resolves imports from extra schema documents before the
+  bundled ones. `tests/schema_publication.rs` uses it to check that each golden file, with its
+  in-file `archicraft::` schemas replaced by an import of the document under the placeholder URI
+  `https://ifcx.dev/@archicraft/archicraft@v1.ifcx`, validates without problems.
+  `registry.rs` stays the production list of bundled imports.
+
+The writer keeps declaring the schema in-file, so every saved file validates on its own (IFX-005,
+IFX-061). Publishing adds a reference copy for other tools; it does not replace the in-file
+declarations.
+
+### Publication steps
+
+1. **Namespace.** ifcx.dev paths start with a namespace named after the publisher's domain
+   (`@standards.buildingsmart.org`, `@openusd.org`). Choose the namespace from a domain the
+   project controls (a decision for the user); `@archicraft` is only the test's placeholder. The
+   file name carries the format version: `<namespace>/archicraft@v<FORMAT_VERSION>.ifcx`.
+2. **Licence of the schema text.** The licence of the published file is decided by the user
+   together with the distribution model (SRS O-5). The repository's licence today is in
+   `Cargo.toml` (`license` of the workspace). Choose a licence that lets other tools copy the
+   declarations into their files (the in-file declarations of every saved file are copies of it),
+   and state it in the publication request and in `crates/archicraft-ifcx/schemas/README.md`.
+3. **Generate.** Run the example for the current `FORMAT_VERSION` with a fixed timestamp, and
+   keep the command line with the timestamp in the publication request.
+4. **Check.** Set the URI in `tests/schema_publication.rs` to the chosen one and run
+   `cargo test -p archicraft-ifcx --test schema_publication`. `conformance/run.sh` does not apply
+   to the schema document: its checks expect a model with one root node, and a schema-only file
+   has none (the bundled standard schemas have none either).
+5. **Publish.** ifcx.dev serves the repository buildingSMART/IFCx.dev; open a pull request there
+   that adds the file under the namespace, following that repository's contribution rules.
+6. **Record.** Add the published URI to SRS R3 (an SRS change for the user) and update the IFX-092
+   row of `docs/implementation-status.md`. Bundling the published file in `schemas/` and
+   `registry.rs` is needed only if the writer or the tests start importing it.
+
+### Versioning
+
+One published file per ArchiCraft format version, and a published file never changes. A change
+of `FORMAT_VERSION` (a migration step in `alpha/migrate.rs`, see above) publishes
+`archicraft@v<new>.ifcx` next to the old file, so files that name an old version keep resolving.
+A successor IFCX version (the runbook above) that changes the declarations without a format
+change publishes a new file under a name that also carries the IFCX version; agree the name with
+the IFCx.dev maintainers then.
