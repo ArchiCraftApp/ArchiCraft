@@ -1,8 +1,18 @@
 //! Writes a project as an `ifcx_alpha` document (SRS Section 5.2).
+//!
+//! Rounding (IFX-007, NFR-ACC-002): "coordinates rounded to 10⁻⁶ m" applies
+//! to the coordinates in the standard namespaces, which viewers read: mesh
+//! points, curve points (the wall `Axis`) and the translation of every
+//! `usd::xformop` placement. Parameters in the `archicraft::` namespace,
+//! including plan coordinates such as wall start and end or slab outlines,
+//! are written at shortest round-trip precision, so that loading gives back
+//! the model bit for bit. Both are deterministic and exponent-free through
+//! [`crate::json`].
 
 use std::collections::HashSet;
 
 use archicraft_geometry::{ModelGeometry, TriMesh};
+use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
 use archicraft_model::project::{SlabDefaults, WallDefaults};
 use archicraft_model::{Element, ElementKind, MaterialId, Project, ReferenceLine, TopLink};
@@ -236,7 +246,7 @@ fn mesh_attribute(mesh: &TriMesh) -> Value {
     json!({"points": points, "faceVertexIndices": mesh.indices})
 }
 
-fn curve_attribute(points: &[archicraft_model::glam::DVec3]) -> Value {
+fn curve_attribute(points: &[DVec3]) -> Value {
     let points: Vec<Value> = points
         .iter()
         .map(|p| json!([round_coordinate(p.x), round_coordinate(p.y), round_coordinate(p.z)]))
@@ -244,8 +254,14 @@ fn curve_attribute(points: &[archicraft_model::glam::DVec3]) -> Value {
     json!({"points": points})
 }
 
-fn translation(z: f64) -> Value {
-    json!({"transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, z, 1]]})
+/// `usd::xformop` translating by `t`: a row-major 4×4 matrix with the
+/// translation in the fourth row (IFX-031). Every placement goes through
+/// here, so the translation is a coordinate rounded to 10⁻⁶ m like mesh and
+/// curve points (IFX-007); the exact value stays in the `archicraft::`
+/// parameter it comes from (NFR-ACC-002).
+fn transform(t: DVec3) -> Value {
+    let row = [round_coordinate(t.x), round_coordinate(t.y), round_coordinate(t.z)];
+    json!({"transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [row[0], row[1], row[2], 1.0]]})
 }
 
 /// Builds the IFCX document for a project and its evaluated geometry. The
@@ -320,7 +336,7 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
         node.attributes
             .insert("bsi::ifc::prop::Name".into(), json!(storey.name));
         node.attributes
-            .insert("usd::xformop".into(), translation(storey.elevation));
+            .insert("usd::xformop".into(), transform(DVec3::new(0.0, 0.0, storey.elevation)));
         let mut storey_attr = Map::new();
         storey_attr.insert("elevation".into(), json!(storey.elevation));
         storey_attr.insert("height".into(), json!(storey.height));

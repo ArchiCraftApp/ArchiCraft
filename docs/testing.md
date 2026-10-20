@@ -25,14 +25,60 @@ an intended format change, regenerate them the same way:
 ARCHICRAFT_BLESS=1 cargo test -p archicraft-ifcx --test corrupt
 ```
 
-_To be completed: the blessing workflow in detail._
+Blessing never happens to get a test green. The gate refuses golden-file edits on beads without
+the `format-change` label, and the pull request shows the regenerated files' diff next to the
+code that changed them; the reviewer checks that every changed byte follows from the intended
+change. Because the golden files are single-line compact JSON, read that diff through the review
+view snapshots below.
+
+## Determinism and rounding (IFX-007)
+
+`crates/archicraft-ifcx/tests/determinism.rs` holds IFX-007's checks: two saves differ only in
+`header.timestamp` and `header.dataVersion`, save-load-save is byte-identical for awkward floats
+(`0.1 + 0.2`, `1/3`, `1e-7`, `12345.678901234`), no output, compact or indented, contains an
+exponent, `data[]` follows the spatial tree (project, site, building, each storey in elevation
+order with its elements and their sub-nodes, then materials), key order is stable, and indented
+output loads to the same project and saves back to the golden bytes.
+
+The reading of "coordinates are rounded to 10⁻⁶ m" these tests pin: it covers the coordinates
+in the standard namespaces, which other IFCX consumers read, namely mesh points, curve points
+(the wall `Axis`) and the translation of every `usd::xformop` placement (the storey elevation
+today). Parameters in the `archicraft::` namespace, plan coordinates such as wall start and end
+or slab outlines included, are written at shortest round-trip precision and load back bit for
+bit (NFR-ACC-002, NFR-ACC-001). A storey at 2.9999999999 m is therefore placed at `3` and keeps
+`2.9999999999` in `archicraft::storey`; exported points stay within 0.1 mm of the model
+(IFX-031). Should the product owner decide that plan coordinates must be rounded too, the
+consistent change is to snap model coordinates to 10⁻⁶ m when commands are validated, which
+changes NFR-ACC-002's "never rounded".
 
 ## Snapshots
 
 `.gitattributes` keeps `*.snap` files at LF on every checkout, so snapshots compare equal on
 Windows.
 
-_To be completed: readable insta snapshots of IFCX output and egui_kittest UI snapshots._
+**IFCX review view.** `review_view_snapshots` in `crates/archicraft-ifcx/tests/determinism.rs`
+writes an insta snapshot of each sample's golden file, saved again by the current writer, into
+`crates/archicraft-ifcx/tests/snapshots/`. The snapshot is the document indented, with every
+mesh's `points` and `faceVertexIndices` and every curve's `points` replaced by
+`{"count": n, "fnv": "…"}`, the FNV-1a hash of the rounded values as written. A parameter change
+is then a one-line hunk, and a changed body shows as a changed hash. CI sets `CI=true`, which
+makes insta fail on any mismatch instead of writing a new snapshot.
+
+After an intended change of the output, review and accept the new snapshots with
+
+```sh
+cargo insta test -p archicraft-ifcx --test determinism --review
+```
+
+(`cargo install cargo-insta`; without it, `INSTA_UPDATE=always cargo test -p archicraft-ifcx
+--test determinism` writes them, and `git diff` shows the change). Never accept a snapshot whose
+diff you have not read.
+
+**In the pull request.** Both diffs, the golden files' and the snapshots', are part of the pull
+request and are reviewed there: the PR template has a checkbox for it. A pull request that
+changes the output without a matching snapshot diff fails CI.
+
+_To be completed: egui_kittest UI snapshots._
 
 ## Conformance
 
@@ -158,6 +204,7 @@ request; the CI step is the regression check.
 | IFX-001 | The output is UTF-8 (non-ASCII text verbatim) and its top-level object has exactly header, imports, schemas and data, compact and indented; the container matches the JSON Schema of `ifcx.tsp` (the `.ifcx` extension of the dialogs is pinned with the app requirements) | Test: `ifx_001_output_is_utf8_json_with_header_imports_schemas_and_data` (ifcx); also `container_matches_the_ifcx_json_schema` (roundtrip.rs) |
 | IFX-002 | header.id is `archicraft:project/<project UUID>`, ifcxVersion `ifcx_alpha`, dataVersion and author as given in WriteOptions, timestamp ISO 8601 UTC (the save counter and the author preference live in the app) | Test: `ifx_002_header_carries_id_version_data_version_author_and_utc_timestamp` (ifcx); also `written_files_validate_without_problems` (roundtrip.rs) |
 | IFX-005 | Every attribute key in `data` is declared by a bundled import or in the file's `schemas` | Test: `ifx_005_every_data_attribute_key_is_declared` (ifcx); also `written_files_validate_without_problems`, `schema_violations_are_reported` (roundtrip.rs) |
+| IFX-007 | Two saves differ only in timestamp and dataVersion; save-load-save of awkward floats is byte-identical; no exponent in compact or indented output; storey placements and wall Axis points are multiples of 10⁻⁶ m while `archicraft::` parameters keep full precision; `data[]` follows the spatial tree; key order is stable; indented output round-trips to the golden bytes; the review-view snapshots match | Test: `crates/archicraft-ifcx/tests/determinism.rs` (all tests, including `review_view_snapshots` with `CI=true`); also `output_is_deterministic_and_plain` and `golden_files_are_reproduced` (roundtrip.rs) |
 | IFX-010 | Project, site, building, storey, element and material nodes have RFC 9562 UUID paths (version 4); Body and Axis sub-nodes equal `sub_node_id(owner, role)` (version 5) and keep it when a wall thickness change regenerates the body | Test: `ifx_010_nodes_have_uuid_paths_and_sub_nodes_name_based_uuids` (ifcx); also `spatial_tree_and_identities` (roundtrip.rs) |
 | IFX-013 | IfcProject is the only root; header.id stays the same after renaming the project and saving under another name in another folder | Test: `ifx_013_header_id_survives_rename_and_move` (ifcx); also `spatial_tree_and_identities` (roundtrip.rs) |
 | IFX-014 | Children of the project, site, building and storeys are keyed `<Kind>_<8 hex>` from their UUID, unique per parent and unchanged after renaming every element; sub-nodes are keyed by role (`Body`, `Axis`) | Test: `ifx_014_child_keys_are_unique_readable_and_survive_rename` (ifcx) |

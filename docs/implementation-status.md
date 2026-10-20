@@ -10,12 +10,12 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
-| done | 59 | 4 | 0 | 63 |
-| partial | 117 | 36 | 6 | 159 |
+| done | 59 | 5 | 0 | 64 |
+| partial | 117 | 35 | 6 | 158 |
 | missing | 138 | 159 | 48 | 345 |
 | **total** | 314 | 199 | 54 | 567 |
 
-Remaining effort of the 504 open requirements: S 123, M 218, L 138, XL 25.
+Remaining effort of the 503 open requirements: S 122, M 218, L 138, XL 25.
 
 ## Per-section status (done/partial/missing)
 
@@ -52,7 +52,7 @@ Remaining effort of the 504 open requirements: S 123, M 218, L 138, XL 25.
 | 4.29 | Measurement and element information | 0/0/1 | 0/3/1 | 0/0/1 | 6 |
 | 4.30 | Undo, redo and history | 3/0/0 | 0/1/0 | 0/1/0 | 5 |
 | 4.31 | Preferences | 0/2/0 | 0/2/0 | 0/0/0 | 4 |
-| 5.2.1 | File structure and conformance | 3/3/0 | 0/1/0 | 0/1/0 | 8 |
+| 5.2.1 | File structure and conformance | 3/3/0 | 1/0/0 | 0/1/0 | 8 |
 | 5.2.2 | Identity and tree structure | 3/3/2 | 0/0/0 | 0/0/0 | 8 |
 | 5.2.3 | Semantics | 3/0/1 | 1/0/0 | 0/1/0 | 6 |
 | 5.2.4 | Geometry and placement | 3/3/1 | 0/1/1 | 0/0/0 | 9 |
@@ -80,7 +80,7 @@ Remaining effort of the 504 open requirements: S 123, M 218, L 138, XL 25.
 
 | Increment | Content (SRS Appendix F) | Exit criterion | Scope status (in scope: done/partial/missing) | What blocks the exit criterion |
 |---|---|---|---|---|
-| 0 — Walking skeleton | Command/undo core, project, storeys, layers, materials, straight walls and slabs, plan and 3D view, IFCX writer/reader, save/autosave/recovery | A storey with walls and a slab round-trips through IFCX and passes IFX-006 in CI | Delivered (samples::storey_with_walls_and_slab, roundtrip.rs, CI conformance job) | Nothing blocks it. Residual partials inside its scope: STR-002 default inverted, INP-003 Esc cancels the whole operation, NFR-REL-005 storey commands do not validate linked elements, PRJ-003 title shows the file name, LAY-001 no hidden/locked-layer warning, IFX-007 unrounded storey elevations. |
+| 0 — Walking skeleton | Command/undo core, project, storeys, layers, materials, straight walls and slabs, plan and 3D view, IFCX writer/reader, save/autosave/recovery | A storey with walls and a slab round-trips through IFCX and passes IFX-006 in CI | Delivered (samples::storey_with_walls_and_slab, roundtrip.rs, CI conformance job) | Nothing blocks it. Residual partials inside its scope: STR-002 default inverted, INP-003 Esc cancels the whole operation, NFR-REL-005 storey commands do not validate linked elements, PRJ-003 title shows the file name, LAY-001 no hidden/locked-layer warning. |
 | 1 — Core modeller | INP, SEL, EDT, ANN-001, PRF + WAL-020…027, COL, BEA, OPN, DW (basic catalogue), DSP, properties panel and settings dialogs, browser, tabs, saved views | Fixtures F2, F6, F7 pass; a ground floor with openings can be drawn precisely | 156 in scope: 2/37/117 | F2 needs PRF-001 layer structures (missing, L) and multi-skin bodies; F6 needs the multi-wall junction rule (WAL-020/026, partial: 3+ walls at a node stay square); F7 needs the material-priority engine (WAL-023 partial: priority stored but unused). EDT has no user-facing command (all 25 EDT rows missing/partial, MoveElements unreachable). OPN/DW (36 rows) and COL/BEA (16 rows) are entirely missing and need a host relation (ELM-016) and extensible element kinds. 'Drawn precisely' is close: INP-001…009 exist in plan; absolute/Cartesian input (INP-004), locks (INP-007), guides (INP-011) are missing. |
 | 2 — Envelope and site | Roofs, trim and solid operations, free-form solids, terrain, grids, stairs | AS-01 without railings and AS-02 pass | 92 in scope: 0/0/92 | Nothing in scope exists. Gating decisions: a 3D Boolean engine (Manifold or alternative, SOL-020) with its C++ toolchain, a relation store in Project (SOL-022, TER-006), a straight-skeleton roof generator (ROF-003), a general polyhedron/sweep builder beyond extrude.rs (STA-040), site-level elements under IfcSite (TER-012), IfcClass extension to the D.5 list. AS-02 additionally needs GRD-001…006 and the grid-alignment check (NFR-ACC-003). |
 | 3 — Should scope | Railings, curtain walls, sections and elevations, display styles, sun and shadows, presets, parameter transfer, component library, third-party IFCX import | AS-01…AS-06 pass in full | 50 in scope: 0/1/49 | Sections/elevations need arbitrary-plane slicing and a new Pane kind (VIEW-030/059, XL); display styles and sun need per-view resources and a shadow pass (VIEW-051/052); railings need profiles and sweeps (RAI-003, XL); third-party import needs the ImportedElement kind and inherits expansion (IFX-081/082, partial/missing); AS-06 also needs foreign-attribute preservation (IFX-066). |
@@ -793,7 +793,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | IFX-004 | M | partial | S | No local cache of foreign imports (IFX-066): imports outside the four bundled Table 5-2 URIs are only warned about (validate.rs:129-146) and their attributes stay unchecked; bundled copies and the no-network clause hold. |
 | IFX-005 | M | done | none | Done: crates/archicraft-ifcx/src/validate.rs:239-254 (check_attributes: undeclared attribute = error), 166-236 (value check per data type as in ifcx-core) |
 | IFX-006 | M | partial | S | conformance/run.sh runs (a) ifcx-core with schema validation, (b1) the compose3 tree in Node and (b2) the pinned viewer in headless Chromium (conformance/viewer.spec.ts: tree, storey and element counts, render, material colours; screenshots uploaded) on every change. Gaps: the inputs are the two increment-0 samples, not the Section 7.3 reference models RM-S/RM-M/RM-L; ubuntu only (Windows and macOS: archicraft-1ffl); the hosted R4 viewer stays manual. |
-| IFX-007 | S | partial | S | Storey elevations in usd::xformop (writer.rs:237-239, 313) and archicraft:: plan coordinates (wall start/end, slab outline/holes) are written unrounded; only mesh and curve points pass through round_coordinate. Determinism and pl… |
+| IFX-007 | S | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs transform() rounds every usd::xformop translation, mesh_attribute()/curve_attribute() round mesh and curve points to 10⁻⁶ m; json.rs writes shortest round-trip numbers without exponents. archicraft:: parameters (plan coordinates included) stay at round-trip precision per NFR-ACC-002, the reading recorded in writer.rs and docs/testing.md. Tests: crates/archicraft-ifcx/tests/determinism.rs, review-view snapshots in tests/snapshots/ |
 | IFX-008 | C | partial | S | The application always saves compact (crates/archicraft-app/src/document.rs:141 passes false); no preference or save-dialog option lets the user choose indented output |
 
 ### 5.2.2 Identity and tree structure
@@ -825,7 +825,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | ID | Pri | Status | Effort | Gap / evidence |
 |---|---|---|---|---|
 | IFX-030 | M | done | none | Done. the standard-namespace georeferencing is IFX-070 |
-| IFX-031 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:237-239 (4x4 row-major with translation in the fourth row), 312-313 (storey transform = elevation) |
+| IFX-031 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:257-265 transform() (4x4 row-major with translation in the fourth row, rounded to 10⁻⁶ m), 339 (storey transform = elevation); world positions within 0.1 mm: exported_points_stay_within_a_tenth_of_a_millimetre_in_world_coordinates (crates/archicraft-ifcx/tests/determinism.rs) |
 | IFX-032 | M | done | none | Done. the writer itself does not call check_closed; validity rests on the generator and tests, see observations |
 | IFX-033 | M | partial | S | Only wall L/T junction cleanup exists. Layer-structure intersections, openings and hosted doors/windows, trims to roofs/slabs, solid operations and beam junctions are not in the geometry crate yet; the writer needs no change but… |
 | IFX-034 | M | partial | S | Max segment angle has no UI field (only chord deviation is in the dialog); no curved geometry exists, so nothing tessellates with these values yet |
