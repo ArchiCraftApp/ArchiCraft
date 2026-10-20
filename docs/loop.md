@@ -132,7 +132,7 @@ when a branch whose scripts skip the rule turned it on; the user merges it after
 an admin, past the failing status ("Merge without waiting for requirements", or
 `gh pr merge --admin`, which the hooks refuse to agents). Protection names the status by its
 context only, so a status of the same name from another source (the PR's own workflow, a
-`gh api` call) could still overwrite it: archicraft-9nlk's follow-up pins its source.
+`gh api` call) could still overwrite it; closing that is archicraft-t9zs.
 A CODEOWNERS review cannot enforce this while Claude works under the user's GitHub account,
 because GitHub does not let an account approve its own PR.
 

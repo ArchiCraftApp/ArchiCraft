@@ -702,7 +702,7 @@ expect "user-review check fails a PR that only changes the review paths" scripts
 # A branch whose land.sh, lib.sh and check skip the rule: its own land.sh turns auto-merge on, the
 # base's check still fails the PR.
 git switch -q -c bead/archicraft-lp08-skip main
-echo 'loop_user_review_files() { :; }' >>scripts/loop/lib.sh
+mkdir -p .claude && echo 'loop_user_review_files() { :; }' >>scripts/loop/lib.sh
 sed -i.bak 's/^if \[ -n "\$waits" \]; then$/if false; then/' scripts/loop/land.sh && rm scripts/loop/land.sh.bak
 printf '#!/bin/sh\necho "User review: skipped"\n' >scripts/loop/ci-user-review.sh
 echo '# lp08' >>.github/workflows/ci.yml && echo '{}' >.claude/settings.json
