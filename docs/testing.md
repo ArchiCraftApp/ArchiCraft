@@ -33,6 +33,19 @@ loop writes them, and `frozen_format_fixtures_never_change` fails with “frozen
 changed” when their bytes change. A format bump adds a new frozen file and a migration step
 (crates/archicraft-ifcx/src/alpha/migrate.rs); it never regenerates an old one.
 
+A successor IFCX version plugs into the adapter table without touching the model or geometry
+crates (IFX-091, NFR-MNT-004). The cargo feature `successor-stub` of `archicraft-ifcx` adds a
+mock successor, `ifcx_successor_mock`, and `tests/successor.rs` checks that a golden file
+relabelled as that version routes to it and loads to the same project, that unknown versions
+still fail naming every supported one and that saving writes `ifcx_alpha`:
+
+```sh
+cargo test -p archicraft-ifcx --features successor-stub --test successor
+```
+
+Without the feature the same file only checks that the stub stays out of the default build.
+[docs/ifcx-evolution.md](ifcx-evolution.md) is the runbook for adopting a real successor.
+
 Blessing never happens to get a test green. The gate refuses golden-file edits on beads without
 the `format-change` label, and the pull request shows the regenerated files' diff next to the
 code that changed them; the reviewer checks that every changed byte follows from the intended
