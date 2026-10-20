@@ -44,6 +44,7 @@ cargo test -p archicraft-ifcx --features successor-stub --test successor
 ```
 
 Without the feature the same file only checks that the stub stays out of the default build.
+The CI job Test runs the crate's tests and clippy with the feature (`.github/workflows/ci.yml`).
 [docs/ifcx-evolution.md](ifcx-evolution.md) is the runbook for adopting a real successor.
 
 Blessing never happens to get a test green. The gate refuses golden-file edits on beads without
