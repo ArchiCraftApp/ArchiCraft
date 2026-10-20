@@ -291,7 +291,7 @@ The Manifold library itself is well established; Blender 4.5 ships it as a boole
 
 ## Health check (2026-10-16)
 
-Figures from lib.rs on 2026-10-16.
+Figures from lib.rs on 2026-10-16. Rows added later give their source and date in the text below the table.
 
 | Crate | Latest | Released | Downloads/month | License | Notes |
 |---|---|---|---|---|---|
@@ -314,10 +314,14 @@ Figures from lib.rs on 2026-10-16.
 | unic-langid | 0.9.6 | 2025-05-09 | 3.2 M | MIT/Apache | Zibi Braniecki and Manish Goregaokar |
 | criterion | 0.8.2 | 2026-02-04 | 22.6 M | MIT/Apache | Dev-dependency for the benches; default features (rayon, plotters) off |
 | syn | 3.0.9 | 2026-10-12 | 246 M | MIT/Apache | David Tolnay; dev-dependency for the literal-string lint, with proc-macro2 (already in the tree) for line numbers |
+| cargo-fuzz | 0.13.2 | 2026-06-09 | 593 k | MIT/Apache | rust-fuzz organisation, four owners plus its publishers team; CI tool, pinned in `.github/workflows/fuzz.yml`, needs nightly |
+| cargo-deny | 0.20.2 | 2026-07-09 | 661 k | MIT/Apache | Embark Studios; Jake Shadle wrote most of it, so effectively one maintainer; CI tool through `cargo-deny-action@v2` |
+| ureq (planned) | 3.4.2 | 2026-09-13 | 23.9 M | MIT/Apache | Martin Algesten and Jacob Hoffman-Andrews; blocking, small dependency tree |
+| @playwright/test (npm) | 1.64.1 | 2026-10-14 | 294 M | Apache-2.0 | Microsoft; test-only under Node.js, pinned at 1.63.0 in `conformance/package.json` |
 
-The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them. The criterion and syn rows were added on 2026-10-20 the same way.
+The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them. The criterion and syn rows were added on 2026-10-20 the same way. The cargo-fuzz, cargo-deny and ureq rows were added on 2026-10-20 the same way; the @playwright/test row comes from npm (downloads in the 30 days to 2026-10-18). cargo-fuzz, ureq and Playwright meet the selection criteria; cargo-deny misses criterion 1 (one main maintainer) and is kept because it is a CI tool that can be swapped without touching the product.
 
-serde, serde_json, uuid, thiserror, anyhow, tracing, bytemuck and insta are among the most widely used crates in the Rust ecosystem and were not checked individually. Not checked yet: the tools added when aligning with the SRS (cargo-fuzz, cargo-deny, Playwright) and the planned HTTP client. Playwright is pinned as `@playwright/test` 1.63.0 (2026-09-04, Apache-2.0) with the three.js release the pinned viewer loads (0.177.0, MIT), both in `conformance/package.json`; like Node.js they are CI test tools, and Playwright's browser download never happens in the product.
+serde, serde_json, uuid, thiserror, anyhow, tracing, bytemuck and insta are among the most widely used crates in the Rust ecosystem and were not checked individually. Playwright is pinned as `@playwright/test` 1.63.0 (2026-09-04, Apache-2.0) with the three.js release the pinned viewer loads (0.177.0, MIT), both in `conformance/package.json`; like Node.js they are CI test tools, and Playwright's browser download never happens in the product.
 
 ## References
 
