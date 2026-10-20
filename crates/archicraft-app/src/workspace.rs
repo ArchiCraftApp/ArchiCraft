@@ -7,8 +7,9 @@ use std::time::Instant;
 use archicraft_model::{Command, CommandError, ElementId, Message, StoreyId, ViewId};
 
 use crate::document::Document;
+use crate::input::PointInput;
 use crate::persistence::prefs::Preferences;
-use crate::tools::ToolState;
+use crate::tools::{ToolKind, ToolState};
 use crate::views::plan::PlanViewState;
 use crate::views::render3d::{GpuScene, Renderer3d};
 use crate::views::view3d::View3dState;
@@ -64,6 +65,9 @@ pub struct Workspace {
     pub doc: Document,
     pub prefs: Preferences,
     pub tool: ToolState,
+    /// Point input for the active tool: typed values and the last cursor
+    /// position (INP-001).
+    pub input: PointInput,
     pub selection: HashSet<ElementId>,
     pub hover: Option<ElementId>,
     pub plan_views: HashMap<StoreyId, PlanViewState>,
@@ -88,6 +92,7 @@ impl Workspace {
             doc,
             prefs,
             tool: ToolState::default(),
+            input: PointInput::default(),
             selection: HashSet::new(),
             hover: None,
             plan_views: HashMap::new(),
@@ -107,7 +112,7 @@ impl Workspace {
     /// reset; the GPU renderer is kept.
     pub fn replace_document(&mut self, doc: Document) {
         self.doc = doc;
-        self.tool.reset();
+        self.reset_input();
         self.selection.clear();
         self.hover = None;
         self.plan_views.clear();
@@ -116,6 +121,18 @@ impl Workspace {
         self.active_storey = self.doc.project.storeys.ground();
         self.active_pane = Some(Pane::Plan(self.active_storey));
         self.requests.clear();
+    }
+
+    /// Switches to the tool `kind`, discarding the input in progress.
+    pub fn select_tool(&mut self, kind: ToolKind) {
+        self.tool.select(kind);
+        self.input = PointInput::default();
+    }
+
+    /// Discards the points and typed values of the input in progress.
+    pub fn reset_input(&mut self) {
+        self.tool.reset();
+        self.input = PointInput::default();
     }
 
     pub fn info(&mut self, text: impl Into<String>) {
@@ -230,7 +247,6 @@ impl Workspace {
     /// Selects every visible element of the active tool's kind on the active
     /// storey, or of every kind with the selection tool (SEL-004).
     pub fn select_all(&mut self) {
-        use crate::tools::ToolKind;
         let project = &self.doc.project;
         let kind = match self.tool.kind {
             ToolKind::Select => None,

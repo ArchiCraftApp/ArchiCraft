@@ -15,7 +15,7 @@ mod typed;
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::tolerance::coincident;
-use archicraft_model::units::{NumberFormat, UnitSettings, parse_angle, parse_length};
+use archicraft_model::units::{NumberFormat, UnitSettings, format_angle, format_length, parse_angle, parse_length};
 use archicraft_model::{Command, Project, StoreyId};
 
 pub use constrain::constrain;
@@ -38,7 +38,9 @@ pub enum GuideShape {
 pub struct Resolved {
     pub point: DVec2,
     pub snap: Snap,
-    /// The snaps the user can choose between at this position.
+    /// The snaps the user can choose between at this position. Until
+    /// candidate cycling arrives this is the chosen snap alone, or nothing
+    /// for a free point.
     pub candidates: Vec<Snap>,
     pub guides: Vec<GuideShape>,
 }
@@ -97,6 +99,39 @@ impl PointInput {
     /// The point resolved for the last cursor position.
     pub fn last(&self) -> Option<&Resolved> {
         self.last.as_ref()
+    }
+
+    /// Whether keys belong to point input rather than to single-key
+    /// shortcuts: while the consumer's step takes typed values or a value is
+    /// typed (INP-003, UI-008).
+    pub fn captures_keys(&self, consumer: &dyn InputConsumer) -> bool {
+        !self.typed.is_empty()
+            || consumer
+                .step()
+                .is_some_and(|s| s.expects.origin(consumer.reference_point()).is_some())
+    }
+
+    /// The tracker text next to the cursor (INP-002): distance and angle of
+    /// `point` from the origin of the step, or the typed values with the
+    /// active field marked.
+    pub fn tracker(&self, point: DVec2, ctx: &InputContext) -> Option<String> {
+        let d = point - ctx.expects.origin(ctx.previous)?;
+        let mark = |field: Field| if self.typed.field == field { "▸" } else { " " };
+        let distance = if self.typed.distance.is_empty() {
+            format_length(d.length(), ctx.units, ctx.number_format, true)
+        } else {
+            format!("{}_", self.typed.distance)
+        };
+        let angle = if self.typed.angle.is_empty() {
+            format_angle(d.to_angle(), ctx.units, ctx.number_format, true)
+        } else {
+            format!("{}_", self.typed.angle)
+        };
+        Some(format!(
+            "{}d {distance}\n{}a {angle}",
+            mark(Field::Distance),
+            mark(Field::Angle)
+        ))
     }
 
     /// Resolves a cursor position on the working plane: typed values first,
@@ -774,6 +809,56 @@ mod tests {
             env.key(&mut input, &mut tool, KeyInput::Escape),
             Effect::NothingToCancel
         );
+    }
+
+    /// INP-003, INP-004, INP-006: a typed distance, then a typed angle, from
+    /// the previous point; Shift constrains the direction to the angle
+    /// increment.
+    #[test]
+    fn typed_distance_and_constraint() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        let ctx = env.ctx(&tool);
+        input.typed.distance = "2500mm".into();
+        let p = input.resolve(DVec2::new(1.0, 0.0), Modifiers::default(), &ctx).point;
+        assert!(p.distance(DVec2::new(2.5, 0.0)) < 1e-12);
+        input.typed.angle = "90".into();
+        let p = input.resolve(DVec2::new(1.0, 0.0), Modifiers::default(), &ctx).point;
+        assert!(p.distance(DVec2::new(0.0, 2.5)) < 1e-12);
+        input.typed.clear();
+        let shift = Modifiers {
+            shift: true,
+            ..Modifiers::default()
+        };
+        let resolved = input.resolve(DVec2::new(3.0, 0.4), shift, &ctx);
+        assert_eq!(resolved.snap.kind, SnapKind::Constrained);
+        assert!(resolved.point.distance(DVec2::new(3.0, 0.0)) < 1e-12);
+    }
+
+    /// INP-002, INP-003, UI-008: once a step takes typed values, keys belong
+    /// to point input and the tracker shows the distance and angle from the
+    /// previous point, or the typed value in the active field.
+    #[test]
+    fn keys_and_tracker_follow_the_step() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        assert!(!input.captures_keys(&tool), "the first point takes no typed values");
+        assert_eq!(input.tracker(DVec2::X, &env.ctx(&tool)), None);
+        env.click(&mut input, &mut tool, (1.0, 1.0));
+        assert!(input.captures_keys(&tool));
+        let tracker = input.tracker(DVec2::new(4.0, 5.0), &env.ctx(&tool)).unwrap();
+        assert!(tracker.starts_with("▸d 5"), "{tracker}");
+        assert!(tracker.contains(" a 53"), "{tracker}");
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        env.key(&mut input, &mut tool, text("30"));
+        let tracker = input.tracker(DVec2::new(4.0, 5.0), &env.ctx(&tool)).unwrap();
+        assert!(tracker.ends_with("▸a 30_"), "{tracker}");
+        assert!(input.captures_keys(&ToolState::default()), "typed text keeps the keys");
+        input.typed.clear();
+        assert!(!input.captures_keys(&ToolState::default()));
     }
 
     /// INP-003: Enter with a typed value that does not parse is an error.

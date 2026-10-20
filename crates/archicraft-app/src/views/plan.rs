@@ -3,10 +3,13 @@
 //! The plan is generated from the 3D bodies by the geometry crate; this view
 //! draws it with egui's anti-aliased painter: cut outlines heavier than
 //! projected lines, overhead lines dashed, cut fills from the materials.
+//! Points go through the point-input service (`crate::input`, INP-001): the
+//! view offers its surface, translates egui events and draws the result.
 
 use archicraft_geometry::plan::{PlanDrawing, polygon_rings};
 use archicraft_model::glam::DVec2;
-use archicraft_model::{ElementId, StoreyId};
+use archicraft_model::units::{NumberFormat, UnitSettings};
+use archicraft_model::{ElementId, Project, StoreyId};
 use egui::epaint::Vertex;
 use egui::{
     Align2, Color32, CursorIcon, Event, FontId, Key, Mesh, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
@@ -14,8 +17,11 @@ use egui::{
 };
 
 use super::camera::{Camera2d, ZoomHistory};
-use crate::input::{Field, InputConsumer, Outcome, Snap, SnapKind, SnapTargets, constrain, is_numeric_input, snap};
-use crate::tools::ToolKind;
+use crate::input::{
+    Effect, Expect, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput, Resolved, SnapKind,
+    SnapTargets, SurfaceFrame, ViewSurface,
+};
+use crate::tools::{ToolKind, ToolState};
 use crate::workspace::{Pane, Request, Workspace};
 
 /// Per-view state of a plan view.
@@ -86,6 +92,106 @@ impl PlanViewState {
         if let Some(c) = self.zoom_history.next(self.camera) {
             self.camera = c;
         }
+    }
+}
+
+/// The surface of a plan view for point input (INP-001): the camera maps
+/// screen pixels onto the storey's plane at its elevation.
+#[derive(Clone, Copy, Debug)]
+pub struct PlanSurface {
+    pub camera: Camera2d,
+    pub rect: Rect,
+    pub elevation: f64,
+}
+
+impl ViewSurface for PlanSurface {
+    fn to_plane(&self, screen: DVec2) -> Option<DVec2> {
+        Some(
+            self.camera
+                .to_world(self.rect, Pos2::new(screen.x as f32, screen.y as f32)),
+        )
+    }
+
+    fn to_screen(&self, plane: DVec2) -> DVec2 {
+        let p = self.camera.to_screen(self.rect, plane);
+        DVec2::new(f64::from(p.x), f64::from(p.y))
+    }
+
+    fn model_per_pixel(&self) -> f64 {
+        1.0 / self.camera.scale
+    }
+
+    fn frame(&self) -> SurfaceFrame {
+        SurfaceFrame::plan(self.elevation)
+    }
+}
+
+/// What a plan view gives point input besides the consumer's step: the snap
+/// targets of the storey and the settings, from which each step's context is
+/// built (INP-001).
+struct PlanInput {
+    storey: StoreyId,
+    frame: SurfaceFrame,
+    targets: SnapTargets,
+    radius: f64,
+    units: UnitSettings,
+    number_format: NumberFormat,
+    angle_increment_deg: f64,
+    snap_step: f64,
+}
+
+impl PlanInput {
+    fn new(ws: &Workspace, plan: &PlanDrawing, storey: StoreyId, surface: &PlanSurface) -> Self {
+        let mut targets = SnapTargets::from_plan(plan, &ws.doc.project, storey);
+        if on_storey(&ws.tool, storey) {
+            targets.nodes.extend(ws.tool.points.iter().copied());
+        }
+        Self {
+            storey,
+            frame: surface.frame(),
+            targets,
+            radius: f64::from(ws.prefs.snap_radius) * surface.model_per_pixel(),
+            units: ws.doc.project.settings.units.clone(),
+            number_format: ws.prefs.number_format(),
+            angle_increment_deg: ws.prefs.angle_increment_deg,
+            snap_step: ws.prefs.snap_step,
+        }
+    }
+
+    /// The context of the tool's current step. Points entered on another
+    /// storey are no reference in this view.
+    fn ctx<'a>(&'a self, project: &'a Project, tool: &ToolState) -> InputContext<'a> {
+        let here = on_storey(tool, self.storey);
+        InputContext {
+            project,
+            storey: self.storey,
+            targets: &self.targets,
+            previous: tool.reference_point().filter(|_| here),
+            expects: tool.step().filter(|_| here).map_or(Expect::Point, |s| s.expects),
+            radius: self.radius,
+            units: &self.units,
+            number_format: &self.number_format,
+            angle_increment_deg: self.angle_increment_deg,
+            snap_step: self.snap_step,
+            frame: self.frame,
+        }
+    }
+}
+
+/// Whether the tool's input started on `storey` or has not started.
+fn on_storey(tool: &ToolState, storey: StoreyId) -> bool {
+    tool.storey.is_none_or(|s| s == storey)
+}
+
+fn screen(p: Pos2) -> DVec2 {
+    DVec2::new(f64::from(p.x), f64::from(p.y))
+}
+
+fn modifiers(m: egui::Modifiers) -> Modifiers {
+    Modifiers {
+        shift: m.shift,
+        command: m.command,
+        alt: m.alt,
     }
 }
 
@@ -434,14 +540,21 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     painter.rect_filled(rect, 0.0, palette.paper);
     draw_grid(&painter, rect, &camera, &palette);
 
+    let elevation = ws.doc.project.storeys.get(storey).map_or(0.0, |s| s.elevation);
+    let surface = PlanSurface {
+        camera,
+        rect,
+        elevation,
+    };
     let pointer = response.hover_pos();
-    let cursor_world = pointer.map(|p| camera.to_world(rect, p));
-    let snap_radius = f64::from(ws.prefs.snap_radius) / camera.scale;
+    let cursor_world = pointer.and_then(|p| surface.to_plane(screen(p)));
     let pick_tolerance = 4.0 / camera.scale;
-    let units = ws.doc.project.settings.units.clone();
-    let nf = ws.prefs.number_format();
     let drawing_tool = ws.tool.kind != ToolKind::Select;
     let selecting = !drawing_tool || ui.input(|i| i.modifiers.command);
+    let mods = ui.input(|i| modifiers(i.modifiers));
+    // Only the view under the cursor or taking the keys needs snap targets.
+    let input =
+        (drawing_tool && (cursor_world.is_some() || active)).then(|| PlanInput::new(ws, &plan, storey, &surface));
 
     // Hover: preselection for the selection tool (SEL-001).
     if let Some(world) = cursor_world {
@@ -459,35 +572,8 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         ws.hover = None;
     }
 
-    // Point input: snapping, constraint and typed values (INP-001…INP-009).
-    let previous = ws
-        .tool
-        .points
-        .last()
-        .copied()
-        .filter(|_| ws.tool.storey == Some(storey));
-    let snapped: Option<Snap> = cursor_world.filter(|_| drawing_tool && !selecting).map(|world| {
-        let constrained = ui.input(|i| i.modifiers.shift);
-        if let Some(typed) = ws.tool.apply_typed(world, &units, &nf).filter(|_| previous.is_some()) {
-            return Snap {
-                point: typed,
-                kind: SnapKind::Typed,
-            };
-        }
-        if let (true, Some(prev)) = (constrained, previous) {
-            return Snap {
-                point: constrain(prev, world, ws.prefs.angle_increment_deg),
-                kind: SnapKind::Constrained,
-            };
-        }
-        let targets = SnapTargets::from_plan(&plan, &ws.doc.project, storey);
-        let mut targets = targets;
-        targets.nodes.extend(ws.tool.points.iter().copied());
-        snap(&targets, world, snap_radius, ws.prefs.snap_step, previous)
-    });
-
     if active && !ui.ctx().text_edit_focused() {
-        handle_keys(ui, ws, &mut state, storey, snapped, cursor_world);
+        handle_keys(ui, ws, &mut state, input.as_ref(), cursor_world);
     }
 
     // Clicks.
@@ -515,19 +601,33 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
                 None if !shift => ws.selection.clear(),
                 None => {}
             }
-        } else if let Some(s) = snapped {
-            let outcome = ws.tool.commit(&ws.doc.project, storey, s.point);
-            if let Outcome::Execute(command) = outcome {
-                ws.execute(command);
-            }
+        } else if let Some(input) = &input {
+            let ctx = input.ctx(&ws.doc.project, &ws.tool);
+            let effect = ws.input.click(world, mods, &mut ws.tool, &ctx);
+            apply(ws, effect);
         }
     }
-    if response.double_clicked_by(PointerButton::Primary) && drawing_tool && !selecting {
-        let outcome = ws.tool.finish(&ws.doc.project);
-        if let Outcome::Execute(command) = outcome {
-            ws.execute(command);
-        }
+    if response.double_clicked_by(PointerButton::Primary)
+        && !selecting
+        && let Some(input) = &input
+    {
+        let ctx = input.ctx(&ws.doc.project, &ws.tool);
+        let effect = ws.input.double_click(&mut ws.tool, &ctx);
+        apply(ws, effect);
     }
+
+    // Point input: the resolved point and its tracker after this frame's
+    // keys and clicks (INP-001, INP-002).
+    let resolved: Option<(Resolved, Option<String>)> =
+        cursor_world
+            .filter(|_| !selecting)
+            .zip(input.as_ref())
+            .map(|(world, input)| {
+                let ctx = input.ctx(&ws.doc.project, &ws.tool);
+                let resolved = ws.input.resolve(world, mods, &ctx);
+                let tracker = ws.input.tracker(resolved.point, &ctx);
+                (resolved, tracker)
+            });
 
     // Area selection (SEL-003): left to right = fully inside,
     // right to left = touching.
@@ -576,9 +676,9 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
             painter.extend(Shape::dashed_line(&corners, stroke, 5.0, 4.0));
         }
     }
-    if let (Some(s), Some(p)) = (snapped, pointer) {
-        let target = camera.to_screen(rect, s.point);
-        for (ring, closed) in ws.tool.outlines(s.point) {
+    if let (Some((resolved, tracker)), Some(p)) = (resolved, pointer) {
+        let target = camera.to_screen(rect, resolved.point);
+        for (ring, closed) in ws.tool.preview(&resolved).outlines {
             let points: Vec<Pos2> = ring.iter().map(|q| camera.to_screen(rect, *q)).collect();
             let stroke = Stroke::new(1.5, palette.preview);
             if closed {
@@ -590,16 +690,13 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         for q in &ws.tool.points {
             painter.circle_filled(camera.to_screen(rect, *q), 3.0, palette.preview);
         }
-        draw_snap_marker(&painter, target, s.kind, palette.snap);
-        let mut label = String::new();
-        if let Some(text) = ws.tool.tracker(s.point, &units, &nf) {
-            label = text;
-        }
-        if !s.kind.label().is_empty() {
+        draw_snap_marker(&painter, target, resolved.snap.kind, palette.snap);
+        let mut label = tracker.unwrap_or_default();
+        if !resolved.snap.kind.label().is_empty() {
             if !label.is_empty() {
                 label.push('\n');
             }
-            label.push_str(s.kind.label());
+            label.push_str(resolved.snap.kind.label());
         }
         if !label.is_empty() {
             let galley_pos = p + egui::vec2(16.0, 14.0);
@@ -635,37 +732,41 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     ws.plan_views.insert(storey, state);
 }
 
+/// Runs what a key, click or double-click asks for. Esc that found nothing
+/// to cancel goes on down the ladder: the selection, then the drawing tool
+/// (INP-003).
+fn apply(ws: &mut Workspace, effect: Effect) {
+    match effect {
+        Effect::None => {}
+        Effect::Execute(command) => {
+            ws.execute(command);
+        }
+        Effect::Error(message) => ws.error(message),
+        Effect::NothingToCancel if !ws.selection.is_empty() => ws.selection.clear(),
+        Effect::NothingToCancel => ws.select_tool(ToolKind::Select),
+    }
+}
+
+/// Translates the frame's key events into point input (INP-003) and handles
+/// the plan's own keys: Tab cycling of the selection tool and R.
 fn handle_keys(
     ui: &Ui,
     ws: &mut Workspace,
     state: &mut PlanViewState,
-    storey: StoreyId,
-    snapped: Option<Snap>,
+    input: Option<&PlanInput>,
     cursor_world: Option<DVec2>,
 ) {
     let events = ui.input(|i| i.events.clone());
-    let drawing = ws.tool.kind != ToolKind::Select && ws.tool.is_drawing();
     for event in events {
-        match event {
-            Event::Text(text) if drawing && !ui.input(|i| i.modifiers.command) => {
-                for c in text.chars() {
-                    if is_numeric_input(c) {
-                        ws.tool.typed.active_text().push(c);
-                    }
-                }
-            }
+        let key = match event {
+            Event::Text(text) if !ui.input(|i| i.modifiers.command) => KeyInput::Text(text),
             Event::Key {
                 key,
                 pressed: true,
                 modifiers,
                 ..
             } => match key {
-                Key::Tab if drawing => {
-                    ws.tool.typed.field = match ws.tool.typed.field {
-                        Field::Distance => Field::Angle,
-                        Field::Angle => Field::Distance,
-                    };
-                }
+                Key::Tab if ws.input.captures_keys(&ws.tool) => KeyInput::Tab,
                 Key::Tab => {
                     // Cycle the highlight through overlapping candidates
                     // (SEL-001); the next click selects it.
@@ -675,41 +776,12 @@ fn handle_keys(
                             None => (world, 1),
                         });
                     }
+                    continue;
                 }
-                Key::Enter if drawing => {
-                    if !ws.tool.typed.is_empty() {
-                        if let Some(s) = snapped.filter(|s| s.kind == SnapKind::Typed) {
-                            let outcome = ws.tool.commit(&ws.doc.project, storey, s.point);
-                            if let Outcome::Execute(command) = outcome {
-                                ws.execute(command);
-                            }
-                        } else {
-                            ws.error("The typed value is not a valid length or angle.");
-                        }
-                    } else {
-                        let outcome = ws.tool.finish(&ws.doc.project);
-                        if let Outcome::Execute(command) = outcome {
-                            ws.execute(command);
-                        }
-                    }
-                }
-                Key::Backspace if drawing => {
-                    if ws.tool.typed.active_text().pop().is_none() {
-                        ws.tool.backspace();
-                    }
-                }
-                Key::Escape => {
-                    if !ws.tool.typed.is_empty() {
-                        ws.tool.typed.clear();
-                    } else if ws.tool.is_drawing() {
-                        ws.tool.reset();
-                    } else if !ws.selection.is_empty() {
-                        ws.selection.clear();
-                    } else {
-                        ws.tool.select(ToolKind::Select);
-                    }
-                }
-                Key::R if ws.tool.kind == ToolKind::Wall && ws.tool.typed.is_empty() && !modifiers.command => {
+                Key::Enter => KeyInput::Enter,
+                Key::Backspace => KeyInput::Backspace,
+                Key::Escape => KeyInput::Escape,
+                Key::R if ws.tool.kind == ToolKind::Wall && ws.input.typed.is_empty() && !modifiers.command => {
                     // Cycle the reference-line location (WAL-007).
                     let mut defaults = ws.doc.project.tool_defaults.clone();
                     defaults.wall.reference_line = defaults.wall.reference_line.next();
@@ -717,17 +789,28 @@ fn handle_keys(
                     if ws.execute(archicraft_model::Command::SetToolDefaults(defaults)) {
                         ws.info(format!("Wall reference line: {label}"));
                     }
+                    continue;
                 }
-                _ => {}
+                _ => continue,
             },
-            _ => {}
-        }
+            _ => continue,
+        };
+        let effect = match input {
+            Some(input) => {
+                let ctx = input.ctx(&ws.doc.project, &ws.tool);
+                ws.input.key(key, &mut ws.tool, &ctx)
+            }
+            None if key == KeyInput::Escape => Effect::NothingToCancel,
+            None => Effect::None,
+        };
+        apply(ws, effect);
     }
 }
 
 fn context_menu(ui: &mut Ui, ws: &mut Workspace) {
     if ws.tool.is_drawing() {
         if ui.button("Finish").clicked() {
+            ws.input = PointInput::default();
             let outcome = ws.tool.finish(&ws.doc.project);
             if let Outcome::Execute(command) = outcome {
                 ws.execute(command);
@@ -735,7 +818,7 @@ fn context_menu(ui: &mut Ui, ws: &mut Workspace) {
             ui.close();
         }
         if ui.button("Cancel input").clicked() {
-            ws.tool.reset();
+            ws.reset_input();
             ui.close();
         }
         ui.separator();
@@ -776,5 +859,36 @@ fn context_menu(ui: &mut Ui, ws: &mut Workspace) {
     {
         ws.requests.push(Request::OpenPane(Pane::View3d(view)));
         ui.close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// INP-001: the plan view's surface maps screen and plane points as its
+    /// camera does, on the plane at the storey elevation.
+    #[test]
+    fn plan_surface_agrees_with_the_camera() {
+        let surface = PlanSurface {
+            camera: Camera2d {
+                center: DVec2::new(3.5, -2.0),
+                scale: 64.0,
+            },
+            rect: Rect::from_min_max(Pos2::new(10.0, 20.0), Pos2::new(810.0, 620.0)),
+            elevation: 2.8,
+        };
+        for p in [Pos2::new(10.0, 20.0), Pos2::new(123.5, 456.25), Pos2::new(810.0, 620.0)] {
+            let plane = surface.to_plane(screen(p)).unwrap();
+            assert_eq!(plane, surface.camera.to_world(surface.rect, p));
+            assert_eq!(
+                surface.to_screen(plane),
+                screen(surface.camera.to_screen(surface.rect, plane))
+            );
+            assert!(surface.to_screen(plane).distance(screen(p)) < 1e-3);
+        }
+        assert_eq!(surface.model_per_pixel(), 1.0 / 64.0);
+        assert_eq!(surface.frame(), SurfaceFrame::plan(2.8));
+        assert_eq!(surface.frame().to_model(DVec2::new(1.0, 2.0)).z, 2.8);
     }
 }

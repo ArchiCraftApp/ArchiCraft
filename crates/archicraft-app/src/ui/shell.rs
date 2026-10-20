@@ -8,6 +8,7 @@ use archicraft_model::project::Projection;
 use egui::{Button, RichText, Ui};
 
 use super::actions::Action;
+use crate::input::InputConsumer;
 use crate::tools::ToolKind;
 use crate::tr;
 use crate::views::camera::ViewPreset;
@@ -136,7 +137,7 @@ pub fn toolbox(ui: &mut Ui, ws: &mut Workspace) -> Option<Action> {
             )
             .on_hover_text(format!("{}{shortcut}", kind.description()));
         if response.clicked() {
-            ws.tool.select(kind);
+            ws.select_tool(kind);
         }
     };
     ui.label(RichText::new("Selection").small().weak());
@@ -172,7 +173,16 @@ pub fn toolbox(ui: &mut Ui, ws: &mut Workspace) -> Option<Action> {
 pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Option<Action> {
     let mut action = None;
     ui.horizontal(|ui| {
-        ui.label(RichText::new(ws.tool.prompt()).small());
+        // The prompt of the step in progress (INP-001, NFR-USE-003).
+        let prompt = ws.tool.step().map_or_else(
+            || {
+                "Click an element to select it, Shift-click to add or remove, drag a rectangle to select several \
+                 · Tab cycles overlapping elements"
+                    .to_owned()
+            },
+            |step| step.status_line(),
+        );
+        ui.label(RichText::new(prompt).small());
         if let Some(status) = &ws.status
             && status.since.elapsed() < Duration::from_secs(8)
         {
