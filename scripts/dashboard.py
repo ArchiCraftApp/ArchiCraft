@@ -6,6 +6,10 @@ and reads the Claude Code transcripts of this repository's sessions. It changes 
 own: only the Cleanup panel does, after a preview and a confirmation on the page (stop stale
 sessions, remove finished worktrees and branches, run the sweep). Python 3 standard library only.
 
+The Code map page (/code) shows the Rust modules of origin/main as a component map and as a
+dependency graph, coloured by how recently or how much they changed, with the files that open
+PRs and running sessions are changing now.
+
 Agent state comes from two sources: whether a `claude` process runs in the session's
 worktree, and where the session's transcript stands (inside a turn or after it ended).
 Count snapshots for the sparklines are kept in <git common dir>/loop-dashboard/.
@@ -97,7 +101,7 @@ def slim(b):
 
 OPEN_FIELDS = ("number,title,state,isDraft,headRefName,url,createdAt,updatedAt,labels,"
                "autoMergeRequest,mergeStateStatus,mergeable,reviewDecision,statusCheckRollup,"
-               "additions,deletions,changedFiles")
+               "additions,deletions,changedFiles,files")
 ALL_FIELDS = "number,title,state,headRefName,headRefOid,url,createdAt,mergedAt,closedAt"
 
 
@@ -561,6 +565,275 @@ class Snapshots:
             pass
 
 
+# --- code map ----------------------------------------------------------------------------
+# The Rust sources of origin/main as modules (one per file), the `use` dependencies between
+# them, their change history, and the files open PRs and running sessions are changing now.
+
+CODE = {"sha": None, "static": None, "fetched": 0}
+CODE_LOCK = threading.Lock()
+USE_RE = re.compile(r"\b(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);")
+INLINE_RE = re.compile(r"\b(crate|super|self|archicraft_\w+)((?:::\w+)+)")
+MOD_RE = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*[;{]", re.M)
+ITEM_RE = re.compile(r"\bpub(?:\([^)]*\))?\s+(?:struct|enum|fn|trait|type|const|static|union|macro_rules!)\s+(\w+)")
+
+
+def cat_files(sha, paths):
+    """Contents of <sha>:<path> for each path, through one git cat-file --batch."""
+    p = subprocess.run(["git", "cat-file", "--batch"], cwd=ROOT, capture_output=True, timeout=60,
+                       input="".join(f"{sha}:{x}\n" for x in paths).encode())
+    out, data, i = {}, p.stdout, 0
+    for path in paths:
+        nl = data.index(b"\n", i)
+        header = data[i:nl].split()
+        i = nl + 1
+        if len(header) < 3 or header[1] != b"blob":
+            continue
+        size = int(header[2])
+        out[path] = data[i:i + size].decode("utf-8", "replace")
+        i += size + 1
+    return out
+
+
+def strip_comments(src):
+    src = re.sub(r"/\*.*?\*/", " ", src, flags=re.S)
+    return re.sub(r"//[^\n]*", "", src)
+
+
+def expand_use(tree):
+    """`a::{b, c::{d, e as f}}` -> ["a::b", "a::c::d", "a::c::e"]; `self` names the prefix."""
+    tree = re.sub(r"\s+", "", tree)
+    i = tree.find("{")
+    if i < 0:
+        return [re.sub(r"as\w+$", "", tree.split(" as ")[0])] if tree else []
+    prefix, inner = tree[:i], tree[i + 1:tree.rfind("}")]
+    parts, depth, cur = [], 0, ""
+    for ch in inner:
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+            continue
+        depth += ch == "{"
+        depth -= ch == "}"
+        cur += ch
+    parts.append(cur)
+    out = []
+    for part in filter(None, parts):
+        for sub in expand_use(part):
+            out.append(prefix.rstrip(":") if sub == "self" else prefix + sub)
+    return out
+
+
+def module_info(path, dirs):
+    """(crate, kind, module path, group) of crates/<crate>/<kind>/... ."""
+    _, crate, kind, *rest = path.split("/")
+    name = rest[-1][:-3]
+    if kind != "src":
+        return crate, kind, f"{kind}::{'::'.join(rest)[:-3]}", kind
+    segs = rest[:-1] + ([] if name in ("mod",) or (not rest[:-1] and name in ("lib", "main")) else [name])
+    if not rest[:-1] and name == "main":
+        segs = ["main"]
+    module = "::".join(segs)
+    top = f"crates/{crate}/src/{segs[0]}" if segs else None
+    group = segs[0] if segs and (len(segs) > 1 or top in dirs) else "src"
+    return crate, kind, module, group
+
+
+def build_code_static(sha):
+    names = [n for n in run(["git", "ls-tree", "-r", "-z", "--name-only", sha, "crates"]).split("\0") if n]
+    rs = [n for n in names if n.endswith(".rs") and n.count("/") >= 3]
+    tomls = [n for n in names if re.fullmatch(r"crates/[^/]+/Cargo\.toml", n)]
+    dirs = {n.rsplit("/", 1)[0] for n in rs}
+    dirs |= {d.rsplit("/", i)[0] for d in list(dirs) for i in range(1, d.count("/"))}
+    texts = cat_files(sha, rs + tomls)
+
+    crates = {}
+    for t in tomls:
+        name = t.split("/")[1]
+        deps = []
+        section = None
+        for line in texts.get(t, "").splitlines():
+            m = re.match(r"\s*\[([^\]]+)\]", line)
+            if m:
+                section = m.group(1)
+                continue
+            m = re.match(r"\s*(archicraft-[a-z]+)\b", line)
+            if m and section in ("dependencies", "dev-dependencies"):
+                deps.append({"crate": m.group(1), "dev": section == "dev-dependencies"})
+        crates[name] = {"name": name, "deps": deps}
+    depth = {}
+    def layer(c, seen=()):
+        if c not in depth:
+            depth[c] = 1 + max([layer(d["crate"], seen + (c,)) for d in crates.get(c, {"deps": []})["deps"]
+                                if not d["dev"] and d["crate"] in crates and d["crate"] not in seen] or [-1])
+        return depth[c]
+    for c in crates:
+        crates[c]["layer"] = layer(c)
+
+    nodes, index = {}, {}
+    for path in rs:
+        crate, kind, module, group = module_info(path, dirs)
+        text = texts.get(path, "")
+        nodes[path] = {"id": path, "crate": crate, "kind": kind, "module": module or "(crate root)",
+                       "group": group, "lines": text.count("\n") + (1 if text and not text.endswith("\n") else 0)}
+        if kind == "src":
+            index[(crate, module)] = path
+
+    # Re-exports: `pub use` in a module makes an item name resolve to the module it comes from.
+    def resolve(crate, segs):
+        for n in range(len(segs), -1, -1):
+            if (crate, "::".join(segs[:n])) in index:
+                return index[(crate, "::".join(segs[:n]))], n
+        return None, 0
+    reexports, globs = {}, {}
+    defines = {path: set(ITEM_RE.findall(strip_comments(texts[path]))) for path in nodes}
+    for path, node in nodes.items():
+        if node["kind"] != "src":
+            continue
+        cur = [] if node["module"] == "(crate root)" else node["module"].split("::")
+        for m in USE_RE.finditer(strip_comments(texts[path])):
+            if not m.group(0).lstrip().startswith("pub"):
+                continue
+            for full in expand_use(m.group(1)):
+                segs = [s for s in full.split("::") if s]
+                if not segs:
+                    continue
+                if segs[0] == "crate":
+                    target, _ = resolve(node["crate"], segs[1:-1])
+                elif segs[0] in ("self", "super") or (node["crate"], "::".join(cur + segs[:1])) in index:
+                    base = list(cur)
+                    while segs and segs[0] in ("self", "super"):
+                        base = base[:-1] if segs.pop(0) == "super" else base
+                    target, _ = resolve(node["crate"], base + segs[:-1])
+                else:
+                    continue
+                if target and segs[-1] == "*":
+                    globs.setdefault((node["crate"], node["module"]), []).append(target)
+                elif target:
+                    reexports[(node["crate"], node["module"], segs[-1])] = target
+
+    edges = {}
+    for path, node in nodes.items():
+        src = strip_comments(texts[path])
+        own = node["crate"] if node["kind"] == "src" else None
+        cur = [] if node["kind"] != "src" or node["module"] == "(crate root)" else node["module"].split("::")
+        children = set(MOD_RE.findall(src))
+        refs = [p for m in USE_RE.finditer(src) for p in expand_use(m.group(1))]
+        refs += [m.group(1) + m.group(2) for m in INLINE_RE.finditer(USE_RE.sub(" ", src))]
+        for ref in refs:
+            segs = [s for s in ref.split("::") if s and s != "*"]
+            if not segs:
+                continue
+            head = segs[0]
+            if head.startswith("archicraft_"):
+                crate, rest = head.replace("_", "-"), segs[1:]
+            elif own and head == "crate":
+                crate, rest = own, segs[1:]
+            elif own and head in ("self", "super"):
+                base = list(cur)
+                while segs and segs[0] in ("self", "super"):
+                    base = base[:-1] if segs.pop(0) == "super" else base
+                crate, rest = own, base + segs
+            elif own and head in children:
+                crate, rest = own, cur + segs
+            else:
+                continue
+            if crate not in crates:
+                continue
+            target, used = resolve(crate, rest)
+            if target and used < len(rest):
+                key = (crate, nodes[target]["module"], rest[used])
+                found = reexports.get(key) or next(
+                    (g for g in globs.get(key[:2], []) if rest[used] in defines[g]), None)
+                # A name the crate root neither re-exports from a module nor defines (an external
+                # crate it re-exports, such as glam) is not a dependency on the root.
+                target = found or (None if used == 0 and rest[used] not in defines[target] else target)
+            if target and target != path:
+                edges[(path, target)] = edges.get((path, target), 0) + 1
+
+    # History of origin/main: per file the commits that touched it, with lines added and deleted.
+    log = run(["git", "log", sha, "--no-renames", "--numstat", "-n", "1000",
+               "--format=%x01%h%x02%ct%x02%s", "--", "crates"], timeout=120)
+    commits, touched = [], {}
+    for block in log.split("\x01")[1:]:
+        head, _, body = block.partition("\n")
+        short, ct, subject = head.split("\x02", 2)
+        m = BEAD_TITLE.match(subject)
+        pr = re.search(r"\(#(\d+)\)\s*$", subject)
+        ci = len(commits)
+        commits.append({"sha": short, "t": int(ct), "subject": subject, "bead": m.group(1) if m else None,
+                        "pr": int(pr.group(1)) if pr else None})
+        for line in body.splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3 and parts[2] in nodes:
+                add = int(parts[0]) if parts[0].isdigit() else 0
+                rem = int(parts[1]) if parts[1].isdigit() else 0
+                touched.setdefault(parts[2], []).append([ci, add, rem])
+    for path, node in nodes.items():
+        node["history"] = touched.get(path, [])
+
+    return {"sha": sha, "crates": list(crates.values()), "nodes": list(nodes.values()),
+            "edges": [[a, b, w] for (a, b), w in edges.items()], "commits": commits}
+
+
+def collect_code():
+    now = time.time()
+    if now - CODE["fetched"] > 120:
+        subprocess.run(["git", "fetch", "--quiet", "origin", "main"], cwd=ROOT, capture_output=True, timeout=60)
+        CODE["fetched"] = now
+    sha = run(["git", "rev-parse", "--short", "origin/main"]).strip()
+    with CODE_LOCK:
+        if CODE["sha"] != sha:
+            CODE["static"], CODE["sha"] = build_code_static(sha), sha
+
+    # Files running sessions are changing in their worktrees, committed or not.
+    def worktree_changes(t):
+        try:
+            files = set(run(["git", "diff", "--name-only", "origin/main...HEAD", "--", "crates"],
+                            cwd=t["path"]).split())
+            dirty = {l[3:].split(" -> ")[-1] for l in run(["git", "status", "--porcelain", "--", "crates"],
+                                                          cwd=t["path"]).splitlines() if len(l) > 3}
+        except RuntimeError:
+            return None
+        return {"path": t["path"], "name": t["name"], "branch": t.get("branch"),
+                "files": sorted(files | dirty), "dirty": sorted(dirty)}
+    trees = [t for t in worktrees() if t["path"] != str(ROOT) and not t.get("prunable")]
+    with concurrent.futures.ThreadPoolExecutor(8) as pool:
+        changes = [c for c in pool.map(worktree_changes, trees) if c and c["files"]]
+    return {"static": CODE["static"], "worktrees": changes}
+
+
+def code_view():
+    """The code map with what open PRs and running sessions are changing right now."""
+    raw = collect_code()
+    with LOCK:
+        agents = STATE.get("agents") or []
+        prs = (RAW.get("prs") or {}).get("open") or []
+    live = {}
+    for p in prs:
+        for f in p.get("files") or []:
+            live.setdefault(f["path"], []).append({"kind": "pr", "label": f"PR #{p['number']}", "title": p["title"],
+                                                   "url": p["url"], "add": f.get("additions", 0),
+                                                   "del": f.get("deletions", 0)})
+    running = {}
+    for a in agents:
+        if a["state"] != "ended":
+            running.setdefault(a["worktree"], []).append(a)
+    for w in raw["worktrees"]:
+        ags = running.get(w["name"])
+        if not ags and not w["dirty"]:
+            continue  # a finished worktree: its branch still differs from main, nothing is happening
+        who = ags[0] if ags else None
+        for f in w["files"]:
+            live.setdefault(f, []).append({
+                "kind": "session" if who else "worktree", "label": (who and (who["bead"] or who["title"])) or w["name"],
+                "title": f"{w['name']} · {w['branch']}" + (f" · {STATES_TEXT.get(who['state'], who['state'])}" if who else ""),
+                "uncommitted": f in w["dirty"], "state": who["state"] if who else None})
+    return {**raw["static"], "live": live, "generated": epoch_to_iso(time.time())}
+
+
+STATES_TEXT = {"working": "working", "quiet": "quiet", "stale": "stale", "waiting": "idle"}
+
+
 # --- cleanup -----------------------------------------------------------------------------
 # Candidates are computed fresh for the preview and again right before anything runs, so an
 # action only happens to something that still qualifies. Nothing runs without the page's
@@ -917,6 +1190,14 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 body = json.dumps(STATE).encode()
             self.reply(200, "application/json", body)
+        elif self.path.startswith("/api/code"):
+            try:
+                body = json.dumps(code_view()).encode()
+            except Exception as e:
+                body = json.dumps({"error": str(e)[:1000]}).encode()
+            self.reply(200, "application/json", body)
+        elif self.path in ("/code", "/code/"):
+            self.reply(200, "text/html; charset=utf-8", PAGE_CODE.encode())
         elif self.path in ("/", "/index.html"):
             self.reply(200, "text/html; charset=utf-8", PAGE.replace("__TOKEN__", TOKEN).encode())
         else:
@@ -949,6 +1230,9 @@ PAGE = r"""<!doctype html>
 body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5;flex-wrap:wrap}
 header h1{font-size:15px;margin:0;font-weight:600}
+.tabs{display:inline-flex;gap:2px;background:var(--chip);border-radius:7px;padding:2px}
+.tabs a{padding:2px 10px;border-radius:5px;color:var(--mute);font-size:12px}
+.tabs a.on{background:var(--card);color:var(--fg);font-weight:600}.tabs a:hover{text-decoration:none;color:var(--fg)}
 .live{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mute)}
 .live .dot{margin:0}
 .pulse{animation:pulse 1.6s ease-in-out infinite}
@@ -1015,6 +1299,7 @@ pre.out{background:var(--chip);border-radius:6px;padding:8px;white-space:pre-wra
 #tip i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
 </style></head><body>
 <header><h1>ArchiCraft · bead loop</h1>
+<nav class="tabs"><a class="on" href="/">Status</a><a href="/code">Code map</a></nav>
 <span class="live" id="live"><span class="dot bg-mute"></span>connecting…</span>
 <span class="meta" id="meta"></span>
 <button onclick="document.getElementById('cleanup-wrap').scrollIntoView({behavior:'smooth'})">Cleanup</button>
@@ -1403,6 +1688,429 @@ let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(dra
 load(); setInterval(load, 5000); setInterval(tick, 1000);
 </script></body></html>
 """
+
+
+BASE_CSS = PAGE[PAGE.index("<style>") + 7:PAGE.index("</style>")]
+
+PAGE_CODE = r"""<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ArchiCraft Code Map</title>
+<style>/*BASE*/
+:root{--c1:#2a78d6;--c2:#eb6834;--c3:#1baf7a;--c4:#eda100}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--c1:#3987e5;--c2:#d95926;--c3:#199e70;--c4:#c98500}}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;padding:14px 16px;align-items:start}
+@media (max-width:980px){.wrap{grid-template-columns:1fr}}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.toolbar label{font-size:12px;color:var(--mute);display:flex;gap:6px;align-items:center}
+.toolbar input[type=search]{font:inherit;padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);width:180px}
+#stage{position:relative;overflow:hidden;border-radius:8px}
+#stage svg{display:block;user-select:none}
+#stage.graph svg{cursor:grab}#stage.graph svg.panning{cursor:grabbing}
+.tile{cursor:pointer}.tile rect{transition:opacity .15s}
+.dim{opacity:.28}
+.lbl{pointer-events:none;font-size:10px}
+.glabel{font-size:10px;font-weight:600;fill:var(--mute);text-transform:uppercase;letter-spacing:.04em;pointer-events:none}
+.chead{font-size:12px;font-weight:600;fill:var(--fg)}
+.csub{font-size:10px;fill:var(--mute)}
+.edge{fill:none;pointer-events:none}
+.legendbar{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--mute);margin-top:8px;align-items:center}
+.legendbar i{display:inline-block;width:12px;height:10px;border-radius:2px;margin-right:1px;vertical-align:-1px}
+.legendbar .ring{display:inline-block;width:10px;height:10px;border-radius:50%;border:2px solid var(--run);vertical-align:-2px;margin-right:4px}
+.panel h2{margin-bottom:6px}
+.panel .path{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--mute);overflow-wrap:anywhere}
+.panel ul{list-style:none;margin:4px 0 0;padding:0}
+.panel li{padding:3px 0;border-top:1px solid var(--line);font-size:12px;display:flex;gap:6px;align-items:baseline}
+.panel li:first-child{border-top:0}
+.panel li .grow{flex:1;min-width:0;overflow-wrap:anywhere}
+.panel .link{cursor:pointer;color:var(--accent)}
+.stat{display:flex;gap:14px;flex-wrap:wrap;margin:6px 0}
+.stat div{font-size:11px;color:var(--mute)}.stat b{display:block;font-size:16px;color:var(--fg);font-variant-numeric:tabular-nums}
+</style></head><body>
+<header><h1>ArchiCraft · bead loop</h1>
+<nav class="tabs"><a href="/">Status</a><a class="on" href="/code">Code map</a></nav>
+<span class="live" id="live"><span class="dot bg-mute pulse"></span>loading the code base…</span>
+<span class="meta" id="meta"></span></header>
+<div class="wrap">
+  <section>
+    <div class="toolbar">
+      <span class="seg" id="v-view"></span>
+      <label>Colour <span class="seg" id="v-metric"></span></label>
+      <label>Range <span class="seg" id="v-range"></span></label>
+      <label><input type="checkbox" id="v-tests"> tests, benches</label>
+      <input type="search" id="v-search" placeholder="Find a module…">
+    </div>
+    <div id="stage"></div>
+    <div class="legendbar" id="legend"></div>
+  </section>
+  <section class="panel" id="panel"></section>
+</div>
+<div id="tip"></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const dur = s => s < 60 ? Math.round(s) + " s" : s < 3600 ? Math.round(s/60) + " min" : s < 86400 ? (Math.round(s/360)/10) + " h" : (Math.round(s/8640)/10) + " d";
+const ago = t => t ? dur(Date.now()/1000 - t) + " ago" : "never";
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const tipAttr = html => `data-tip="${esc(html)}"`;
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem("code." + k); localStorage.setItem("code." + k, v); } catch {} };
+
+let D = null, view = store("view") || "map", metric = store("metric") || "age", range = store("range") || "7d";
+let showTests = store("tests") === "1", query = "", selected = null, hover = null;
+const RANGES = {"24h": 86400, "3d": 3*86400, "7d": 7*86400, "all": null};
+const METRICS = {age: "Last change", commits: "Commits", churn: "Lines changed"};
+const CRATE_COLOR = ["--c1", "--c2", "--c3", "--c4"];
+const short = c => c.replace(/^archicraft-/, "");
+
+function seg(el, options, value, set) {
+  el.innerHTML = Object.entries(options).map(([k, l]) => `<button class="${k === value ? "on" : ""}" data-k="${k}">${l}</button>`).join("");
+  el.onclick = e => { const k = e.target.dataset.k; if (k) set(k); };
+}
+function controls() {
+  seg($("#v-view"), {map: "Components", graph: "Dependency graph"}, view, k => { view = k; store("view", k); render(); });
+  seg($("#v-metric"), METRICS, metric, k => { metric = k; store("metric", k); render(); });
+  seg($("#v-range"), {"24h": "24h", "3d": "3d", "7d": "7d", all: "all"}, range, k => { range = k; store("range", k); render(); });
+  $("#v-tests").checked = showTests;
+}
+$("#v-tests").onchange = e => { showTests = e.target.checked; store("tests", showTests ? "1" : "0"); graphReset = true; render(); };
+$("#v-search").oninput = e => { query = e.target.value.trim().toLowerCase(); render(); };
+
+// --- derived data -------------------------------------------------------------------------
+let N = [], byId = {}, E = [], crateIdx = {};
+function derive() {
+  const now = Date.now() / 1000, start = RANGES[range] ? now - RANGES[range] : 0;
+  crateIdx = Object.fromEntries([...D.crates].sort((a, b) => a.layer - b.layer || a.name.localeCompare(b.name)).map((c, i) => [c.name, i]));
+  N = D.nodes.filter(n => showTests || n.kind === "src").map(n => {
+    let commits = 0, churn = 0, last = 0;
+    for (const [ci, a, d] of n.history) { const t = D.commits[ci].t; last = Math.max(last, t); if (t >= start) { commits++; churn += a + d; } }
+    return {...n, commits, churn, last, live: D.live[n.id] || []};
+  });
+  byId = Object.fromEntries(N.map(n => [n.id, n]));
+  E = D.edges.filter(([a, b]) => byId[a] && byId[b]).map(([a, b, w]) => ({a, b, w}));
+  N.forEach(n => { n.out = []; n.in = []; });
+  E.forEach(e => { byId[e.a].out.push(e); byId[e.b].in.push(e); });
+}
+const AGE_STEPS = [[3600, "< 1 h"], [6*3600, "< 6 h"], [86400, "< 1 d"], [3*86400, "< 3 d"], [7*86400, "< 7 d"], [30*86400, "< 30 d"]];
+function level(n) {
+  if (metric === "age") {
+    if (!n.last) return 0;
+    const a = Date.now() / 1000 - n.last, i = AGE_STEPS.findIndex(s => a < s[0]);
+    return i < 0 ? 0 : 6 - i;
+  }
+  const v = metric === "commits" ? n.commits : n.churn;
+  if (!v) return 0;
+  const max = Math.max(1, ...N.map(m => metric === "commits" ? m.commits : m.churn));
+  return Math.max(1, Math.ceil(6 * Math.sqrt(v / max)));
+}
+const fill = n => { const l = level(n); return l ? `var(--q${l})` : "var(--chip)"; };
+const inkCache = {};
+function ink(n) {
+  const l = level(n), key = l + (matchMedia("(prefers-color-scheme: dark)").matches ? "d" : "l");
+  if (!(key in inkCache)) {
+    const hex = l ? css(`--q${l}`) : css("--chip"), m = /^#?(..)(..)(..)$/.exec(hex);
+    const lum = m ? [m[1], m[2], m[3]].map(h => { const c = parseInt(h, 16) / 255; return c <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }).reduce((s, c, i) => s + c * [.2126, .7152, .0722][i], 0) : 1;
+    inkCache[key] = lum < .35 ? "#fff" : "#1c2128";
+  }
+  return inkCache[key];
+}
+const matches = n => !query || n.module.toLowerCase().includes(query) || n.id.toLowerCase().includes(query);
+function related(id) {
+  if (!id || !byId[id]) return null;
+  const s = new Set([id]); byId[id].out.forEach(e => s.add(e.b)); byId[id].in.forEach(e => s.add(e.a)); return s;
+}
+function nodeTip(n) {
+  const live = n.live.map(l => `<br><span style="color:var(--run)">●</span> ${esc(l.label)}${l.uncommitted ? " (uncommitted)" : ""}`).join("");
+  return `<b>${esc(short(n.crate))} · ${esc(n.module)}</b><br>${n.lines} lines · last change ${ago(n.last)}<br>${n.commits} commits, ${n.churn} lines changed in ${range}<br>uses ${n.out.length} · used by ${n.in.length}${live}`;
+}
+
+// --- squarified treemap -------------------------------------------------------------------
+function squarify(items, x, y, w, h) {
+  const total = items.reduce((s, i) => s + i.value, 0), out = [];
+  if (!total || w <= 0 || h <= 0) return out;
+  const scale = w * h / total, rest = items.map(i => ({...i, area: i.value * scale})).sort((a, b) => b.area - a.area);
+  let row = [];
+  const worst = (r, side) => { const s = r.reduce((a, i) => a + i.area, 0), mx = Math.max(...r.map(i => i.area)), mn = Math.min(...r.map(i => i.area));
+    return Math.max(side * side * mx / (s * s), s * s / (side * side * mn)); };
+  const layout = r => { const s = r.reduce((a, i) => a + i.area, 0);
+    if (w >= h) { const cw = s / h; let cy = y; r.forEach(i => { const ch = i.area / cw; out.push({...i, x, y: cy, w: cw, h: ch}); cy += ch; }); x += cw; w -= cw; }
+    else { const rh = s / w; let cx = x; r.forEach(i => { const cw = i.area / rh; out.push({...i, x: cx, y, w: cw, h: rh}); cx += cw; }); y += rh; h -= rh; } };
+  while (rest.length) {
+    const side = Math.min(w, h), next = rest[0];
+    if (!row.length || worst([...row, next], side) <= worst(row, side)) { row.push(rest.shift()); }
+    else { layout(row); row = []; }
+  }
+  if (row.length) layout(row);
+  return out;
+}
+
+// --- components view ----------------------------------------------------------------------
+let tiles = {};
+function renderMap(stage) {
+  const W = Math.max(560, stage.clientWidth), H = Math.max(520, Math.min(760, innerHeight - 220)), top = 92, gap = 10;
+  const crates = [...D.crates].sort((a, b) => a.layer - b.layer);
+  const lines = c => N.filter(n => n.crate === c.name).reduce((s, n) => s + n.lines, 0) || 1;
+  const total = crates.reduce((s, c) => s + lines(c), 0);
+  let weights = crates.map(c => Math.max(.14, lines(c) / total)); const ws = weights.reduce((a, b) => a + b, 0); weights = weights.map(w => w / ws);
+  const avail = W - gap * (crates.length - 1);
+  let x = 0, g = "", cols = {};
+  tiles = {};
+  crates.forEach((c, ci) => {
+    const cw = avail * weights[ci], nodes = N.filter(n => n.crate === c.name);
+    cols[c.name] = {x, w: cw};
+    const commits = nodes.reduce((s, n) => s + n.commits, 0), live = nodes.filter(n => n.live.length).length;
+    g += `<rect x="${x}" y="${top}" width="${cw}" height="${H - top}" rx="8" fill="var(--chip)" opacity=".55"/>`;
+    g += `<rect x="${x + 10}" y="${top + 12}" width="10" height="10" rx="2" fill="var(${CRATE_COLOR[crateIdx[c.name] % 4]})"/>`;
+    const fit = (t, px) => { const n = Math.floor((cw - 16) / px); return t.length > n ? t.slice(0, Math.max(1, n - 1)) + "…" : t; };
+    g += `<text class="chead" x="${x + 26}" y="${top + 21}">${esc(fit(short(c.name), 7.5))}</text>`;
+    g += `<text class="csub" x="${x + 10}" y="${top + 35}">${esc(fit(`${nodes.length} modules · ${lines(c).toLocaleString()} lines`, 5.6))}</text>`;
+    g += `<text class="csub" x="${x + 10}" y="${top + 48}">${esc(fit(`${commits} commits in ${range}${live ? ` · ${live} changing now` : ""}`, 5.6))}</text>`;
+    const groups = {}; nodes.forEach(n => (groups[n.group] = groups[n.group] || []).push(n));
+    const grects = squarify(Object.entries(groups).map(([k, ns]) => ({key: k, nodes: ns, value: ns.reduce((s, n) => s + Math.max(20, n.lines), 0)})), x + 6, top + 56, cw - 12, H - top - 62);
+    for (const gr of grects) {
+      const lab = gr.w > 50 && gr.h > 36, gy = gr.y + (lab ? 14 : 2);
+      if (lab) g += `<text class="glabel" x="${gr.x + 4}" y="${gr.y + 10}">${esc(gr.key === "src" ? "crate root files" : gr.key)}</text>`;
+      for (const t of squarify(gr.nodes.map(n => ({n, value: Math.max(20, n.lines)})), gr.x + 2, gy, gr.w - 4, gr.h - (gy - gr.y) - 2)) {
+        const n = t.n, tx = t.x + 1, ty = t.y + 1, tw = Math.max(1, t.w - 2), th = Math.max(1, t.h - 2);
+        tiles[n.id] = {x: tx + tw / 2, y: ty + th / 2, w: tw, h: th};
+        const name = n.module.split("::").pop(), live = n.live.length;
+        const fits = tw > 34 && th > 15, chars = Math.floor((tw - 8) / 6);
+        g += `<g class="tile" data-id="${esc(n.id)}" ${tipAttr(nodeTip(n))}><rect x="${tx}" y="${ty}" width="${tw}" height="${th}" rx="3" fill="${fill(n)}"
+          ${live ? `stroke="var(--run)" stroke-width="2.5"` : n.id === selected ? `stroke="var(--fg)" stroke-width="2"` : ""}/>
+          ${fits ? `<text class="lbl" x="${tx + 5}" y="${ty + 12}" fill="${ink(n)}">${esc(name.length > chars ? name.slice(0, Math.max(1, chars - 1)) + "…" : name)}</text>` : ""}
+          ${fits && th > 28 && tw > 50 ? `<text class="lbl" x="${tx + 5}" y="${ty + 24}" fill="${ink(n)}" opacity=".75">${n.lines} lines</text>` : ""}
+          ${live && tw > 10 && th > 10 ? `<circle cx="${tx + tw - 6}" cy="${ty + 6}" r="3" fill="var(--run)" class="${n.live.some(l => l.state === "working") ? "pulse" : ""}"/>` : ""}</g>`;
+      }
+    }
+    x += cw + gap;
+  });
+  // Crate dependencies as arcs above the columns: from the user to the crate it builds on.
+  let arcs = "";
+  for (const c of crates) for (const d of c.deps.filter(d => !d.dev && cols[d.crate])) {
+    const a = cols[c.name], b = cols[d.crate], x1 = a.x + a.w / 2 - 6, x2 = b.x + b.w / 2 + 6, lift = 8 + Math.abs(crateIdx[c.name] - crateIdx[d.crate]) * 15;
+    const n = E.filter(e => byId[e.a].crate === c.name && byId[e.b].crate === d.crate).length;
+    arcs += `<path d="M${x1},${top - 2} C${x1},${top - 2 - lift * 1.4} ${x2},${top - 2 - lift * 1.4} ${x2},${top - 6}" fill="none" stroke="var(--mute)" stroke-width="1.2" opacity=".55" marker-end="url(#arr)"/>
+      <path d="M${x1},${top - 2} C${x1},${top - 2 - lift * 1.4} ${x2},${top - 2 - lift * 1.4} ${x2},${top - 6}" fill="none" stroke="transparent" stroke-width="10" ${tipAttr(`<b>${esc(short(c.name))} → ${esc(short(d.crate))}</b><br>${n} module dependencies`)}/>`;
+  }
+  stage.className = "map";
+  stage.innerHTML = `<svg width="${W}" height="${H}"><defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0L8,4L0,8z" fill="var(--mute)"/></marker></defs>
+    <text class="csub" x="0" y="11">Crates from the base layer (left) to the app (right). An arrow points to the crate a crate depends on.</text>${arcs}${g}<g id="links"></g></svg>`;
+  stage.querySelectorAll(".tile").forEach(el => {
+    el.onmouseenter = () => { hover = el.dataset.id; mapFocus(); };
+    el.onmouseleave = () => { hover = null; mapFocus(); };
+    el.onclick = () => select(el.dataset.id);
+  });
+  mapFocus();
+}
+function mapFocus() {
+  const id = hover || selected, rel = related(id), svg = $("#stage svg");
+  if (!svg) return;
+  svg.querySelectorAll(".tile").forEach(el => el.classList.toggle("dim", !!(rel ? !rel.has(el.dataset.id) : query && !matches(byId[el.dataset.id]))));
+  let links = "";
+  if (rel) {
+    const n = byId[id], c = tiles[id];
+    const curve = (p, q, col, w) => { const mx = (p.x + q.x) / 2, my = Math.min(p.y, q.y) - 30 - Math.abs(p.x - q.x) * .12;
+      return `<path class="edge" d="M${p.x},${p.y} Q${mx},${my} ${q.x},${q.y}" stroke="var(${col})" stroke-width="${Math.min(3.5, 1 + w * .4)}" opacity=".8"/>`; };
+    n.out.forEach(e => tiles[e.b] && (links += curve(c, tiles[e.b], "--s1", e.w)));
+    n.in.forEach(e => tiles[e.a] && (links += curve(tiles[e.a], c, "--s2", e.w)));
+    links += `<circle cx="${c.x}" cy="${c.y}" r="4" fill="var(--fg)" stroke="var(--card)" stroke-width="2"/>`;
+  }
+  $("#links").innerHTML = links;
+}
+
+// --- dependency graph ---------------------------------------------------------------------
+let sim = null, graphReset = true, zoom = {k: 1, x: 0, y: 0}, rafId = null, userView = false;
+function simInit(W, H) {
+  const old = sim && !graphReset ? Object.fromEntries(sim.nodes.map(n => [n.id, n])) : {};
+  const anchors = {}, cr = [...D.crates].sort((a, b) => a.layer - b.layer);
+  cr.forEach((c, i) => { const a = (i / cr.length) * Math.PI * 2 - Math.PI / 2; anchors[c.name] = {x: Math.cos(a) * 190, y: Math.sin(a) * 150}; });
+  const nodes = N.map(n => { const o = old[n.id], a = anchors[n.crate];
+    return {id: n.id, crate: n.crate, group: n.crate + "/" + n.group, r: Math.min(20, 4 + Math.sqrt(n.lines) * .42),
+      x: o ? o.x : a.x + (Math.random() - .5) * 120, y: o ? o.y : a.y + (Math.random() - .5) * 120, vx: 0, vy: 0, fixed: o && o.fixed}; });
+  const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
+  sim = {nodes, idx, anchors, links: E.map(e => ({s: idx[e.a], t: idx[e.b], w: e.w})), alpha: Object.keys(old).length ? .3 : 1};
+  if (graphReset) { zoom = {k: Math.min(1.2, Math.min(W, H) / 640), x: W / 2, y: H / 2}; userView = false; }
+  graphReset = false;
+}
+function simTick() {
+  const {nodes, links, anchors} = sim, a = sim.alpha, n = nodes.length;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    const p = nodes[i], q = nodes[j]; let dx = q.x - p.x, dy = q.y - p.y;
+    if (!dx && !dy) { dx = Math.random() - .5; dy = Math.random() - .5; }
+    const d2 = Math.max(dx * dx + dy * dy, 225), d = Math.sqrt(d2), min = p.r + q.r + 6;
+    let f = 190 / d2 * (p.crate === q.crate ? 1 : 1.5);
+    if (d < min) f += (min - d) / d * .5;
+    dx *= f * a; dy *= f * a; p.vx -= dx; p.vy -= dy; q.vx += dx; q.vy += dy;
+  }
+  for (const l of links) {
+    const p = nodes[l.s], q = nodes[l.t], dx = q.x - p.x, dy = q.y - p.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const rest = p.crate === q.crate ? 55 : 150, k = (p.crate === q.crate ? .012 : .003) * Math.min(3, l.w) * a, f = (d - rest) / d * k;
+    p.vx += dx * f; p.vy += dy * f; q.vx -= dx * f; q.vy -= dy * f;
+  }
+  const cent = {};
+  for (const p of nodes) { const c = cent[p.group] = cent[p.group] || {x: 0, y: 0, n: 0}; c.x += p.x; c.y += p.y; c.n++; }
+  for (const p of nodes) {
+    const an = anchors[p.crate], c = cent[p.group];
+    p.vx += (an.x - p.x) * .03 * a + (c.x / c.n - p.x) * .03 * a; p.vy += (an.y - p.y) * .03 * a + (c.y / c.n - p.y) * .03 * a;
+    if (p.fixed) { p.vx = p.vy = 0; continue; }
+    p.vx *= .8; p.vy *= .8;
+    const sp = Math.hypot(p.vx, p.vy); if (sp > 12) { p.vx *= 12 / sp; p.vy *= 12 / sp; }
+    p.x += p.vx; p.y += p.vy;
+  }
+  sim.alpha = Math.max(0, a * .99 - .0003);
+}
+function hull(pts) {
+  pts = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (pts.length < 3) return pts;
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]), lo = [], up = [];
+  for (const p of pts) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (const p of pts.reverse()) { while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+  return lo.slice(0, -1).concat(up.slice(0, -1));
+}
+function renderGraph(stage) {
+  const W = Math.max(560, stage.clientWidth), H = Math.max(520, Math.min(760, innerHeight - 220));
+  if (!sim || graphReset || sim.nodes.length !== N.length || sim.nodes.some(n => !byId[n.id])) simInit(W, H);
+  stage.className = "graph";
+  stage.innerHTML = `<svg width="${W}" height="${H}"><g id="vp"><g id="hulls"></g><g id="gedges"></g><g id="gnodes"></g></g></svg>`;
+  const svg = stage.querySelector("svg");
+  let drag = null, pan = null;
+  const toWorld = (cx, cy) => { const r = svg.getBoundingClientRect(); return [(cx - r.left - zoom.x) / zoom.k, (cy - r.top - zoom.y) / zoom.k]; };
+  svg.onmousedown = e => {
+    const el = e.target.closest("[data-id]");
+    if (el) { const p = sim.nodes[sim.idx[el.dataset.id]]; drag = {p, moved: false}; p.fixed = true; }
+    else { pan = {x: e.clientX - zoom.x, y: e.clientY - zoom.y, moved: false}; svg.classList.add("panning"); }
+  };
+  addEventListener("mousemove", graphMove = e => {
+    if (drag) { const [x, y] = toWorld(e.clientX, e.clientY); drag.p.x = x; drag.p.y = y; drag.moved = true; sim.alpha = Math.max(sim.alpha, .15); kick(); }
+    else if (pan) { zoom.x = e.clientX - pan.x; zoom.y = e.clientY - pan.y; pan.moved = userView = true; draw(); }
+  });
+  addEventListener("mouseup", graphUp = e => {
+    if (drag && !drag.moved) { drag.p.fixed = false; select(drag.p.id); }
+    if (pan && !pan.moved && !e.target.closest("[data-id]")) select(null);
+    drag = pan = null; svg.classList.remove("panning");
+  });
+  svg.onwheel = e => { e.preventDefault(); const r = svg.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, f = Math.exp(-e.deltaY * .0015);
+    userView = true; const k = Math.min(4, Math.max(.1, zoom.k * f)); zoom.x = mx - (mx - zoom.x) * k / zoom.k; zoom.y = my - (my - zoom.y) * k / zoom.k; zoom.k = k; draw(); };
+  svg.ondblclick = () => { sim.nodes.forEach(n => n.fixed = false); sim.alpha = .6; userView = false; kick(); };
+  svg.onmouseover = e => { const el = e.target.closest("[data-id]"); const h = el ? el.dataset.id : null; if (h !== hover) { hover = h; draw(); } };
+  kick();
+}
+let graphMove = null, graphUp = null;
+function kick() { if (!rafId) rafId = requestAnimationFrame(loop); }
+function loop() {
+  rafId = null;
+  if (view !== "graph" || !sim) return;
+  for (let i = 0; i < 2 && sim.alpha > .005; i++) simTick();
+  draw();
+  if (sim.alpha > .005) kick();
+}
+function fit() {
+  const svg = $("#stage svg"); if (!svg || userView) return;
+  const W = +svg.getAttribute("width"), H = +svg.getAttribute("height"), ns = sim.nodes;
+  const x0 = Math.min(...ns.map(n => n.x - n.r)) - 40, x1 = Math.max(...ns.map(n => n.x + n.r)) + 40;
+  const y0 = Math.min(...ns.map(n => n.y - n.r)) - 50, y1 = Math.max(...ns.map(n => n.y + n.r)) + 30;
+  const k = Math.min(1.6, W / (x1 - x0), H / (y1 - y0));
+  zoom = {k, x: W / 2 - (x0 + x1) / 2 * k, y: H / 2 - (y0 + y1) / 2 * k};
+}
+function draw() {
+  const vp = $("#vp"); if (!vp) return;
+  fit();
+  vp.setAttribute("transform", `translate(${zoom.x},${zoom.y}) scale(${zoom.k})`);
+  const id = hover || selected, rel = related(id), {nodes, links} = sim;
+  let hulls = "";
+  for (const c of D.crates) {
+    const ns = nodes.filter(n => n.crate === c.name); if (!ns.length) continue;
+    const pts = hull(ns.flatMap(n => [[n.x - n.r, n.y], [n.x + n.r, n.y], [n.x, n.y - n.r], [n.x, n.y + n.r]]));
+    const col = `var(${CRATE_COLOR[crateIdx[c.name] % 4]})`, topY = Math.min(...ns.map(n => n.y - n.r)), cx = ns.reduce((s, n) => s + n.x, 0) / ns.length;
+    hulls += `<path d="M${pts.map(p => p.join(",")).join("L")}Z" fill="${col}" fill-opacity=".09" stroke="${col}" stroke-opacity=".09" stroke-width="34" stroke-linejoin="round"/>
+      <text x="${cx}" y="${topY - 22}" text-anchor="middle" style="font-size:${12 / Math.sqrt(zoom.k)}px;font-weight:600;fill:var(--fg)">${esc(short(c.name))}</text>`;
+  }
+  let es = "";
+  for (const l of links) {
+    const p = nodes[l.s], q = nodes[l.t], on = rel && (p.id === id || q.id === id);
+    if (rel && !on) continue;
+    const col = on ? (p.id === id ? "var(--s1)" : "var(--s2)") : "var(--mute)", op = on ? .85 : p.crate === q.crate ? .14 : .22;
+    es += `<line x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}" stroke="${col}" stroke-opacity="${op}" stroke-width="${(on ? 1.6 : 1) / Math.sqrt(zoom.k)}"/>`;
+  }
+  let ns = "";
+  for (const p of nodes) {
+    const n = byId[p.id], dim = rel ? !rel.has(p.id) : query && !matches(n), live = n.live.length;
+    const showLabel = p.r > 10 || p.id === id || (rel && rel.has(p.id)) || live || (query && matches(n));
+    ns += `<g data-id="${esc(p.id)}" class="${dim ? "dim" : ""}" style="cursor:pointer" ${tipAttr(nodeTip(n))}>
+      ${live ? `<circle cx="${p.x}" cy="${p.y}" r="${p.r + 4}" fill="none" stroke="var(--run)" stroke-width="2.5" class="${n.live.some(l => l.state === "working") ? "pulse" : ""}"/>` : ""}
+      <circle cx="${p.x}" cy="${p.y}" r="${p.r}" fill="${fill(n)}" stroke="${p.id === selected ? "var(--fg)" : "var(--card)"}" stroke-width="2"/>
+      ${showLabel ? `<text x="${p.x}" y="${p.y + p.r + 11}" text-anchor="middle" style="font-size:${10 / Math.sqrt(zoom.k)}px;fill:var(--fg);pointer-events:none">${esc(n.module.split("::").pop())}</text>` : ""}</g>`;
+  }
+  $("#hulls").innerHTML = hulls; $("#gedges").innerHTML = es; $("#gnodes").innerHTML = ns;
+}
+
+// --- side panel ---------------------------------------------------------------------------
+function select(id) { selected = id; renderPanel(); view === "map" ? (renderMap($("#stage"))) : draw(); }
+const nodeLink = (id, extra = "") => { const n = byId[id] || D.nodes.find(m => m.id === id); return n ? `<span class="link" onclick="select(${esc(JSON.stringify(id))})">${esc(short(n.crate))} · ${esc(n.module)}</span>${extra}` : esc(id); };
+function renderPanel() {
+  const el = $("#panel"), now = Date.now() / 1000, start = RANGES[range] ? now - RANGES[range] : 0;
+  const n = selected && byId[selected];
+  if (!n) {
+    const hot = [...N].filter(m => m.churn).sort((a, b) => b.churn - a.churn).slice(0, 10);
+    const live = N.filter(m => m.live.length);
+    const recent = D.commits.filter(c => c.t >= start).slice(0, 10);
+    el.innerHTML = `<h2>Overview</h2><div class="stat"><div><b>${N.length}</b>modules</div><div><b>${N.reduce((s, m) => s + m.lines, 0).toLocaleString()}</b>lines</div><div><b>${E.length}</b>dependencies</div><div><b>${D.commits.filter(c => c.t >= start).length}</b>commits in ${range}</div></div>
+      <h3>Changing now <span class="mute small">open PRs and running sessions</span></h3>${live.length ? `<ul>${live.map(m => `<li><span style="color:var(--run)">●</span><span class="grow">${nodeLink(m.id)}<br><span class="small mute">${esc(m.live.map(l => l.label + (l.uncommitted ? " (uncommitted)" : "")).join(", "))}</span></span></li>`).join("")}</ul>` : `<div class="empty small">Nothing in flight.</div>`}
+      <h3>Hotspots <span class="mute small">most lines changed in ${range}</span></h3>${hot.length ? `<ul>${hot.map(m => `<li><span class="grow">${nodeLink(m.id)}</span><span class="small mute">${m.churn} lines · ${m.commits}×</span></li>`).join("")}</ul>` : `<div class="empty small">No changes in this range.</div>`}
+      <h3>Recent commits</h3><ul>${recent.map(c => `<li><span class="grow">${esc(c.subject)}</span><span class="small mute nowrap">${ago(c.t)}</span></li>`).join("") || '<li class="mute">none in this range</li>'}</ul>
+      <p class="small mute">Hover a module to see what it uses (blue) and what uses it (orange). Click it for details.</p>`;
+    return;
+  }
+  const hist = n.history.map(([ci, a, d]) => ({...D.commits[ci], a, d})).sort((x, y) => y.t - x.t);
+  const deps = (list, key) => list.sort((x, y) => y.w - x.w).slice(0, 14).map(e => `<li><span class="grow">${nodeLink(e[key])}</span><span class="small mute">${e.w}×</span></li>`).join("");
+  el.innerHTML = `<h2>${esc(short(n.crate))} <span class="right"><button onclick="select(null)">Close</button></span></h2>
+    <div style="font-size:15px;font-weight:600">${esc(n.module)}</div><div class="path">${esc(n.id)}</div>
+    <div class="stat"><div><b>${n.lines}</b>lines</div><div><b>${ago(n.last).replace(" ago", "")}</b>since last change</div><div><b>${n.commits}</b>commits in ${range}</div><div><b>${n.churn}</b>lines changed</div></div>
+    ${n.live.length ? `<h3>Changing now</h3><ul>${n.live.map(l => `<li><span style="color:var(--run)">●</span><span class="grow">${l.url ? `<a href="${esc(l.url)}" target="_blank">${esc(l.label)}</a>` : esc(l.label)} <span class="small mute">${esc(l.title)}${l.add != null ? ` · +${l.add} −${l.del}` : ""}${l.uncommitted ? " · uncommitted" : ""}</span></span></li>`).join("")}</ul>` : ""}
+    <h3>History</h3><ul>${hist.slice(0, 10).map(c => `<li><span class="grow">${esc(c.subject)}</span><span class="small mute nowrap">+${c.a} −${c.d} · ${ago(c.t)}</span></li>`).join("") || '<li class="mute">no commits</li>'}</ul>
+    <h3><span style="color:var(--s1)">■</span> Uses <span class="mute small">${n.out.length}</span></h3><ul>${deps(n.out, "b") || '<li class="mute">nothing in the workspace</li>'}</ul>
+    <h3><span style="color:var(--s2)">■</span> Used by <span class="mute small">${n.in.length}</span></h3><ul>${deps(n.in, "a") || '<li class="mute">no module</li>'}</ul>`;
+}
+
+function renderLegend() {
+  const steps = metric === "age" ? AGE_STEPS.map((s, i) => [6 - i, s[1]]).concat([[0, "older"]]) : [[0, "none"], [1, "few"], [6, "most"]];
+  $("#legend").innerHTML = `<span>${METRICS[metric]}${metric === "age" ? "" : " in " + range}:</span>` +
+    steps.map(([l, t]) => `<span><i style="background:${l ? `var(--q${l})` : "var(--chip)"}"></i>${t}</span>`).join("") +
+    `<span><span class="ring"></span>changing now (open PR or running session)</span><span>size: lines of code</span>` +
+    (view === "graph" ? `<span>drag to pan · scroll to zoom · drag a node to pin it · double-click to relax</span>` : "");
+}
+
+function render() {
+  if (!D) return;
+  controls(); derive();
+  const stage = $("#stage");
+  if (graphMove) { removeEventListener("mousemove", graphMove); removeEventListener("mouseup", graphUp); graphMove = graphUp = null; }
+  if (view === "graph") renderGraph(stage); else renderMap(stage);
+  renderLegend(); renderPanel();
+}
+
+const tip = $("#tip");
+document.addEventListener("mousemove", e => {
+  const t = e.target.closest && e.target.closest("[data-tip]");
+  if (!t) { tip.style.display = "none"; return; }
+  tip.innerHTML = t.dataset.tip; tip.style.display = "block";
+  const r = tip.getBoundingClientRect();
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - r.width - 8) + "px";
+  tip.style.top = (e.clientY + 14 + r.height > innerHeight ? e.clientY - r.height - 10 : e.clientY + 14) + "px";
+});
+let lastSha = null, lastLive = null;
+async function load() {
+  try {
+    const r = await fetch("/api/code"), d = await r.json();
+    if (d.error) throw new Error(d.error);
+    const liveKey = JSON.stringify(d.live);
+    $("#live").innerHTML = `<span class="dot bg-ok pulse"></span>live · origin/main ${esc(d.sha)} · checked ${new Date(d.generated).toLocaleTimeString()}`;
+    if (d.sha !== lastSha || liveKey !== lastLive) { const first = !D; D = d; lastSha = d.sha; lastLive = liveKey; if (first) graphReset = true; render(); }
+  } catch (e) { $("#live").innerHTML = `<span class="dot bg-bad"></span><span class="bad">${esc(e.message || "dashboard server not reachable")}</span>`; }
+}
+let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 150); });
+load(); setInterval(load, 20000);
+</script></body></html>
+""".replace("/*BASE*/", BASE_CSS)
 
 
 def main():
