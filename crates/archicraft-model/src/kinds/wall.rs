@@ -3,10 +3,11 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor};
+use super::{Kind, KindDescriptor, StoreyLinkRef, VerticalLink};
 use crate::element::{IfcClass, TopLink};
-use crate::ids::MaterialId;
+use crate::ids::{MaterialId, StoreyId};
 use crate::storey::StoreyList;
+use crate::transform::{PlanTransform, TransformError};
 use crate::validate;
 
 /// Location of a wall's reference line within its thickness (WAL-003).
@@ -77,6 +78,28 @@ impl Wall {
     pub fn direction(&self) -> DVec2 {
         (self.end - self.start).normalize_or_zero()
     }
+
+    /// The wall's base offset and top as a [`VerticalLink`] (ELM-006).
+    pub fn link(&self) -> VerticalLink {
+        VerticalLink {
+            base_offset: self.base_offset,
+            top: self.top,
+        }
+    }
+
+    pub fn set_link(&mut self, link: VerticalLink) {
+        self.base_offset = link.base_offset;
+        self.top = link.top;
+    }
+
+    /// Applies `change` to the wall's vertical link. The [`VerticalLink`]
+    /// helpers leave the link unchanged when they fail.
+    fn change_link<T>(&mut self, change: impl FnOnce(&mut VerticalLink) -> T) -> T {
+        let mut link = self.link();
+        let result = change(&mut link);
+        self.set_link(link);
+        result
+    }
 }
 
 impl Kind for Wall {
@@ -103,11 +126,42 @@ impl Kind for Wall {
 
     fn validate(&self, storeys: &StoreyList) -> Result<Self, String> {
         validate::validate_wall(self)?;
-        if let TopLink::Storey { storey, .. } = self.top
-            && storeys.get(storey).is_none()
-        {
+        if self.link().missing_storey(storeys).is_some() {
             return Err("The storey the wall top is linked to does not exist.".into());
         }
         Ok(self.clone())
+    }
+
+    fn transform(&mut self, transform: &PlanTransform) -> Result<(), TransformError> {
+        let (start, end) = (transform.apply(self.start), transform.apply(self.end));
+        // A mirror swaps the sides of the reference line. Swapping the ends
+        // keeps the exterior face on the right, now on the mirrored exterior
+        // side (WAL-003).
+        (self.start, self.end) = if transform.is_mirror() {
+            (end, start)
+        } else {
+            (start, end)
+        };
+        Ok(())
+    }
+
+    fn vertical_extent(&self, home: StoreyId, storeys: &StoreyList) -> Option<(f64, f64)> {
+        self.link().extent(home, storeys)
+    }
+
+    fn storey_links(&self) -> Vec<StoreyLinkRef> {
+        self.link().storey_links()
+    }
+
+    fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target_elevation: f64) -> Option<()> {
+        self.change_link(|link| link.rehome(home, storeys, target_elevation))
+    }
+
+    fn relink(&mut self, home: StoreyId, storeys: &StoreyList, target: StoreyId) -> Option<()> {
+        self.change_link(|link| link.relink(home, storeys, target))
+    }
+
+    fn unlink_storey(&mut self, home: StoreyId, storeys: &StoreyList, storey: StoreyId) -> bool {
+        self.change_link(|link| link.unlink_storey(home, storeys, storey))
     }
 }

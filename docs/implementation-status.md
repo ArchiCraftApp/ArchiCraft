@@ -209,7 +209,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | STR-003 | M | done | none | Done. rename from the context menu is indirect: it opens the dialog with the storey selected |
 | STR-004 | M | done | none | Done: crates/archicraft-app/src/ui/dialogs.rs:204-276 delete prompt shows the element count (212, 232), radio 'Move them… keeping their position' with target storey choice (233-248) or 'Delete them' (249) |
 | STR-005 | M | done | none | Done: Every storey operation is a Command (crates/archicraft-model/src/command.rs:45-71) executed via History::execute (798-815) which only trims to the limit and never clears on success |
-| STR-006 | M | done | none | Done. for the current element kinds (walls, slabs); new kinds must keep the same storey-relative representation |
+| STR-006 | M | done | none | Done for the current element kinds (walls, slabs): storey-relative data is resolved through the kind hooks at evaluation time; new kinds must implement the same hooks |
 | STR-007 | S | missing | M | No named reference levels (project zero, sea level, user-defined), no selection of the display/entry datum, no conversion in elevation fields (storey dialog, properties panel) or readouts; storage must stay relative to project ze… |
 | STR-008 | M | done | none | Done. observation: a per-storey override cannot be cleared back to the project default from the UI |
 | STR-009 | M | partial | S | Slope format, area unit and volume unit are not editable from the UI (only via the file); the slope format is not used anywhere yet (no slopes/roofs). Angle precision applies to decimal degrees/gradians only (DMS ignores decimals… |
@@ -394,7 +394,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | ELM-004 | M | done | none | Done: crates/archicraft-model/src/element.rs:277-278 (Element.name) |
 | ELM-019 | S | partial | S | Prefix is fixed per kind in its KindDescriptor (name_prefix); not configurable in the project or template. |
 | ELM-005 | M | partial | S | Absolute elevation is not shown anywhere (properties show only Base offset / Elevation offset, properties.rs:314-324,453-463; derived() 541-575 shows length/area/volume only). Changing the home storey always relinks; there is no… |
-| ELM-006 | M | partial | S | Implemented for walls only; columns, curtain walls, stairs and storey-spanning openings do not exist yet and must reuse TopLink when added. |
+| ELM-006 | M | partial | S | Implemented for walls through the shared `VerticalLink` and the kind hooks (`vertical_extent`, `storey_links`, `rehome`, `relink`, `unlink_storey` in `kinds/`); columns, curtain walls, stairs and storey-spanning openings do not exist yet and must reuse `VerticalLink` when added. |
 | ELM-007 | M | missing | M | No vertical move exists, so nothing offers re-association after a move; editing Base offset / Elevation offset in the properties panel does not trigger an offer; no bulk 're-associate selection with storeys by elevation' command… |
 | ELM-008 | M | missing | L | No storey display range on elements, no drawing of elements on other storeys' plans, no project-wide above/below outline style, no editing from other storeys' plans; snap targets likewise only from the home storey (input/snap.rs… |
 | ELM-009 | S | missing | M | No custom N-up/M-down range, no independent outline/cover-fill settings; roofs and terrain do not exist. |

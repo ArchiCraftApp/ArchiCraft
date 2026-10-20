@@ -99,3 +99,78 @@ fn payload_reexport_paths_are_unchanged() {
         assert!(name.starts_with("archicraft_model::kinds::"), "{name}");
     }
 }
+
+/// Blanks every item annotated with `#[cfg(test)]`, up to its `;` or to the
+/// end of its block. Line breaks are kept, so line numbers stay valid.
+fn without_test_items(source: &str) -> String {
+    const MARKER: &str = "#[cfg(test)]";
+    let mut chars: Vec<char> = source.chars().collect();
+    let marker: Vec<char> = MARKER.chars().collect();
+    let mut i = 0;
+    while i + marker.len() <= chars.len() {
+        if chars[i..i + marker.len()] != marker[..] {
+            i += 1;
+            continue;
+        }
+        let mut k = i + marker.len();
+        let mut depth = 0;
+        while k < chars.len() {
+            match chars[k] {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' => depth -= 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                ';' if depth == 0 => break,
+                _ => {}
+            }
+            k += 1;
+        }
+        let end = (k + 1).min(chars.len());
+        for c in chars[i..end].iter_mut().filter(|c| **c != '\n') {
+            *c = ' ';
+        }
+        i = end;
+    }
+    chars.into_iter().collect()
+}
+
+/// The `.rs` files under `dir`, relative to `root`, sorted.
+fn rust_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    let mut paths: Vec<_> = fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|e| e.expect("a directory entry").path())
+        .collect();
+    paths.sort();
+    for path in paths {
+        if path.is_dir() {
+            rust_files(root, &path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            let relative = path.strip_prefix(root).expect("below the root");
+            out.push(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+}
+
+/// Behaviour that differs by kind, such as storey links, plan transforms and
+/// construction, sits behind the kind hooks (ELM-006, STR-006): outside
+/// `src/kinds/` and `#[cfg(test)]` code, no model source names a kind's
+/// payload variant.
+#[test]
+fn only_kind_modules_match_on_kind_variants() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    rust_files(&root, &root, &mut files);
+    assert!(files.iter().any(|f| f == "project.rs"), "{files:?}");
+    for file in files.iter().filter(|f| !f.starts_with("kinds/")) {
+        let code = without_test_items(&source(file));
+        for (n, line) in code.lines().enumerate() {
+            for pattern in ["ElementKind::Wall(", "ElementKind::Slab("] {
+                assert!(!line.contains(pattern), "{file}:{}: `{pattern}` in {line:?}", n + 1);
+            }
+        }
+    }
+}

@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::{ElementId, LayerId, StoreyId};
 pub use crate::kinds::{ElementKind, KindTag};
+use crate::storey::StoreyList;
+use crate::transform::PlanTransform;
 
 /// IFC class of an element (ELM-011, Table 5-1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -81,20 +83,26 @@ pub enum TopLink {
     Relative { storeys: i32, offset: f64 },
 }
 
-impl ElementKind {
-    /// Translates the element in plan.
-    pub fn translate(&mut self, delta: DVec2) {
+impl TopLink {
+    /// Absolute elevation of the top of an element on `home` whose base is
+    /// at the absolute elevation `base` (ELM-006). Storey links are resolved
+    /// against `storeys`, so linked tops follow storey edits (STR-006).
+    /// `None` if a storey it refers to is missing.
+    pub fn elevation(self, home: StoreyId, base: f64, storeys: &StoreyList) -> Option<f64> {
         match self {
-            ElementKind::Wall(w) => {
-                w.start += delta;
-                w.end += delta;
-            }
-            ElementKind::Slab(s) => {
-                for p in s.outline.iter_mut().chain(s.holes.iter_mut().flatten()) {
-                    *p += delta;
-                }
-            }
+            TopLink::Fixed { height } => Some(base + height),
+            TopLink::Storey { storey, offset } => Some(storeys.get(storey)?.elevation + offset),
+            TopLink::Relative { storeys: n, offset } => Some(storeys.relative_elevation(home, n)? + offset),
         }
+    }
+}
+
+impl ElementKind {
+    /// Translates the element in plan through [`ElementKind::transform`]
+    /// (EDT-001). Every kind supports translations.
+    pub fn translate(&mut self, delta: DVec2) {
+        let translated = self.transform(&PlanTransform::translation(delta));
+        debug_assert!(translated.is_ok(), "every kind supports translations");
     }
 }
 

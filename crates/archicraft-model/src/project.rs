@@ -6,7 +6,7 @@ use glam::DVec2;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, TopLink};
+use crate::element::{Element, IfcClass, KindTag, Position, TopLink};
 use crate::ids::{BuildingId, ElementId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
 use crate::kinds::{ReferenceLine, Slab, SlabReference, Wall};
 use crate::layer::Layer;
@@ -339,32 +339,10 @@ impl Project {
             .unwrap_or(self.settings.cut_plane_height)
     }
 
-    /// Absolute elevation of a top link for an element on `home` with its
-    /// base at `base` (ELM-006).
-    pub fn top_elevation(&self, home: StoreyId, base: f64, top: TopLink) -> Option<f64> {
-        match top {
-            TopLink::Fixed { height } => Some(base + height),
-            TopLink::Storey { storey, offset } => Some(self.storeys.get(storey)?.elevation + offset),
-            TopLink::Relative { storeys, offset } => Some(self.storeys.relative_elevation(home, storeys)? + offset),
-        }
-    }
-
-    /// Absolute bottom and top elevations of an element.
+    /// Absolute bottom and top elevations of an element, resolved through
+    /// its kind's hook against the current storeys (ELM-006, STR-006).
     pub fn vertical_extent(&self, element: &Element) -> Option<(f64, f64)> {
-        let home = self.storeys.get(element.storey)?.elevation;
-        match &element.kind {
-            ElementKind::Wall(wall) => {
-                let bottom = home + wall.base_offset;
-                Some((bottom, self.top_elevation(element.storey, bottom, wall.top)?))
-            }
-            ElementKind::Slab(slab) => {
-                let reference = home + slab.offset;
-                Some(match slab.reference {
-                    SlabReference::Top => (reference - slab.thickness, reference),
-                    SlabReference::Bottom => (reference, reference + slab.thickness),
-                })
-            }
-        }
+        element.kind.vertical_extent(element.storey, &self.storeys)
     }
 
     /// Number of elements per layer, for the layer manager (LAY-002).
@@ -392,7 +370,7 @@ impl Project {
             ifc_class: d.ifc_class,
             position: d.position,
             locked: false,
-            kind: ElementKind::Wall(Wall {
+            kind: Wall {
                 start,
                 end,
                 thickness: d.thickness,
@@ -400,7 +378,8 @@ impl Project {
                 base_offset: d.base_offset,
                 top: d.top,
                 material: d.material,
-            }),
+            }
+            .into(),
         }
     }
 
@@ -415,14 +394,15 @@ impl Project {
             ifc_class: d.ifc_class,
             position: d.position,
             locked: false,
-            kind: ElementKind::Slab(Slab {
+            kind: Slab {
                 outline,
                 holes,
                 thickness: d.thickness,
                 reference: d.reference,
                 offset: d.offset,
                 material: d.material,
-            }),
+            }
+            .into(),
         }
     }
 
