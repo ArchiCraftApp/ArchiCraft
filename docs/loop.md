@@ -94,12 +94,14 @@ heredoc, a script) bypasses it, on `main` as on a bead branch. Only the stamps c
 change locally (a code commit needs a gate on the exact tree and a review that covers it), and
 CI catches it in the pull request.
 
-`guard-bash` judges the reviewer's commands and writes to the stamps by the commands a line
-runs (`scripts/loop/hooks/shell-commands.awk`), including those in `$(...)`, `find -exec`,
-behind wrappers such as `xargs`, `sudo` or `timeout`, in `sh -c` and `eval`, and in scripts
-fed to a shell. Other quoted arguments and heredoc bodies are data: a grep pattern, a commit
-message or a bead note may name `git merge`, `rm` or the state dir (the state dir only on a
-line that writes no file, since a path can reach a write through a variable or a pipe).
+`guard-bash` judges all its rules (pushes, PR merges, commits, writes to the stamps, the
+reviewer's commands) by the commands a line runs (`scripts/loop/hooks/shell-commands.awk`),
+including those in `$(...)`, `find -exec`, behind wrappers such as `xargs`, `sudo` or
+`timeout`, in `sh -c` and `eval`, and in scripts fed to a shell; a git command's checks run in
+the directory its `-C` options name. Other quoted arguments and heredoc bodies are data: a grep
+pattern, a commit message or a bead note may name `git push --force`, `gh pr merge`,
+`git commit`, `rm` or the state dir (the state dir only on a line that writes no file, since a
+path can reach a write through a variable or a pipe).
 
 Beads labelled `loop` change the loop itself. Every review finding that a script could have
 caught becomes such a bead, so the gate gets stricter over time. Since the user's decision of
