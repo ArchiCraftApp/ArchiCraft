@@ -32,17 +32,20 @@ of its logic. The test then screenshots the viewport and checks:
   level of each other on some face can trade pixels there.
 
 The screenshots land in `test-results/` (one PNG per file) for the manual check of each
-release; CI uploads them as the `viewer-screenshots` artefact. Four broken copies of the
+release; CI uploads them as the `viewer-screenshots` artefact. Five broken copies of the
 walls-and-slab golden must fail the step: a storey without `usd::xformop`, a mesh without
-`diffuseColor` and a mesh with an out-of-range index with a message naming the node, and an
-import that is not bundled with a message naming the URL that left the machine.
+`diffuseColor` and a mesh with an out-of-range index with a message naming the node, an import
+that is not bundled with a message naming the URL that left the machine, and an import from a
+localhost path the harness does not serve with a message naming that URL. A sixth copy, cut off
+halfway so it does not parse, must make `check.ts` print `FAIL` for steps (a) and (b1) and exit
+non-zero.
 
 All steps run offline. Steps (a) and (b1) serve the four `ifcx.dev` imports from
-`crates/archicraft-ifcx/schemas` (`schemas.ts`); in (b2), Playwright's `page.route` serves
-the harness and those imports, aborts every other request, and the test fails, before its other checks, if any request
-left `http://localhost` and the bundled schema URIs or asked for a localhost path the harness
-does not serve. The conformance job fails when it wrote no screenshot and has a 5-minute
-budget (`timeout-minutes`).
+`crates/archicraft-ifcx/schemas` (`schemas.ts`); in (b2), Playwright's `page.route` serves the
+harness and those imports, aborts every other request, and the test fails, before its other
+checks, if any request left `http://localhost` and the bundled schema URIs or asked for a
+localhost path the harness does not serve. The conformance job fails when it wrote no
+screenshot and has a 5-minute budget (`timeout-minutes`).
 
 `.github/workflows/conformance-matrix.yml` runs the same check on Linux, Windows and macOS
 nightly, and on Linux alone for pull requests that change the model, geometry, IFCX or
