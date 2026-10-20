@@ -68,7 +68,7 @@ Linux, plus cargo-deny (licences, advisories, sources and bans); the tests run
 on Windows for every change to `main` and nightly.
 The tests run on macOS (Apple silicon) when a version tag `v*` is pushed, or
 by hand with `gh workflow run macos.yml`. The conformance check runs on Linux,
-Windows and macOS every night, and on Linux and Windows for pull requests that
+Windows and macOS every night and by hand, and on Linux for pull requests that
 change the model, geometry, IFCX or conformance code
 (`.github/workflows/conformance-matrix.yml`). The IFCX reader and the
 typed-input parser are fuzzed every night, and for an hour per target before a

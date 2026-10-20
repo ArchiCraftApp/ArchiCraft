@@ -73,19 +73,17 @@ covers only `main` and version tags `v*`, so pushing a bead branch does not star
 
 **Windows runs on `main` and nightly.** No Windows test job runs on a pull request, and no
 Windows job is a required check: the Windows test job took 10 to 17 minutes where Linux took
-1.5 to 9, and every bead waited for it (user decision of 2026-10-20). The one Windows job on a
-pull request is the Windows leg of the conformance matrix (below), on pull requests that change
-the model, geometry, IFCX or conformance code; it is not required either, so no bead waits for
-it. The workflow `.github/workflows/windows.yml` builds and tests on `windows-latest`, with
-`core.autocrlf=true` as a Windows developer checks out (NFR-PORT-004), on every push to `main`,
-nightly and when started by hand (`gh workflow run windows.yml --ref <branch>`). So a
-Windows-only failure lands on `main` and shows up after the merge: `sweep.sh` looks at the
-newest finished run on `main` that was not cancelled and prints `ATTENTION windows: …` with its
-link when it did not pass. `/bead-loop` stops at that line, as at every `ATTENTION`, and the
-fix becomes a P0 bead that runs next. Branch protection names its required checks, so a change
-to that list in `setup-github.sh` takes effect only when the user runs the script again
-(Setup): for the change that dropped the Windows check, before its PR merges, since that PR's
-own run no longer reports `Test (windows-latest)`.
+1.5 to 9, and every bead waited for it (user decision of 2026-10-20; the conformance matrix
+below follows it). The workflow `.github/workflows/windows.yml` builds and tests on
+`windows-latest`, with `core.autocrlf=true` as a Windows developer checks out (NFR-PORT-004),
+on every push to `main`, nightly and when started by hand (`gh workflow run windows.yml --ref
+<branch>`). So a Windows-only failure lands on `main` and shows up after the merge: `sweep.sh`
+looks at the newest finished run on `main` that was not cancelled and prints `ATTENTION
+windows: …` with its link when it did not pass. `/bead-loop` stops at that line, as at every
+`ATTENTION`, and the fix becomes a P0 bead that runs next. Branch protection names its required
+checks, so a change to that list in `setup-github.sh` takes effect only when the user runs the
+script again (Setup): for the change that dropped the Windows check, before its PR merges,
+since that PR's own run no longer reports `Test (windows-latest)`.
 
 **macOS runs only for releases and the nightly conformance matrix.** No macOS job runs on a
 push or pull request, and none is a required check. On 2026-10-19 GitHub's hosted macOS runners
@@ -97,7 +95,7 @@ when a version tag `v*` is pushed and when started by hand (`gh workflow run mac
 offer at this date (NFR-PORT-002 asks for Apple's current and previous one; a newer Apple
 release is covered only once GitHub adds it). The one other macOS job is the nightly run of the
 conformance matrix (`.github/workflows/conformance-matrix.yml`, IFX-006 on three platforms); on
-pull requests that matrix runs Linux and Windows only, and none of its jobs is required. So a
+pull requests that matrix runs Linux alone, and none of its jobs is required. So a Windows- or
 macOS-only conformance failure shows up the next night, and any other macOS-only failure at the
 next release at the latest: run the workflow by hand before tagging one, and file a red run as
 a bead. When GitHub adds the next macOS major version, move both labels in `macos.yml` up by

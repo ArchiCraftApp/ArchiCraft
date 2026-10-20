@@ -102,13 +102,14 @@ run leaves `git status` clean.
 
 **On every platform.** The CI job runs on Linux for every pull request and every push to
 `main`. The conformance matrix (`.github/workflows/conformance-matrix.yml`) runs the same check
-on Linux, Windows (Git Bash) and macOS nightly and by hand, and on Linux and Windows for every
-pull request that changes `crates/archicraft-model`, `crates/archicraft-geometry`,
-`crates/archicraft-ifcx`, `conformance/` or the workflow itself (no macOS job runs on a pull
-request, docs/loop.md); a docs-only pull request does not start it, and none of its jobs is a
-required check. Its last job, "Same PASS lines on every OS", fails unless the runs print the
-same `PASS` lines (`conformance/compare-runs.sh`, compared as sorted sets) and none prints
-`FAIL`. Each OS uploads its screenshots as `viewer-screenshots-<OS>`.
+on Linux, Windows (Git Bash) and macOS nightly and by hand, and on Linux alone for every pull
+request that changes `crates/archicraft-model`, `crates/archicraft-geometry`,
+`crates/archicraft-ifcx`, `conformance/` or the workflow itself (no Windows or macOS job runs
+on a pull request, docs/loop.md); a docs-only pull request does not start it, and none of its
+jobs is a required check. Its last job, "Same PASS lines on every OS", runs a negative
+self-test of the comparison and, except on pull requests, fails unless the runs print the same
+`PASS` lines (`conformance/compare-runs.sh`, compared as sorted sets) and none prints `FAIL`.
+Each OS uploads its screenshots as `viewer-screenshots-<OS>`.
 
 **Release checklist.** The checks that run by hand once per release, the hosted IFC5 viewer of
 IFX-006 (b) above all, are in [docs/test-plan/release-checklist.md](test-plan/release-checklist.md).

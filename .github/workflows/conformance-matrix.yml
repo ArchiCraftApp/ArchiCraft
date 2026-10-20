@@ -3,10 +3,11 @@ name: Conformance matrix
 # IFX-006 on every platform ArchiCraft supports (NFR-PORT-001..003): conformance/run.sh on the
 # reference models (compact and indented) and the golden files on Linux, Windows and macOS,
 # then a check that all of them print the same PASS lines (files are platform-independent,
-# NFR-PORT-004). It runs nightly and by hand on all three, and on Linux and Windows for pull
-# requests that change the model, the geometry, the IFCX code or the conformance tools: no macOS
-# job runs on a pull request (docs/loop.md, "macOS runs only for releases and the nightly
-# conformance matrix"). None of its jobs is a required check. The per-push Linux job "IFCX
+# NFR-PORT-004). It runs nightly and by hand on all three, and on Linux alone for pull requests
+# that change the model, the geometry, the IFCX code or the conformance tools: no Windows or
+# macOS job runs on a pull request (docs/loop.md, "Windows runs on `main` and nightly" and
+# "macOS runs only for releases and the nightly conformance matrix"), so the comparison runs
+# nightly and by hand only. None of its jobs is a required check. The per-push Linux job "IFCX
 # conformance" in ci.yml stays. The screenshots of each platform are uploaded for the release
 # check (docs/test-plan/release-checklist.md). Start it by hand with:
 # gh workflow run conformance-matrix.yml --ref <branch>
@@ -46,7 +47,7 @@ jobs:
       matrix:
         os: >-
           ${{ fromJSON(github.event_name == 'pull_request'
-          && '["ubuntu-24.04", "windows-latest"]'
+          && '["ubuntu-24.04"]'
           || '["ubuntu-24.04", "windows-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     # A cold Rust cache on Windows dominates the run; a hang still fails well before the default.
@@ -124,13 +125,16 @@ jobs:
           if "$compare" linux.txt differs.txt; then echo "::error::differing lines passed"; exit 1; fi
           if "$compare" failed.txt failed.txt; then echo "::error::FAIL lines passed"; exit 1; fi
           if "$compare" linux.txt /dev/null; then echo "::error::an empty run passed"; exit 1; fi
+      # A pull request runs Linux alone: nothing to compare, the self-test above still runs.
       - uses: actions/download-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           pattern: conformance-lines-*
           merge-multiple: true
-      # A missing run fails the comparison (no PASS lines), so a skipped OS cannot pass unseen.
-      - name: Compare the runs of Linux, Windows and (except on pull requests) macOS
+      # This job runs only when every leg passed (needs: conformance); a leg that uploaded no
+      # lines then fails the comparison (no PASS lines) instead of being left out unseen.
+      - name: Compare the runs of Linux, Windows and macOS
+        if: github.event_name != 'pull_request'
         run: |
-          runs=(conformance-Linux.txt conformance-Windows.txt)
-          [ "$GITHUB_EVENT_NAME" = pull_request ] || runs+=(conformance-macOS.txt)
-          conformance/compare-runs.sh "${runs[@]}"
+          conformance/compare-runs.sh conformance-Linux.txt conformance-Windows.txt \
+            conformance-macOS.txt
