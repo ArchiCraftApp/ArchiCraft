@@ -23,10 +23,11 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | 8 Close | Bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |
 
 The gate and the review stamp the exact tree they checked (`loop_tree_hash` in
-`scripts/loop/lib.sh`). Any later edit invalidates the gate stamp. The review stamp survives
-only edits outside code and the loop's own files (`loop_review_valid`): a trivial doc fix for
-a minor finding after a `PASS` needs a new gate run but no new review, and every other minor
-finding becomes a follow-up bead instead of another review round. Stamps, logs and counters
+`scripts/loop/lib.sh`). Any later edit invalidates the gate stamp. The review stamp belongs to
+the branch's bead and survives only edits to prose (`docs/` and top-level Markdown files,
+`loop_review_valid`, `LOOP_REVIEW_CARRY_PATHS`): a trivial doc fix for a minor finding after
+a `PASS` needs a new gate run but no new review, and every other minor finding becomes a
+follow-up bead instead of another review round. Stamps, logs and counters
 live in the worktree's git dir (`git rev-parse --git-path loop`), never in the repository.
 `scripts/loop/status.sh` shows where a worktree stands.
 
