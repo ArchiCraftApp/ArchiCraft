@@ -8,6 +8,7 @@ mod slab;
 mod wall;
 
 use archicraft_model::glam::DVec2;
+use archicraft_model::tolerance::coincident;
 use archicraft_model::units::{NumberFormat, UnitSettings, format_angle, format_length, parse_angle, parse_length};
 use archicraft_model::{Command, Element, Project, StoreyId};
 pub use slab::SlabMode;
@@ -97,8 +98,6 @@ fn counter_clockwise(mut ring: Vec<DVec2>) -> Vec<DVec2> {
     }
     ring
 }
-
-const CLOSE_TOLERANCE: f64 = 1e-6;
 
 impl ToolState {
     pub fn select(&mut self, kind: ToolKind) {
@@ -211,6 +210,11 @@ impl ToolState {
     }
 
     /// Adds a point. Returns the command to run once an operation completes.
+    ///
+    /// Points within the model tolerance are one point (NFR-ACC-003): a
+    /// click that coincides with the previous point is ignored, and one that
+    /// coincides with the first point closes a wall chain at that point or a
+    /// slab outline.
     pub fn add_point(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> ToolOutcome {
         if self.kind == ToolKind::Select {
             return ToolOutcome::Nothing;
@@ -220,17 +224,18 @@ impl ToolState {
         }
         self.storey = Some(storey);
         self.typed.clear();
-        if self.points.last().is_some_and(|p| p.distance(point) < CLOSE_TOLERANCE) {
+        if self.points.last().is_some_and(|&p| coincident(p, point)) {
             return ToolOutcome::Nothing;
         }
         match self.kind {
             ToolKind::Wall if self.wall_mode == WallMode::Chain => {
-                let closes = self.points.len() >= 2 && self.points[0].distance(point) < CLOSE_TOLERANCE;
+                let closes = self.points.len() >= 2 && coincident(self.points[0], point);
                 let Some(&last) = self.points.last() else {
                     self.points.push(point);
                     return ToolOutcome::Nothing;
                 };
-                let wall = project.new_wall(storey, last, point, 0);
+                let end = if closes { self.points[0] } else { point };
+                let wall = project.new_wall(storey, last, end, 0);
                 if closes {
                     self.reset();
                 } else {
@@ -239,7 +244,7 @@ impl ToolState {
                 ToolOutcome::Execute(Command::AddElements(vec![wall]))
             }
             ToolKind::Slab if self.slab_mode == SlabMode::Polygon => {
-                if self.points.len() >= 3 && self.points[0].distance(point) < CLOSE_TOLERANCE {
+                if self.points.len() >= 3 && coincident(self.points[0], point) {
                     return self.finish(project);
                 }
                 self.points.push(point);
@@ -363,6 +368,66 @@ mod tests {
         assert!(!tool.is_drawing(), "clicking the first point closes the chain");
         let names: Vec<&str> = project.elements.values().map(|e| e.name.as_str()).collect();
         assert_eq!(names, ["W-001", "W-002", "W-003", "W-004"]);
+    }
+
+    const MICROMETRE: f64 = 1e-6;
+
+    /// NFR-ACC-003: a last click 5 µm from the first point closes the chain
+    /// into a ring that ends exactly at the first point.
+    #[test]
+    fn wall_chain_closes_within_the_tolerance() {
+        let mut project = default_metric_project();
+        let storey = project.storeys.ground();
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Wall);
+        let near_start = DVec2::new(3.0, 4.0) * MICROMETRE;
+        for p in [
+            DVec2::ZERO,
+            DVec2::new(5.0, 0.0),
+            DVec2::new(5.0, 4.0),
+            DVec2::new(0.0, 4.0),
+            near_start,
+        ] {
+            let outcome = tool.add_point(&project, storey, p);
+            run(&mut project, outcome);
+        }
+        assert_eq!(project.elements.len(), 4);
+        assert!(!tool.is_drawing(), "5 µm from the first point closes the chain");
+        let last = project.elements.values().last().unwrap().as_wall().unwrap();
+        assert_eq!(last.end, DVec2::ZERO, "the ring closes at the first point");
+    }
+
+    /// NFR-ACC-003: a click within the tolerance of the previous point is
+    /// the same point; one 20 µm away is a new one.
+    #[test]
+    fn repeated_clicks_within_the_tolerance_are_one_point() {
+        let project = default_metric_project();
+        let storey = project.storeys.ground();
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Slab);
+        tool.add_point(&project, storey, DVec2::ZERO);
+        tool.add_point(&project, storey, DVec2::new(5.0 * MICROMETRE, 0.0));
+        assert_eq!(tool.points, [DVec2::ZERO]);
+        tool.add_point(&project, storey, DVec2::new(20.0 * MICROMETRE, 0.0));
+        assert_eq!(tool.points.len(), 2);
+    }
+
+    /// NFR-ACC-003: a click within the tolerance of the first corner closes
+    /// the slab outline.
+    #[test]
+    fn slab_polygon_closes_within_the_tolerance() {
+        let mut project = default_metric_project();
+        let storey = project.storeys.ground();
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Slab);
+        for p in [(0.0, 0.0), (4.0, 0.0), (4.0, 3.0)] {
+            tool.add_point(&project, storey, DVec2::new(p.0, p.1));
+        }
+        let outcome = tool.add_point(&project, storey, DVec2::new(0.0, 5.0 * MICROMETRE));
+        run(&mut project, outcome);
+        assert!(!tool.is_drawing());
+        let slab = project.elements.values().find_map(|e| e.as_slab()).unwrap();
+        assert_eq!(slab.outline.len(), 3);
     }
 
     #[test]
