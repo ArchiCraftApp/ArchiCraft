@@ -390,10 +390,13 @@ input that takes longer than 10 s or one that needs more than 2 GB of memory (th
 
 | Date | Commit | Host | Target | Duration | Executions | Coverage (`cov` / `ft`) | Peak RSS | Findings |
 |---|---|---|---|---|---|---|---|---|
-| 2026-10-20 | `34b65fe` plus the code of the archicraft-lnow pull request | macOS 27 on Apple silicon (16 cores), nightly 1.101.0 | `ifcx_load` | 60 min | 4,691,710 | 8,930 / 32,977 | 1,073 MB | none |
+| 2026-10-20 | `34b65fe` plus the fixes of archicraft-lnow, before its rebase | macOS 27 on Apple silicon (16 cores), nightly 1.101.0 | `ifcx_load` | 60 min | 4,691,710 | 8,930 / 32,977 | 1,073 MB | none |
 | 2026-10-20 | same | same | `ifcx_validate` | 60 min | 10,504,874 | 4,121 / 18,043 | 1,163 MB | none |
 | 2026-10-20 | same | same | `units_parse` | 30 min | 32,260,617 | 545 / 2,247 | 654 MB | none |
 | 2026-10-20 | `1c7ec92` (main, with the new digit grouping of archicraft-eya.1) | same | `units_parse` | 30 min | 13,312,209 | 716 / 2,925 | 1,649 MB | none |
+| 2026-10-20 | `1fb633c`, archicraft-lnow rebased onto `1c7ec92` | same | `ifcx_load` | 10 min | 797,724 | 9,002 / 33,193 | 1,187 MB | none |
+| 2026-10-20 | same | same | `ifcx_validate` | 10 min | 2,015,437 | 4,125 / 18,063 | 1,240 MB | none |
+| 2026-10-20 | same | same | `units_parse` | 10 min | 4,095,227 | 716 / 2,909 | 1,620 MB | none |
 
 The first campaign (archicraft-lnow) started with a 15-minute exploratory round of each target
 in fork mode (`-fork`, findings ignored so that one does not stop the others; about 1.1 M,
@@ -424,8 +427,11 @@ found four problems:
 The final runs above used `scripts/fuzz-run.sh` on the corpus grown by the exploratory round
 and earlier runs, with the regression files added, one process per target, all at once. The
 units grammar changed on `main` during the campaign (archicraft-eya.1), so `units_parse` also
-ran on that commit. The hand-crafted inputs were not added to the seeded corpus, and coverage
-was not checked with `cargo fuzz coverage`; both are archicraft-4ehi.
+ran on that commit. Rebasing the fixes onto it (the model's errors had become localized
+messages, archicraft-9w3.1) changed only how the slab limit is reported, so each target ran
+another 10 minutes on the rebased commit. The hand-crafted inputs were not added to the
+seeded corpus, and coverage was not checked with `cargo fuzz coverage`; both are
+archicraft-4ehi.
 
 **Licences.** The fuzz crate is outside the workspace, so `cargo deny` does not list it;
 this paragraph is its entry in the licence inventory (NFR-LEG-001). Beyond the ArchiCraft
