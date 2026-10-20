@@ -5,9 +5,10 @@ name: Conformance matrix
 # then a check that all of them print the same PASS lines (files are platform-independent,
 # NFR-PORT-004). It runs nightly and by hand on all three, and on Linux and Windows for pull
 # requests that change the model, the geometry, the IFCX code or the conformance tools: no macOS
-# job runs on a pull request (docs/loop.md, "macOS runs only for releases"). None of its jobs is
-# a required check. The per-push Linux job "IFCX conformance" in ci.yml stays. The screenshots of each platform are uploaded for the release check
-# (docs/test-plan/release-checklist.md). Start it by hand with:
+# job runs on a pull request (docs/loop.md, "macOS runs only for releases and the nightly
+# conformance matrix"). None of its jobs is a required check. The per-push Linux job "IFCX
+# conformance" in ci.yml stays. The screenshots of each platform are uploaded for the release
+# check (docs/test-plan/release-checklist.md). Start it by hand with:
 # gh workflow run conformance-matrix.yml --ref <branch>
 on:
   schedule:
