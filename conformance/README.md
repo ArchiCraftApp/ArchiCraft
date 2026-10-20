@@ -44,6 +44,15 @@ left `http://localhost` and the bundled schema URIs or asked for a localhost pat
 does not serve. The conformance job fails when it wrote no screenshot and has a 5-minute
 budget (`timeout-minutes`).
 
+`.github/workflows/conformance-matrix.yml` runs the same check on Linux, Windows and macOS
+nightly, and on Linux and Windows for pull requests that change the model, geometry, IFCX or
+conformance code. On Windows, `run.sh` runs under Git Bash: it passes Node `C:/…` paths
+(`pwd -W`), clones `.ifc5/` without end-of-line conversion, every line names its file by
+repository path with forward slashes, and `.gitattributes` keeps `*.sh` at LF.
+`compare-runs.sh` then checks that the platforms printed the same `PASS` lines. Each
+platform uploads its screenshots as `viewer-screenshots-<OS>`; the manual release check is in
+`docs/test-plan/release-checklist.md`.
+
 Playwright's Chromium is a test tool like Node. `run.sh` installs it on first use
 (`npx playwright install chromium`); on Linux CI, `npx playwright install --with-deps chromium`
 also installs its system libraries. WebGL runs on SwiftShader (`playwright.config.ts`), so no

@@ -4,19 +4,28 @@
 #   (b1) the reference viewer's composition (compose3) gives the expected spatial tree, in Node;
 #   (b2) the reference viewer itself, in headless Chromium, shows that tree, renders the
 #        geometry and every material colour (viewer.spec.ts; screenshots in test-results/).
-# Prints PASS or FAIL per file and step; exits non-zero if any step failed.
+# Prints PASS or FAIL per file and step; exits non-zero if any step failed. The lines name each
+# file by its repository path with forward slashes, so runs on Linux, macOS and Windows (Git
+# Bash) print the same lines for the same inputs (compare-runs.sh).
 # Usage: conformance/run.sh <file.ifcx>...
 set -eu
-here="$(cd "$(dirname "$0")" && pwd)"
+# The absolute path of a directory. Git Bash's pwd prints /c/...; Node on Windows needs C:/...,
+# which pwd -W prints there (elsewhere -W is not an option and pwd prints the path as it is).
+absdir() {
+    (cd "$1" && { pwd -W 2>/dev/null || pwd; })
+}
+here="$(absdir "$(dirname "$0")")"
 # Make the file arguments absolute before changing directory.
 files=""
 for f in "$@"; do
-    files="$files $(cd "$(dirname "$f")" && pwd)/$(basename "$f")"
+    files="$files $(absdir "$(dirname "$f")")/$(basename "$f")"
 done
 # buildingSMART IFC5-development at the commit SRS R2 pins.
 IFC5_COMMIT=1a63082ada967c683cfacee2005f8f749c8e1b79
+# Without end-of-line conversion, so a Windows checkout serves the viewer's files as they are.
 if [ ! -d "$here/.ifc5/.git" ]; then
-    git clone --quiet --filter=blob:none --no-checkout https://github.com/buildingSMART/IFC5-development.git "$here/.ifc5"
+    git clone --quiet --config core.autocrlf=false --filter=blob:none --no-checkout \
+        https://github.com/buildingSMART/IFC5-development.git "$here/.ifc5"
 fi
 git -C "$here/.ifc5" checkout --quiet "$IFC5_COMMIT"
 cd "$here"

@@ -57,8 +57,9 @@ function message(e: unknown): string {
 // One line per file and step; (b2), the viewer in a headless browser, is viewer.spec.ts.
 let failures = 0;
 for (const file of files) {
-    // By repository path (run.sh runs in conformance/): reference models and goldens share base names.
-    const relative = path.relative("..", file);
+    // By repository path (run.sh runs in conformance/): reference models and goldens share base
+    // names. Forward slashes on every platform, so the lines compare equal (compare-runs.sh).
+    const relative = path.relative("..", file).split(path.sep).join("/");
     const name = relative.startsWith("..") ? file : relative;
     let ifcx: IfcxFile;
     try {

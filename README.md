@@ -66,7 +66,14 @@ implementation and viewer composition (SRS IFX-006); it needs Node.js and
 network access to fetch the pinned reference code. CI runs all of this on
 Windows and Linux, plus cargo-deny (licences, advisories, sources and bans).
 The tests run on macOS (Apple silicon) when a version tag `v*` is pushed, or
-by hand with `gh workflow run macos.yml`.
+by hand with `gh workflow run macos.yml`. The conformance check runs on Linux,
+Windows and macOS every night, and on Linux and Windows for pull requests that
+change the model, geometry, IFCX or conformance code
+(`.github/workflows/conformance-matrix.yml`).
+
+Each release also goes through the manual checks of
+[docs/test-plan/release-checklist.md](docs/test-plan/release-checklist.md),
+among them the hosted IFC5 viewer check of IFX-006.
 
 Repository guards keep done requirements done: `scripts/check-layering.sh`
 keeps UI crates out of the headless crates, `scripts/check-legal.sh` refuses

@@ -1,0 +1,135 @@
+name: Conformance matrix
+
+# IFX-006 on every platform ArchiCraft supports (NFR-PORT-001..003): conformance/run.sh on the
+# reference models (compact and indented) and the golden files on Linux, Windows and macOS,
+# then a check that all of them print the same PASS lines (files are platform-independent,
+# NFR-PORT-004). It runs nightly and by hand on all three, and on Linux and Windows for pull
+# requests that change the model, the geometry, the IFCX code or the conformance tools: no macOS
+# job runs on a pull request (docs/loop.md, "macOS runs only for releases"). None of its jobs is
+# a required check. The per-push Linux job "IFCX conformance" in ci.yml stays. The screenshots of each platform are uploaded for the release check
+# (docs/test-plan/release-checklist.md). Start it by hand with:
+# gh workflow run conformance-matrix.yml --ref <branch>
+on:
+  schedule:
+    # Nightly at 03:17 UTC (off the full hour, when GitHub's scheduler is busiest).
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "crates/archicraft-model/**"
+      - "crates/archicraft-geometry/**"
+      - "crates/archicraft-ifcx/**"
+      - "conformance/**"
+      - ".github/workflows/conformance-matrix.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conformance-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+# run.sh is a POSIX shell script: on Windows it runs unchanged under Git Bash.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  conformance:
+    name: Conformance (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: >-
+          ${{ fromJSON(github.event_name == 'pull_request'
+          && '["ubuntu-24.04", "windows-latest"]'
+          || '["ubuntu-24.04", "windows-latest", "macos-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    # A cold Rust cache on Windows dominates the run; a hang still fails well before the default.
+    timeout-minutes: 30
+    steps:
+      # NFR-PORT-004: check out as a Windows developer would, with end-of-line conversion on
+      # (.gitattributes keeps run.sh at LF and the IFCX files byte-exact). Long paths for the
+      # IFC5 clone and node_modules.
+      - name: Enable end-of-line conversion and long paths
+        if: runner.os == 'Windows'
+        run: |
+          git config --global core.autocrlf true
+          git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: conformance/package-lock.json
+      - name: Install the conformance tools
+        working-directory: conformance
+        run: npm ci --no-audit --no-fund
+      # Playwright's Chromium, keyed by the pinned Playwright version in the lock file.
+      - uses: actions/cache@v4
+        with:
+          path: >-
+            ${{ runner.os == 'Linux' && '~/.cache/ms-playwright'
+            || runner.os == 'macOS' && '~/Library/Caches/ms-playwright'
+            || '~/AppData/Local/ms-playwright' }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('conformance/package-lock.json') }}
+      # A no-op download when the cache hit; on Linux it also installs the system libraries.
+      - name: Install Chromium
+        working-directory: conformance
+        run: npx playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
+      - name: Write the reference models (compact and indented)
+        run: cargo run --locked -p archicraft-ifcx --example reference_models -- target/reference-models
+      - name: Load them and the golden files with the reference implementation, composition and viewer
+        run: |
+          conformance/run.sh target/reference-models/*.ifcx crates/archicraft-ifcx/tests/golden/*.ifcx |
+            tee "conformance-${{ runner.os }}.txt"
+      - name: Upload the PASS lines for the comparison
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-lines-${{ runner.os }}
+          path: conformance-${{ runner.os }}.txt
+          if-no-files-found: error
+      - name: Upload the viewer screenshots for the release check
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: viewer-screenshots-${{ runner.os }}
+          path: conformance/test-results/*.png
+          # The release check needs them: a run that wrote none fails.
+          if-no-files-found: error
+
+  same-results:
+    name: Same PASS lines on every OS
+    needs: conformance
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Negative self-test of the comparison
+        working-directory: ${{ runner.temp }}
+        run: |
+          compare="$GITHUB_WORKSPACE/conformance/compare-runs.sh"
+          printf 'PASS (a) ifcx-core x.ifcx: ok\nPASS (b1) compose3 x.ifcx: 1 storeys\n' >linux.txt
+          printf 'PASS (b1) compose3 x.ifcx: 1 storeys\r\nPASS (a) ifcx-core x.ifcx: ok\r\n' >windows.txt
+          printf 'PASS (a) ifcx-core x.ifcx: ok\nPASS (b1) compose3 x.ifcx: 2 storeys\n' >differs.txt
+          printf 'FAIL (a) ifcx-core x.ifcx: bad\nFAIL (a) ifcx-core x.ifcx: bad\n' >failed.txt
+          "$compare" linux.txt windows.txt
+          if "$compare" linux.txt differs.txt; then echo "::error::differing lines passed"; exit 1; fi
+          if "$compare" failed.txt failed.txt; then echo "::error::FAIL lines passed"; exit 1; fi
+          if "$compare" linux.txt /dev/null; then echo "::error::an empty run passed"; exit 1; fi
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: conformance-lines-*
+          merge-multiple: true
+      # A missing run fails the comparison (no PASS lines), so a skipped OS cannot pass unseen.
+      - name: Compare the runs of Linux, Windows and (except on pull requests) macOS
+        run: |
+          runs=(conformance-Linux.txt conformance-Windows.txt)
+          [ "$GITHUB_EVENT_NAME" = pull_request ] || runs+=(conformance-macOS.txt)
+          conformance/compare-runs.sh "${runs[@]}"
