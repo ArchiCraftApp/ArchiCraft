@@ -23,7 +23,7 @@ fn the_registry_has_wall_and_slab() {
     assert!(codes.starts_with(&["wall", "slab"]), "{codes:?}");
     assert_eq!(KINDS.len(), KindTag::ALL.len());
     for (tag, descriptor) in KindTag::ALL.iter().zip(KINDS) {
-        assert!(std::ptr::eq(tag.descriptor(), *descriptor), "{tag:?}");
+        assert_eq!(tag.descriptor(), *descriptor, "{tag:?}");
     }
     assert!(KindTag::Wall.descriptor().has_tool && KindTag::Slab.descriptor().has_tool);
 }
