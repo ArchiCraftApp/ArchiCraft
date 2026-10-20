@@ -117,12 +117,35 @@ How the main window (SRS UI-001) maps onto egui. The Archicad names are only for
 - The standard GPU API in Rust: Metal on macOS, DX12 or Vulkan on Windows, Vulkan on Linux. About 4.8 million downloads per month.
 - egui itself renders through wgpu, so the UI and our views share one GPU device.
 - `bytemuck` to pass vertex data to the GPU.
-- The hardware classes of SRS NFR-PERF-001 (Apple M1 and M2; Intel Iris Xe and Arc graphics) are all covered by these backends. Whether the performance targets are met is measured (SRS AS-07), not assumed.
+- The hardware classes of SRS NFR-PERF-001 (Apple M1 and M2; Intel Iris Xe and Arc graphics) are all covered by these backends: Metal on the Macs, DX12 or Vulkan on the Windows laptops, Vulkan (Mesa) on Ubuntu. Whether the performance targets are met is measured (SRS AS-07), not assumed; the classes and the machines are under [Hardware classes](#hardware-classes).
 - Considered and rejected:
   - OpenGL: deprecated on macOS.
   - Vulkan directly (ash): far more code, and needs MoltenVK on macOS.
   - The Bevy engine: game-engine scope, and breaking releases.
 - Watch out: wgpu releases a breaking major version every three months, and egui-wgpu is tied to one wgpu major. Always use the re-export `egui_wgpu::wgpu` so versions can't drift apart, and upgrade both together.
+
+### Hardware classes
+
+SRS NFR-PERF-001 measures the performance targets on two hardware classes. Every target is measured on the reference class unless the target names the minimum class. README's [System requirements](../README.md#system-requirements) publishes both with every release (SRS NFR-PORT-006, [release checklist](test-plan/release-checklist.md) item 4).
+
+| Class | macOS | Windows | Linux |
+|---|---|---|---|
+| Minimum | Apple MacBook Air M1, 8 GB RAM (`min-mac-m1`) | A laptop with an Intel Core i5-1135G7 (Iris Xe graphics), 8 GB RAM and a 1920 × 1080 display (`min-win-i5`) | Ubuntu 26.04 LTS on the minimum Windows laptop (`min-win-i5-ubuntu`) |
+| Reference | Apple MacBook Air M2, 16 GB RAM (`ref-mac-m2`) | A laptop with an Intel Core Ultra 7 155H (Arc graphics) and 16 GB RAM (`ref-win-u7`) | Ubuntu 26.04 LTS on the reference Windows laptop (`ref-win-u7-ubuntu`) |
+
+The ids in brackets name the results files of docs/performance (`<YYYY-MM-DD>-<machine id>.md`, see its [README](performance/README.md#results)).
+
+The Macs are fixed by model. The Windows laptops are any machine that meets these criteria; the product owner names the concrete models when they are bought:
+
+- exactly the CPU named above, with its integrated graphics as the only GPU (no discrete GPU, so the integrated GPU is what is measured);
+- exactly the RAM named above, in two channels (one module halves the memory bandwidth of the integrated GPU);
+- the minimum laptop has a 1920 × 1080 display at 100 % or 125 % scaling; the reference laptop's display is not specified;
+- an NVMe SSD, and the current Windows 11 release with Intel's current graphics driver;
+- measured on mains power with the default power plan, and with no vendor tuning tool raising power limits.
+
+Linux runs on the Windows laptop of each class, from a second partition with Ubuntu 26.04 LTS (the current Ubuntu LTS; the next LTS replaces it when it is released) and its Mesa driver (Vulkan). This keeps Linux on the same hardware as Windows, so the two are comparable.
+
+These classes and criteria close SRS O-15. Its hardware half is decided here; buying the machines is the product owner's. Its model-size half is SRS 7.3: RM-S, RM-M and RM-L with their element and triangle counts (building them is the epic `perf-tuning-rm-m-l`).
 
 ### Plan views: lyon
 
@@ -251,7 +274,7 @@ The SRS and this document were compared on 2026-10-16, and the product owner dec
 | Autosave | Crash recovery tied to the deferred SQLite store here; SRS PRJ-004 is Must from increment 0 | Autosave writes a recovery `.ifcx`; SQLite stays deferred | [Project file](#project-file-the-ifcx-file-itself) |
 | Parser limits | SRS D.9 proposed a JSON nesting depth of 256; serde_json stops at 128 | Fewer than 128 levels; the IFCX reader is fuzzed with cargo-fuzz | SRS Appendix D.9; [Testing](#testing) |
 | Licences | SRS NFR-LEG-001 expected the distribution model to be chosen here; it is still open (SRS O-5) | Permissive licences only; cargo-deny keeps the inventory | SRS NFR-LEG-001; [Testing](#testing) |
-| Hardware | SRS NFR-PERF-001 expected the test machines to be confirmed here | wgpu supports both hardware classes; the machines are still to be chosen (SRS O-15) | [GPU rendering](#gpu-rendering-wgpu) |
+| Hardware | SRS NFR-PERF-001 expected the test machines to be confirmed here | wgpu supports both hardware classes. Minimum and reference class each have a Mac (fixed model) and a Windows laptop chosen by criteria; Linux is Ubuntu 26.04 LTS on each Windows laptop. SRS O-15 is closed | [Hardware classes](#hardware-classes), [GPU rendering](#gpu-rendering-wgpu) |
 
 ## Planned and deferred
 

@@ -10,12 +10,12 @@ use std::hint::black_box;
 
 use archicraft_geometry::slice::slice_loops;
 use archicraft_geometry::{ModelGeometry, PlanDrawing, ViewRange, plan_drawing};
-use archicraft_model::samples::bench_models;
+use archicraft_model::samples::bench_models_to_run;
 use archicraft_model::{Command, ElementId, History, Position, Project, glam::DVec2};
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 
 fn models() -> Vec<(&'static str, Project)> {
-    bench_models().into_iter().map(|m| (m.id, (m.build)())).collect()
+    bench_models_to_run().into_iter().map(|m| (m.id, (m.build)())).collect()
 }
 
 fn evaluated(id: &str, project: &Project) -> ModelGeometry {

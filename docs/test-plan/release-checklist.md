@@ -56,9 +56,13 @@ SRS R2 is still the right one).
 
 ### 4. Minimum and reference hardware (NFR-PERF-001, NFR-PORT-006)
 
-- [ ] _Placeholder: archicraft-0ca2 replaces this item with a link to the hardware classes it
-      records._ Until then: the release notes name the minimum and the reference hardware of
-      NFR-PERF-001 and the graphics API used on each operating system.
+- [ ] The release notes include README's [System requirements](../../README.md#system-requirements)
+      section as it is on the release commit: the minimum and the reference class of
+      NFR-PERF-001 and the graphics API on each operating system. The classes and the
+      selection criteria of the Windows laptops are in
+      [technology-choices](../technology-choices.md#hardware-classes).
+- [ ] The section still matches the classes there; a change of class is a change of
+      NFR-PERF-001 and needs the SRS owner first.
 
 ### 5. No content or trademarks of the reference product's maker (NFR-LEG-002)
 

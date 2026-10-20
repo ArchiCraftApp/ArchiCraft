@@ -53,6 +53,22 @@ link to Applications to drag it to. The app is signed ad hoc; set
 ad hoc signed app opens only after the user allows it under System Settings →
 Privacy & Security.
 
+## System requirements
+
+ArchiCraft runs on Windows, macOS and Linux and draws with the GPU: Metal on macOS, DirectX 12
+or Vulkan on Windows, Vulkan on Linux. The performance targets refer to two hardware classes
+(SRS NFR-PERF-001; [the classes in detail](docs/technology-choices.md#hardware-classes)):
+
+| Class | macOS | Windows | Linux |
+|---|---|---|---|
+| Minimum | MacBook Air M1, 8 GB RAM | Intel Core i5-1135G7 (Iris Xe graphics), 8 GB RAM, 1920 × 1080 display | Ubuntu 26.04 LTS on the minimum Windows laptop |
+| Reference | MacBook Air M2, 16 GB RAM | Intel Core Ultra 7 155H (Arc graphics), 16 GB RAM | Ubuntu 26.04 LTS on the reference Windows laptop |
+
+ArchiCraft works on the minimum class; the performance targets are met on the reference class
+unless a target names the minimum class. Measurements are in
+[docs/performance](docs/performance/README.md). Every release publishes this section
+(SRS NFR-PORT-006, [release checklist](docs/test-plan/release-checklist.md) item 4).
+
 ## Testing
 
 ```sh

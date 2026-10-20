@@ -113,6 +113,58 @@ jobs:
           # The release check needs them: a run that wrote none fails.
           if-no-files-found: error
 
+  # NFR-PERF-001: the benches on the merge base and on this commit, in one job on one runner,
+  # in smoke mode. A bench more than 20 % slower fails the job unless the pull request has the
+  # label perf-regression-accepted. The comparison table goes to the job summary and the
+  # criterion reports are uploaded: the numbers published per run (docs/performance/README.md).
+  bench:
+    name: Bench regression gate
+    runs-on: ubuntu-24.04
+    # Two release builds that share their dependencies and two smoke runs: about 10 minutes
+    # with a warm Rust cache.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The accept label is read live: a reviewer adds it and re-runs the job, whose event
+      # payload still has the labels of the push.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Tests of the bench gate
+        run: python3 scripts/tests/test_bench_gate.py
+      - name: Benches on the merge base and on this commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Pushes to main compare with the previous main; a new tag or a manual run with the parent.
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            BASE_SHA=HEAD^
+          fi
+          base="$(git merge-base "$BASE_SHA" HEAD)"
+          accepted=()
+          if [ -n "$PR_NUMBER" ]; then
+            labels="$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name')"
+            if grep -qx perf-regression-accepted <<<"$labels"; then
+              accepted=(--accepted)
+            fi
+          fi
+          scripts/bench-ci.sh "$base" "${accepted[@]}"
+      - name: Upload the criterion reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-reports
+          path: target/criterion
+          if-no-files-found: warn
+
   # docs/loop.md: the bead-loop rules every pull request keeps, the headless-crate layering
   # and the self-test of the loop's hooks. A required check for auto-merge.
   loop-policy:
