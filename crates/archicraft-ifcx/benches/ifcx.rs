@@ -10,7 +10,7 @@ use std::hint::black_box;
 use archicraft_geometry::ModelGeometry;
 use archicraft_ifcx::{WriteOptions, validate};
 use archicraft_model::Project;
-use archicraft_model::samples::bench_models;
+use archicraft_model::samples::bench_models_to_run;
 use criterion::{Criterion, criterion_group, criterion_main};
 
 /// Fixed options, so every run writes the same bytes.
@@ -24,7 +24,7 @@ fn options() -> WriteOptions {
 
 /// Each bench model with its evaluated geometry and its compact file.
 fn models() -> Vec<(&'static str, Project, ModelGeometry, Vec<u8>)> {
-    bench_models()
+    bench_models_to_run()
         .into_iter()
         .map(|m| {
             let project = (m.build)();

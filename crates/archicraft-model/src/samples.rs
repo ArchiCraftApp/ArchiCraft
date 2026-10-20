@@ -161,6 +161,25 @@ pub fn bench_models() -> Vec<BenchModel> {
     ]
 }
 
+/// The environment variable that puts a bench run into the CI regression
+/// gate's smoke mode (`scripts/bench-ci.sh`, docs/performance/README.md).
+pub const BENCH_CI_ENV: &str = "ARCHICRAFT_BENCH_CI";
+
+/// The bench models a bench run measures (NFR-PERF-001): only those flagged
+/// [`BenchModel::ci`] when [`BENCH_CI_ENV`] is set, every model otherwise.
+pub fn bench_models_to_run() -> Vec<BenchModel> {
+    bench_models_for(std::env::var_os(BENCH_CI_ENV).is_some())
+}
+
+/// The bench models of a CI run (`ci_only`) or of a full run.
+pub fn bench_models_for(ci_only: bool) -> Vec<BenchModel> {
+    select_bench_models(bench_models(), ci_only)
+}
+
+fn select_bench_models(models: Vec<BenchModel>, ci_only: bool) -> Vec<BenchModel> {
+    models.into_iter().filter(|m| m.ci || !ci_only).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +203,22 @@ mod tests {
         assert!(models.iter().all(|m| m.ci), "{models:?}");
         let counts: Vec<usize> = models.iter().map(|m| (m.build)().elements.len()).collect();
         assert_eq!(counts, [12, 972]);
+    }
+
+    /// NFR-PERF-001: the CI regression gate's smoke mode runs only the
+    /// models flagged `ci`; a full run measures every model.
+    #[test]
+    fn a_ci_run_measures_only_the_models_flagged_ci() {
+        let model = |id, ci| BenchModel {
+            id,
+            ci,
+            build: two_storey_shell,
+        };
+        let models = vec![model("small", true), model("rm_l", false), model("tiled", true)];
+        let ids = |ms: Vec<BenchModel>| ms.iter().map(|m| m.id).collect::<Vec<_>>();
+        assert_eq!(ids(select_bench_models(models.clone(), true)), ["small", "tiled"]);
+        assert_eq!(ids(select_bench_models(models, false)), ["small", "rm_l", "tiled"]);
+        assert_eq!(ids(bench_models_for(true)), ["two_storey_shell", "tiled_shell"]);
     }
 
     /// The tiled shell repeats the two-storey shell on an n x n grid with

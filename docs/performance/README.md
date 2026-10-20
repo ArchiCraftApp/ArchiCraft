@@ -2,7 +2,10 @@
 
 Performance targets are measured, not assumed (SRS NFR-PERF-001). The benches here measure the
 headless quantities behind NFR-PERF-002 (open and save) and NFR-PERF-006 (update after an edit)
-with [criterion](https://crates.io/crates/criterion). They run on every bench model.
+with [criterion](https://crates.io/crates/criterion). They run on every bench model. CI runs them
+on every pull request and fails on a regression of more than 20 %
+([CI regression gate](#ci-regression-gate)); measurements against the targets follow the
+[measurement protocol](#measurement-protocol) and are kept as [results files](#results).
 
 ## Running them locally
 
@@ -23,8 +26,107 @@ that criterion compares against. Plots are off (criterion's `plotters` and `rayo
 disabled), so there is no HTML report.
 
 The benches compile in CI (`cargo build --workspace --all-targets`), so a broken bench fails
-CI. They are not yet run there; the regression gate and the published results follow in a later
-task.
+CI, and the bench job runs them (next section).
+
+## CI regression gate
+
+The job "Bench regression gate" (`.github/workflows/ci.yml`) runs on every pull request and every
+push to `main`. It runs `scripts/bench-ci.sh <merge base>`, which
+
+1. checks out the merge base in a temporary git worktree and builds the benches of both
+   commits into one target directory, copying the merge base's bench executables aside before
+   the pull request's build replaces them (cargo names them the same in both checkouts);
+2. runs every bench of the pull request in smoke mode, interleaved bench by bench: first the
+   merge base's build of that bench (saved as criterion baseline `base`), then the pull
+   request's build with `--baseline-lenient base`, so criterion computes the bench's change
+   against the merge base;
+3. runs `scripts/bench-gate.py`, which reads `target/criterion/**/change/estimates.json` and
+   flags a bench when the lower bound of its mean-change 95 % confidence interval is above
+   +20 %;
+4. measures each flagged bench once more, base then head, and fails the job only on the benches
+   flagged again.
+
+Smoke mode is `--warm-up-time 1 --measurement-time 3 --sample-size 20` with
+`ARCHICRAFT_BENCH_CI=1`, which runs only the bench models flagged `ci`
+(`samples::bench_models_to_run`). Base and head run in one job on one machine because shared
+runners differ by more than 20 % from run to run: the gate never compares with numbers stored
+from other runs. Interleaving keeps the two measurements of a bench seconds apart, so a change
+in the machine's load during the job shifts both alike. Gating on the interval's lower bound
+means a bench fails only when it is more than 20 % slower even at the favourable end of the
+interval, and the second measurement keeps a single disturbed pair from failing the job.
+
+Published per run: the job summary has a table of every bench (base, head, change with its
+interval), and the artefact `criterion-reports` holds `target/criterion` with the raw estimates
+and samples. A bench new on the branch has no baseline; the table lists it as new and the gate
+does not fail on it.
+
+A justified regression (a slower but correct algorithm, a bench that now does more work) is
+accepted by a reviewer: add the label `perf-regression-accepted` to the pull request and re-run
+the job. It then passes and names the accepted benches in its log and summary, which is the
+record of the decision. The job reads the label live, because a re-run keeps the event of the
+original push.
+
+The same gate runs locally against any revision, uncommitted changes included. It empties
+`target/criterion` first:
+
+```bash
+scripts/bench-ci.sh origin/main
+```
+
+`scripts/tests/test_bench_gate.py` tests the gate on canned criterion results; the bench job
+runs it before the benches.
+
+## Measurement protocol
+
+Measurements against the targets of SRS NFR-PERF-002 to NFR-PERF-009 follow this protocol, so
+results from different machines and releases can be compared (the acceptance run is SRS AS-07).
+
+- **Hardware.** Every target is measured on the reference class of NFR-PERF-001 unless the
+  target names the minimum class (NFR-PERF-003's RM-S on minimum hardware). Linux is measured on
+  each class's Windows laptop with the current Ubuntu LTS (26.04). The classes and the machines
+  are in [technology-choices](../technology-choices.md#hardware-classes).
+- **Machine state.** Mains power, the default power plan, no other application running, the
+  display at its native resolution and default scaling. Note anything that differs in the
+  results file.
+- **Build.** A release build of the commit under test with the pinned toolchain
+  (`rust-toolchain.toml`) and `--locked`.
+- **Benches, full mode.** `cargo bench --locked -p archicraft-geometry -p archicraft-ifcx`
+  without options and without `ARCHICRAFT_BENCH_CI`: criterion's defaults (3 s warm-up, 5 s
+  measurement, 100 samples) on every bench model, `ci` or not. Record the mean with its 95 %
+  interval from each bench's `new/estimates.json` (the console line `time: [low mean high]`).
+- **Scripted runs.** A release build with `--features perf`, each script of
+  [Scripted runs](#scripted-runs) on each model the target names, with the default 600 recorded
+  frames, the window visible and uncovered at its default size. Record `p50`, `p95`, `p99` and
+  `max` of each metric from the `perf-<timestamp>.json` it writes.
+- **Models.** The bench models of [Bench models](#bench-models), and the SRS 7.3 reference
+  models RM-S, RM-M and RM-L once they exist (`perf-tuning-rm-m-l`). A target is met only on the
+  model it names.
+- **Repetitions.** Three runs of each bench command and scripted run, the machine idle between
+  them. Report the median of the three runs per number; a run that differs from the median by
+  more than 20 % is noted and repeated.
+
+## Results
+
+Each measurement session is one file `docs/performance/<YYYY-MM-DD>-<machine id>.md`:
+
+| Machine id | Machine |
+|---|---|
+| `min-mac-m1` | the minimum class's Mac |
+| `min-win-i5` | the minimum class's Windows laptop |
+| `ref-mac-m2` | the reference class's Mac |
+| `ref-win-u7` | the reference class's Windows laptop |
+| `<id>-ubuntu` | Ubuntu on that Windows laptop, such as `ref-win-u7-ubuntu` |
+| `dev-<name>` | a developer machine outside the classes: its numbers show the shape and the order of magnitude, never whether a target is met |
+
+A results file starts with a header table: class, CPU, GPU, RAM, display, OS, commit, toolchain
+and the date. Then a table per kind of measurement: the benches (bench id, mean, 95 % interval)
+and the scripted runs (script, model, frames, and p50, p95, p99 and max per metric), each with
+the targets it measures. Deviations from the protocol go into a "Notes" section. Results files
+are never edited after they are committed; a new measurement is a new file.
+
+| Date | Machine | File |
+|---|---|---|
+| 2026-10-20 | `dev-mbp-m3max` | [2026-10-20-dev-mbp-m3max.md](2026-10-20-dev-mbp-m3max.md) |
 
 ## Benches
 
@@ -151,4 +253,5 @@ such a run on a developer machine with a 120 Hz display (frame interval 8.4 ms).
 shape of the file and is not a reference measurement.
 
 Not covered yet: GPU timestamp queries, thresholds on frame times in CI (shared runners are too
-noisy), and results from the reference hardware of NFR-PERF-001.
+noisy), and results from the minimum and reference machines of NFR-PERF-001, which are still to
+be bought.
