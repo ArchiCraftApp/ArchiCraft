@@ -389,12 +389,12 @@ pub enum ParseError {
 /// `″`) in any unit setting, including imperial fractions such as
 /// `3'-4 1/2"`. Returns metres at full precision.
 pub fn parse_length(text: &str, default_unit: LengthUnit, nf: &NumberFormat) -> Result<f64, ParseError> {
-    let normalized = normalize_number_text(text, nf);
+    let invalid = || ParseError::InvalidLength(text.trim().to_owned());
+    let normalized = normalize_number_text(text, nf).ok_or_else(invalid)?;
     let s = normalized.trim();
     if s.is_empty() {
         return Err(ParseError::Empty);
     }
-    let invalid = || ParseError::InvalidLength(text.trim().to_owned());
 
     let (negative, body) = match s.strip_prefix('-') {
         Some(rest) => (true, rest.trim_start()),
@@ -426,12 +426,12 @@ pub fn parse_length(text: &str, default_unit: LengthUnit, nf: &NumberFormat) -> 
 /// Parses a typed angle in the project's angle unit and returns radians.
 /// A trailing `°` is accepted. Degrees-minutes-seconds accept `d°m's"`.
 pub fn parse_angle(text: &str, unit: AngleUnit, nf: &NumberFormat) -> Result<f64, ParseError> {
-    let normalized = normalize_number_text(text, nf);
+    let invalid = || ParseError::InvalidAngle(text.trim().to_owned());
+    let normalized = normalize_number_text(text, nf).ok_or_else(invalid)?;
     let s = normalized.trim();
     if s.is_empty() {
         return Err(ParseError::Empty);
     }
-    let invalid = || ParseError::InvalidAngle(text.trim().to_owned());
     let (negative, body) = match s.strip_prefix('-') {
         Some(rest) => (true, rest.trim()),
         None => (false, s),
@@ -466,19 +466,95 @@ pub fn parse_angle(text: &str, unit: AngleUnit, nf: &NumberFormat) -> Result<f64
     Ok(if negative { -value } else { value })
 }
 
+/// Grouping characters accepted between digits besides the active one:
+/// no-break space, narrow no-break space and the apostrophes of Swiss-style
+/// grouping (NFR-L10N-004).
+const LOCALE_GROUPINGS: [char; 4] = ['\u{A0}', '\u{202F}', '\'', '’'];
+
 /// Replaces typographic marks and the locale decimal separator with their
-/// ASCII forms, and removes digit grouping.
-fn normalize_number_text(text: &str, nf: &NumberFormat) -> String {
-    text.chars()
-        .filter(|&c| Some(c) != nf.grouping || nf.grouping == Some(nf.decimal_separator))
-        .map(|c| match c {
+/// ASCII forms, and removes digit grouping. A grouping character counts only
+/// between digits of the integer part and before a group of exactly three
+/// digits; apostrophes are feet, inch or minute marks once the text uses that
+/// syntax, even when an apostrophe is the active grouping. When the active
+/// grouping is a space, a typed plain space groups digits too. Returns `None` when a point or comma is neither the decimal
+/// separator nor a digit group, so `2.5` under a decimal comma is an error
+/// rather than a different number.
+fn normalize_number_text(text: &str, nf: &NumberFormat) -> Option<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let marks_syntax = chars.iter().any(|c| matches!(c, '"' | '″' | '”' | '°'));
+    let space_grouping = matches!(nf.grouping, Some(' ' | '\u{A0}' | '\u{202F}'));
+    let is_grouping = |c: char| match c {
+        '\'' | '’' => !marks_syntax,
+        '\u{A0}' | '\u{202F}' => true,
+        ' ' => space_grouping,
+        c => nf.grouping == Some(c) && c != nf.decimal_separator,
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut in_fraction = false;
+    for (i, &c) in chars.iter().enumerate() {
+        if !in_fraction && is_grouping(c) && is_group_boundary(&chars, i) {
+            continue;
+        }
+        if c == nf.decimal_separator {
+            in_fraction = true;
+            out.push('.');
+            continue;
+        }
+        if !c.is_ascii_digit() {
+            in_fraction = false;
+        }
+        out.push(match c {
+            '.' | ',' => return None,
+            '\u{A0}' | '\u{202F}' => ' ',
             '′' | '’' => '\'',
             '″' | '”' => '"',
             '−' => '-',
-            c if c == nf.decimal_separator => '.',
             c => c,
-        })
-        .collect()
+        });
+    }
+    Some(out)
+}
+
+/// Whether the character at `i` separates a digit from a group of exactly
+/// three digits that is not the numerator of a fraction (`4 125/128`).
+fn is_group_boundary(chars: &[char], i: usize) -> bool {
+    let digit = |j: usize| chars.get(j).is_some_and(char::is_ascii_digit);
+    i > 0
+        && digit(i - 1)
+        && digit(i + 1)
+        && digit(i + 2)
+        && digit(i + 3)
+        && !digit(i + 4)
+        && chars.get(i + 4) != Some(&'/')
+}
+
+/// The characters a typed length or angle may contain (INP-005,
+/// NFR-L10N-004), for filtering keyboard input before it is parsed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InputAlphabet {
+    chars: Vec<char>,
+}
+
+impl InputAlphabet {
+    pub fn contains(&self, c: char) -> bool {
+        c.is_ascii_digit() || self.chars.contains(&c)
+    }
+}
+
+/// Returns the characters [`parse_length`] and [`parse_angle`] accept under
+/// `nf`: digits, signs, the decimal separator, the grouping characters,
+/// mixed-number spaces and fraction slashes, the length unit suffixes and the
+/// feet, inch, degree, minute and second marks. The unit settings do not
+/// narrow it, because the parsers accept every suffix and mark in any unit.
+pub fn input_alphabet(nf: &NumberFormat) -> InputAlphabet {
+    let mut chars: Vec<char> = vec!['+', '-', '−', ' ', '/', nf.decimal_separator];
+    chars.extend(nf.grouping);
+    chars.extend(LOCALE_GROUPINGS);
+    chars.extend("mcfitn".chars());
+    chars.extend(['\'', '"', '′', '″', '’', '”', '°']);
+    chars.sort_unstable();
+    chars.dedup();
+    InputAlphabet { chars }
 }
 
 fn split_unit_suffix(s: &str) -> (&str, &str) {
@@ -639,5 +715,128 @@ mod tests {
         assert!((dms.to_degrees() - 30.5).abs() < 1e-9);
         let g = parse_angle("100", AngleUnit::Gradians, &nf()).unwrap();
         assert!((g - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
+    }
+
+    /// STR-010, NFR-L10N-004: the grouping character comes from the locale,
+    /// for example the apostrophe of de-CH.
+    #[test]
+    fn formats_with_any_grouping_character() {
+        let swiss = NumberFormat {
+            decimal_separator: '.',
+            grouping: Some('’'),
+        };
+        assert_eq!(swiss.format_decimal(1234567.891, 2), "1’234’567.89");
+        let french = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('\u{202F}'),
+        };
+        assert_eq!(french.format_decimal(-1234.5, 1), "-1\u{202F}234,5");
+    }
+
+    /// NFR-L10N-004: no-break, narrow no-break and apostrophe groupings are
+    /// accepted between digits besides the active grouping character.
+    #[test]
+    fn parses_locale_digit_groupings() {
+        let comma = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('.'),
+        };
+        assert_eq!(parse_length("1\u{A0}234,5", LengthUnit::Meter, &comma), Ok(1234.5));
+        assert_eq!(parse_length("1\u{202F}234,5", LengthUnit::Meter, &comma), Ok(1234.5));
+        let point = NumberFormat {
+            decimal_separator: '.',
+            grouping: Some(','),
+        };
+        assert_eq!(parse_length("1’234’567.5", LengthUnit::Meter, &point), Ok(1234567.5));
+        assert_eq!(parse_length("1'234.5", LengthUnit::Meter, &point), Ok(1234.5));
+        assert_eq!(parse_length("1,234.5", LengthUnit::Meter, &point), Ok(1234.5));
+        assert_eq!(parse_length("2,5\u{A0}m", LengthUnit::Millimeter, &comma), Ok(2.5));
+    }
+
+    /// NFR-L10N-004: a separator that forms no decimal and no group of three
+    /// digits is an error, not silently another number.
+    #[test]
+    fn rejects_misplaced_separators() {
+        let comma = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('.'),
+        };
+        assert!(parse_length("1,2,3", LengthUnit::Meter, &comma).is_err());
+        assert!(parse_length("2.5", LengthUnit::Meter, &comma).is_err());
+        let point = NumberFormat {
+            decimal_separator: '.',
+            grouping: Some(','),
+        };
+        assert!(parse_length("1,2,3", LengthUnit::Meter, &point).is_err());
+        assert!(parse_length("2,5", LengthUnit::Meter, &point).is_err());
+    }
+
+    /// INP-005, NFR-L10N-004: feet-inches syntax keeps its marks with grouping on.
+    #[test]
+    fn feet_inches_parse_with_grouping_on() {
+        let expected = 3.0 * 0.3048 + 4.5 * 0.0254;
+        for grouping in [',', '’', '\'', '\u{A0}'] {
+            let nf = NumberFormat {
+                decimal_separator: '.',
+                grouping: Some(grouping),
+            };
+            for text in ["3'-4 1/2\"", "3’-4 1/2”", "3' 4 1/2\""] {
+                let v = parse_length(text, LengthUnit::FeetInches, &nf).unwrap();
+                assert!((v - expected).abs() < 1e-12, "{text} with {grouping:?}");
+            }
+        }
+        let swiss = NumberFormat {
+            decimal_separator: '.',
+            grouping: Some('’'),
+        };
+        let dms = parse_angle("30°30'", AngleUnit::DegreesMinutesSeconds, &swiss).unwrap();
+        assert!((dms.to_degrees() - 30.5).abs() < 1e-9);
+        for text in ["1’000\"", "1'000\""] {
+            let v = parse_length(text, LengthUnit::FeetInches, &swiss).unwrap();
+            assert!((v - 0.3048).abs() < 1e-12, "{text} is one foot");
+        }
+    }
+
+    /// NFR-L10N-004: under a space grouping (fr-FR) a typed plain space groups
+    /// digits, while mixed numbers keep their space.
+    #[test]
+    fn plain_space_groups_under_space_grouping() {
+        let french = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('\u{202F}'),
+        };
+        assert_eq!(parse_length("1 234,5", LengthUnit::Meter, &french), Ok(1234.5));
+        let v = parse_length("4 125/128\"", LengthUnit::Meter, &french).unwrap();
+        assert!((v - (4.0 + 125.0 / 128.0) * 0.0254).abs() < 1e-12);
+        let comma = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('.'),
+        };
+        assert!(parse_length("1 234,5", LengthUnit::Meter, &comma).is_err());
+    }
+
+    /// INP-005, NFR-L10N-004: typed input accepts exactly the characters the
+    /// parsers understand under the active settings.
+    #[test]
+    fn input_alphabet_follows_number_format() {
+        let comma = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('.'),
+        };
+        let alphabet = input_alphabet(&comma);
+        for c in "0123456789,.-+/ \u{A0}\u{202F}'’\"°mcfitn".chars() {
+            assert!(alphabet.contains(c), "{c:?} should be accepted");
+        }
+        for c in "xyzqbe%;".chars() {
+            assert!(!alphabet.contains(c), "{c:?} should be rejected");
+        }
+        let plain = NumberFormat {
+            decimal_separator: ',',
+            grouping: None,
+        };
+        assert!(!input_alphabet(&plain).contains('.'));
+        let point = NumberFormat::default();
+        assert!(!input_alphabet(&point).contains(','));
+        assert!(input_alphabet(&point).contains('.'));
     }
 }
