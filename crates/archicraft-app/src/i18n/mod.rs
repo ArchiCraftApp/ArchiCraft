@@ -135,15 +135,27 @@ impl Localizer {
     }
 
     /// A localizer for `language` from the given files. Problems in the files
-    /// are logged; whatever could be read is used.
+    /// are logged; whatever could be read is used. For any language other
+    /// than English, the English catalogue follows as the fallback, so a
+    /// message the files lack renders in English (NFR-L10N-001,
+    /// NFR-L10N-002).
     pub fn from_catalogue(language: LanguageIdentifier, files: &[CatalogueFile]) -> Self {
-        let (bundle, problems) = catalogue::bundle(language.clone(), files);
+        let mut bundles = Vec::new();
+        let mut problems = Vec::new();
+        let (bundle, errors) = catalogue::bundle(language.clone(), files);
+        bundles.push(bundle);
+        problems.extend(errors);
+        if language != catalogue::english() {
+            let (fallback, errors) = catalogue::bundle(catalogue::english(), catalogue::ENGLISH);
+            bundles.push(fallback);
+            problems.extend(errors);
+        }
         for problem in &problems {
             tracing::error!("message catalogue: {problem}");
         }
         Self {
             language,
-            bundles: vec![bundle],
+            bundles,
             pseudo: false,
             reported: RefCell::new(BTreeSet::new()),
         }
@@ -176,8 +188,9 @@ impl Localizer {
         self.bundles.iter().any(|b| b.has_message(key))
     }
 
-    /// Renders the message `key`. A missing key renders as the key itself,
-    /// so the gap is visible, and is logged once.
+    /// Renders the message `key` from the first bundle that defines it: the
+    /// language's own, then the English fallback. A key no bundle defines
+    /// renders as the key itself, so the gap is visible, and is logged once.
     pub fn format(&self, key: &str, args: Option<&FluentArgs>) -> String {
         for bundle in &self.bundles {
             let Some(pattern) = bundle.get_message(key).and_then(|m| m.value()) else {
@@ -408,6 +421,29 @@ mod tests {
         let text = with(Rc::clone(&localizer), || tr!("dlg-about-heading"));
         assert!(text.starts_with("ArchiCraft"), "{text}");
         assert_eq!(localizer.reported_keys(), ["dlg-about-heading"]);
+    }
+
+    /// A German catalogue that translates one message only.
+    const GERMAN_FILE: CatalogueFile = CatalogueFile {
+        name: "de/test.ftl",
+        source: "menu-help = Hilfe\n",
+        prefixes: &["menu-"],
+    };
+
+    /// NFR-L10N-001, NFR-L10N-002: a message the catalogue of another
+    /// language lacks renders in English, not as its key.
+    #[test]
+    fn a_key_missing_from_another_language_renders_in_english() {
+        let german: LanguageIdentifier = "de".parse().unwrap();
+        let localizer = Rc::new(Localizer::from_catalogue(german, &[GERMAN_FILE]));
+        with(Rc::clone(&localizer), || {
+            assert_eq!(tr!("menu-help"), "Hilfe");
+            assert_eq!(tr!("dlg-about-title"), "About ArchiCraft");
+            assert_eq!(tr!("dlg-about-heading", version = "1.2.3"), "ArchiCraft 1.2.3");
+        });
+        assert!(localizer.has("dlg-about-title"));
+        assert!(localizer.reported_keys().is_empty());
+        assert_eq!(localizer.language().to_string(), "de");
     }
 
     #[test]
