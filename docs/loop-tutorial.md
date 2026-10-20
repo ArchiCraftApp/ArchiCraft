@@ -122,15 +122,20 @@ files, and the coordinator tells you about it.
 1. Read the pull request on GitHub; its description says what changes and why.
 2. Merge it, or comment on it.
 
-After any `loop` pull request merged, by itself or by you, update the main checkout, because
-Claude Code reads the hook wiring, the skills and the reviewer from there (each session runs
-the hook scripts of its own worktree, so those apply without it):
+Claude Code reads the hook wiring, the skills and the reviewer from the main checkout (each
+session runs the hook scripts of its own worktree), so it has to follow `main` after a `loop`
+pull request merged. You do not need to pull it: the sweep at the start of every bead
+fast-forwards it to `origin/main` while it is on `main`, without git hooks. Your own
+uncommitted changes there stay as they are. Only when the update would overwrite one of them,
+the main checkout is on another branch, or its `main` has commits of its own, does the sweep
+leave it alone and print a line starting with `stale`; the coordinator passes it on and
+carries on. Then sort out that change, branch or commit and pull by hand:
 
 ```bash
 git -C ~/Code/06-archicraft pull --ff-only
 ```
 
-Or tell any Claude session "merged, pull the main checkout".
+Or tell any Claude session "pull the main checkout".
 
 ## 4. Steering
 
@@ -149,7 +154,7 @@ Or tell any Claude session "merged, pull the main checkout".
 |---|---|
 | Claude says "Code changes need a bead" | A guard: code changes happen only inside a bead. Use `/bead`. |
 | A pull request stays open with a red check | The bead's session usually fixes it on its own (Auto-fix). If not, the checks tab on GitHub shows the failure; tell that session, or resume it with `/bead`. |
-| The loop behaves like an older version | The main checkout was not pulled after a `loop` pull request (section 3). |
+| The loop behaves like an older version | The main checkout is behind: the sweep could not fast-forward it and reported a `stale` line (section 3). Fix the cause and pull it by hand. |
 | A session takes minutes to stop | The stop guard runs the gate on unfinished code; that is intended. To stop anyway, Claude runs `scripts/loop/pause.sh "<reason>"`. |
 | `bd` is very slow in a new session | The beads checkout import is on. Turn it off: `bd config set import.auto false`. |
 

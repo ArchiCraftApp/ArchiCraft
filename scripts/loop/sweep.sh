@@ -3,6 +3,9 @@
 # closes loop-split parents whose children are all closed, and reports what still waits: open PRs,
 # PRs closed without merging, beads flagged for a human, and epics ready for their demo.
 # A close that bd refuses (a blocked bead) is reported and the sweep carries on.
+# Last, it fast-forwards the main checkout to origin/main (fetched by the caller), since Claude
+# Code reads the hook wiring, the skills and the reviewer from there; when git cannot, it reports
+# why and the sweep carries on.
 # Read-only towards GitHub; it checks each PR once and never polls.
 # Usage: scripts/loop/sweep.sh
 set -euo pipefail
@@ -46,4 +49,27 @@ humans="$(bd list --label human --json --limit 0 | jq -r '.[] | select(.status !
 
 demo="$(bd epic close-eligible --dry-run 2>/dev/null | grep -E 'archicraft-' || true)"
 [ -n "$demo" ] && { echo "epics with every task closed, ready for the demo:"; sed 's/^/  /' <<<"$demo"; }
+
+# The main checkout is the repository's first worktree. Only a checkout on main moves, and only by
+# a fast-forward, which git refuses when local changes would be overwritten (other local changes,
+# such as an edited .beads/config.yaml, stay as they are) or when local main has commits of its
+# own. Git hooks stay off: the beads post-merge hook can block bd for minutes, and start-bead.sh
+# skips hooks for its own switch the same way.
+main_checkout="$(git worktree list --porcelain | awk 'NR == 1 { sub(/^worktree /, ""); print }')"
+if git rev-parse -q --verify refs/remotes/origin/main >/dev/null && [ -d "$main_checkout" ] &&
+    [ "$(git -C "$main_checkout" rev-parse --is-bare-repository)" = false ]; then
+    main_branch="$(git -C "$main_checkout" branch --show-current)"
+    if [ "$main_branch" != main ]; then
+        echo "stale    main checkout $main_checkout is on ${main_branch:-a detached HEAD}, not main; not updated"
+    elif ! git -C "$main_checkout" merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+        old="$(git -C "$main_checkout" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+        if out="$(git -C "$main_checkout" -c core.hooksPath=/dev/null merge --ff-only --quiet origin/main 2>&1)"; then
+            echo "updated  main checkout $main_checkout: $old..$(git -C "$main_checkout" rev-parse --short HEAD)"
+        else
+            # git's own error line, not the hints it prints before it
+            why="$(grep -m 1 -E '^(error|fatal):' <<<"$out" || grep -m 1 . <<<"$out" || echo 'git merge failed')"
+            echo "stale    main checkout $main_checkout stays at $old: $why"
+        fi
+    fi
+fi
 exit 0

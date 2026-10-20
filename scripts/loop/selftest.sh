@@ -692,6 +692,64 @@ expect "start-bead.sh runs its own copy when it matches origin/main" 1 "$(grep -
 expect "start-bead.sh keeps a directory that a leaked LOOP_START_BASE_COPY names" yes \
     "$([ -d "$work/keep" ] && echo yes || echo no)"
 
+# --- sweep fast-forwards the main checkout ------------------------------------------------------
+# A clone of origin is the main checkout; the sweep runs in one of its worktrees, after the fetch.
+main_co="$work/main-checkout" sweep_wt="$work/sweep-wt"
+git clone -q -b main "$work/origin.git" "$main_co" # the bare origin's HEAD follows init.defaultBranch
+main_co="$(cd "$main_co" && pwd -P)" # as git worktree list prints it
+printf '#!/bin/sh\ntouch "%s"\n' "$work/hook-ran" >"$main_co/.git/hooks/post-merge"
+chmod +x "$main_co/.git/hooks/post-merge"
+git -C "$main_co" worktree add -q -b sweep-wt "$sweep_wt" main
+upstream() { # upstream <content of docs/a.md>: a new commit on origin/main, fetched
+    echo "$1" >"$sweep_wt/docs/a.md"
+    git -C "$sweep_wt" -c user.email=s@example.invalid -c user.name=s commit -qam "$1"
+    git -C "$sweep_wt" push -q origin HEAD:main && git -C "$sweep_wt" fetch -q origin main
+}
+sweep_main() { # the sweep's lines about the main checkout; a crash or stderr output counts as a failure
+    local out code
+    out="$(cd "$sweep_wt" && bash "$src/sweep.sh" 2>"$work/sweep.err")"
+    code=$?
+    if [ "$code" -ne 0 ] || [ -s "$work/sweep.err" ]; then
+        echo sweep >>"$work/crashes" # runs in a subshell; counted at the end
+        printf 'FAIL sweep exited %s:\n%s\n' "$code" "$(cat "$work/sweep.err")" >&2
+    fi
+    grep 'main checkout' <<<"$out"
+}
+upstream "# doc 2"
+echo 'pub fn local() {}' >"$main_co/crates/demo/src/lib.rs"
+out="$(sweep_main)"
+expect "sweep fast-forwards the main checkout on main" "$(git -C "$sweep_wt" rev-parse origin/main)" "$(git -C "$main_co" rev-parse HEAD)"
+expect "sweep reports the fast-forward" 1 "$(grep -c "^updated  main checkout $main_co: [0-9a-f]*\.\.[0-9a-f]*$" <<<"$out")"
+expect "sweep keeps unrelated local changes of the main checkout" 'pub fn local() {}' "$(cat "$main_co/crates/demo/src/lib.rs")"
+expect "sweep fast-forwards without git hooks" no "$([ -e "$work/hook-ran" ] && echo yes || echo no)"
+expect "sweep is silent about an up-to-date main checkout" "" "$(sweep_main)"
+before="$(git -C "$main_co" rev-parse HEAD)"
+upstream "# doc 3"
+echo '# local edit' >"$main_co/docs/a.md"
+out="$(sweep_main)"
+expect "sweep leaves a main checkout whose local changes the merge would overwrite" "$before" "$(git -C "$main_co" rev-parse HEAD)"
+expect "sweep reports why it left the main checkout" 1 \
+    "$(grep -c "^stale    main checkout $main_co stays at [0-9a-f]*: error: Your local changes" <<<"$out")"
+expect "sweep keeps the local change the merge would overwrite" '# local edit' "$(cat "$main_co/docs/a.md")"
+git -C "$main_co" checkout -q -- docs/a.md
+git -C "$main_co" switch -q -c elsewhere
+out="$(sweep_main)"
+expect "sweep leaves a main checkout on another branch" "$before" "$(git -C "$main_co" rev-parse HEAD)"
+expect "sweep reports a main checkout on another branch" \
+    "stale    main checkout $main_co is on elsewhere, not main; not updated" "$out"
+git -C "$main_co" switch -q main
+upstream "# doc 4"
+git -C "$main_co" merge -q --ff-only origin/main
+expect "a plain fast-forward runs the planted hook (control for the test without hooks)" yes \
+    "$([ -e "$work/hook-ran" ] && echo yes || echo no)"
+git -C "$main_co" -c user.email=s@example.invalid -c user.name=s commit -qam "local commit on main"
+before="$(git -C "$main_co" rev-parse HEAD)"
+upstream "# doc 5"
+out="$(sweep_main)"
+expect "sweep leaves a main checkout with commits of its own" "$before" "$(git -C "$main_co" rev-parse HEAD)"
+expect "sweep reports a main checkout it cannot fast-forward" 1 \
+    "$(grep -c "^stale    main checkout $main_co stays at [0-9a-f]*: fatal: " <<<"$out")"
+
 [ -f "$work/crashes" ] && failed=$((failed + $(wc -l <"$work/crashes")))
 echo "loop selftest: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]

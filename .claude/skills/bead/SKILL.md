@@ -40,7 +40,9 @@ This runs the sweep as it is on `origin/main`: a new worktree can be cut from an
 and its own copy of the scripts may be out of date until step 1 moves it to `origin/main`.
 The sweep closes beads whose PR merged and reports PRs still waiting, beads flagged `human`
 and epics whose tasks are all closed. A close that bd refuses (a blocked bead) shows as
-`refused`; mention it in your report, it does not stop the sweep. Then choose the bead:
+`refused`; mention it in your report, it does not stop the sweep. It also fast-forwards the
+main checkout to `origin/main` (`updated`), or says why it could not (`stale`): mention a
+`stale` line in your report too. Then choose the bead:
 
 - the id in `$ARGUMENTS`, if given;
 - otherwise, if this worktree is already on a `bead/*` branch, resume that bead;

@@ -29,7 +29,12 @@ that restricts the picks to its descendants.
    Stop the loop and report to the user when it prints `ATTENTION`, lists beads under
    "needs a human", or lists an epic ready for its demo (see Demo checkpoint). A `refused`
    line (bd would not close a bead, for example a blocked one) does not stop the loop; include
-   it in your report to the user.
+   it in your report to the user. The sweep also fast-forwards the main checkout, so merged
+   loop PRs reach the hook wiring, the skills and the reviewer: an `updated` line says it did,
+   a `stale` line says why it could not (not on `main`, local changes git would overwrite, or
+   local commits on `main`). A `stale` line does not stop the loop either; include it in your
+   report, since the user has to pull the main checkout by hand. Never commit, stash or discard the main checkout's
+   local changes yourself.
 2. **Pick.** `bd ready --json --limit 0 --exclude-type epic --exclude-label human`
    (add `--parent <epic>` when an epic was given) and take the first entry. Loop beads edit
    the same files, so no loop bead starts while another loop bead's PR is open, whether it
