@@ -46,6 +46,9 @@ pub struct Preferences {
     pub snap_step: f64,
     /// Show the reference lines of all walls in plan views (WAL-007).
     pub show_reference_lines: bool,
+    /// Save projects as indented, human-readable IFCX instead of compact JSON
+    /// (IFX-008, default off). Autosaves stay compact either way.
+    pub indented_ifcx: bool,
     /// Recently opened projects, newest first (SW-001).
     pub recent: Vec<PathBuf>,
     /// File name of the newest crash report the user has been told about.
@@ -66,6 +69,7 @@ impl Default for Preferences {
             angle_increment_deg: 45.0,
             snap_step: 0.05,
             show_reference_lines: false,
+            indented_ifcx: false,
             recent: Vec::new(),
             last_crash_report: None,
         }
@@ -198,5 +202,26 @@ mod tests {
         assert_eq!(prefs.autosave_minutes, 1);
         assert_eq!(prefs.undo_steps, 100);
         assert_eq!(prefs.author, "ArchiCraft user");
+    }
+
+    /// IFX-008: compact IFCX is the default, also for preference files
+    /// written before the option existed; the choice survives a restart.
+    #[test]
+    fn indented_ifcx_defaults_to_compact_and_persists() {
+        assert!(!Preferences::default().indented_ifcx);
+        let dir = std::env::temp_dir().join(format!("archicraft-prefs-indented-{}", std::process::id()));
+        let path = dir.join("preferences.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, r#"{"author": "Ada", "digit_grouping": true}"#).unwrap();
+        let old = Preferences::load(&path);
+        assert_eq!(old.author, "Ada", "the file was read, not replaced by the defaults");
+        assert!(!old.indented_ifcx);
+        let prefs = Preferences {
+            indented_ifcx: true,
+            ..Preferences::default()
+        };
+        prefs.save(&path).unwrap();
+        assert!(Preferences::load(&path).indented_ifcx);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

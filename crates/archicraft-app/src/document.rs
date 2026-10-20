@@ -140,15 +140,16 @@ impl Document {
             .unwrap_or_else(|| self.project.info.name.clone())
     }
 
-    /// Serialises the project for saving as the next data version.
-    pub fn to_bytes(&mut self, author: &str) -> (Vec<u8>, Vec<Problem>) {
+    /// Serialises the project for saving as the next data version, as compact
+    /// JSON or, with `indented`, indented and human-readable (IFX-008).
+    pub fn to_bytes(&mut self, author: &str, indented: bool) -> (Vec<u8>, Vec<Problem>) {
         let geometry = self.geometry();
         let options = WriteOptions {
             author: author.to_owned(),
             timestamp: utc_timestamp(SystemTime::now()),
             data_version: self.project.data_version + 1,
         };
-        archicraft_ifcx::save(&self.project, &geometry, &options, false)
+        archicraft_ifcx::save(&self.project, &geometry, &options, indented)
     }
 
     /// Records a successful save to `path`.
@@ -195,6 +196,44 @@ mod tests {
         doc.execute(Command::AddElements(vec![wall])).unwrap();
         assert_eq!(doc.geometry().elements.len(), 1);
         assert_eq!(doc.plan(storey).elements.len(), 1);
+    }
+
+    /// The file bytes after the header object, which holds the save time and
+    /// the data version.
+    fn without_header(bytes: &[u8]) -> &[u8] {
+        let end = bytes.iter().position(|&b| b == b'}').unwrap();
+        &bytes[end..]
+    }
+
+    /// IFX-008: indented output holds the same project as compact output, and
+    /// choosing it once leaves later compact saves unchanged.
+    #[test]
+    fn indented_save_reads_back_and_leaves_compact_saves_unchanged() {
+        let original = archicraft_model::samples::storey_with_walls_and_slab();
+        let (indented, _) = Document::new(original.clone(), 100).to_bytes("Test", true);
+        let text = std::str::from_utf8(&indented).unwrap();
+        assert!(text.starts_with("{\n  \"header\": {\n    \""), "{}", &text[..40]);
+        assert!(text.lines().count() > 20, "indented output spans many lines");
+        for line in text.lines() {
+            let indent = line.len() - line.trim_start_matches(' ').len();
+            assert_eq!(indent % 2, 0, "two-space indentation: {line:?}");
+            assert!(!line.starts_with('\t'));
+        }
+
+        let loaded = archicraft_ifcx::load(&indented).unwrap();
+        assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+        let mut expected = original.clone();
+        expected.revision = 0;
+        expected.data_version = original.data_version + 1;
+        assert_eq!(loaded.project, expected);
+
+        let (compact, _) = Document::new(original, 100).to_bytes("Test", false);
+        assert!(!compact.contains(&b'\n'), "compact output is one line");
+        let (again, _) = Document::new(loaded.project, 100).to_bytes("Test", false);
+        assert!(
+            without_header(&again) == without_header(&compact),
+            "a compact save after an indented one is the same file"
+        );
     }
 
     #[test]

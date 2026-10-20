@@ -264,9 +264,11 @@ impl ArchiCraftApp {
         self.save_to(&path)
     }
 
-    /// Writes the project to `path`.
+    /// Writes the project to `path`, indented if the preferences ask for it
+    /// (IFX-008). Save, Save as and the confirmed overwrite of a newer file
+    /// (IFX-062) all end here.
     pub fn save_to(&mut self, path: &Path) -> bool {
-        let (bytes, warnings) = self.ws.doc.to_bytes(&self.ws.prefs.author);
+        let (bytes, warnings) = self.ws.doc.to_bytes(&self.ws.prefs.author, self.ws.prefs.indented_ifcx);
         match save_atomically(path, &bytes, self.ws.prefs.backups) {
             Ok(()) => {
                 self.ws.doc.saved_to(path.to_owned());

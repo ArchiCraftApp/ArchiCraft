@@ -74,6 +74,8 @@ impl Session {
 }
 
 /// Writes an autosave into a session folder. Runs on the autosave thread.
+/// Autosaves are recovery data and always compact, whatever the user chose
+/// for saved files (IFX-008): smaller and faster to write (NFR-PERF-009).
 pub fn write_autosave(
     dir: &Path,
     project: &Project,
@@ -269,6 +271,27 @@ mod tests {
         running.end();
         assert!(find_abandoned(&root).is_empty());
         assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// IFX-008, NFR-PERF-009: autosaves are recovery data and stay compact
+    /// whatever the user chose for saved files.
+    #[test]
+    fn autosaves_are_compact() {
+        let root = std::env::temp_dir().join(format!("archicraft-autosave-compact-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let project = archicraft_model::samples::storey_with_walls_and_slab();
+        let geometry = ModelGeometry::evaluate(&project);
+        let info = RecoveryInfo {
+            project_name: project.info.name.clone(),
+            original_path: None,
+            saved_at: "2026-10-20T10:00:00Z".into(),
+        };
+        write_autosave(&root, &project, &geometry, &info, "Test").unwrap();
+        let bytes = fs::read(root.join(MODEL_FILE)).unwrap();
+        assert!(bytes.starts_with(b"{\"header\":{\""));
+        assert!(!bytes.contains(&b'\n'), "an autosave is one line of JSON");
         fs::remove_dir_all(&root).unwrap();
     }
 }

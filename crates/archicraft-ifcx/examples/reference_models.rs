@@ -1,6 +1,10 @@
 //! Writes the reference models as IFCX files into a directory, for golden
 //! files and conformance tests (SRS 7.3, NFR-MNT-003).
 //!
+//! Every model is written twice: compact as `<name>.ifcx` and indented,
+//! human-readable as `<name>-indented.ifcx` (IFX-008), so that conformance
+//! checks both layouts the application can save.
+//!
 //! Usage: `cargo run -p archicraft-ifcx --example reference_models -- <dir>`
 
 use std::path::PathBuf;
@@ -26,13 +30,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("two-storey-shell", samples::two_storey_shell()),
     ] {
         let geometry = ModelGeometry::evaluate(&project);
-        let (bytes, warnings) = archicraft_ifcx::save(&project, &geometry, &options, false);
-        for w in warnings {
-            eprintln!("{name}: {w}");
+        for (suffix, indented) in [("", false), ("-indented", true)] {
+            let (bytes, warnings) = archicraft_ifcx::save(&project, &geometry, &options, indented);
+            for w in warnings {
+                eprintln!("{name}{suffix}: {w}");
+            }
+            let path = dir.join(format!("{name}{suffix}.ifcx"));
+            std::fs::write(&path, bytes)?;
+            println!("{}", path.display());
         }
-        let path = dir.join(format!("{name}.ifcx"));
-        std::fs::write(&path, bytes)?;
-        println!("{}", path.display());
     }
     Ok(())
 }
