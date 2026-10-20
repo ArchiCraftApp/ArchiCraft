@@ -4,3 +4,6 @@
 *.ifcx -text
 # insta snapshots are compared byte for byte; keep LF on every checkout.
 *.snap text eol=lf
+# Shell scripts keep LF on every checkout: Git Bash on Windows runs conformance/run.sh and the
+# repository's other scripts, and sh stops at a carriage return (conformance-matrix.yml).
+*.sh text eol=lf

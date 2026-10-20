@@ -83,7 +83,7 @@ Instructions are soft; these are not:
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
 | CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop` (labels read live at run time, since `gh pr create` attaches them after the PR is opened); headless layering; the hooks' self-test |
 | CI workflow `User review` | A PR that changes `.github/workflows/` or `.claude/settings.json` (or `LOOP_USER_REVIEW_PATHS`) gets the failing status `User review`, decided by the base's `scripts/loop/ci-user-review.sh` (`pull_request_target`), never by the PR's own scripts |
-| Branch protection on `main` | Auto-merge waits for the six required CI checks on Linux and the status `User review`; Windows runs on `main`, nightly and by hand, macOS only for releases (below) |
+| Branch protection on `main` | Auto-merge waits for the six required CI checks on Linux and the status `User review`; Windows runs on `main`, nightly and by hand, macOS only for releases and the nightly conformance matrix (below) |
 
 **A bead PR runs CI once.** `ci.yml` runs for the `pull_request` event; its `push` trigger
 covers only `main` and version tags `v*`, so pushing a bead branch does not start a second run
@@ -91,30 +91,33 @@ covers only `main` and version tags `v*`, so pushing a bead branch does not star
 
 **Windows runs on `main` and nightly.** No Windows job runs on a pull request, and none is a
 required check: the Windows test job took 10 to 17 minutes where Linux took 1.5 to 9, and every
-bead waited for it (user decision of 2026-10-20). The workflow `.github/workflows/windows.yml`
-builds and tests on `windows-latest`, with `core.autocrlf=true` as a Windows developer checks
-out (NFR-PORT-004), on every push to `main`, nightly and when started by hand
-(`gh workflow run windows.yml --ref <branch>`). So a Windows-only failure lands on `main` and
-shows up after the merge: `sweep.sh` looks at the newest finished run on `main` that was not
-cancelled and prints `ATTENTION windows: …` with its link when it did not pass. `/bead-loop`
-turns that line into a P0 bead labelled `red-main` and starts it first in its next batch.
-Branch protection names its required checks, so a change to that list in `setup-github.sh`
-takes effect only when the user runs the script again (Setup): for the change that dropped the
-Windows check, before its PR merges, since that PR's own run no longer reports
-`Test (windows-latest)`.
+bead waited for it (user decision of 2026-10-20; the conformance matrix below follows it). The
+workflow `.github/workflows/windows.yml` builds and tests on `windows-latest`, with
+`core.autocrlf=true` as a Windows developer checks out (NFR-PORT-004), on every push to `main`,
+nightly and when started by hand (`gh workflow run windows.yml --ref <branch>`). So a
+Windows-only failure lands on `main` and shows up after the merge: `sweep.sh` looks at the
+newest finished run on `main` that was not cancelled and prints `ATTENTION windows: …` with its
+link when it did not pass. `/bead-loop` turns that line into a P0 bead labelled `red-main` and
+starts it first in its next batch. Branch protection names its required checks, so a change to
+that list in `setup-github.sh` takes effect only when the user runs the script again (Setup):
+for the change that dropped the Windows check, before its PR merges, since that PR's own run no
+longer reports `Test (windows-latest)`.
 
-**macOS runs only for releases.** No macOS job runs on a push or pull request, and none is a
-required check. On 2026-10-19 GitHub's hosted macOS runners blocked every merge: the Apple
-silicon jobs (`macos-latest`) were never picked up and GitHub cancelled them after 15
-minutes, and an Intel job (`macos-15-intel`) took 16 minutes where Linux took one. The
-workflow `.github/workflows/macos.yml` builds and tests on Apple silicon when a version tag
-`v*` is pushed and when started by hand (`gh workflow run macos.yml --ref <branch>`). It runs
-macOS 26 and 15, the two newest major versions GitHub's hosted runners offer at this date
-(NFR-PORT-002 asks for Apple's current and previous one; a newer Apple release is covered
-only once GitHub adds it). So a macOS-only failure shows up at the next release at the
-latest: run the workflow by hand before tagging one, and file a red run as a bead. When
-GitHub adds the next macOS major version, move both labels in `macos.yml` up by one
-([actions/runner-images](https://github.com/actions/runner-images#available-images) lists
+**macOS runs only for releases and the nightly conformance matrix.** No macOS job runs on a
+push or pull request, and none is a required check. On 2026-10-19 GitHub's hosted macOS runners
+blocked every merge: the Apple silicon jobs (`macos-latest`) were never picked up and GitHub
+cancelled them after 15 minutes, and an Intel job (`macos-15-intel`) took 16 minutes where
+Linux took one. The workflow `.github/workflows/macos.yml` builds and tests on Apple silicon
+when a version tag `v*` is pushed and when started by hand (`gh workflow run macos.yml --ref
+<branch>`). It runs macOS 26 and 15, the two newest major versions GitHub's hosted runners
+offer at this date (NFR-PORT-002 asks for Apple's current and previous one; a newer Apple
+release is covered only once GitHub adds it). The one other macOS job is the nightly run of the
+conformance matrix (`.github/workflows/conformance-matrix.yml`, IFX-006 on three platforms); on
+pull requests that matrix runs Linux alone, and none of its jobs is required. So a Windows- or
+macOS-only conformance failure shows up the next night, and any other macOS-only failure at the
+next release at the latest: run the workflow by hand before tagging one, and file a red run as
+a bead. When GitHub adds the next macOS major version, move both labels in `macos.yml` up by
+one ([actions/runner-images](https://github.com/actions/runner-images#available-images) lists
 the current labels).
 
 The hooks are wired in `.claude/settings.json`. Claude Code reads that file, the skills and

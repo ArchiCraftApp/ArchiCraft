@@ -219,8 +219,9 @@ async function checkInViewer(page: Page, ifcx: Ifcx, screenshot?: string): Promi
 const files = (process.env.CONFORMANCE_FILES ?? "").split("\n").filter((f) => f.trim() !== "");
 
 for (const file of files) {
-    // Reference models and golden files share base names, so tests go by repository path.
-    const relative = path.relative(path.join(here, ".."), file);
+    // Reference models and golden files share base names, so tests go by repository path, with
+    // forward slashes on every platform so the lines compare equal (compare-runs.sh).
+    const relative = path.relative(path.join(here, ".."), file).split(path.sep).join("/");
     const name = relative.startsWith("..") ? file : relative;
     test(name, async ({ page }, testInfo) => {
         const screenshot = path.join(testInfo.project.outputDir, `${name.replace(/\.ifcx$/, "").replace(/[\\/:]+/g, "-").replace(/^-/, "")}.png`);

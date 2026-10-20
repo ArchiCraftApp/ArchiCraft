@@ -100,6 +100,20 @@ steps. Its build output (`.ifc5/`, `node_modules/`, `.build/`, and the Playwrigh
 `test-results/` and `playwright-report/`) is ignored by `conformance/.gitignore`, so a local
 run leaves `git status` clean.
 
+**On every platform.** The CI job runs on Linux for every pull request and every push to
+`main`. The conformance matrix (`.github/workflows/conformance-matrix.yml`) runs the same check
+on Linux, Windows (Git Bash) and macOS nightly and by hand, and on Linux alone for every pull
+request that changes `crates/archicraft-model`, `crates/archicraft-geometry`,
+`crates/archicraft-ifcx`, `conformance/` or the workflow itself (no Windows or macOS job runs
+on a pull request, docs/loop.md); a docs-only pull request does not start it, and none of its
+jobs is a required check. Its last job, "Same PASS lines on every OS", runs a negative
+self-test of the comparison and, except on pull requests, fails unless the runs print the same
+`PASS` lines (`conformance/compare-runs.sh`, compared as sorted sets) and none prints `FAIL`.
+Each OS uploads its screenshots as `viewer-screenshots-<OS>`.
+
+**Release checklist.** The checks that run by hand once per release, the hosted IFC5 viewer of
+IFX-006 (b) above all, are in [docs/test-plan/release-checklist.md](test-plan/release-checklist.md).
+
 ## Fixture registry
 
 `crates/archicraft-model/src/fixtures.rs` is the registry of the geometry fixtures of SRS
@@ -183,7 +197,7 @@ request; the CI step is the regression check.
 | Requirement | What is guarded | Regression check (CI job: step) |
 |---|---|---|
 | NFR-PORT-004 | Golden files keep their exact bytes on every platform: `.gitattributes` sets `*.ifcx -text` and `*.snap text eol=lf`; the output has no carriage return and no platform path, and a file opened from a temp folder saves back to the same bytes | Test (windows-latest): "Enable end-of-line conversion (core.autocrlf=true)", then "Test" (`golden_files_are_reproduced`); Test: `nfr_port_004_output_has_no_carriage_return_and_no_platform_path` (ifcx) |
-| NFR-LEG-002 | No trademark of the reference product or its maker outside reviewed nominative lines (`scripts/legal-allowlist.txt`); no tracked image, library-part or template file without origin and licence (`scripts/asset-allowlist.txt`) | Repository guards: "No unreviewed trademarks or third-party assets (NFR-LEG-002)" (`scripts/check-legal.sh`) and "Negative self-test of the guards" |
+| NFR-LEG-002 | No trademark of the reference product or its maker outside reviewed nominative lines (`scripts/legal-allowlist.txt`); no tracked image, library-part or template file without origin and licence (`scripts/asset-allowlist.txt`) | Repository guards: "No unreviewed trademarks or third-party assets (NFR-LEG-002)" (`scripts/check-legal.sh`) and "Negative self-test of the guards"; the inspection per release in [docs/test-plan/release-checklist.md](test-plan/release-checklist.md), item 5 |
 | NFR-SEC-001 | No HTTP client crate in the dependency graph: `deny.toml` [bans] | Licences and sources: `cargo deny check advisories licenses sources bans` |
 | NFR-SEC-004 | As NFR-SEC-001, until ifcx-interop adds the consent-gated import fetch (IFX-081) and lifts the ban | Licences and sources: `cargo deny check advisories licenses sources bans` |
 | NFR-MNT-002 | The model, geometry and IFCX crates have no UI or windowing dependency (normal and build dependencies) | Repository guards: "Layering of the headless crates (NFR-MNT-002, NFR-MNT-004)" (`scripts/check-layering.sh`) and "Negative self-test of the guards"; also the bead gate |
