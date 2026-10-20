@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Start of every loop iteration (docs/loop.md): closes in-progress beads whose PR has merged,
 # closes loop-split parents whose children are all closed, and reports what still waits: open PRs,
-# PRs closed without merging, beads flagged for a human, and epics ready for their demo.
+# PRs closed without merging, beads flagged for a human, epics ready for their demo, and a failed
+# newest Windows run on main (an ATTENTION line).
 # A close that bd refuses (a blocked bead) is reported and the sweep carries on.
 # Last, it fast-forwards the main checkout to origin/main (fetched by the caller), since Claude
 # Code reads the hook wiring, the skills and the reviewer from there; when git cannot, it reports
@@ -49,6 +50,18 @@ humans="$(bd list --label human --json --limit 0 | jq -r '.[] | select(.status !
 
 demo="$(bd epic close-eligible --dry-run 2>/dev/null | grep -E 'archicraft-' || true)"
 [ -n "$demo" ] && { echo "epics with every task closed, ready for the demo:"; sed 's/^/  /' <<<"$demo"; }
+
+# Windows tests run on main, nightly and by hand, not on PRs (.github/workflows/windows.yml), so
+# a Windows-only failure surfaces here: the newest finished run on main that was not cancelled
+# (a newer push cancels the older run). When gh cannot answer, nothing is reported.
+windows="$(gh run list --workflow windows.yml --branch main --limit 20 \
+    --json status,conclusion,url,headSha 2>/dev/null |
+    jq -r '[.[] | select(.status == "completed" and .conclusion != "cancelled" and .conclusion != "skipped")]
+        | first // empty | select(.conclusion != "success") | "\(.conclusion) \(.headSha[0:7]) \(.url)"' 2>/dev/null || true)"
+if [ -n "$windows" ]; then
+    read -r conclusion sha url <<<"$windows"
+    echo "ATTENTION windows: the newest Windows run on main ($sha) ended in $conclusion: $url"
+fi
 
 # The main checkout is the repository's first worktree. Only a checkout on main moves, and only by
 # a fast-forward, which git refuses when local changes would be overwritten (other local changes,

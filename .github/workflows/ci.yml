@@ -1,7 +1,11 @@
 name: CI
 
+# A bead PR runs this workflow once, for its pull_request event: a push runs it only on main and
+# for version tags, not a second time for the PR's branch (docs/loop.md, Enforcement).
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -17,21 +21,13 @@ env:
   RUST_BACKTRACE: "1"
 
 jobs:
-  # Build and test on Linux and Windows (SRS NFR-PORT-001, NFR-PORT-003). macOS
-  # (NFR-PORT-002) runs only for releases and by hand: .github/workflows/macos.yml.
+  # Build and test on Linux (SRS NFR-PORT-003). Windows (NFR-PORT-001) runs on main, nightly
+  # and by hand: .github/workflows/windows.yml. macOS (NFR-PORT-002) runs only for releases and
+  # by hand: .github/workflows/macos.yml.
   test:
-    name: Test (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-latest]
-    runs-on: ${{ matrix.os }}
+    name: Test (ubuntu-24.04)
+    runs-on: ubuntu-24.04
     steps:
-      # NFR-PORT-004: check out as a Windows developer would, with end-of-line conversion on;
-      # .gitattributes keeps the golden files byte-exact all the same.
-      - name: Enable end-of-line conversion (core.autocrlf=true)
-        if: runner.os == 'Windows'
-        run: git config --global core.autocrlf true
       - uses: actions/checkout@v4
       - name: Install the pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
@@ -43,10 +39,8 @@ jobs:
       # NFR-PERF-001: the frame-time and latency instrumentation is off by default; build
       # and test it on one OS so the feature-gated code cannot rot (docs/performance/README.md).
       - name: Build with the perf feature
-        if: runner.os == 'Linux'
         run: cargo build -p archicraft-app --all-targets --features perf --locked
       - name: Test with the perf feature
-        if: runner.os == 'Linux'
         run: cargo test -p archicraft-app --features perf --locked
 
   lint:
