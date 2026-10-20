@@ -12,6 +12,7 @@
 // request for a localhost path the harness does not serve fails the test the same way.
 
 import { expect, test, type Page } from "@playwright/test";
+import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -230,8 +231,9 @@ for (const file of files) {
     });
 }
 
-// The checks above must catch broken files and name the node at fault. Each case breaks one
-// node of a copy of the walls-and-slab golden.
+// The checks above must catch broken files and name the node or URL at fault. Each case breaks
+// one node or import of a copy of the walls-and-slab golden; the last one cuts the copy off so
+// it does not parse, which steps (a) and (b1) must report.
 test.describe("broken copy", () => {
     const base = path.join(golden, "walls-and-slab.ifcx");
 
@@ -289,5 +291,27 @@ test.describe("broken copy", () => {
         const uri = "https://ifcx.dev/@example.org/not-bundled@v1.ifcx";
         ifcx.imports.push({ uri });
         await expectRejected(page, ifcx, `requests left the machine: ${uri}`, testInfo);
+    });
+
+    test("an import from a localhost path the harness does not serve", async ({ page }, testInfo) => {
+        const ifcx = readIfcx(base) as Ifcx & { imports: { uri: string }[] };
+        const uri = `${ORIGIN}/not-served@v1.ifcx`;
+        ifcx.imports.push({ uri });
+        await expectRejected(page, ifcx, `the harness does not serve ${uri}`, testInfo);
+    });
+
+    // Steps (a) and (b1) run in check.ts, before this spec (run.sh builds it into .build/).
+    test("a copy that does not parse, in steps (a) and (b1)", async ({}, testInfo) => {
+        const text = fs.readFileSync(base, "utf8");
+        const file = testInfo.outputPath("does-not-parse.ifcx");
+        fs.writeFileSync(file, text.slice(0, text.length / 2));
+        const run = spawnSync(process.execPath, [path.join(here, ".build", "check.mjs"), schemaDir, file], { cwd: here, encoding: "utf8" });
+        const lines = run.stdout.split("\n");
+        expect(run.status, run.stdout + run.stderr).toBe(1);
+        for (const step of ["(a) ifcx-core", "(b1) compose3"]) {
+            expect(lines.some((l) => l.startsWith(`FAIL ${step} `)), `no FAIL ${step} line in:\n${run.stdout}`).toBe(true);
+        }
+        expect(lines.some((l) => l.startsWith("PASS ")), run.stdout).toBe(false);
+        testInfo.annotations.push({ type: "summary", description: "rejected: FAIL (a) and FAIL (b1), exit status 1" });
     });
 });
