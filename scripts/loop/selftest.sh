@@ -695,7 +695,7 @@ expect "start-bead.sh keeps a directory that a leaked LOOP_START_BASE_COPY names
 # --- sweep fast-forwards the main checkout ------------------------------------------------------
 # A clone of origin is the main checkout; the sweep runs in one of its worktrees, after the fetch.
 main_co="$work/main-checkout" sweep_wt="$work/sweep-wt"
-git clone -q "$work/origin.git" "$main_co"
+git clone -q -b main "$work/origin.git" "$main_co" # the bare origin's HEAD follows init.defaultBranch
 main_co="$(cd "$main_co" && pwd -P)" # as git worktree list prints it
 printf '#!/bin/sh\ntouch "%s"\n' "$work/hook-ran" >"$main_co/.git/hooks/post-merge"
 chmod +x "$main_co/.git/hooks/post-merge"
