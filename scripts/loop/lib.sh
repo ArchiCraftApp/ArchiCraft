@@ -10,6 +10,10 @@ LOOP_SELF_PATHS='^(scripts/loop/|\.claude/settings\.json$|\.claude/skills/bead|\
 # The CI gate and the hook wiring: a PR that changes them never auto-merges, it waits for the
 # user's review (user decision of 2026-10-19). Every other bead PR auto-merges on green CI.
 LOOP_USER_REVIEW_PATHS='^(\.github/workflows/|\.claude/settings\.json$)'
+# Prose a passing review carries over: a change to these files alone after a PASS needs a new
+# gate run, not a new review (loop_review_valid). Everything else, the build and packaging
+# scripts and other agents' hook files included, needs a new review.
+LOOP_REVIEW_CARRY_PATHS='^(docs/|[^/]+\.md$)'
 # Non-test source lines a bead branch may change before it must be split (label large-change lifts it).
 LOOP_DIFF_BUDGET="${LOOP_DIFF_BUDGET:-800}"
 # The Rust sources the diff budget counts (`#[cfg(test)] mod tests` left out, see loop_budget_lines).
@@ -47,7 +51,7 @@ loop_base() {
 # Tree id of the working tree as it would be committed (tracked and untracked, ignored files
 # left out) with .beads/ held at HEAD. Gate and review stamps record it; the commit guard
 # and land.sh compare against it, so any edit after the gate invalidates the gate stamp and
-# any edit to code or the loop's files after the review invalidates the review (loop_review_valid).
+# any edit after the review other than to prose invalidates the review (loop_review_valid).
 loop_tree_hash() {
     local idx tree
     idx="$(mktemp "${TMPDIR:-/tmp}/loop-index.XXXXXX")"
@@ -73,24 +77,34 @@ loop_code_changed() { loop_changed_files | grep -Eq "$LOOP_CODE_PATHS"; }
 # one per line. Prints nothing when the PR may auto-merge.
 loop_user_review_files() { loop_changed_files | grep -E "$LOOP_USER_REVIEW_PATHS" || true; }
 
-# A Rust source on stdin without its inline test module: everything from the first top-level
-# `#[cfg(test)]` (further attributes allowed) followed by `mod tests {`. Clippy's
-# items_after_test_module, denied by the gate, keeps that module last in the file unless other
-# modules follow it. Nested test modules, out-of-line `mod tests;`, test-only modules with other
+# A Rust source on stdin without its inline test module: the first top-level `#[cfg(test)]`
+# (further attributes allowed) followed by `mod tests {`, up to the module's closing `}` in
+# column 0, as rustfmt writes it (or the end of its line when it closes there). Whatever follows
+# the module counts: clippy's items_after_test_module, denied by the gate, stays silent when a
+# module follows it. Nested test modules, out-of-line `mod tests;`, test-only modules with other
 # names and other #[cfg(test)] items such as helpers still count.
 loop_strip_test_module() {
     awk '
-        cut { next }
+        function open_module(line, rest) {
+            rest = line
+            if (gsub(/[{]/, "", rest) != gsub(/[}]/, "", line)) cut = 1
+            done = 1
+        }
+        cut { if ($0 ~ /^[}]/) cut = 0; next }
         held != "" {
             if ($0 ~ /^#\[/) { held = held $0 "\n"; next }
-            if ($0 ~ /^(pub(\([^)]*\))?[[:space:]]+)?mod[[:space:]]+tests[[:space:]]*[{]/) { cut = 1; next }
+            if (!done && $0 ~ /^(pub(\([^)]*\))?[[:space:]]+)?mod[[:space:]]+tests[[:space:]]*[{]/) {
+                held = ""
+                open_module($0)
+                next
+            }
             printf "%s", held
             held = ""
         }
-        /^#\[cfg\(test\)\][[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?mod[[:space:]]+tests[[:space:]]*[{]/ { cut = 1; next }
-        /^#\[cfg\(test\)\][[:space:]]*$/ { held = $0 "\n"; next }
+        !done && /^#\[cfg\(test\)\][[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?mod[[:space:]]+tests[[:space:]]*[{]/ { open_module($0); next }
+        !done && /^#\[cfg\(test\)\][[:space:]]*$/ { held = $0 "\n"; next }
         { print }
-        END { if (!cut) printf "%s", held }
+        END { printf "%s", held }
     '
 }
 
@@ -112,10 +126,11 @@ loop_budget_lines() {
 }
 
 # The requirement IDs that a bead's notes (stdin) cite after "SRS:", up to the end of that
-# sentence, comma-separated. Prints nothing when there are none.
+# sentence, comma-separated: requirement IDs such as WAL-020 or NFR-PERF-005, scenario IDs such as
+# AS-03 and decision IDs such as D-11. Prints nothing when there are none.
 loop_srs_ids() {
-    grep -Eo 'SRS:.*' | head -n 1 | sed -E 's/\.([[:space:]].*)?$//' |
-        grep -Eo '[A-Z][A-Z0-9]{1,4}(-[A-Z][A-Z0-9]{1,4})?-[0-9]{3}' |
+    grep -Eo 'SRS:.*' | head -n 1 | sed -E 's/\.([[:space:]].*)?$//' | tr -c 'A-Za-z0-9-' '\n' |
+        grep -Ex '[A-Z][A-Z0-9]{0,4}(-[A-Z][A-Z0-9]{0,4})?-[0-9]{2,3}' |
         awk 'NR > 1 { printf ", " } { printf "%s", $0 } END { if (NR) print "" }'
 }
 
@@ -154,14 +169,23 @@ loop_changed_since_review() {
         git diff --no-renames --name-only "$reviewed" "$tree" 2>/dev/null # both paths of a move
 }
 
-# The review covers [tree] (default: the current one) when it passed on exactly that tree, or on
-# one that differs from it only outside code and the loop's own files: a minor doc fix after a
-# PASS needs a new gate run, not a new review (/bead step 6).
+# The review stamp belongs to this branch's bead: one that another bead left behind (after a
+# manual git switch; start-bead.sh clears the stamps) covers nothing here.
+loop_review_ours() {
+    local bead
+    bead="$(loop_bead_from_branch)" && [ -f "$(loop_dir)/review.ok" ] &&
+        [ "$(cut -d' ' -f2 "$(loop_dir)/review.ok")" = "$bead" ]
+}
+
+# The review of this branch's bead covers [tree] (default: the current one) when it passed on
+# exactly that tree, or on one that differs from it only in prose (LOOP_REVIEW_CARRY_PATHS): a
+# minor doc fix after a PASS needs a new gate run, not a new review (/bead step 6).
 loop_review_valid() {
     local tree="${1:-$(loop_tree_hash)}" changed
+    loop_review_ours || return 1
     loop_stamp_valid review.ok "$tree" && return 0
     changed="$(loop_changed_since_review "$tree")" || return 1
-    ! grep -Eq "$LOOP_CODE_PATHS|$LOOP_SELF_PATHS" <<<"$changed"
+    ! grep -Evq "$LOOP_REVIEW_CARRY_PATHS" <<<"$changed"
 }
 
 # One bead as a JSON object (bd show prints an array).

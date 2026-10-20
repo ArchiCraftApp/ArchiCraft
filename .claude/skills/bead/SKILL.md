@@ -16,7 +16,7 @@ them:
   `ARCHICRAFT_BLESS=1` on a bead labelled `format-change`).
 - `git commit` of code is refused unless the gate passed on the current tree and a passing
   review covers it. Any edit invalidates the gate stamp; the review stamp survives only edits
-  outside code and the loop's own files (step 6).
+  to `docs/` and top-level Markdown files (step 6).
 - Pushing to `main`, force pushes and merging a PR without `--auto` are refused.
 - Stopping with uncommitted code runs the gate and blocks while it fails (`pause.sh` below
   is the explicit way out).
@@ -143,8 +143,8 @@ ask for a new review.
 
 A `PASS` can come with minor findings. Do not re-review for them:
 
-- Fix a trivial one that touches neither code nor the loop's own files (a typo in `docs/`, a
-  status row): run the gate again, then commit without a new review. The review stamp still
+- Fix a trivial one that touches only `docs/` or a top-level Markdown file (a typo, a status
+  row): run the gate again, then commit without a new review. The review stamp still
   covers the tree, and `land.sh` names the changed files in the PR.
 - File every other minor finding as a follow-up bead
   (`bd create … --deps discovered-from:<id>`) and land the reviewed tree as it is.

@@ -16,10 +16,10 @@ state() { if loop_stamp_valid "$1" "$tree"; then echo "$2"; else echo "$3"; fi; 
 echo "Bead loop: $bead on $branch ($(loop_bead_json "$bead" | jq -r '.status // "unknown"'))"
 echo "  uncommitted code: $(loop_code_dirty && echo yes || echo no)"
 echo "  gate:   $(state gate.ok "passed on this tree" "$(state gate.fail "failed on this tree" "not run on this tree")")"
-if loop_stamp_valid review.ok "$tree"; then
+if loop_review_valid "$tree" && loop_stamp_valid review.ok "$tree"; then
     review="passed on this tree"
 elif loop_review_valid "$tree"; then
-    review="passed before changes outside code: $(loop_changed_since_review "$tree" | paste -sd ' ' -)"
+    review="passed before changes to prose only: $(loop_changed_since_review "$tree" | paste -sd ' ' -)"
 else
     review="not passed on this tree"
 fi
