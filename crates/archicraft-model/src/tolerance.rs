@@ -2,11 +2,11 @@
 //! (NFR-ACC-003, SRS Appendix D.1: model tolerance 0.01 mm).
 //!
 //! [`MODEL_TOLERANCE`] is the only tolerance literal of the model and
-//! geometry crates; every other item of this module is derived from it, so
-//! that the tolerance can later become a project setting (EDT-019) by
-//! threading it through these helpers. A source scan
-//! (`tests/tolerance_scan.rs`) keeps it that way. The snapping code still
-//! has its own epsilons and joins the scan once they are retired.
+//! geometry crates and of the application's snapping and point-input code;
+//! every other item of this module is derived from it, so that the
+//! tolerance can later become a project setting (EDT-019) by threading it
+//! through these helpers. A source scan (`tests/tolerance_scan.rs`) keeps it
+//! that way.
 //!
 //! Comparisons fall into three groups:
 //!

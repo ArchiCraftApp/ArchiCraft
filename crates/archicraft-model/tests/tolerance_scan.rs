@@ -20,9 +20,15 @@ use std::path::{Path, PathBuf};
 
 /// The scanned source trees, relative to `crates/`. The whole geometry
 /// crate is scanned, so that a later module (Boolean operations, SOL-020) is
-/// checked automatically. The snapping module joins once its own epsilons
-/// are retired.
-const SCANNED_ROOTS: [&str; 2] = ["archicraft-model/src", "archicraft-geometry/src"];
+/// checked automatically. Of the application, the point-input service
+/// (snapping, the angle constraint) and the tools (chain and polygon
+/// closing) are scanned.
+const SCANNED_ROOTS: [&str; 4] = [
+    "archicraft-model/src",
+    "archicraft-geometry/src",
+    "archicraft-app/src/input",
+    "archicraft-app/src/tools",
+];
 
 /// The one file that defines tolerances.
 const TOLERANCE_RS: &str = "archicraft-model/src/tolerance.rs";
@@ -370,6 +376,9 @@ fn only_model_tolerance_is_a_tolerance_constant() {
         VALIDATE_RS,
         "archicraft-geometry/src/lib.rs",
         "archicraft-geometry/src/wall.rs",
+        "archicraft-app/src/input/snap.rs",
+        "archicraft-app/src/input/constrain.rs",
+        "archicraft-app/src/tools/mod.rs",
     ];
     for required in required_files {
         assert!(files.iter().any(|f| f.ends_with(required)), "{required} is not scanned");
