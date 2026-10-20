@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Step 7 of the bead loop (docs/loop.md): pushes the committed bead branch, opens or updates
 # its pull request and turns on auto-merge, so GitHub merges it once the required CI checks
-# pass. A PR that changes the CI workflows or the hook wiring (LOOP_USER_REVIEW_PATHS) waits for
-# the user's review instead. Records the PR on the bead, which stays in progress until sweep.sh
-# sees the merge.
+# pass. A PR that changes the CI workflows or the hook wiring (LOOP_USER_REVIEW_PATHS, as the
+# base or the branch defines it) or that pattern itself waits for the user's review instead.
+# Records the PR on the bead, which stays in progress until sweep.sh sees the merge.
 # Usage: scripts/loop/land.sh [--rebased]   (--rebased pushes with --force-with-lease)
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -54,7 +54,7 @@ body="$(mktemp "${TMPDIR:-/tmp}/loop-pr.XXXXXX")"
     fi
     if [ -n "$waits" ]; then
         echo
-        echo "Waits for the user's review (no auto-merge): it changes the CI workflows or the hook wiring, $waits."
+        echo "Waits for the user's review (no auto-merge): it changes the CI workflows, the hook wiring or which files wait, $waits."
     fi
     echo
     echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
@@ -85,7 +85,7 @@ if [ -n "$waits" ]; then
     if [ "$(gh pr view "$url" --json autoMergeRequest -q '.autoMergeRequest != null')" = true ]; then
         gh pr merge "$url" --disable-auto >/dev/null
     fi
-    merge="waits for the user's review, as it changes the CI workflows or the hook wiring: $waits"
+    merge="waits for the user's review, as it changes the CI workflows, the hook wiring or which files wait: $waits"
 else
     gh pr merge "$url" --auto --squash >/dev/null
     merge="auto-merge (squash) on green CI"
