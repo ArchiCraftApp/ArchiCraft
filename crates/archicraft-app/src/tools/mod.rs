@@ -2,7 +2,8 @@
 //!
 //! A tool collects points in plan; snapping, the constraint modifier and
 //! typed distances (`crate::input`) are applied before a point reaches the
-//! tool. When a tool has enough points, it produces a command.
+//! tool. When a tool has enough points, it produces a command. Tools are
+//! point-input consumers (`InputConsumer`, INP-001).
 
 mod slab;
 mod wall;
@@ -10,10 +11,11 @@ mod wall;
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{NumberFormat, UnitSettings, format_angle, format_length, parse_angle, parse_length};
 use archicraft_model::{Command, Element, Project, StoreyId};
+
+use crate::input::{Expect, Field, InputConsumer, KeyHint, Outcome, Preview, Resolved, StepSpec, TypedInput};
+
 pub use slab::SlabMode;
 pub use wall::WallMode;
-
-use crate::input::{Field, TypedInput};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ToolKind {
@@ -66,13 +68,6 @@ impl Default for ToolState {
             typed: TypedInput::default(),
         }
     }
-}
-
-/// What a tool wants after an input.
-#[derive(Debug)]
-pub enum ToolOutcome {
-    Nothing,
-    Execute(Command),
 }
 
 fn rectangle(a: DVec2, c: DVec2) -> Vec<DVec2> {
@@ -133,37 +128,11 @@ impl ToolState {
         }
     }
 
-    /// The prompt for the next input (NFR-USE-003).
+    /// The prompt line for the next input (NFR-USE-003).
     pub fn prompt(&self) -> String {
-        let n = self.points.len();
-        let keys = "Type a distance, Tab for the angle · Shift constrains angles · Esc cancels";
-        match self.kind {
-            ToolKind::Select => {
-                "Click an element to select it, Shift-click to add or remove, drag a rectangle to select several · Tab cycles overlapping elements".into()
-            }
-            ToolKind::Wall => match (self.wall_mode, n) {
-                (WallMode::Rectangle, 0) => "Wall rectangle: click the first corner".into(),
-                (WallMode::Rectangle, _) => format!("Wall rectangle: click the opposite corner · {keys}"),
-                (WallMode::RotatedRectangle, 0) => "Rotated wall rectangle: click the start of the base edge".into(),
-                (WallMode::RotatedRectangle, 1) => format!("Rotated wall rectangle: click the end of the base edge · {keys}"),
-                (WallMode::RotatedRectangle, _) => "Rotated wall rectangle: click to set the width".into(),
-                (_, 0) => "Wall: click the start point of the reference line · R cycles the reference line".into(),
-                (WallMode::Chain, _) => format!(
-                    "Wall chain: click the next point; Enter or double-click ends the chain, Backspace removes the last point · {keys}"
-                ),
-                (_, _) => format!("Wall: click the end point · {keys}"),
-            },
-            ToolKind::Slab => match (self.slab_mode, n) {
-                (SlabMode::Polygon, 0) => "Slab: click the first corner of the outline".into(),
-                (SlabMode::Polygon, _) => format!(
-                    "Slab: click the next corner; click the first corner, press Enter or double-click to close · {keys}"
-                ),
-                (SlabMode::Rectangle, 0) => "Slab rectangle: click the first corner".into(),
-                (SlabMode::Rectangle, _) => format!("Slab rectangle: click the opposite corner · {keys}"),
-                (SlabMode::RotatedRectangle, 0) => "Rotated slab rectangle: click the start of the base edge".into(),
-                (SlabMode::RotatedRectangle, 1) => format!("Rotated slab rectangle: click the end of the base edge · {keys}"),
-                (SlabMode::RotatedRectangle, _) => "Rotated slab rectangle: click to set the width".into(),
-            },
+        match self.step() {
+            Some(step) => step.status_line(),
+            None => "Click an element to select it, Shift-click to add or remove, drag a rectangle to select several · Tab cycles overlapping elements".into(),
         }
     }
 
@@ -211,9 +180,9 @@ impl ToolState {
     }
 
     /// Adds a point. Returns the command to run once an operation completes.
-    pub fn add_point(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> ToolOutcome {
+    fn add_point(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
         if self.kind == ToolKind::Select {
-            return ToolOutcome::Nothing;
+            return Outcome::Continue;
         }
         if self.storey.is_some_and(|s| s != storey) {
             self.reset();
@@ -221,14 +190,14 @@ impl ToolState {
         self.storey = Some(storey);
         self.typed.clear();
         if self.points.last().is_some_and(|p| p.distance(point) < CLOSE_TOLERANCE) {
-            return ToolOutcome::Nothing;
+            return Outcome::Continue;
         }
         match self.kind {
             ToolKind::Wall if self.wall_mode == WallMode::Chain => {
                 let closes = self.points.len() >= 2 && self.points[0].distance(point) < CLOSE_TOLERANCE;
                 let Some(&last) = self.points.last() else {
                     self.points.push(point);
-                    return ToolOutcome::Nothing;
+                    return Outcome::Continue;
                 };
                 let wall = project.new_wall(storey, last, point, 0);
                 if closes {
@@ -236,14 +205,14 @@ impl ToolState {
                 } else {
                     self.points.push(point);
                 }
-                ToolOutcome::Execute(Command::AddElements(vec![wall]))
+                Outcome::Execute(Command::AddElements(vec![wall]))
             }
             ToolKind::Slab if self.slab_mode == SlabMode::Polygon => {
                 if self.points.len() >= 3 && self.points[0].distance(point) < CLOSE_TOLERANCE {
-                    return self.finish(project);
+                    return self.close(project);
                 }
                 self.points.push(point);
-                ToolOutcome::Nothing
+                Outcome::Continue
             }
             _ => {
                 self.points.push(point);
@@ -252,13 +221,13 @@ impl ToolState {
                     self.reset();
                     outcome
                 } else {
-                    ToolOutcome::Nothing
+                    Outcome::Continue
                 }
             }
         }
     }
 
-    fn complete(&self, project: &Project, storey: StoreyId) -> ToolOutcome {
+    fn complete(&self, project: &Project, storey: StoreyId) -> Outcome {
         let p = &self.points;
         let walls_around = |ring: Vec<DVec2>| -> Vec<Element> {
             (0..ring.len())
@@ -275,39 +244,40 @@ impl ToolState {
             (ToolKind::Slab, _, SlabMode::RotatedRectangle) => {
                 vec![project.new_slab(storey, rotated_rectangle(p[0], p[1], p[2]), Vec::new(), 0)]
             }
-            _ => return ToolOutcome::Nothing,
+            _ => return Outcome::Continue,
         };
-        ToolOutcome::Execute(Command::AddElements(elements))
+        Outcome::Execute(Command::AddElements(elements))
     }
 
     /// Ends a chain or closes a polygon (Enter or double-click).
-    pub fn finish(&mut self, project: &Project) -> ToolOutcome {
+    fn close(&mut self, project: &Project) -> Outcome {
         let outcome = match (self.kind, self.storey) {
             (ToolKind::Slab, Some(storey)) if self.slab_mode == SlabMode::Polygon && self.points.len() >= 3 => {
-                ToolOutcome::Execute(Command::AddElements(vec![project.new_slab(
+                Outcome::Execute(Command::AddElements(vec![project.new_slab(
                     storey,
                     counter_clockwise(self.points.clone()),
                     Vec::new(),
                     0,
                 )]))
             }
-            _ => ToolOutcome::Nothing,
+            _ => Outcome::Continue,
         };
         self.reset();
         outcome
     }
 
     /// Removes the last entered point (UND-003).
-    pub fn backspace(&mut self) {
-        self.points.pop();
+    fn pop_point(&mut self) -> bool {
+        let popped = self.points.pop().is_some();
         if self.points.is_empty() {
             self.storey = None;
         }
+        popped
     }
 
     /// Outlines previewing the operation for a cursor position: walls as
     /// their reference lines, rectangles and polygons as closed rings.
-    pub fn preview(&self, cursor: DVec2) -> Vec<(Vec<DVec2>, bool)> {
+    pub fn outlines(&self, cursor: DVec2) -> Vec<(Vec<DVec2>, bool)> {
         let p = &self.points;
         if p.is_empty() {
             return Vec::new();
@@ -335,6 +305,108 @@ impl ToolState {
     }
 }
 
+/// The tools as point-input consumers (INP-001): each step names the
+/// expected input and its keys (NFR-USE-003).
+impl InputConsumer for ToolState {
+    fn step(&self) -> Option<StepSpec> {
+        let n = self.points.len();
+        let (prompt, repeat) = match self.kind {
+            ToolKind::Select => return None,
+            ToolKind::Wall => match (self.wall_mode, n) {
+                (WallMode::Rectangle, 0) => ("Wall rectangle: click the first corner", false),
+                (WallMode::Rectangle, _) => ("Wall rectangle: click the opposite corner or type a distance", false),
+                (WallMode::RotatedRectangle, 0) => ("Rotated wall rectangle: click the start of the base edge", false),
+                (WallMode::RotatedRectangle, 1) => (
+                    "Rotated wall rectangle: click the end of the base edge or type a distance",
+                    false,
+                ),
+                (WallMode::RotatedRectangle, _) => ("Rotated wall rectangle: click to set the width", false),
+                (_, 0) => ("Wall: click the start point of the reference line", false),
+                (WallMode::Chain, _) => ("Wall chain: click the next point or type a distance", true),
+                (_, _) => ("Wall: click the end point or type a distance", false),
+            },
+            ToolKind::Slab => match (self.slab_mode, n) {
+                (SlabMode::Polygon, 0) => ("Slab: click the first corner of the outline", false),
+                (SlabMode::Polygon, _) => ("Slab: click the next corner or type a distance", true),
+                (SlabMode::Rectangle, 0) => ("Slab rectangle: click the first corner", false),
+                (SlabMode::Rectangle, _) => ("Slab rectangle: click the opposite corner or type a distance", false),
+                (SlabMode::RotatedRectangle, 0) => ("Rotated slab rectangle: click the start of the base edge", false),
+                (SlabMode::RotatedRectangle, 1) => (
+                    "Rotated slab rectangle: click the end of the base edge or type a distance",
+                    false,
+                ),
+                (SlabMode::RotatedRectangle, _) => ("Rotated slab rectangle: click to set the width", false),
+            },
+        };
+        let mut hints = Vec::new();
+        let expects = match self.points.last() {
+            None => {
+                if self.kind == ToolKind::Wall {
+                    hints.push(KeyHint::new("R", "cycles the reference line"));
+                }
+                Expect::Point
+            }
+            Some(&from) => {
+                hints.push(KeyHint::new("Tab", "switches between distance and angle"));
+                hints.push(KeyHint::new("Shift", "constrains angles"));
+                match (self.kind, self.wall_mode, self.slab_mode) {
+                    (ToolKind::Wall, WallMode::Chain, _) => {
+                        hints.push(KeyHint::new("Enter", "or double-click ends the chain"));
+                    }
+                    (ToolKind::Slab, _, SlabMode::Polygon) => {
+                        hints.push(KeyHint::new(
+                            "Enter",
+                            "or double-click closes the outline, as does a click on the first corner",
+                        ));
+                    }
+                    _ => {}
+                }
+                hints.push(KeyHint::new("Backspace", "removes the last point"));
+                hints.push(KeyHint::new("Esc", "cancels the step"));
+                Expect::Distance { from }
+            }
+        };
+        Some(StepSpec {
+            hints,
+            repeat,
+            ..StepSpec::new(prompt, expects)
+        })
+    }
+
+    fn reference_point(&self) -> Option<DVec2> {
+        self.points.last().copied()
+    }
+
+    fn preview(&self, resolved: &Resolved) -> Preview {
+        Preview {
+            outlines: self.outlines(resolved.point),
+            ..Preview::default()
+        }
+    }
+
+    fn commit(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
+        self.add_point(project, storey, point)
+    }
+
+    /// A chain ends, keeping its walls; any other operation returns to its
+    /// previous point (INP-003).
+    fn cancel_step(&mut self) -> bool {
+        if self.kind == ToolKind::Wall && self.wall_mode == WallMode::Chain && self.points.len() >= 2 {
+            self.reset();
+            return true;
+        }
+        self.pop_point()
+    }
+
+    fn backspace(&mut self) -> bool {
+        self.pop_point()
+    }
+
+    fn finish(&mut self, project: &Project) -> Outcome {
+        self.close(project)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use archicraft_model::template::default_metric_project;
@@ -343,8 +415,8 @@ mod tests {
     use super::*;
     use crate::input::constrain;
 
-    fn run(project: &mut Project, outcome: ToolOutcome) {
-        if let ToolOutcome::Execute(command) = outcome {
+    fn run(project: &mut Project, outcome: Outcome) {
+        if let Outcome::Execute(command) = outcome {
             History::default().execute(project, command).unwrap();
         }
     }
@@ -356,7 +428,7 @@ mod tests {
         let mut tool = ToolState::default();
         tool.select(ToolKind::Wall);
         for p in [(0.0, 0.0), (5.0, 0.0), (5.0, 4.0), (0.0, 4.0), (0.0, 0.0)] {
-            let outcome = tool.add_point(&project, storey, DVec2::new(p.0, p.1));
+            let outcome = tool.commit(&project, storey, DVec2::new(p.0, p.1));
             run(&mut project, outcome);
         }
         assert_eq!(project.elements.len(), 4);
@@ -373,10 +445,10 @@ mod tests {
         tool.select(ToolKind::Wall);
         tool.wall_mode = WallMode::Rectangle;
         assert!(matches!(
-            tool.add_point(&project, storey, DVec2::new(4.0, 3.0)),
-            ToolOutcome::Nothing
+            tool.commit(&project, storey, DVec2::new(4.0, 3.0)),
+            Outcome::Continue
         ));
-        let outcome = tool.add_point(&project, storey, DVec2::ZERO);
+        let outcome = tool.commit(&project, storey, DVec2::ZERO);
         run(&mut project, outcome);
         assert_eq!(project.elements.len(), 4);
         // Counter-clockwise: exterior faces outside.
@@ -386,9 +458,9 @@ mod tests {
         tool.select(ToolKind::Slab);
         tool.slab_mode = SlabMode::RotatedRectangle;
         for p in [(0.0, 0.0), (3.0, 3.0)] {
-            tool.add_point(&project, storey, DVec2::new(p.0, p.1));
+            tool.commit(&project, storey, DVec2::new(p.0, p.1));
         }
-        let outcome = tool.add_point(&project, storey, DVec2::new(-1.0, 1.0));
+        let outcome = tool.commit(&project, storey, DVec2::new(-1.0, 1.0));
         run(&mut project, outcome);
         let slab = project.elements.values().find_map(|e| e.as_slab()).unwrap();
         let area: f64 = (0..4)
@@ -405,10 +477,10 @@ mod tests {
         let mut tool = ToolState::default();
         tool.select(ToolKind::Slab);
         for p in [(0.0, 0.0), (0.0, 4.0), (6.0, 4.0)] {
-            tool.add_point(&project, storey, DVec2::new(p.0, p.1));
+            tool.commit(&project, storey, DVec2::new(p.0, p.1));
         }
         tool.backspace();
-        tool.add_point(&project, storey, DVec2::new(6.0, 0.0));
+        tool.commit(&project, storey, DVec2::new(6.0, 0.0));
         let outcome = tool.finish(&project);
         run(&mut project, outcome);
         let slab = project.elements.values().next().unwrap();

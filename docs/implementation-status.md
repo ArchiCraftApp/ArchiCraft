@@ -313,7 +313,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 
 | ID | Pri | Status | Effort | Gap / evidence |
 |---|---|---|---|---|
-| INP-001 | M | partial | L | Service exists only in plan views and only for element creation: the 3D view has no point input at all (crates/archicraft-app/src/views/view3d.rs handles navigation and picking only); no transforms, reshaping, guides, measuring o… |
+| INP-001 | M | partial | L | The headless service (crates/archicraft-app/src/input/: PointInput, the InputConsumer step/preview contract, ViewSurface) exists and the tools implement it, but the plan view does not route through it yet (archicraft-xxbo.3). Point input exists only in plan views and only for element creation: the 3D view has no point input at all (crates/archicraft-app/src/views/view3d.rs handles navigation and picking only); no transforms, reshaping, guides, measuring o… |
 | INP-002 | M | partial | M | No X/Y/Z display on demand (only distance and angle); no stretch mode at all, so neither total length nor length change is shown or accepted as typed input during stretching. |
 | INP-003 | M | partial | S | Esc with no typed text calls ToolState::reset() and discards the whole in-progress operation instead of only the current step (plan.rs:701-711; Backspace is the per-step undo); typing is accepted only once the tool has a point (p… |
 | INP-004 | M | partial | M | Only relative polar coordinates. Missing: relative Cartesian (dX, dY, dZ) fields, absolute coordinates from the project origin, from the user origin (INP-014) or from a temporarily marked snap point, and a single key switching po… |
