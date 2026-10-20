@@ -56,10 +56,12 @@ cat >"$work/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 # Stub: every call goes to FAKE_GH_LOG. pr view answers the open PR's url from FAKE_GH_URL
 # (--json url,state), whether auto-merge is on from FAKE_GH_AUTO (--json autoMergeRequest) and
-# the state from FAKE_GH_STATE otherwise; pr create prints a url; pr diff prints the files in
-# FAKE_GH_FILES, or fails when FAKE_GH_FAIL is set; pr view --json labels prints FAKE_GH_LABELS,
-# or fails when FAKE_GH_FAIL is set. pr create and pr edit copy the PR body (--body-file) to
-# FAKE_GH_BODY when it is set.
+# the state from FAKE_GH_STATE otherwise; pr create prints a url; pr diff answers only for the PR
+# in FAKE_GH_PR (as named, HEAD for the branch's PR, "<repo>#<pr>" with -R) and prints a diff of the
+# files in FAKE_GH_FILES ("<old>=><new>" is a move; --name-only lists only the new paths, like gh),
+# or fails when FAKE_GH_FAIL is set; pr view --json labels prints FAKE_GH_LABELS, or fails when
+# FAKE_GH_FAIL is set. pr create and pr edit copy the PR body (--body-file) to FAKE_GH_BODY when
+# it is set.
 [ -n "${FAKE_GH_LOG:-}" ] && echo "$*" >>"$FAKE_GH_LOG"
 if [ -n "${FAKE_GH_BODY:-}" ]; then
     prev=""
@@ -77,7 +79,29 @@ case "$1 $2" in
     "pr create") echo "https://github.com/o/r/pull/9" ;;
     "pr diff")
         [ -z "${FAKE_GH_FAIL:-}" ] || exit 1
-        for f in ${FAKE_GH_FILES:-}; do echo "$f"; done
+        shift 2
+        pr="" repo="" names=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                -R | --repo) repo="$2"; shift ;;
+                --color) shift ;;
+                --name-only) names=1 ;;
+                -*) ;;
+                *) pr="$1" ;;
+            esac
+            shift
+        done
+        [ "${repo:+$repo#}${pr:-HEAD}" = "${FAKE_GH_PR:-}" ] || { echo "no pull requests found" >&2; exit 1; }
+        for f in ${FAKE_GH_FILES:-}; do
+            old="${f%%=>*}" new="${f#*=>}"
+            if [ -n "$names" ]; then echo "$new"; continue; fi
+            echo "diff --git a/$old b/$new"
+            if [ "$old" != "$new" ]; then
+                printf 'similarity index 100%%\nrename from %s\nrename to %s\n' "$old" "$new"
+            else
+                printf -- '--- a/%s\n+++ b/%s\n@@ -1 +1 @@\n-x\n+y\n' "$old" "$new"
+            fi
+        done
         ;;
 esac
 exit 0
@@ -184,21 +208,44 @@ check "push to main" deny "$(hook guard-bash "$(bash_input 'git push origin HEAD
 check "push then rm -rf" allow "$(hook guard-bash "$(bash_input 'git push -u origin bead/x && rm -rf /tmp/x')")"
 check "merge without auto" deny "$(hook guard-bash "$(bash_input 'gh pr merge 12 --squash')")"
 check "merge with admin" deny "$(hook guard-bash "$(bash_input 'gh pr merge 12 --auto --admin')")"
-check "merge with auto" allow "$(hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
+check "merge with auto" allow "$(FAKE_GH_PR=12 hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
 # Auto-merge stays off for a PR that changes the CI workflows or the hook wiring (LOOP_USER_REVIEW_PATHS).
-check "auto-merge for a PR that changes a CI workflow" deny \
-    "$(FAKE_GH_FILES='docs/a.md .github/workflows/ci.yml' hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
+# merge_with <pr> <files> <command>: the guard's answer when gh pr diff knows only PR <pr> (see the stub).
+merge_with() { FAKE_GH_PR="$1" FAKE_GH_FILES="$2" hook guard-bash "$(bash_input "$3")"; }
+ci='docs/a.md .github/workflows/ci.yml'
+check "auto-merge for a PR that changes a CI workflow" deny "$(merge_with 12 "$ci" 'gh pr merge 12 --auto --squash')"
 check "auto-merge for a PR that changes the hook wiring" deny \
-    "$(FAKE_GH_FILES='.claude/settings.json' hook guard-bash "$(bash_input 'gh pr merge "https://github.com/o/r/pull/12" --squash --auto')")"
+    "$(merge_with https://github.com/o/r/pull/12 .claude/settings.json 'gh pr merge "https://github.com/o/r/pull/12" --squash --auto')"
 check "auto-merge for the branch's PR that changes the hook wiring" deny \
-    "$(FAKE_GH_FILES='.claude/settings.json' hook guard-bash "$(bash_input 'git push && gh pr merge --auto --squash')")"
+    "$(merge_with HEAD .claude/settings.json 'git push && gh pr merge --auto --squash')"
 check "auto-merge for a PR that changes other loop files" allow \
-    "$(FAKE_GH_FILES='scripts/loop/land.sh .claude/settings.local.json .github/CODEOWNERS' hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
+    "$(merge_with 12 'scripts/loop/land.sh .claude/settings.local.json .github/CODEOWNERS' 'gh pr merge 12 --auto --squash')"
 check "auto-merge off for a PR that changes a CI workflow" allow \
-    "$(FAKE_GH_FILES='.github/workflows/ci.yml' hook guard-bash "$(bash_input 'gh pr merge 12 --disable-auto')")"
+    "$(merge_with 12 .github/workflows/ci.yml 'gh pr merge 12 --disable-auto')"
 check "auto-merge for a PR named by a variable" deny "$(hook guard-bash "$(bash_input 'gh pr merge "$url" --auto --squash')")"
 check "auto-merge for a PR whose files cannot be listed" deny \
-    "$(FAKE_GH_FAIL=1 hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
+    "$(FAKE_GH_PR=12 FAKE_GH_FAIL=1 hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
+# The PR is the first word after merge that is not a flag or a flag's value, in the repository -R names.
+check "auto-merge for a PR named after the flags" allow "$(merge_with 12 docs/a.md 'gh pr merge --squash --auto 12')"
+check "auto-merge for a PR named after the flags that changes a CI workflow" deny \
+    "$(merge_with 12 "$ci" 'gh pr merge --squash --auto 12')"
+check "auto-merge for a PR named after flags with values" allow \
+    "$(merge_with 12 docs/a.md 'gh pr merge -t "Fix 7" --body=8 -b 9 -F body.md -A a@b.c --match-head-commit abc -sd --auto 12')"
+check "auto-merge for a PR named after clustered short flags with a value" allow \
+    "$(merge_with 12 docs/a.md 'gh pr merge -dt 7 -sb8 --auto 12')"
+check "auto-merge for a PR named after --" allow "$(merge_with 12 docs/a.md 'gh pr merge --auto -- 12')"
+check "auto-merge for a PR in another repository" allow "$(merge_with 'o/r#12' docs/a.md 'gh pr merge -R o/r 12 --auto')"
+check "auto-merge for a PR in another repository that changes a CI workflow" deny \
+    "$(merge_with 'o/r#12' "$ci" 'gh pr merge -R o/r 12 --auto')"
+check "auto-merge for a PR in a repository named by --repo=" allow "$(merge_with 'o/r#12' docs/a.md 'gh pr merge --repo=o/r --auto 12')"
+check "auto-merge for a PR in a repository named in a short cluster" allow "$(merge_with 'o/r#12' docs/a.md 'gh pr merge -sRo/r --auto 12')"
+# gh pr diff --name-only lists only the new path of a move; the guard reads both sides of the diff.
+check "auto-merge for a PR that moves a CI workflow away" deny \
+    "$(merge_with 12 '.github/workflows/ci.yml=>docs/ci.yml' 'gh pr merge 12 --auto --squash')"
+check "auto-merge for a PR that renames the hook wiring" deny \
+    "$(merge_with 12 '.claude/settings.json=>.claude/settings.old.json' 'gh pr merge 12 --auto --squash')"
+check "auto-merge for a PR that moves a file within docs" allow \
+    "$(merge_with 12 'docs/a.md=>docs/b.md' 'gh pr merge 12 --auto --squash')"
 # The push, merge and commit rules also look at the commands a line runs: a bead note, a commit
 # message or a grep pattern may name them (hooks/shell-commands.awk).
 main_bash() { hook guard-bash "$(bash_input "$1")"; }
@@ -215,6 +262,8 @@ check "force push after a bd note that quotes git -C" deny \
     "$(main_bash "bd update x --append-notes 'ran git -C /nowhere status' && git push -f origin bead/x")"
 check "bd note that quotes a merge without auto" allow \
     "$(main_bash 'bd update x --append-notes "gh pr merge 12 --squash --admin was refused"')"
+check "bd note that quotes a merge with auto" allow \
+    "$(main_bash 'bd update x --append-notes "ran gh pr merge https://github.com/o/r/pull/12 --auto --squash"')"
 check "commit message that quotes a force push and a merge" allow \
     "$(main_bash 'git commit -qm "Refuse git push --force and gh pr merge 12 --squash"')"
 check "commit message in a heredoc that quotes a force push" allow \
@@ -580,6 +629,8 @@ git switch -q -c bead/archicraft-lp04-move main
 git mv .github/workflows/ci.yml docs/ci.yml && git commit -qm "archicraft-lp04: move"
 out="$(land loop)"
 expect "land.sh leaves auto-merge off for a loop bead that moves a CI workflow away" "" "$(merge_calls)"
+expect "land.sh names the CI workflow a move takes away" 1 \
+    "$(grep -c "waits for the user's review.*\`\.github/workflows/ci\.yml\`" <<<"$out")"
 commit_on bead/archicraft-fe02-docfix crates/demo/src/lib.rs
 stamp review.ok
 echo 'typo fix' >>docs/a.md && git commit -qam "archicraft-fe02: typo"

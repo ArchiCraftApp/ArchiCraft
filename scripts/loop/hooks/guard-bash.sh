@@ -98,15 +98,42 @@ done < <(grep -E -- "^git($t|\$)" <<<"$cmds")
 
 hook_enter_repo "$HOOK_CWD" || exit 0
 
-# gh pr merge, judged by its own words.
+# gh pr merge, judged by its own words. Its PR is the first word after merge that is not a flag
+# or a flag's value (gh's flags that take one: -R/--repo, -b/--body, -F/--body-file, -t/--subject,
+# -A/--author-email, --match-head-commit; a short cluster like -sR takes it from its rest or the
+# next word); -R names the repository it is in.
 while IFS= read -r rec; do
     IFS="$t" read -r -a w <<<"$rec"
-    auto=""
+    auto="" pr="" repo="" want="" flags=on
     for a in "${w[@]:3}"; do
+        if [ -n "$want" ]; then
+            [ "$want" = value ] || repo="$a"
+            want=""
+            continue
+        fi
+        if [ -z "$flags" ] || [[ "$a" != -?* ]]; then
+            [ -n "$pr" ] || pr="$a"
+            continue
+        fi
         case "$a" in
+        --) flags="" ;;
         --admin) hook_deny "PRs never merge with --admin; they merge when the required CI checks pass." ;;
         --auto | --auto=*) auto=on ;;
         --disable-auto) [ -n "$auto" ] || auto=off ;;
+        --repo) want=repo ;;
+        --repo=*) repo="${a#--repo=}" ;;
+        --body | --body-file | --subject | --author-email | --match-head-commit) want=value ;;
+        --*) ;;
+        *)
+            c="${a#-}"
+            while [ -n "$c" ]; do
+                f="${c:0:1}" c="${c:1}"
+                case "$f" in
+                R) if [ -n "$c" ]; then repo="$c"; else want=repo; fi; break ;;
+                b | F | t | A) [ -n "$c" ] || want=value; break ;;
+                esac
+            done
+            ;;
         esac
     done
     [ -n "$auto" ] ||
@@ -114,12 +141,13 @@ while IFS= read -r rec; do
     # Auto-merge stays off for a PR that changes the CI gate or the hook wiring, whoever turns it
     # on (LOOP_USER_REVIEW_PATHS; an older lib.sh without it keeps the older rules).
     [ "$auto" = on ] && [ -n "${LOOP_USER_REVIEW_PATHS:-}" ] || continue
-    pr="${w[3]:-}"
-    case "$pr" in -*) pr="" ;; esac # no PR named: the current branch's
-    case "$pr" in *[\$\`\"\'\(]*) hook_deny "Name the PR literally (number, URL or branch) when turning on auto-merge, so the guard can check its files; or run scripts/loop/land.sh." ;; esac
-    files="$(gh pr diff ${pr:+"$pr"} --name-only 2>/dev/null)" ||
-        hook_deny "Could not list the files of PR '${pr:-of this branch}' (gh pr diff), so auto-merge stays off. scripts/loop/land.sh decides it from the branch."
-    waits="$(grep -E "$LOOP_USER_REVIEW_PATHS" <<<"$files" | paste -sd ' ' - || true)"
+    case "$pr$repo" in *[\$\`\"\'\(]*) hook_deny "Name the PR and its repository literally (number, URL or branch) when turning on auto-merge, so the guard can check its files; or run scripts/loop/land.sh." ;; esac
+    # Both sides of every diff --git line: gh pr diff --name-only lists only the new path of a move,
+    # so a PR that moves a workflow out of .github/workflows/ would pass (land.sh lists both too).
+    diff="$(gh pr diff ${repo:+-R "$repo"} ${pr:+"$pr"} --color never 2>/dev/null)" ||
+        hook_deny "Could not list the files of PR '${pr:-of this branch}${repo:+ in $repo}' (gh pr diff), so auto-merge stays off. scripts/loop/land.sh decides it from the branch."
+    files="$(awk 'sub(/^diff --git /, "") { gsub(/"/, ""); i = index($0, " b/"); print substr($0, 3, i - 3); print substr($0, i + 3) }' <<<"$diff")"
+    waits="$(grep -E "$LOOP_USER_REVIEW_PATHS" <<<"$files" | sort -u | paste -sd ' ' - || true)"
     [ -z "$waits" ] ||
         hook_deny "This PR changes the CI workflows or the hook wiring ($waits), so it waits for the user's review and auto-merge stays off (user decision of 2026-10-19, docs/loop.md)."
 done < <(grep -E -- "^gh${t}pr${t}merge($t|\$)" <<<"$cmds")
