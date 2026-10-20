@@ -1,12 +1,14 @@
 {
   "name": "archicraft-conformance",
   "private": true,
-  "description": "Loads ArchiCraft's IFCX output with buildingSMART's reference implementation (SRS IFX-006). Test-only; not shipped.",
+  "description": "Loads ArchiCraft's IFCX output with buildingSMART's reference implementation and viewer (SRS IFX-006). Test-only; not shipped.",
   "type": "module",
   "scripts": {
-    "build": "esbuild check.ts --bundle --platform=node --format=esm --outfile=.build/check.mjs"
+    "build": "esbuild check.ts --bundle --platform=node --format=esm --outfile=.build/check.mjs && esbuild viewer/harness.ts --bundle --format=esm --outfile=.build/harness.mjs"
   },
   "devDependencies": {
-    "esbuild": "0.24.2"
+    "@playwright/test": "1.63.0",
+    "esbuild": "0.24.2",
+    "three": "0.177.0"
   }
 }

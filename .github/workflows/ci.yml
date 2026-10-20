@@ -55,10 +55,12 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   # IFX-006 / NFR-MNT-003: load every reference model with buildingSMART's
-  # reference implementation and viewer composition at the pinned commit.
+  # reference implementation, its viewer composition and the viewer itself in headless
+  # Chromium, at the pinned commit (conformance/README.md).
   conformance:
     name: IFCX conformance (buildingSMART reference code)
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Install the pinned Rust toolchain (rust-toolchain.toml)
@@ -69,10 +71,34 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: conformance/package-lock.json
+      - name: Install the conformance tools
+        working-directory: conformance
+        run: npm ci --no-audit --no-fund
+      # Playwright's Chromium, keyed by the pinned Playwright version in the lock file.
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('conformance/package-lock.json') }}
+      - name: Install Chromium and its system libraries
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: conformance
+        run: npx playwright install --with-deps chromium
+      - name: Install Chromium's system libraries
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        working-directory: conformance
+        run: npx playwright install-deps chromium
       - name: Write the reference models
         run: cargo run --locked -p archicraft-ifcx --example reference_models -- target/reference-models
-      - name: Load them with the reference implementation and viewer composition
+      - name: Load them with the reference implementation, viewer composition and viewer
         run: conformance/run.sh target/reference-models/*.ifcx crates/archicraft-ifcx/tests/golden/*.ifcx
+      - name: Upload the viewer screenshots for the release check
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: viewer-screenshots
+          path: conformance/test-results/*.png
+          if-no-files-found: warn
 
   # docs/loop.md: the bead-loop rules every pull request keeps, the headless-crate layering
   # and the self-test of the loop's hooks. A required check for auto-merge.
