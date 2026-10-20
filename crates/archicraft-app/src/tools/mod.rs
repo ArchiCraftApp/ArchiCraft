@@ -1,19 +1,18 @@
 //! Element tools (WAL-001, SLB-001, INP-002…INP-009).
 //!
 //! A tool collects points in plan; snapping, the constraint modifier and
-//! typed distances (`crate::input`) are applied before a point reaches the
-//! tool. When a tool has enough points, it produces a command. Tools are
-//! point-input consumers (`InputConsumer`, INP-001).
+//! typed distances (`crate::input::PointInput`) are applied before a point
+//! reaches the tool. When a tool has enough points, it produces a command.
+//! Tools are point-input consumers (`InputConsumer`, INP-001).
 
 mod slab;
 mod wall;
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::tolerance::coincident;
-use archicraft_model::units::{NumberFormat, UnitSettings, format_angle, format_length, parse_angle, parse_length};
 use archicraft_model::{Command, Element, Project, StoreyId};
 
-use crate::input::{Expect, Field, InputConsumer, KeyHint, Outcome, Preview, Resolved, StepSpec, TypedInput};
+use crate::input::{Expect, InputConsumer, KeyHint, Outcome, Preview, Resolved, StepSpec};
 
 pub use slab::SlabMode;
 pub use wall::WallMode;
@@ -55,7 +54,6 @@ pub struct ToolState {
     pub points: Vec<DVec2>,
     /// The storey the input started on.
     pub storey: Option<StoreyId>,
-    pub typed: TypedInput,
 }
 
 impl Default for ToolState {
@@ -66,7 +64,6 @@ impl Default for ToolState {
             slab_mode: SlabMode::Polygon,
             points: Vec::new(),
             storey: None,
-            typed: TypedInput::default(),
         }
     }
 }
@@ -103,7 +100,6 @@ impl ToolState {
     pub fn reset(&mut self) {
         self.points.clear();
         self.storey = None;
-        self.typed.clear();
     }
 
     pub fn is_drawing(&self) -> bool {
@@ -127,57 +123,6 @@ impl ToolState {
         }
     }
 
-    /// The prompt line for the next input (NFR-USE-003).
-    pub fn prompt(&self) -> String {
-        match self.step() {
-            Some(step) => step.status_line(),
-            None => "Click an element to select it, Shift-click to add or remove, drag a rectangle to select several · Tab cycles overlapping elements".into(),
-        }
-    }
-
-    /// Applies typed values to the cursor position (INP-003, INP-004):
-    /// a typed distance and/or angle from the previous point.
-    pub fn apply_typed(&self, cursor: DVec2, units: &UnitSettings, nf: &NumberFormat) -> Option<DVec2> {
-        let previous = *self.points.last()?;
-        if self.typed.is_empty() {
-            return None;
-        }
-        let offset = cursor - previous;
-        let angle = if self.typed.angle.is_empty() {
-            offset.y.atan2(offset.x)
-        } else {
-            parse_angle(&self.typed.angle, units.angle, nf).ok()?
-        };
-        let distance = if self.typed.distance.is_empty() {
-            offset.length()
-        } else {
-            parse_length(&self.typed.distance, units.length, nf).ok()?
-        };
-        Some(previous + DVec2::new(angle.cos(), angle.sin()) * distance)
-    }
-
-    /// The tracker text next to the cursor (INP-002).
-    pub fn tracker(&self, point: DVec2, units: &UnitSettings, nf: &NumberFormat) -> Option<String> {
-        let previous = *self.points.last()?;
-        let d = point - previous;
-        let mark = |field: Field| if self.typed.field == field { "▸" } else { " " };
-        let distance = if self.typed.distance.is_empty() {
-            format_length(d.length(), units, nf, true)
-        } else {
-            format!("{}_", self.typed.distance)
-        };
-        let angle = if self.typed.angle.is_empty() {
-            format_angle(d.y.atan2(d.x), units, nf, true)
-        } else {
-            format!("{}_", self.typed.angle)
-        };
-        Some(format!(
-            "{}d {distance}\n{}a {angle}",
-            mark(Field::Distance),
-            mark(Field::Angle)
-        ))
-    }
-
     /// Adds a point. Returns the command to run once an operation completes.
     ///
     /// Points within the model tolerance are one point (NFR-ACC-003): a
@@ -192,7 +137,6 @@ impl ToolState {
             self.reset();
         }
         self.storey = Some(storey);
-        self.typed.clear();
         if self.points.last().is_some_and(|&p| coincident(p, point)) {
             return Outcome::Continue;
         }
@@ -367,7 +311,7 @@ impl InputConsumer for ToolState {
                     _ => {}
                 }
                 hints.push(KeyHint::new("Backspace", "removes the last point"));
-                hints.push(KeyHint::new("Esc", "cancels the input"));
+                hints.push(KeyHint::new("Esc", "cancels the step"));
                 Expect::Distance { from }
             }
         };
@@ -418,7 +362,6 @@ mod tests {
     use archicraft_model::{ElementKind, History};
 
     use super::*;
-    use crate::input::constrain;
 
     fn run(project: &mut Project, outcome: Outcome) {
         if let Outcome::Execute(command) = outcome {
@@ -551,25 +494,5 @@ mod tests {
         let slab = project.elements.values().next().unwrap();
         let ElementKind::Slab(s) = &slab.kind else { panic!() };
         assert_eq!(s.outline.len(), 3);
-    }
-
-    #[test]
-    fn typed_distance_and_constraint() {
-        let mut tool = ToolState::default();
-        tool.select(ToolKind::Wall);
-        tool.points.push(DVec2::ZERO);
-        tool.typed.distance = "2500mm".into();
-        let units = UnitSettings::default();
-        let p = tool
-            .apply_typed(DVec2::new(1.0, 0.0), &units, &NumberFormat::default())
-            .unwrap();
-        assert!(p.distance(DVec2::new(2.5, 0.0)) < 1e-12);
-        tool.typed.angle = "90".into();
-        let p = tool
-            .apply_typed(DVec2::new(1.0, 0.0), &units, &NumberFormat::default())
-            .unwrap();
-        assert!(p.distance(DVec2::new(0.0, 2.5)) < 1e-12);
-        let c = constrain(DVec2::ZERO, DVec2::new(3.0, 0.4), 45.0);
-        assert!(c.distance(DVec2::new(3.0, 0.0)) < 1e-12);
     }
 }

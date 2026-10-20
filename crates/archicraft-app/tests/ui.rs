@@ -8,12 +8,13 @@ mod common;
 use std::rc::Rc;
 
 use archicraft_app::i18n::{self, Localizer};
-use archicraft_app::tools::ToolKind;
+use archicraft_app::input::InputConsumer;
+use archicraft_app::tools::{ToolKind, WallMode};
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::Command;
 use archicraft_model::glam::DVec2;
 use common::{assert_present, harness};
-use egui::{Event, Modifiers, PointerButton};
+use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 
@@ -86,8 +87,103 @@ fn status_line_shows_the_step_prompt_and_its_keys() {
         &harness,
         "Wall chain: click the next point or type a distance · Tab switches between distance and angle \
          · Shift constrains angles · Enter or double-click ends the chain · Backspace removes the last point \
-         · Esc cancels the input",
+         · Esc cancels the step",
     );
+    let ws = harness.state_mut().workspace();
+    assert_eq!(
+        ws.tool.step().unwrap().status_line(),
+        "Wall chain: click the next point or type a distance · Tab switches between distance and angle \
+         · Shift constrains angles · Enter or double-click ends the chain · Backspace removes the last point \
+         · Esc cancels the step",
+        "the status line is the step's StepSpec"
+    );
+}
+
+/// Clicks the primary button at `pos` in the plan view.
+fn click_at(harness: &mut Harness<'static, ArchiCraftApp>, pos: egui::Pos2) {
+    harness.hover_at(pos);
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    harness.run_steps(2);
+}
+
+/// INP-003: in the plan view Esc cancels one step per press: the typed text,
+/// then the last point, then the selection, then the drawing tool.
+/// Backspace removes one typed character, then one point.
+#[test]
+fn escape_cancels_one_step_per_press() {
+    let mut harness = harness("esc-ladder");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let pos = {
+        let ws = harness.state_mut().workspace();
+        ws.tool.wall_mode = WallMode::RotatedRectangle;
+        let storey = ws.doc.project.storeys.ground();
+        let far = DVec2::new(500.0, 500.0);
+        let wall = ws.doc.project.new_wall(storey, far, far + DVec2::X, 0);
+        let id = wall.id;
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+        ws.selection.insert(id);
+        ws.plan_views[&ws.active_storey].last_rect.center()
+    };
+    click_at(&mut harness, pos);
+    click_at(&mut harness, pos + egui::vec2(120.0, 0.0));
+    let state = |h: &mut Harness<'static, ArchiCraftApp>| {
+        let ws = h.state_mut().workspace();
+        (ws.tool.points.len(), ws.input.typed.distance.clone(), ws.tool.kind)
+    };
+    assert_eq!(state(&mut harness), (2, String::new(), ToolKind::Wall));
+
+    harness.event(Event::Text("12".into()));
+    harness.run_steps(2);
+    assert_eq!(state(&mut harness), (2, "12".into(), ToolKind::Wall));
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    assert_eq!(
+        state(&mut harness),
+        (2, String::new(), ToolKind::Wall),
+        "Esc clears only the typed text"
+    );
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    assert_eq!(
+        state(&mut harness),
+        (1, String::new(), ToolKind::Wall),
+        "Esc returns to the second step"
+    );
+    assert_present(
+        &harness,
+        "Rotated wall rectangle: click the end of the base edge or type a distance · Tab switches between \
+         distance and angle · Shift constrains angles · Backspace removes the last point · Esc cancels the step",
+    );
+
+    harness.event(Event::Text("12".into()));
+    harness.run_steps(2);
+    harness.key_press(Key::Backspace);
+    harness.run_steps(2);
+    assert_eq!(state(&mut harness), (1, "1".into(), ToolKind::Wall));
+    harness.key_press(Key::Backspace);
+    harness.run_steps(2);
+    assert_eq!(state(&mut harness), (1, String::new(), ToolKind::Wall));
+    harness.key_press(Key::Backspace);
+    harness.run_steps(2);
+    assert_eq!(state(&mut harness), (0, String::new(), ToolKind::Wall));
+    assert_eq!(harness.state_mut().workspace().selection.len(), 1);
+
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    assert!(harness.state_mut().workspace().selection.is_empty());
+    assert_eq!(state(&mut harness), (0, String::new(), ToolKind::Wall));
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    assert_eq!(state(&mut harness), (0, String::new(), ToolKind::Select));
 }
 
 #[test]

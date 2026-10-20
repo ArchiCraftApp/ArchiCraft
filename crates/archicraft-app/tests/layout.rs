@@ -33,3 +33,28 @@ fn input_module_does_not_mention_egui() {
         "files under src/input/ mention egui: {offenders:?}"
     );
 }
+
+/// Whether `src` calls the free function `name`: `name(` not preceded by a
+/// character of an identifier, a `.` or a `::`.
+fn calls(src: &str, name: &str) -> bool {
+    let call = format!("{name}(");
+    src.match_indices(&call).any(|(i, _)| {
+        !src[..i]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == ':')
+    })
+}
+
+/// INP-001: the plan view hands every point to the point-input service
+/// instead of running typed values, the constraint and snapping itself.
+#[test]
+fn plan_view_resolves_points_through_point_input() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/views/plan.rs");
+    let src = std::fs::read_to_string(&path).unwrap();
+    for name in ["snap", "constrain"] {
+        assert!(!calls(&src, name), "views/plan.rs calls {name}()");
+    }
+    assert!(!src.contains("apply_typed("), "views/plan.rs calls apply_typed()");
+    assert!(calls("let s = snap(&t);", "snap") && !calls("draw_snap(x)", "snap"));
+}

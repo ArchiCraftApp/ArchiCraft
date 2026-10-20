@@ -462,9 +462,9 @@ impl ArchiCraftApp {
             Action::Redo => self.ws.redo(),
             Action::Delete => self.ws.delete_selection(),
             Action::SelectAll => self.ws.select_all(),
-            Action::ToolSelect => self.ws.tool.select(ToolKind::Select),
-            Action::ToolWall => self.ws.tool.select(ToolKind::Wall),
-            Action::ToolSlab => self.ws.tool.select(ToolKind::Slab),
+            Action::ToolSelect => self.ws.select_tool(ToolKind::Select),
+            Action::ToolWall => self.ws.select_tool(ToolKind::Wall),
+            Action::ToolSlab => self.ws.select_tool(ToolKind::Slab),
             Action::Settings => self.dialogs.settings = true,
             Action::FitWindow => self.zoom_active(None),
             Action::ZoomSelection => {
@@ -535,7 +535,7 @@ impl ArchiCraftApp {
     /// text field has focus or a value is being typed during point input.
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.text_edit_focused();
-        let drawing = self.ws.tool.is_drawing();
+        let drawing = self.ws.input.captures_keys(&self.ws.tool);
         let mut triggered = Vec::new();
         // egui ignores an extra Shift when matching a shortcut, so the ones
         // with more modifiers go first: Ctrl+Shift+Tab is the previous tab,

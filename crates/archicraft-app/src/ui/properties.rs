@@ -748,7 +748,7 @@ fn tool_modes(ui: &mut Ui, ws: &mut Workspace) {
             for mode in WallMode::ALL {
                 if ui.selectable_label(ws.tool.wall_mode == mode, mode.label()).clicked() {
                     ws.tool.wall_mode = mode;
-                    ws.tool.reset();
+                    ws.reset_input();
                 }
             }
             ui.separator();
@@ -757,7 +757,7 @@ fn tool_modes(ui: &mut Ui, ws: &mut Workspace) {
             for mode in SlabMode::ALL {
                 if ui.selectable_label(ws.tool.slab_mode == mode, mode.label()).clicked() {
                     ws.tool.slab_mode = mode;
-                    ws.tool.reset();
+                    ws.reset_input();
                 }
             }
             ui.separator();
