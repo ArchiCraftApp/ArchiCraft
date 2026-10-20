@@ -166,7 +166,7 @@ pub fn evaluate_element(
             // A junction can fold a very short wall; fall back to square ends.
             let ring = validate_ring(&joined)
                 .or_else(|_| validate_ring(&square))
-                .map_err(GeometryError::InvalidPolygon)?;
+                .map_err(|e| GeometryError::InvalidPolygon(e.to_string()))?;
             let mesh = extrude(&ring, &[], bottom, top)?;
             Ok(ElementGeometry {
                 parts: vec![BodyPart {

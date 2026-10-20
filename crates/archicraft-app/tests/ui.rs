@@ -11,12 +11,15 @@ use archicraft_app::i18n::{self, Localizer};
 use archicraft_app::input::InputConsumer;
 use archicraft_app::tools::{ToolKind, WallMode};
 use archicraft_app::{ArchiCraftApp, tr};
-use archicraft_model::Command;
 use archicraft_model::glam::DVec2;
+use archicraft_model::units::{LengthUnit, format_length};
+use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
+use archicraft_model::{Command, ProjectSettings};
 use common::{assert_present, harness};
+use egui::accesskit::Role;
 use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{By, Queryable};
 
 #[test]
 fn main_window_has_the_parts_of_ui_001() {
@@ -223,6 +226,47 @@ fn selecting_an_element_shows_its_properties() {
     harness.get_by_label("Locked");
     harness.get_by_label("Length");
     harness.get_by_label("Home storey");
+}
+
+/// NFR-L10N-001: a value the model rejects reports the localized message in
+/// the status line, with the limits in the project length unit.
+#[test]
+fn a_rejected_thickness_shows_its_limits_in_the_project_unit() {
+    let mut harness = harness("rejected-thickness");
+    let (shown, min, max) = {
+        let ws = harness.state_mut().workspace();
+        let mut settings: ProjectSettings = ws.doc.project.settings.clone();
+        settings.units.length = LengthUnit::Centimeter;
+        assert!(ws.execute(Command::SetSettings(settings)));
+        let storey = ws.doc.project.storeys.ground();
+        let wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+        let id = wall.id;
+        let thickness = wall.as_wall().unwrap().thickness;
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+        ws.selection.insert(id);
+        let units = ws.doc.project.settings.units.clone();
+        let nf = ws.prefs.number_format();
+        (
+            format_length(thickness, &units, &nf, false),
+            format_length(MIN_THICKNESS, &units, &nf, true),
+            format_length(MAX_THICKNESS, &units, &nf, true),
+        )
+    };
+    harness.run_steps(2);
+    let field = || By::new().role(Role::TextInput).value(shown.as_str());
+    harness.get(field()).click();
+    harness.run_steps(1);
+    harness.get(field()).type_text("2000");
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    let status = harness.state_mut().workspace().status.as_ref().unwrap().text.clone();
+    assert!(
+        status.contains(&format!("between {min} and {max}")),
+        "{status} shows {min} and {max}"
+    );
+    assert!(min.ends_with("cm") && max.ends_with("cm"), "{min} {max}");
+    assert!(!status.contains("model-error"), "{status}");
+    harness.get_by_label_contains(&max);
 }
 
 /// Opens Help ▸ About, finding the Help menu by the title `localizer`

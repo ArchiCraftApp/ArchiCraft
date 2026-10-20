@@ -7,10 +7,12 @@ mod common;
 
 use archicraft_model::command::{StoreyElements, replay};
 use archicraft_model::glam::DVec2;
+use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::default_metric_project;
+use archicraft_model::validate::{MAX_GRID_SPACING, MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{
-    Arg, Command, CommandError, Element, ElementKind, History, KindTag, Layer, PlanGrid, ProjectSettings, Storey,
-    TopLink,
+    Arg, Command, CommandError, Element, ElementKind, History, KindTag, Layer, Material, Message, PlanGrid,
+    ProjectSettings, Storey, TopLink,
 };
 use common::{ground, wall};
 
@@ -96,6 +98,117 @@ fn invalid_commands_leave_the_project_unchanged() {
     assert!(h.execute(&mut p, Command::AddElements(vec![zero_length])).is_err());
     assert_eq!(p, before);
     assert!(!h.can_undo());
+}
+
+/// The message of a rejected command, with the variant it came in.
+fn rejection(result: Result<(), CommandError>) -> (&'static str, Message) {
+    match result {
+        Err(e @ CommandError::Invalid(_)) => ("Invalid", e.message()),
+        Err(e @ CommandError::Locked(_)) => ("Locked", e.message()),
+        Err(e @ CommandError::NotFound(_)) => ("NotFound", e.message()),
+        Err(e @ CommandError::NoChange) => ("NoChange", e.message()),
+        Ok(()) => panic!("the command was accepted"),
+    }
+}
+
+/// NFR-L10N-001: command errors are message keys with typed arguments, not
+/// English text. Numeric limits are lengths in metres or counts, so the
+/// application shows them in the user's units; names are text arguments.
+#[test]
+fn command_errors_report_message_keys_and_arguments() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+
+    // An out-of-range wall thickness reports the limits as lengths.
+    let mut thick = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    if let ElementKind::Wall(w) = &mut thick.kind {
+        w.thickness = 12.0;
+    }
+    let (variant, message) = rejection(h.execute(&mut p, Command::AddElements(vec![thick])));
+    assert_eq!(variant, "Invalid");
+    assert_eq!(message.key(), "model-error-thickness-range");
+    assert_eq!(message.arg("min"), Some(&Arg::Length(MIN_THICKNESS)));
+    assert_eq!(message.arg("max"), Some(&Arg::Length(MAX_THICKNESS)));
+
+    // An edit names the element and nests the reason.
+    let w = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    let id = w.id;
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    let mut edited = p.element(id).unwrap().clone();
+    if let ElementKind::Wall(w) = &mut edited.kind {
+        w.thickness = 0.0;
+    }
+    let (variant, message) = rejection(h.execute(&mut p, Command::UpdateElements(vec![edited])));
+    assert_eq!(variant, "Invalid");
+    assert_eq!(message.key(), "model-error-element-invalid");
+    assert_eq!(message.arg("name"), Some(&Arg::Text("W-001".into())));
+    match message.arg("reason") {
+        Some(Arg::Nested(reason)) => assert_eq!(reason.key(), "model-error-thickness-range"),
+        other => panic!("expected a nested reason, got {other:?}"),
+    }
+
+    // Unchanged commands map to their own key.
+    let unchanged = p.element(id).unwrap().clone();
+    let (variant, message) = rejection(h.execute(&mut p, Command::UpdateElements(vec![unchanged])));
+    assert_eq!((variant, message.key()), ("NoChange", "model-error-no-change"));
+
+    // A missing element.
+    h.execute(&mut p, Command::DeleteElements(vec![id])).unwrap();
+    let (variant, message) = rejection(h.execute(&mut p, Command::DeleteElements(vec![id])));
+    assert_eq!((variant, message.key()), ("NotFound", "model-error-element-not-found"));
+    h.undo(&mut p).unwrap();
+
+    // Locked elements and layers name the element (and the layer).
+    let mut locked = p.element(id).unwrap().clone();
+    locked.locked = true;
+    h.execute(&mut p, Command::UpdateElements(vec![locked])).unwrap();
+    let (variant, message) = rejection(h.execute(&mut p, Command::DeleteElements(vec![id])));
+    assert_eq!((variant, message.key()), ("Locked", "model-error-element-locked"));
+    assert_eq!(message.arg("name"), Some(&Arg::Text("W-001".into())));
+    h.undo(&mut p).unwrap();
+    let layer = p.layer(p.element(id).unwrap().layer).unwrap().clone();
+    let layer_name = layer.name.clone();
+    h.execute(&mut p, Command::UpdateLayer(Layer { locked: true, ..layer }))
+        .unwrap();
+    let (variant, message) = rejection(h.execute(&mut p, Command::DeleteElements(vec![id])));
+    assert_eq!((variant, message.key()), ("Locked", "model-error-layer-locked"));
+    assert_eq!(message.arg("name"), Some(&Arg::Text("W-001".into())));
+    assert_eq!(message.arg("layer"), Some(&Arg::Text(layer_name)));
+
+    // Storey errors flow through the command with their limits.
+    let storey = ground(&p);
+    let (variant, message) = rejection(h.execute(
+        &mut p,
+        Command::SetStoreyHeight {
+            storey,
+            height: 0.001,
+            shift_above: true,
+        },
+    ));
+    assert_eq!((variant, message.key()), ("Invalid", "model-error-storey-height-min"));
+    assert_eq!(message.arg("min"), Some(&Arg::Length(MIN_STOREY_HEIGHT)));
+
+    // Material priorities are plain numbers.
+    let material = Material {
+        priority: 0,
+        ..p.materials[0].clone()
+    };
+    let (variant, message) = rejection(h.execute(&mut p, Command::UpdateMaterial(material)));
+    assert_eq!((variant, message.key()), ("Invalid", "model-error-priority-range"));
+    assert_eq!(message.arg("min"), Some(&Arg::Count(1)));
+    assert_eq!(message.arg("max"), Some(&Arg::Count(999)));
+
+    // Plan grid limits are lengths.
+    let mut settings = p.settings.clone();
+    settings.plan_grid.snap_step.x = 0.0;
+    let (variant, message) = rejection(h.execute(&mut p, Command::SetSettings(settings)));
+    assert_eq!((variant, message.key()), ("Invalid", "model-error-snap-grid-range"));
+    assert_eq!(message.arg("max"), Some(&Arg::Length(MAX_GRID_SPACING)));
+
+    // The error's Display is the key form, for logs.
+    let error = CommandError::Invalid(Message::new("model-error-layer-name"));
+    assert_eq!(error.to_string(), "model-error-layer-name");
+    assert_eq!(CommandError::NoChange.to_string(), "model-error-no-change");
 }
 
 #[test]

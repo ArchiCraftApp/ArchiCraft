@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use archicraft_app::i18n::{self, Localizer, catalogue, model::fluent_names};
 use archicraft_model::message::ALL_KEYS;
-use archicraft_model::units::{NumberFormat, UnitSettings};
+use archicraft_model::units::{LengthUnit, NumberFormat, UnitSettings, format_length};
 use archicraft_model::{KindTag, Message};
 use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};
 use fluent_syntax::parser;
@@ -51,6 +51,111 @@ fn representatives() -> Vec<Message> {
         // sentence around it; see i18n::model.
         messages.push(Message::new(kind.noun_key()));
     }
+    messages.extend(error_representatives());
+    messages
+}
+
+/// A representative message for every error and problem key, with the
+/// arguments the model passes (CommandError, validation, storeys,
+/// materials, plan grid, locks and integrity problems).
+fn error_representatives() -> Vec<Message> {
+    let mut messages: Vec<Message> = [
+        "model-error-no-change",
+        "model-error-invalid-distance",
+        "model-error-element-not-found",
+        "model-error-duplicate-element-id",
+        "model-error-kind-change",
+        "model-error-duplicate-storey-id",
+        "model-error-move-target-same",
+        "model-error-target-storey-not-found",
+        "model-error-duplicate-layer-id",
+        "model-error-layer-not-found",
+        "model-error-layer-name",
+        "model-error-reassign-layer",
+        "model-error-duplicate-material-id",
+        "model-error-material-not-found",
+        "model-error-replacement-material",
+        "model-error-default-layer-missing",
+        "model-error-default-material-missing",
+        "model-error-default-ifc-class",
+        "model-error-tessellation-range",
+        "model-error-project-name",
+        "model-error-spatial-names",
+        "model-error-location-invalid",
+        "model-error-polygon-points",
+        "model-error-polygon-area",
+        "model-error-polygon-self-intersection",
+        "model-error-hole-outside",
+        "model-error-holes-overlap",
+        "model-error-wall-top-storey-missing",
+        "model-error-element-name",
+        "model-error-home-storey-missing",
+        "model-error-element-layer-missing",
+        "model-error-element-material-missing",
+        "model-error-vertical-extent",
+        "model-error-top-below-base",
+        "model-error-no-storeys",
+        "model-error-ground-not-in-list",
+        "model-error-storey-name",
+        "model-error-storey-unknown",
+        "model-error-last-storey",
+        "model-error-no-ground-left",
+        "model-error-invalid-elevation",
+        "model-error-storey-below",
+        "model-error-storey-above",
+        "model-error-storey-collision",
+        "model-error-material-name",
+        "model-error-opacity-range",
+        "model-error-colour-range",
+        "model-error-auxiliary-spacing",
+        "model-error-grid-rotation",
+    ]
+    .map(Message::new)
+    .to_vec();
+    let max = |key, meters| Message::new(key).length("max", meters);
+    let range = |key, min, max| Message::new(key).length("min", min).length("max", max);
+    let named = |key| Message::new(key).text("name", "W-001");
+    messages.extend([
+        max("model-error-cut-plane-range", 100.0),
+        max("model-error-coordinates-range", 100_000.0),
+        max("model-error-base-offset-range", 1000.0),
+        max("model-error-top-offset-range", 1000.0),
+        max("model-error-slab-offset-range", 1000.0),
+        max("model-error-reference-line-range", 10.0),
+        max("model-error-snap-grid-range", 1000.0),
+        max("model-error-construction-grid-range", 1000.0),
+        max("model-error-grid-origin", 100_000.0),
+        range("model-error-thickness-range", 0.001, 10.0),
+        range("model-error-wall-height-range", 0.001, 1000.0),
+        Message::new("model-error-wall-length").length("min", 0.0001),
+        Message::new("model-error-storey-height-min").length("min", 0.01),
+        Message::new("model-error-polygon-sliver").angle("min", 0.1_f64.to_radians()),
+        Message::new("model-error-display-precision").count("max", 8),
+        Message::new("model-error-linked-storey-range").count("max", 200),
+        Message::new("model-error-priority-range")
+            .count("min", 1)
+            .count("max", 999),
+        named("model-error-element-invalid").nested("reason", Message::new("model-error-element-name")),
+        Message::new("model-error-hole").nested("reason", Message::new("model-error-polygon-area")),
+        named("model-error-element-not-movable"),
+        named("model-error-transform-unsupported"),
+        named("model-error-element-locked"),
+        named("model-error-layer-locked").text("layer", "Walls"),
+        named("model-problem-home-storey-missing"),
+        named("model-problem-layer-missing"),
+        named("model-problem-material-missing"),
+        Message::new("model-error-ifc-class-not-allowed")
+            .text("class", "IfcCovering")
+            .kind("kind", KindTag::Wall),
+        Message::new("model-error-storeys-too-close")
+            .text("lower", "00")
+            .text("upper", "01")
+            .length("min", 0.01),
+        Message::new("model-error-storey-invalid-values").text("name", "00"),
+        Message::new("model-error-storey-cut-plane")
+            .text("name", "00")
+            .length("max", 100.0),
+    ]);
     messages
 }
 
@@ -203,4 +308,40 @@ fn model_messages_render_in_english() {
     );
     assert_eq!(render(&Message::new("model-label-new-layer")), "New layer");
     assert_eq!(render(&Message::new(KindTag::Wall.label_key())), "Wall");
+}
+
+/// NFR-L10N-001: error messages render as English sentences with lengths in
+/// the project unit, kinds as nouns and nested reasons in place.
+#[test]
+fn model_errors_render_in_english_with_project_units() {
+    let units = UnitSettings {
+        length: LengthUnit::Millimeter,
+        ..UnitSettings::default()
+    };
+    let nf = NumberFormat {
+        decimal_separator: '.',
+        grouping: None,
+    };
+    let render = |m: &Message| i18n::with(std::rc::Rc::new(Localizer::english()), || i18n::render(m, &units, &nf));
+    let thickness = Message::new("model-error-thickness-range")
+        .length("min", 0.001)
+        .length("max", 10.0);
+    assert_eq!(
+        render(&thickness),
+        format!(
+            "Thickness must be between {} and {}.",
+            format_length(0.001, &units, &nf, true),
+            format_length(10.0, &units, &nf, true)
+        )
+    );
+    assert!(render(&thickness).contains("10000"), "{}", render(&thickness));
+    let element = Message::new("model-error-element-invalid")
+        .text("name", "W-001")
+        .nested("reason", Message::new("model-error-polygon-area"));
+    assert_eq!(render(&element), "W-001: The polygon has no area.");
+    let class = Message::new("model-error-ifc-class-not-allowed")
+        .text("class", "IfcCovering")
+        .kind("kind", KindTag::Wall);
+    assert_eq!(render(&class), "IfcCovering is not an allowed IFC class for a wall.");
+    assert_eq!(render(&Message::new("model-error-no-change")), "Nothing to change.");
 }

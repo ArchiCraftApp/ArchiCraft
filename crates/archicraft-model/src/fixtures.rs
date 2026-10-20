@@ -164,7 +164,7 @@ pub fn check(fixture: &Fixture) -> Result<Project, String> {
     let build = fixture.build.ok_or_else(|| fail("no constructor".into()))?;
     let project = build();
     if let Some(problem) = project.integrity_problems().into_iter().next() {
-        return Err(fail(problem));
+        return Err(fail(problem.to_string()));
     }
     for (id, element) in &project.elements {
         if *id != element.id {

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::{Kind, KindDescriptor};
 use crate::element::IfcClass;
 use crate::ids::{MaterialId, StoreyId};
+use crate::message::Message;
 use crate::storey::StoreyList;
 use crate::transform::{PlanTransform, TransformError};
 use crate::validate;
@@ -83,7 +84,7 @@ impl Kind for Slab {
     }
 
     /// Normalises the outline and holes (EDT-018).
-    fn validate(&self, _storeys: &StoreyList) -> Result<Self, String> {
+    fn validate(&self, _storeys: &StoreyList) -> Result<Self, Message> {
         validate::validate_slab(self)
     }
 

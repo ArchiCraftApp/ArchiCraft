@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, IfcClass};
 use crate::ids::{MaterialId, StoreyId};
+use crate::message::Message;
 use crate::storey::StoreyList;
 use crate::transform::{PlanTransform, TransformError};
 
@@ -85,8 +86,9 @@ pub trait Kind: Sized {
 
     /// Range checks (ELM-017, NFR-REL-005) and references to storeys.
     /// Returns the payload with normalised geometry, for example polygons
-    /// cleaned and oriented (EDT-018).
-    fn validate(&self, storeys: &StoreyList) -> Result<Self, String>;
+    /// cleaned and oriented (EDT-018). Errors are message keys
+    /// (NFR-L10N-001).
+    fn validate(&self, storeys: &StoreyList) -> Result<Self, Message>;
 
     /// Moves, rotates or mirrors the element in plan (EDT-001…EDT-003).
     /// Every kind supports translations. A kind that cannot represent the
@@ -213,7 +215,7 @@ macro_rules! kinds {
             }
 
             /// See [`Kind::validate`].
-            pub fn validate(&self, storeys: &StoreyList) -> Result<ElementKind, String> {
+            pub fn validate(&self, storeys: &StoreyList) -> Result<ElementKind, Message> {
                 match self {
                     $(ElementKind::$Payload(k) => k.validate(storeys).map(ElementKind::$Payload),)+
                 }

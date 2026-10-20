@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::{Kind, KindDescriptor, StoreyLinkRef, VerticalLink};
 use crate::element::{IfcClass, TopLink};
 use crate::ids::{MaterialId, StoreyId};
+use crate::message::Message;
 use crate::storey::StoreyList;
 use crate::transform::{PlanTransform, TransformError};
 use crate::validate;
@@ -124,10 +125,10 @@ impl Kind for Wall {
         self.material = material;
     }
 
-    fn validate(&self, storeys: &StoreyList) -> Result<Self, String> {
+    fn validate(&self, storeys: &StoreyList) -> Result<Self, Message> {
         validate::validate_wall(self)?;
         if self.link().missing_storey(storeys).is_some() {
-            return Err("The storey the wall top is linked to does not exist.".into());
+            return Err(Message::new("model-error-wall-top-storey-missing"));
         }
         Ok(self.clone())
     }

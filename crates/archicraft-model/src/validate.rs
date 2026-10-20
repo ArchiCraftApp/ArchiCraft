@@ -1,10 +1,14 @@
 //! Validation of element parameters and polygons (ELM-017, EDT-018, EDT-019,
 //! NFR-REL-005, NFR-ACC-003).
+//!
+//! Errors are [`Message`]s (NFR-L10N-001): numeric limits are length or angle
+//! arguments, so the application shows them in the project units.
 
 use glam::DVec2;
 
 use crate::element::{Element, TopLink};
 use crate::kinds::{ReferenceLine, Slab, Wall};
+use crate::message::Message;
 use crate::project::Project;
 
 /// Geometric coincidence tolerance: 0.01 mm (NFR-ACC-003), defined in
@@ -24,6 +28,12 @@ pub const MIN_THICKNESS: f64 = 0.001;
 pub const MAX_THICKNESS: f64 = 10.0;
 /// Smallest wall height: 1 mm.
 pub const MIN_HEIGHT: f64 = 0.001;
+/// Largest wall height: 1000 m.
+pub const MAX_HEIGHT: f64 = 1000.0;
+/// Largest base, top or slab offset: ±1000 m.
+pub const MAX_OFFSET: f64 = 1000.0;
+/// Largest number of storeys a wall top may be linked across.
+pub const MAX_LINKED_STOREYS: usize = 200;
 
 /// Largest step or spacing of a drafting grid, in metres (INP-013).
 pub const MAX_GRID_SPACING: f64 = 1000.0;
@@ -119,27 +129,27 @@ pub fn point_in_ring(p: DVec2, ring: &[DVec2]) -> bool {
     inside
 }
 
-fn check_coordinates(points: &[DVec2]) -> Result<(), String> {
+fn check_coordinates(points: &[DVec2]) -> Result<(), Message> {
     if points
         .iter()
         .any(|p| !p.is_finite() || p.x.abs() > MAX_COORDINATE || p.y.abs() > MAX_COORDINATE)
     {
-        return Err("Coordinates must be finite and within 100 km of the project origin.".into());
+        return Err(Message::new("model-error-coordinates-range").length("max", MAX_COORDINATE));
     }
     Ok(())
 }
 
 /// Cleans and validates a closed ring (EDT-018). Returns the cleaned ring,
 /// counter-clockwise.
-pub fn validate_ring(ring: &[DVec2]) -> Result<Vec<DVec2>, String> {
+pub fn validate_ring(ring: &[DVec2]) -> Result<Vec<DVec2>, Message> {
     check_coordinates(ring)?;
     let mut ring = clean_ring(ring);
     if ring.len() < 3 {
-        return Err("A polygon needs at least three distinct points.".into());
+        return Err(Message::new("model-error-polygon-points"));
     }
     let area = signed_area(&ring);
     if area.abs() < MIN_EDGE_LENGTH * MIN_EDGE_LENGTH {
-        return Err("The polygon has no area.".into());
+        return Err(Message::new("model-error-polygon-area"));
     }
     if area < 0.0 {
         ring.reverse();
@@ -152,7 +162,7 @@ pub fn validate_ring(ring: &[DVec2]) -> Result<Vec<DVec2>, String> {
         let next = ring[(i + 1) % n];
         let angle = (prev - p).angle_to(next - p).abs();
         if angle < min_angle {
-            return Err("The polygon has a sliver corner sharper than 0.1°.".into());
+            return Err(Message::new("model-error-polygon-sliver").angle("min", min_angle));
         }
     }
     for i in 0..n {
@@ -164,7 +174,7 @@ pub fn validate_ring(ring: &[DVec2]) -> Result<Vec<DVec2>, String> {
             }
             let (c, d) = (ring[j], ring[(j + 1) % n]);
             if segments_touch(a, b, c, d) {
-                return Err("The polygon outline intersects itself.".into());
+                return Err(Message::new("model-error-polygon-self-intersection"));
             }
         }
     }
@@ -178,19 +188,22 @@ fn rings_touch(a: &[DVec2], b: &[DVec2]) -> bool {
 
 /// Validates a slab outline with holes. Returns the outline counter-clockwise
 /// and the holes clockwise (SLB-001, SLB-003, EDT-018).
-pub fn validate_slab_polygon(outline: &[DVec2], holes: &[Vec<DVec2>]) -> Result<(Vec<DVec2>, Vec<Vec<DVec2>>), String> {
+pub fn validate_slab_polygon(
+    outline: &[DVec2],
+    holes: &[Vec<DVec2>],
+) -> Result<(Vec<DVec2>, Vec<Vec<DVec2>>), Message> {
     let outline = validate_ring(outline)?;
     let mut cleaned_holes: Vec<Vec<DVec2>> = Vec::with_capacity(holes.len());
     for hole in holes {
-        let mut hole = validate_ring(hole).map_err(|e| format!("Hole: {e}"))?;
+        let mut hole = validate_ring(hole).map_err(|e| Message::new("model-error-hole").nested("reason", e))?;
         if !point_in_ring(hole[0], &outline) || rings_touch(&hole, &outline) {
-            return Err("A hole must lie inside the slab outline without touching it.".into());
+            return Err(Message::new("model-error-hole-outside"));
         }
         if cleaned_holes
             .iter()
             .any(|other| rings_touch(&hole, other) || point_in_ring(hole[0], other) || point_in_ring(other[0], &hole))
         {
-            return Err("Holes must not overlap each other.".into());
+            return Err(Message::new("model-error-holes-overlap"));
         }
         hole.reverse();
         cleaned_holes.push(hole);
@@ -198,54 +211,62 @@ pub fn validate_slab_polygon(outline: &[DVec2], holes: &[Vec<DVec2>]) -> Result<
     Ok((outline, cleaned_holes))
 }
 
-fn check_thickness(thickness: f64) -> Result<(), String> {
+/// Checks a wall or slab thickness against [`MIN_THICKNESS`] and
+/// [`MAX_THICKNESS`].
+pub fn check_thickness(thickness: f64) -> Result<(), Message> {
     if !thickness.is_finite() || !(MIN_THICKNESS..=MAX_THICKNESS).contains(&thickness) {
-        return Err("Thickness must be between 1 mm and 10 m.".into());
+        return Err(Message::new("model-error-thickness-range")
+            .length("min", MIN_THICKNESS)
+            .length("max", MAX_THICKNESS));
     }
     Ok(())
 }
 
-fn check_offset(value: f64, what: &str) -> Result<(), String> {
-    if !value.is_finite() || value.abs() > 1000.0 {
-        return Err(format!("{what} must be a finite value within ±1000 m."));
+/// Checks an offset against [`MAX_OFFSET`]; `key` names the offset in the
+/// message.
+pub fn check_offset(value: f64, key: &'static str) -> Result<(), Message> {
+    if !value.is_finite() || value.abs() > MAX_OFFSET {
+        return Err(Message::new(key).length("max", MAX_OFFSET));
     }
     Ok(())
 }
 
 /// Range checks for a wall (ELM-017, NFR-REL-005).
-pub fn validate_wall(wall: &Wall) -> Result<(), String> {
+pub fn validate_wall(wall: &Wall) -> Result<(), Message> {
     check_coordinates(&[wall.start, wall.end])?;
     if wall.length() < MIN_EDGE_LENGTH {
-        return Err("A wall must be at least 0.1 mm long.".into());
+        return Err(Message::new("model-error-wall-length").length("min", MIN_EDGE_LENGTH));
     }
     check_thickness(wall.thickness)?;
     if let ReferenceLine::Custom(offset) = wall.reference_line
         && (!offset.is_finite() || offset.abs() > MAX_THICKNESS)
     {
-        return Err("The reference-line offset is out of range.".into());
+        return Err(Message::new("model-error-reference-line-range").length("max", MAX_THICKNESS));
     }
-    check_offset(wall.base_offset, "The base offset")?;
+    check_offset(wall.base_offset, "model-error-base-offset-range")?;
     match wall.top {
         TopLink::Fixed { height } => {
-            if !height.is_finite() || !(MIN_HEIGHT..=1000.0).contains(&height) {
-                return Err("The wall height must be between 1 mm and 1000 m.".into());
+            if !height.is_finite() || !(MIN_HEIGHT..=MAX_HEIGHT).contains(&height) {
+                return Err(Message::new("model-error-wall-height-range")
+                    .length("min", MIN_HEIGHT)
+                    .length("max", MAX_HEIGHT));
             }
         }
-        TopLink::Storey { offset, .. } => check_offset(offset, "The top offset")?,
+        TopLink::Storey { offset, .. } => check_offset(offset, "model-error-top-offset-range")?,
         TopLink::Relative { storeys, offset } => {
-            if storeys.abs() > 200 {
-                return Err("The linked storey is out of range.".into());
+            if storeys.unsigned_abs() as usize > MAX_LINKED_STOREYS {
+                return Err(Message::new("model-error-linked-storey-range").count("max", MAX_LINKED_STOREYS));
             }
-            check_offset(offset, "The top offset")?;
+            check_offset(offset, "model-error-top-offset-range")?;
         }
     }
     Ok(())
 }
 
 /// Range checks for a slab, returning the slab with a normalised polygon.
-pub fn validate_slab(slab: &Slab) -> Result<Slab, String> {
+pub fn validate_slab(slab: &Slab) -> Result<Slab, Message> {
     check_thickness(slab.thickness)?;
-    check_offset(slab.offset, "The slab offset")?;
+    check_offset(slab.offset, "model-error-slab-offset-range")?;
     let (outline, holes) = validate_slab_polygon(&slab.outline, &slab.holes)?;
     Ok(Slab {
         outline,
@@ -257,27 +278,25 @@ pub fn validate_slab(slab: &Slab) -> Result<Slab, String> {
 /// Validates an element against the project it is placed in: references to
 /// storey, layer and material, its parameters, and its vertical extent. On
 /// success, returns the element with normalised geometry.
-pub fn validate_element(project: &Project, element: &Element) -> Result<Element, String> {
+pub fn validate_element(project: &Project, element: &Element) -> Result<Element, Message> {
     if element.name.trim().is_empty() {
-        return Err("An element needs a name.".into());
+        return Err(Message::new("model-error-element-name"));
     }
     if project.storeys.get(element.storey).is_none() {
-        return Err("The element's home storey does not exist.".into());
+        return Err(Message::new("model-error-home-storey-missing"));
     }
     if project.layer(element.layer).is_none() {
-        return Err("The element's layer does not exist.".into());
+        return Err(Message::new("model-error-element-layer-missing"));
     }
     if project.material(element.kind.material()).is_none() {
-        return Err("The element's material does not exist.".into());
+        return Err(Message::new("model-error-element-material-missing"));
     }
     // ELM-011: the class must be one of the kind's selectable classes.
     let descriptor = element.kind.descriptor();
     if !descriptor.ifc_classes.contains(&element.ifc_class) {
-        return Err(format!(
-            "{} is not an allowed IFC class for a {}.",
-            element.ifc_class.code(),
-            descriptor.code
-        ));
+        return Err(Message::new("model-error-ifc-class-not-allowed")
+            .text("class", element.ifc_class.code())
+            .kind("kind", element.tag()));
     }
     let element = Element {
         kind: element.kind.validate(&project.storeys)?,
@@ -285,9 +304,9 @@ pub fn validate_element(project: &Project, element: &Element) -> Result<Element,
     };
     let (bottom, top) = project
         .vertical_extent(&element)
-        .ok_or("The element's vertical extent cannot be determined.")?;
+        .ok_or_else(|| Message::new("model-error-vertical-extent"))?;
     if top - bottom < MIN_HEIGHT {
-        return Err("The top of the element must be above its base.".into());
+        return Err(Message::new("model-error-top-below-base"));
     }
     Ok(element)
 }

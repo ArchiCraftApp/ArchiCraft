@@ -160,7 +160,8 @@ impl Workspace {
     }
 
     /// Executes a command and reports a rejection in the status line
-    /// (NFR-REL-005). Returns true on success.
+    /// (NFR-REL-005), rendered from the error's message key with the limits
+    /// in the project units (NFR-L10N-001). Returns true on success.
     pub fn execute(&mut self, command: Command) -> bool {
         let label = self.render(&command.label());
         #[cfg(feature = "perf")]
@@ -174,7 +175,8 @@ impl Workspace {
             }
             Err(CommandError::NoChange) => false,
             Err(e) => {
-                self.error(format!("{label}: {e}"));
+                let reason = self.render(&e.message());
+                self.error(format!("{label}: {reason}"));
                 false
             }
         }
