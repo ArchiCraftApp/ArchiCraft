@@ -76,8 +76,6 @@ const PENDING: &[&str] = &[
     "crates/archicraft-app/src/ui/widgets.rs",
     // archicraft-9w3: archicraft-model returns message keys.
     "crates/archicraft-model/src/command.rs",
-    // The kind label "Slab", moved here from element.rs by archicraft-3rbv.2.
-    "crates/archicraft-model/src/kinds/slab.rs::Slab",
     "crates/archicraft-model/src/kinds/wall.rs",
     "crates/archicraft-model/src/material.rs",
     "crates/archicraft-model/src/project.rs",

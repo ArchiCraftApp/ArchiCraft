@@ -276,7 +276,7 @@ pub fn validate_element(project: &Project, element: &Element) -> Result<Element,
         return Err(format!(
             "{} is not an allowed IFC class for a {}.",
             element.ifc_class.code(),
-            descriptor.label.to_lowercase()
+            descriptor.code
         ));
     }
     let element = Element {

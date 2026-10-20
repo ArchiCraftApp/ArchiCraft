@@ -9,7 +9,8 @@ use archicraft_model::command::{StoreyElements, replay};
 use archicraft_model::glam::DVec2;
 use archicraft_model::template::default_metric_project;
 use archicraft_model::{
-    Command, CommandError, Element, ElementKind, History, KindTag, Layer, PlanGrid, ProjectSettings, Storey, TopLink,
+    Arg, Command, CommandError, Element, ElementKind, History, KindTag, Layer, PlanGrid, ProjectSettings, Storey,
+    TopLink,
 };
 use common::{ground, wall};
 
@@ -25,7 +26,9 @@ fn add_undo_redo_keeps_identity() {
     assert_eq!(p.counters.get(KindTag::Wall), 1);
     assert_ne!(h.state_id(), 0);
 
-    assert_eq!(h.undo(&mut p).as_deref(), Some("Create wall"));
+    let label = h.undo(&mut p).unwrap();
+    assert_eq!(label.key(), "model-label-create-kind");
+    assert_eq!(label.arg("kind"), Some(&Arg::Kind(KindTag::Wall)));
     assert!(p.elements.is_empty());
     assert_eq!(p.counters.get(KindTag::Wall), 0);
     assert_eq!(h.state_id(), 0);

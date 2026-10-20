@@ -338,7 +338,7 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
         let elements: Vec<&Element> = project.elements_on(storey.id).collect();
         for e in &elements {
             node.children.insert(
-                child_key(e.tag().label(), e.id.uuid(), &mut element_keys),
+                child_key(e.kind.descriptor().node_prefix, e.id.uuid(), &mut element_keys),
                 Some(e.id.to_string()),
             );
         }

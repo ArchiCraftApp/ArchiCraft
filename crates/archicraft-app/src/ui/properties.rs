@@ -507,7 +507,7 @@ fn classification_fields(ui: &mut Ui, f: &mut Fields<'_>) {
 
 fn summary(ws: &Workspace, editing: &Editing) -> String {
     match editing.subject {
-        Subject::Defaults(kind) => format!("{} tool defaults", kind.label()),
+        Subject::Defaults(kind) => format!("{} tool defaults", crate::tr!(kind.label_key())),
         Subject::Selection => {
             let project = &ws.doc.project;
             let kinds = common(
@@ -518,9 +518,9 @@ fn summary(ws: &Workspace, editing: &Editing) -> String {
             );
             let what = kinds.map_or("elements".to_owned(), |k| {
                 if editing.selected == 1 {
-                    k.label().to_owned()
+                    crate::tr!(k.label_key())
                 } else {
-                    format!("{}s", k.label().to_lowercase())
+                    crate::tr!(k.noun_key(), count = editing.selected)
                 }
             });
             if editing.selected == 1 {

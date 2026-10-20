@@ -28,13 +28,16 @@ fn the_registry_has_wall_and_slab() {
     assert!(KindTag::Wall.descriptor().has_tool && KindTag::Slab.descriptor().has_tool);
 }
 
-/// Codes, labels and name prefixes identify a kind, so they are unique
-/// (ELM-019: automatic names must not collide between kinds).
+/// Codes, message keys, IFCX node prefixes and name prefixes identify a
+/// kind, so they are unique (ELM-019: automatic names must not collide
+/// between kinds).
 #[test]
 fn codes_labels_and_name_prefixes_are_unique() {
     for field in [
         |d: &&archicraft_model::kinds::KindDescriptor| d.code,
-        |d: &&archicraft_model::kinds::KindDescriptor| d.label,
+        |d: &&archicraft_model::kinds::KindDescriptor| d.label_key,
+        |d: &&archicraft_model::kinds::KindDescriptor| d.noun_key,
+        |d: &&archicraft_model::kinds::KindDescriptor| d.node_prefix,
         |d: &&archicraft_model::kinds::KindDescriptor| d.name_prefix,
     ] {
         let values: Vec<&str> = KINDS.iter().map(field).collect();
@@ -51,8 +54,14 @@ fn from_code_round_trips() {
         let d = tag.descriptor();
         assert_eq!(KindTag::from_code(d.code), Some(tag));
         assert_eq!(
-            (tag.code(), tag.label(), tag.name_prefix(), tag.ifc_classes()),
-            (d.code, d.label, d.name_prefix, d.ifc_classes)
+            (
+                tag.code(),
+                tag.label_key(),
+                tag.noun_key(),
+                tag.name_prefix(),
+                tag.ifc_classes()
+            ),
+            (d.code, d.label_key, d.noun_key, d.name_prefix, d.ifc_classes)
         );
     }
     assert_eq!(KindTag::from_code("curtain-wall"), None);
