@@ -78,10 +78,16 @@ GitHub adds the next macOS major version, move both labels in `macos.yml` up by 
 ([actions/runner-images](https://github.com/actions/runner-images#available-images) lists
 the current labels).
 
-The hooks are wired in `.claude/settings.json`; each resolves its script from the git
-top level of the session's working directory, so worktree sessions run their own branch's
-version. Command-line matching is a guardrail, not a sandbox: CI and branch protection are
-the gates that cannot be bypassed.
+The hooks are wired in `.claude/settings.json`. Claude Code reads that file, the skills and
+the agents from the main checkout and starts the hook commands there, also for a session in a
+worktree (the desktop app passes the main checkout as `--project-config-root`). So each hook
+command runs the main checkout's `scripts/loop/hooks/dispatch.sh`, which takes the session's
+working directory from the hook input (`cwd`) and runs the hook script of that tree: a worktree
+session runs its own branch's hook scripts, and `selftest.sh` checks this with a worktree. What
+still comes from the main checkout is the wiring, the dispatcher, `/bead`, `/bead-loop` and the
+`bead-reviewer` agent; a change to those applies once the main checkout is updated
+([loop-tutorial.md](loop-tutorial.md), section 3). Command-line matching is a guardrail, not
+a sandbox: CI and branch protection are the gates that cannot be bypassed.
 
 `guard-edit` sees only the Edit and Write tools. A file changed through Bash (`sed -i`, a
 heredoc, a script) bypasses it, on `main` as on a bead branch. Only the stamps catch such a

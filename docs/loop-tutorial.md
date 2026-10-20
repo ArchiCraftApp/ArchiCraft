@@ -123,7 +123,8 @@ files, and the coordinator tells you about it.
 2. Merge it, or comment on it.
 
 After any `loop` pull request merged, by itself or by you, update the main checkout, because
-Claude Code reads the loop's rules from there:
+Claude Code reads the hook wiring, the skills and the reviewer from there (each session runs
+the hook scripts of its own worktree, so those apply without it):
 
 ```bash
 git -C ~/Code/06-archicraft pull --ff-only
