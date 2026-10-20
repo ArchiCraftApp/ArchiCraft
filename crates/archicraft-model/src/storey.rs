@@ -3,10 +3,14 @@
 //! The storey list is kept sorted by elevation. For every storey but the top
 //! one, the height is derived: it is the distance to the next storey. The top
 //! storey has a nominal height that elements linked to "the storey above" use.
+//!
+//! Errors are message keys (NFR-L10N-001), with names as text and limits as
+//! length arguments.
 
 use serde::{Deserialize, Serialize};
 
 use crate::ids::StoreyId;
+use crate::message::Message;
 use crate::tolerance::MODEL_TOLERANCE;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -45,16 +49,26 @@ pub struct StoreyList {
 
 /// Smallest allowed storey height: 1 cm.
 pub const MIN_STOREY_HEIGHT: f64 = 0.01;
+/// Largest storey cut-plane height above the storey elevation: ±100 m.
+pub const MAX_CUT_PLANE_HEIGHT: f64 = 100.0;
+
+fn unknown_storey() -> Message {
+    Message::new("model-error-storey-unknown")
+}
+
+fn height_too_small() -> Message {
+    Message::new("model-error-storey-height-min").length("min", MIN_STOREY_HEIGHT)
+}
 
 impl StoreyList {
     /// Builds a list from storeys in any order. The ground storey must be one
     /// of them; heights of all but the top storey are recomputed.
-    pub fn new(mut storeys: Vec<Storey>, ground: StoreyId) -> Result<Self, String> {
+    pub fn new(mut storeys: Vec<Storey>, ground: StoreyId) -> Result<Self, Message> {
         if storeys.is_empty() {
-            return Err("A building needs at least one storey.".into());
+            return Err(Message::new("model-error-no-storeys"));
         }
         if !storeys.iter().any(|s| s.id == ground) {
-            return Err("The ground storey is not in the storey list.".into());
+            return Err(Message::new("model-error-ground-not-in-list"));
         }
         storeys.sort_by(|a, b| a.elevation.total_cmp(&b.elevation));
         let list = Self { storeys, ground };
@@ -138,32 +152,34 @@ impl StoreyList {
         self.storeys.iter().rev()
     }
 
-    fn check(&self) -> Result<(), String> {
+    fn check(&self) -> Result<(), Message> {
         for pair in self.storeys.windows(2) {
             if pair[1].elevation - pair[0].elevation < MIN_STOREY_HEIGHT {
-                return Err(format!(
-                    "Storeys “{}” and “{}” are less than 1 cm apart.",
-                    pair[0].name, pair[1].name
-                ));
+                return Err(Message::new("model-error-storeys-too-close")
+                    .text("lower", &pair[0].name)
+                    .text("upper", &pair[1].name)
+                    .length("min", MIN_STOREY_HEIGHT));
             }
         }
         for s in &self.storeys {
             if !s.elevation.is_finite() || !s.height.is_finite() {
-                return Err(format!("Storey “{}” has an invalid elevation or height.", s.name));
+                return Err(Message::new("model-error-storey-invalid-values").text("name", &s.name));
             }
             if s.name.trim().is_empty() {
-                return Err("A storey needs a name.".into());
+                return Err(Message::new("model-error-storey-name"));
             }
             if let Some(cut) = s.cut_plane_height
-                && (!cut.is_finite() || cut.abs() > 100.0)
+                && (!cut.is_finite() || cut.abs() > MAX_CUT_PLANE_HEIGHT)
             {
-                return Err(format!("Storey “{}” has an invalid cut-plane height.", s.name));
+                return Err(Message::new("model-error-storey-cut-plane")
+                    .text("name", &s.name)
+                    .length("max", MAX_CUT_PLANE_HEIGHT));
             }
         }
         if let Some(top) = self.storeys.last()
             && top.height < MIN_STOREY_HEIGHT
         {
-            return Err("Storey heights must be at least 1 cm.".into());
+            return Err(height_too_small());
         }
         Ok(())
     }
@@ -175,7 +191,7 @@ impl StoreyList {
         self
     }
 
-    fn validated(self) -> Result<Self, String> {
+    fn validated(self) -> Result<Self, Message> {
         self.check()?;
         Ok(self.with_derived_heights())
     }
@@ -183,10 +199,10 @@ impl StoreyList {
     /// Inserts `storey` directly above or below `reference` (STR-003). The new
     /// storey gets the height `storey.height`; storeys above an inserted storey
     /// move up by that height, storeys below a storey inserted below move down.
-    pub fn insert(&self, reference: StoreyId, above: bool, mut storey: Storey) -> Result<Self, String> {
-        let index = self.index_of(reference).ok_or("Unknown storey.")?;
+    pub fn insert(&self, reference: StoreyId, above: bool, mut storey: Storey) -> Result<Self, Message> {
+        let index = self.index_of(reference).ok_or_else(unknown_storey)?;
         if storey.height < MIN_STOREY_HEIGHT || !storey.height.is_finite() {
-            return Err("Storey heights must be at least 1 cm.".into());
+            return Err(height_too_small());
         }
         let mut storeys = self.storeys.clone();
         let reference_storey = &storeys[index];
@@ -216,11 +232,11 @@ impl StoreyList {
     /// height; removing a basement storey moves the storeys below it up.
     /// Deleting the ground storey makes the storey above it (or, if none, the
     /// one below it) the ground storey.
-    pub fn remove(&self, id: StoreyId) -> Result<Self, String> {
+    pub fn remove(&self, id: StoreyId) -> Result<Self, Message> {
         if self.storeys.len() <= 1 {
-            return Err("The last storey cannot be deleted.".into());
+            return Err(Message::new("model-error-last-storey"));
         }
-        let index = self.index_of(id).ok_or("Unknown storey.")?;
+        let index = self.index_of(id).ok_or_else(unknown_storey)?;
         let below_ground = self.number(id).is_some_and(|n| n < 0);
         let mut storeys = self.storeys.clone();
         let removed = storeys.remove(index);
@@ -238,16 +254,16 @@ impl StoreyList {
                 .get(index)
                 .or_else(|| storeys.get(index.wrapping_sub(1)))
                 .map(|s| s.id)
-                .ok_or("No storey left to become the ground storey.")?
+                .ok_or_else(|| Message::new("model-error-no-ground-left"))?
         } else {
             self.ground
         };
         Self { storeys, ground }.validated()
     }
 
-    pub fn rename(&self, id: StoreyId, name: &str) -> Result<Self, String> {
+    pub fn rename(&self, id: StoreyId, name: &str) -> Result<Self, Message> {
         let mut list = self.clone();
-        let index = list.index_of(id).ok_or("Unknown storey.")?;
+        let index = list.index_of(id).ok_or_else(unknown_storey)?;
         list.storeys[index].name = name.trim().to_owned();
         list.validated()
     }
@@ -256,12 +272,12 @@ impl StoreyList {
     /// storeys above keep their elevations and the heights of this storey and
     /// the one below change. With `shift_above`, this storey and all above
     /// move together and keep their heights.
-    pub fn set_elevation(&self, id: StoreyId, elevation: f64, shift_above: bool) -> Result<Self, String> {
+    pub fn set_elevation(&self, id: StoreyId, elevation: f64, shift_above: bool) -> Result<Self, Message> {
         if !elevation.is_finite() {
-            return Err("Enter a valid elevation.".into());
+            return Err(Message::new("model-error-invalid-elevation"));
         }
         let mut list = self.clone();
-        let index = list.index_of(id).ok_or("Unknown storey.")?;
+        let index = list.index_of(id).ok_or_else(unknown_storey)?;
         let delta = elevation - list.storeys[index].elevation;
         if shift_above {
             for s in list.storeys.iter_mut().skip(index) {
@@ -271,12 +287,12 @@ impl StoreyList {
             list.storeys[index].elevation = elevation;
         }
         if index > 0 && list.storeys[index].elevation - list.storeys[index - 1].elevation < MIN_STOREY_HEIGHT {
-            return Err("The storey would move below the storey underneath it.".into());
+            return Err(Message::new("model-error-storey-below"));
         }
         if index + 1 < list.storeys.len()
             && list.storeys[index + 1].elevation - list.storeys[index].elevation < MIN_STOREY_HEIGHT
         {
-            return Err("The storey would move above the storey over it.".into());
+            return Err(Message::new("model-error-storey-above"));
         }
         list.validated()
     }
@@ -284,12 +300,12 @@ impl StoreyList {
     /// Changes a storey's height (STR-002). With `shift_above`, all storeys
     /// above move by the difference. Without it, only the next storey moves,
     /// which changes that storey's height instead.
-    pub fn set_height(&self, id: StoreyId, height: f64, shift_above: bool) -> Result<Self, String> {
+    pub fn set_height(&self, id: StoreyId, height: f64, shift_above: bool) -> Result<Self, Message> {
         if !height.is_finite() || height < MIN_STOREY_HEIGHT {
-            return Err("Storey heights must be at least 1 cm.".into());
+            return Err(height_too_small());
         }
         let mut list = self.clone();
-        let index = list.index_of(id).ok_or("Unknown storey.")?;
+        let index = list.index_of(id).ok_or_else(unknown_storey)?;
         let delta = height - list.storeys[index].height;
         list.storeys[index].height = height;
         if shift_above {
@@ -301,15 +317,15 @@ impl StoreyList {
             if let Some(after) = self.storeys.get(index + 2)
                 && after.elevation - next.elevation < MIN_STOREY_HEIGHT
             {
-                return Err("The storey above would collide with the one over it.".into());
+                return Err(Message::new("model-error-storey-collision"));
             }
         }
         list.validated()
     }
 
-    pub fn set_cut_plane(&self, id: StoreyId, height: Option<f64>) -> Result<Self, String> {
+    pub fn set_cut_plane(&self, id: StoreyId, height: Option<f64>) -> Result<Self, Message> {
         let mut list = self.clone();
-        let index = list.index_of(id).ok_or("Unknown storey.")?;
+        let index = list.index_of(id).ok_or_else(unknown_storey)?;
         list.storeys[index].cut_plane_height = height;
         list.validated()
     }

@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ids::MaterialId;
+use crate::message::Message;
 
 /// An RGB colour with components in 0…1 (linear in the sense of IFCX
 /// `diffuseColor`, which takes plain 0…1 components).
@@ -159,20 +160,23 @@ impl Material {
     pub const MIN_PRIORITY: u16 = 1;
     pub const MAX_PRIORITY: u16 = 999;
 
-    /// Checks the value ranges of MAT-001 (ELM-017).
-    pub fn validate(&self) -> Result<(), String> {
+    /// Checks the value ranges of MAT-001 (ELM-017). Errors are message
+    /// keys (NFR-L10N-001).
+    pub fn validate(&self) -> Result<(), Message> {
         if self.name.trim().is_empty() {
-            return Err("A material needs a name.".into());
+            return Err(Message::new("model-error-material-name"));
         }
         if !(0.0..=1.0).contains(&self.opacity) || !self.opacity.is_finite() {
-            return Err("Opacity must be between 0 and 1.".into());
+            return Err(Message::new("model-error-opacity-range"));
         }
         if !(Self::MIN_PRIORITY..=Self::MAX_PRIORITY).contains(&self.priority) {
-            return Err("Intersection priority must be between 1 and 999.".into());
+            return Err(Message::new("model-error-priority-range")
+                .count("min", usize::from(Self::MIN_PRIORITY))
+                .count("max", usize::from(Self::MAX_PRIORITY)));
         }
         let in_range = |c: Rgb| c.0.iter().all(|v| (0.0..=1.0).contains(v));
         if !in_range(self.color) || !in_range(self.cut_fill.foreground) {
-            return Err("Colour components must be between 0 and 1.".into());
+            return Err(Message::new("model-error-colour-range"));
         }
         Ok(())
     }

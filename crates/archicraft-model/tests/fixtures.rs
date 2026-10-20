@@ -123,7 +123,7 @@ fn dangling_layer() -> Project {
 fn check_names_the_fixture_and_the_problem() {
     let error = fixtures::check(&entry("x-dangling", 0, Some(dangling_layer))).unwrap_err();
     assert!(error.contains("x-dangling"), "{error}");
-    assert!(error.contains("layer is missing"), "{error}");
+    assert!(error.contains("model-problem-layer-missing"), "{error}");
     let error = fixtures::check(&entry("x-unbuilt", 0, None)).unwrap_err();
     assert!(
         error.contains("x-unbuilt") && error.contains("no constructor"),

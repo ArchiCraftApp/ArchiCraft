@@ -12,7 +12,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::KINDS;
 use archicraft_model::project::NameCounters;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Command, CommandError, History, IfcClass, KindTag};
+use archicraft_model::{Arg, Command, CommandError, History, IfcClass, KindTag};
 use common::{ground, wall};
 
 /// The registry lists wall and slab, in the order of `KindTag::ALL`, and each
@@ -129,7 +129,11 @@ fn a_class_outside_the_kinds_set_is_rejected() {
     w.ifc_class = IfcClass::Covering;
     assert!(!KindTag::Wall.ifc_classes().contains(&IfcClass::Covering));
     match h.execute(&mut p, Command::AddElements(vec![w])) {
-        Err(CommandError::Invalid(message)) => assert!(message.contains("IfcCovering"), "{message}"),
+        Err(CommandError::Invalid(message)) => {
+            assert_eq!(message.key(), "model-error-ifc-class-not-allowed");
+            assert_eq!(message.arg("class"), Some(&Arg::Text("IfcCovering".into())));
+            assert_eq!(message.arg("kind"), Some(&Arg::Kind(KindTag::Wall)));
+        }
         other => panic!("expected CommandError::Invalid, got {other:?}"),
     }
     assert_eq!(p, before);

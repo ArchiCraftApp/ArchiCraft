@@ -75,13 +75,8 @@ const PENDING: &[&str] = &[
     "crates/archicraft-app/src/ui/properties.rs",
     "crates/archicraft-app/src/ui/widgets.rs",
     // archicraft-9w3: archicraft-model returns message keys.
-    "crates/archicraft-model/src/command.rs",
     "crates/archicraft-model/src/kinds/wall.rs",
-    "crates/archicraft-model/src/material.rs",
-    "crates/archicraft-model/src/project.rs",
-    "crates/archicraft-model/src/storey.rs",
     "crates/archicraft-model/src/units.rs",
-    "crates/archicraft-model/src/validate.rs",
 ];
 
 /// The allowlist, next to this file.

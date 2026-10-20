@@ -11,6 +11,7 @@ use crate::ids::{BuildingId, ElementId, LayerId, MaterialId, ProjectId, SiteId, 
 use crate::kinds::{ReferenceLine, Slab, SlabReference, Wall};
 use crate::layer::Layer;
 use crate::material::Material;
+use crate::message::Message;
 use crate::storey::StoreyList;
 use crate::units::UnitSettings;
 
@@ -90,23 +91,22 @@ impl PlanGrid {
     ///
     /// [`validate::MAX_GRID_SPACING`]: crate::validate::MAX_GRID_SPACING
     /// [`validate::MAX_COORDINATE`]: crate::validate::MAX_COORDINATE
-    pub fn check(&self) -> Result<(), String> {
-        use crate::validate::{MAX_GRID_SPACING, valid_grid_origin, valid_grid_spacing};
-        let range = format!("must be greater than 0 and at most {MAX_GRID_SPACING} m");
+    pub fn check(&self) -> Result<(), Message> {
+        use crate::validate::{MAX_COORDINATE, MAX_GRID_SPACING, valid_grid_origin, valid_grid_spacing};
         if !valid_grid_spacing(self.snap_step) {
-            return Err(format!("The snap grid steps {range}."));
+            return Err(Message::new("model-error-snap-grid-range").length("max", MAX_GRID_SPACING));
         }
         if !valid_grid_spacing(self.main_spacing) || !valid_grid_spacing(self.auxiliary_spacing) {
-            return Err(format!("The construction grid spacings {range}."));
+            return Err(Message::new("model-error-construction-grid-range").length("max", MAX_GRID_SPACING));
         }
         if self.auxiliary_spacing.cmpgt(self.main_spacing).any() {
-            return Err("The auxiliary grid spacing must not be larger than the main spacing.".into());
+            return Err(Message::new("model-error-auxiliary-spacing"));
         }
         if !self.rotation.is_finite() {
-            return Err("The grid rotation must be a finite number.".into());
+            return Err(Message::new("model-error-grid-rotation"));
         }
         if !valid_grid_origin(self.origin) {
-            return Err("The grid origin is too far from the project origin.".into());
+            return Err(Message::new("model-error-grid-origin").length("max", MAX_COORDINATE));
         }
         Ok(())
     }
@@ -316,13 +316,18 @@ impl Project {
         self.layer(element.layer).is_none_or(|l| l.visible)
     }
 
-    /// Why an element cannot be edited, if it cannot (ELM-013, LAY-001).
-    pub fn edit_lock_reason(&self, element: &Element) -> Option<String> {
+    /// Why an element cannot be edited, if it cannot (ELM-013, LAY-001), as
+    /// a message key (NFR-L10N-001).
+    pub fn edit_lock_reason(&self, element: &Element) -> Option<Message> {
         if element.locked {
-            return Some(format!("{} is locked.", element.name));
+            return Some(Message::new("model-error-element-locked").text("name", &element.name));
         }
         match self.layer(element.layer) {
-            Some(layer) if layer.locked => Some(format!("{} is on the locked layer “{}”.", element.name, layer.name)),
+            Some(layer) if layer.locked => Some(
+                Message::new("model-error-layer-locked")
+                    .text("name", &element.name)
+                    .text("layer", &layer.name),
+            ),
             _ => None,
         }
     }
@@ -407,18 +412,19 @@ impl Project {
     }
 
     /// The storey, layer and material references that are dangling, as a
-    /// list of human-readable problems (NFR-REL-004).
-    pub fn integrity_problems(&self) -> Vec<String> {
+    /// list of problems naming the element (NFR-REL-004, NFR-L10N-001).
+    pub fn integrity_problems(&self) -> Vec<Message> {
         let mut problems = Vec::new();
         for e in self.elements.values() {
+            let problem = |key| Message::new(key).text("name", &e.name);
             if self.storeys.get(e.storey).is_none() {
-                problems.push(format!("{}: home storey is missing", e.name));
+                problems.push(problem("model-problem-home-storey-missing"));
             }
             if self.layer(e.layer).is_none() {
-                problems.push(format!("{}: layer is missing", e.name));
+                problems.push(problem("model-problem-layer-missing"));
             }
             if self.material(e.kind.material()).is_none() {
-                problems.push(format!("{}: material is missing", e.name));
+                problems.push(problem("model-problem-material-missing"));
             }
         }
         problems

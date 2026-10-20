@@ -21,7 +21,7 @@ use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
 use crate::project::{Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
-use crate::storey::{Storey, StoreyList};
+use crate::storey::{MAX_CUT_PLANE_HEIGHT, Storey, StoreyList};
 use crate::transform::{PlanTransform, TransformError};
 use crate::validate;
 
@@ -93,20 +93,42 @@ pub enum Command {
     SetLocation(Location),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
+/// Why a command was rejected. Each variant carries a message key with its
+/// arguments (NFR-L10N-001); `Display` is the key form, for logs only, and
+/// the user interface renders [`CommandError::message`].
+#[derive(Clone, Debug, PartialEq, Error)]
 pub enum CommandError {
     /// The command would produce an invalid model (NFR-REL-005).
     #[error("{0}")]
-    Invalid(String),
+    Invalid(Message),
     /// An affected element or layer is locked (ELM-013, LAY-001).
     #[error("{0}")]
-    Locked(String),
+    Locked(Message),
     /// The command refers to an object that does not exist.
     #[error("{0}")]
-    NotFound(String),
+    NotFound(Message),
     /// The command changes nothing.
-    #[error("Nothing to change.")]
+    #[error("model-error-no-change")]
     NoChange,
+}
+
+impl CommandError {
+    /// The message to show the user; [`CommandError::NoChange`] is
+    /// `model-error-no-change`.
+    pub fn message(&self) -> Message {
+        match self {
+            CommandError::Invalid(m) | CommandError::Locked(m) | CommandError::NotFound(m) => m.clone(),
+            CommandError::NoChange => Message::new("model-error-no-change"),
+        }
+    }
+}
+
+fn invalid(key: &'static str) -> CommandError {
+    CommandError::Invalid(Message::new(key))
+}
+
+fn not_found(key: &'static str) -> CommandError {
+    CommandError::NotFound(Message::new(key))
 }
 
 impl Command {
@@ -149,7 +171,7 @@ impl Command {
             Command::UpdateElements(elements) => plan_update_elements(project, elements),
             Command::MoveElements { ids, delta } => {
                 if !delta.is_finite() {
-                    return Err(CommandError::Invalid("Enter a valid distance.".into()));
+                    return Err(invalid("model-error-invalid-distance"));
                 }
                 plan_transform_elements(project, ids, &PlanTransform::translation(*delta))
             }
@@ -159,7 +181,7 @@ impl Command {
                 storey,
             } => {
                 if project.storeys.get(storey.id).is_some() {
-                    return Err(CommandError::Invalid("A storey with this ID already exists.".into()));
+                    return Err(invalid("model-error-duplicate-storey-id"));
                 }
                 let list = project
                     .storeys
@@ -204,7 +226,7 @@ impl Command {
             Command::AddLayer(layer) => {
                 check_layer(layer)?;
                 if project.layer(layer.id).is_some() {
-                    return Err(CommandError::Invalid("A layer with this ID already exists.".into()));
+                    return Err(invalid("model-error-duplicate-layer-id"));
                 }
                 Ok(vec![Edit::InsertLayer {
                     index: project.layers.len(),
@@ -214,7 +236,7 @@ impl Command {
             Command::UpdateLayer(layer) => {
                 check_layer(layer)?;
                 match project.layer(layer.id) {
-                    None => Err(CommandError::NotFound("The layer does not exist.".into())),
+                    None => Err(not_found("model-error-layer-not-found")),
                     Some(old) if old == layer => Err(CommandError::NoChange),
                     Some(_) => Ok(vec![Edit::ReplaceLayer(layer.clone())]),
                 }
@@ -223,7 +245,7 @@ impl Command {
             Command::AddMaterial(material) => {
                 material.validate().map_err(CommandError::Invalid)?;
                 if project.material(material.id).is_some() {
-                    return Err(CommandError::Invalid("A material with this ID already exists.".into()));
+                    return Err(invalid("model-error-duplicate-material-id"));
                 }
                 Ok(vec![Edit::InsertMaterial {
                     index: project.materials.len(),
@@ -233,7 +255,7 @@ impl Command {
             Command::UpdateMaterial(material) => {
                 material.validate().map_err(CommandError::Invalid)?;
                 match project.material(material.id) {
-                    None => Err(CommandError::NotFound("The material does not exist.".into())),
+                    None => Err(not_found("model-error-material-not-found")),
                     Some(old) if old == material => Err(CommandError::NoChange),
                     Some(_) => Ok(vec![Edit::ReplaceMaterial(material.clone())]),
                 }
@@ -255,7 +277,7 @@ impl Command {
             }
             Command::SetInfo(info) => {
                 if info.name.trim().is_empty() {
-                    return Err(CommandError::Invalid("The project needs a name.".into()));
+                    return Err(invalid("model-error-project-name"));
                 }
                 if &project.info == info {
                     return Err(CommandError::NoChange);
@@ -264,7 +286,7 @@ impl Command {
             }
             Command::SetSpatialNames { site, building } => {
                 if site.trim().is_empty() || building.trim().is_empty() {
-                    return Err(CommandError::Invalid("Site and building need names.".into()));
+                    return Err(invalid("model-error-spatial-names"));
                 }
                 if &project.site.name == site && &project.building.name == building {
                     return Err(CommandError::NoChange);
@@ -282,7 +304,7 @@ impl Command {
                     location.true_north,
                 ];
                 if values.iter().any(|v| !v.is_finite()) {
-                    return Err(CommandError::Invalid("The location has invalid values.".into()));
+                    return Err(invalid("model-error-location-invalid"));
                 }
                 if &project.site.location == location {
                     return Err(CommandError::NoChange);
@@ -296,7 +318,7 @@ impl Command {
 fn find_element(project: &Project, id: ElementId) -> Result<&Element, CommandError> {
     project
         .element(id)
-        .ok_or_else(|| CommandError::NotFound("The element no longer exists.".into()))
+        .ok_or_else(|| not_found("model-error-element-not-found"))
 }
 
 fn storey_edit(project: &Project, list: StoreyList) -> Result<Vec<Edit>, CommandError> {
@@ -314,7 +336,7 @@ fn plan_add_elements(project: &Project, elements: &[Element]) -> Result<Vec<Edit
     let mut counters = project.counters.clone();
     for (i, element) in elements.iter().enumerate() {
         if project.element(element.id).is_some() || elements[..i].iter().any(|e| e.id == element.id) {
-            return Err(CommandError::Invalid("An element with this ID already exists.".into()));
+            return Err(invalid("model-error-duplicate-element-id"));
         }
         let element = validate::validate_element(project, element).map_err(CommandError::Invalid)?;
         counters.bump(element.tag());
@@ -362,7 +384,7 @@ fn plan_update_elements(project: &Project, elements: &[Element]) -> Result<Vec<E
             continue;
         }
         if old.tag() != element.tag() {
-            return Err(CommandError::Invalid("An element cannot change its kind.".into()));
+            return Err(invalid("model-error-kind-change"));
         }
         if let Some(reason) = project.edit_lock_reason(old) {
             let layer_locked = project.layer(old.layer).is_some_and(|l| l.locked);
@@ -370,8 +392,13 @@ fn plan_update_elements(project: &Project, elements: &[Element]) -> Result<Vec<E
                 return Err(CommandError::Locked(reason));
             }
         }
-        let element = validate::validate_element(project, element)
-            .map_err(|e| CommandError::Invalid(format!("{}: {e}", element.name)))?;
+        let element = validate::validate_element(project, element).map_err(|e| {
+            CommandError::Invalid(
+                Message::new("model-error-element-invalid")
+                    .text("name", &element.name)
+                    .nested("reason", e),
+            )
+        })?;
         edits.push(Edit::ReplaceElement(element));
     }
     if edits.is_empty() {
@@ -394,7 +421,7 @@ fn plan_transform_elements(
             let mut e = find_element(project, *id)?.clone();
             e.kind.transform(transform).map_err(|err| match err {
                 TransformError::Unsupported => {
-                    CommandError::Invalid(format!("{} cannot be transformed like this.", e.name))
+                    CommandError::Invalid(Message::new("model-error-transform-unsupported").text("name", &e.name))
                 }
             })?;
             Ok(e)
@@ -432,16 +459,17 @@ fn plan_delete_storey(project: &Project, storey: StoreyId, mode: StoreyElements)
                 StoreyElements::Delete => edits.push(Edit::RemoveElement { id: element.id }),
                 StoreyElements::MoveTo(target) => {
                     if target == storey {
-                        return Err(CommandError::Invalid(
-                            "Choose another storey to move the elements to.".into(),
-                        ));
+                        return Err(invalid("model-error-move-target-same"));
                     }
                     let target_elevation = list
                         .get(target)
-                        .ok_or_else(|| CommandError::NotFound("The target storey does not exist.".into()))?
+                        .ok_or_else(|| not_found("model-error-target-storey-not-found"))?
                         .elevation;
-                    let moved = rehome(project, element, target, target_elevation)
-                        .ok_or_else(|| CommandError::Invalid(format!("{} cannot be moved.", element.name)))?;
+                    let moved = rehome(project, element, target, target_elevation).ok_or_else(|| {
+                        CommandError::Invalid(
+                            Message::new("model-error-element-not-movable").text("name", &element.name),
+                        )
+                    })?;
                     edits.push(Edit::ReplaceElement(moved));
                 }
             }
@@ -468,17 +496,17 @@ fn plan_delete_storey(project: &Project, storey: StoreyId, mode: StoreyElements)
 
 fn check_layer(layer: &Layer) -> Result<(), CommandError> {
     if layer.name.trim().is_empty() {
-        return Err(CommandError::Invalid("A layer needs a name.".into()));
+        return Err(invalid("model-error-layer-name"));
     }
     Ok(())
 }
 
 fn plan_delete_layer(project: &Project, layer: LayerId, reassign_to: LayerId) -> Result<Vec<Edit>, CommandError> {
     if project.layer(layer).is_none() {
-        return Err(CommandError::NotFound("The layer does not exist.".into()));
+        return Err(not_found("model-error-layer-not-found"));
     }
     if layer == reassign_to || project.layer(reassign_to).is_none() {
-        return Err(CommandError::Invalid("Choose another layer for the elements.".into()));
+        return Err(invalid("model-error-reassign-layer"));
     }
     let mut edits: Vec<Edit> = project
         .elements
@@ -510,10 +538,11 @@ fn plan_delete_material(
     replacement: MaterialId,
 ) -> Result<Vec<Edit>, CommandError> {
     if project.material(material).is_none() {
-        return Err(CommandError::NotFound("The material does not exist.".into()));
+        return Err(not_found("model-error-material-not-found"));
     }
+    // DSP-003: deleting a material needs a replacement.
     if material == replacement || project.material(replacement).is_none() {
-        return Err(CommandError::Invalid("Choose a replacement material (DSP-003).".into()));
+        return Err(invalid("model-error-replacement-material"));
     }
     let mut edits: Vec<Edit> = project
         .elements
@@ -539,16 +568,15 @@ fn plan_delete_material(
 }
 
 fn check_tool_defaults(project: &Project, defaults: &ToolDefaults) -> Result<(), CommandError> {
-    let invalid = |m: &str| Err(CommandError::Invalid(m.to_owned()));
     for (layer, material) in [
         (defaults.wall.layer, defaults.wall.material),
         (defaults.slab.layer, defaults.slab.material),
     ] {
         if project.layer(layer).is_none() {
-            return invalid("The default layer does not exist.");
+            return Err(invalid("model-error-default-layer-missing"));
         }
         if project.material(material).is_none() {
-            return invalid("The default material does not exist.");
+            return Err(invalid("model-error-default-material-missing"));
         }
     }
     for (kind, class) in [
@@ -556,7 +584,7 @@ fn check_tool_defaults(project: &Project, defaults: &ToolDefaults) -> Result<(),
         (KindTag::Slab, defaults.slab.ifc_class),
     ] {
         if !kind.descriptor().ifc_classes.contains(&class) {
-            return invalid("The default IFC class is not allowed for this tool.");
+            return Err(invalid("model-error-default-ifc-class"));
         }
     }
     let probe_wall = crate::kinds::Wall {
@@ -572,29 +600,29 @@ fn check_tool_defaults(project: &Project, defaults: &ToolDefaults) -> Result<(),
     if let TopLink::Storey { storey, .. } = defaults.wall.top
         && project.storeys.get(storey).is_none()
     {
-        return invalid("The storey the wall top is linked to does not exist.");
+        return Err(invalid("model-error-wall-top-storey-missing"));
     }
-    if !(validate::MIN_THICKNESS..=validate::MAX_THICKNESS).contains(&defaults.slab.thickness)
-        || !defaults.slab.offset.is_finite()
-    {
-        return invalid("Slab thickness must be between 1 mm and 10 m.");
-    }
+    validate::check_thickness(defaults.slab.thickness).map_err(CommandError::Invalid)?;
+    validate::check_offset(defaults.slab.offset, "model-error-slab-offset-range").map_err(CommandError::Invalid)?;
     Ok(())
 }
 
+/// Largest number of decimals the length and angle display may use.
+const MAX_DECIMALS: u8 = 8;
+
 fn check_settings(settings: &ProjectSettings) -> Result<(), CommandError> {
-    if !settings.cut_plane_height.is_finite() || settings.cut_plane_height.abs() > 100.0 {
-        return Err(CommandError::Invalid("The cut-plane height is out of range.".into()));
+    if !settings.cut_plane_height.is_finite() || settings.cut_plane_height.abs() > MAX_CUT_PLANE_HEIGHT {
+        return Err(CommandError::Invalid(
+            Message::new("model-error-cut-plane-range").length("max", MAX_CUT_PLANE_HEIGHT),
+        ));
     }
     let t = settings.tessellation;
     if !(t.chord_deviation > 0.0 && t.chord_deviation <= 1.0) || !(t.max_angle_deg > 0.0 && t.max_angle_deg <= 90.0) {
-        return Err(CommandError::Invalid(
-            "The tessellation tolerances are out of range.".into(),
-        ));
+        return Err(invalid("model-error-tessellation-range"));
     }
-    if settings.units.length_decimals > 8 || settings.units.angle_decimals > 8 {
+    if settings.units.length_decimals > MAX_DECIMALS || settings.units.angle_decimals > MAX_DECIMALS {
         return Err(CommandError::Invalid(
-            "Display precision is limited to 8 decimals.".into(),
+            Message::new("model-error-display-precision").count("max", usize::from(MAX_DECIMALS)),
         ));
     }
     settings.plan_grid.check().map_err(CommandError::Invalid)?;
@@ -626,7 +654,6 @@ pub enum Edit {
 impl Edit {
     /// Applies the edit and returns its inverse.
     pub fn apply(self, project: &mut Project) -> Result<Edit, CommandError> {
-        let missing = |what: &str| CommandError::NotFound(format!("The {what} no longer exists."));
         let inverse = match self {
             Edit::InsertElement { index, element } => {
                 let id = element.id;
@@ -638,14 +665,14 @@ impl Edit {
                 let (index, _, element) = project
                     .elements
                     .shift_remove_full(&id)
-                    .ok_or_else(|| missing("element"))?;
+                    .ok_or_else(|| not_found("model-error-element-not-found"))?;
                 Edit::InsertElement { index, element }
             }
             Edit::ReplaceElement(element) => {
                 let slot = project
                     .elements
                     .get_mut(&element.id)
-                    .ok_or_else(|| missing("element"))?;
+                    .ok_or_else(|| not_found("model-error-element-not-found"))?;
                 Edit::ReplaceElement(std::mem::replace(slot, element))
             }
             Edit::SetStoreys(list) => Edit::SetStoreys(std::mem::replace(&mut project.storeys, list)),
@@ -660,7 +687,7 @@ impl Edit {
                     .layers
                     .iter()
                     .position(|l| l.id == id)
-                    .ok_or_else(|| missing("layer"))?;
+                    .ok_or_else(|| not_found("model-error-layer-not-found"))?;
                 Edit::InsertLayer {
                     index,
                     layer: project.layers.remove(index),
@@ -671,7 +698,7 @@ impl Edit {
                     .layers
                     .iter_mut()
                     .find(|l| l.id == layer.id)
-                    .ok_or_else(|| missing("layer"))?;
+                    .ok_or_else(|| not_found("model-error-layer-not-found"))?;
                 Edit::ReplaceLayer(std::mem::replace(slot, layer))
             }
             Edit::InsertMaterial { index, material } => {
@@ -685,7 +712,7 @@ impl Edit {
                     .materials
                     .iter()
                     .position(|m| m.id == id)
-                    .ok_or_else(|| missing("material"))?;
+                    .ok_or_else(|| not_found("model-error-material-not-found"))?;
                 Edit::InsertMaterial {
                     index,
                     material: project.materials.remove(index),
@@ -696,7 +723,7 @@ impl Edit {
                     .materials
                     .iter_mut()
                     .find(|m| m.id == material.id)
-                    .ok_or_else(|| missing("material"))?;
+                    .ok_or_else(|| not_found("model-error-material-not-found"))?;
                 Edit::ReplaceMaterial(std::mem::replace(slot, material))
             }
             Edit::SetToolDefaults(defaults) => {
