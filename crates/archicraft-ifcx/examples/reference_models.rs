@@ -1,10 +1,11 @@
 //! Writes the reference models as IFCX files into a directory, for golden
 //! files and conformance tests (SRS 7.3, NFR-MNT-003).
 //!
-//! Usage: `cargo run -p archicraft-ifcx --example reference_models -- [--indented] <dir>`
+//! Every model is written twice: compact as `<name>.ifcx` and indented,
+//! human-readable as `<name>-indented.ifcx` (IFX-008), so that conformance
+//! checks both layouts the application can save.
 //!
-//! `--indented` writes indented, human-readable IFCX (IFX-008) as
-//! `<name>-indented.ifcx`, so that conformance also checks that layout.
+//! Usage: `cargo run -p archicraft-ifcx --example reference_models -- <dir>`
 
 use std::path::PathBuf;
 
@@ -13,16 +14,11 @@ use archicraft_ifcx::WriteOptions;
 use archicraft_model::samples;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: reference_models [--indented] <output directory>";
-    let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let indented = args.first().is_some_and(|a| a == "--indented");
-    if indented {
-        args.remove(0);
-    }
-    let [dir] = args.as_slice() else {
-        return Err(usage.into());
-    };
-    let dir = PathBuf::from(dir);
+    let dir = PathBuf::from(
+        std::env::args()
+            .nth(1)
+            .ok_or("usage: reference_models <output directory>")?,
+    );
     std::fs::create_dir_all(&dir)?;
     let options = WriteOptions {
         author: "ArchiCraft reference models".into(),
@@ -34,14 +30,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("two-storey-shell", samples::two_storey_shell()),
     ] {
         let geometry = ModelGeometry::evaluate(&project);
-        let (bytes, warnings) = archicraft_ifcx::save(&project, &geometry, &options, indented);
-        for w in warnings {
-            eprintln!("{name}: {w}");
+        for (suffix, indented) in [("", false), ("-indented", true)] {
+            let (bytes, warnings) = archicraft_ifcx::save(&project, &geometry, &options, indented);
+            for w in warnings {
+                eprintln!("{name}{suffix}: {w}");
+            }
+            let path = dir.join(format!("{name}{suffix}.ifcx"));
+            std::fs::write(&path, bytes)?;
+            println!("{}", path.display());
         }
-        let suffix = if indented { "-indented" } else { "" };
-        let path = dir.join(format!("{name}{suffix}.ifcx"));
-        std::fs::write(&path, bytes)?;
-        println!("{}", path.display());
     }
     Ok(())
 }

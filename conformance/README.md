@@ -7,7 +7,6 @@ tools under Node.js; nothing here ships with the product.
 
 ```bash
 cargo run --locked -p archicraft-ifcx --example reference_models -- target/reference-models
-cargo run --locked -p archicraft-ifcx --example reference_models -- --indented target/reference-models
 conformance/run.sh target/reference-models/*.ifcx crates/archicraft-ifcx/tests/golden/*.ifcx
 ```
 
