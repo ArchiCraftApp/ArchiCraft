@@ -5,6 +5,10 @@
 //! are formatted here: the shortest representation that reads back as the
 //! same `f64`, rewritten without an exponent. Object members keep their
 //! insertion order.
+//!
+//! Rounding is not done here: the writer rounds standard-namespace
+//! coordinates with [`round_coordinate`] and leaves `archicraft::`
+//! parameters at full precision (NFR-ACC-002), see [`crate::alpha::writer`].
 
 use serde_json::{Number, Value};
 

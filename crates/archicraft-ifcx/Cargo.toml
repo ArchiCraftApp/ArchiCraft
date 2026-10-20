@@ -23,6 +23,7 @@ uuid.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+insta.workspace = true
 jsonschema.workspace = true
 
 [[bench]]

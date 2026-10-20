@@ -63,6 +63,10 @@ jsonschema = { version = "0.58.6", default-features = false }
 # target/criterion are what the regression gate reads.
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 
+# Snapshot tests of IFCX output, reviewed as JSON diffs (IFX-007,
+# docs/testing.md). Without the default colours: no terminal dependencies.
+insta = { version = "=1.49.0", default-features = false }
+
 # Localization (NFR-L10N-001): Fluent message catalogues in archicraft-app.
 fluent-bundle = "0.16.0"
 fluent-syntax = "0.12.0"
