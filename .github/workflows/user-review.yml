@@ -1,0 +1,41 @@
+name: User review
+
+# docs/loop.md: a pull request that changes the CI workflows or the hook wiring waits for the
+# user's review. pull_request_target runs this workflow and its script as the base branch defines
+# them, so a PR cannot change the decision for itself (archicraft-9nlk). It checks out the base and
+# fetches the PR's commits as data: nothing from the PR runs, which is what makes
+# pull_request_target safe here. The required status "User review" (setup-github.sh) keeps
+# auto-merge from merging such a PR; the user merges it after the review.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  # The script posts the status "User review" on the PR's head commit.
+  statuses: write
+
+concurrency:
+  group: user-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  user-review:
+    name: User review check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # The base branch, not the PR: no ref here.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch the PR's commits (read, never run)
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --quiet --no-tags origin "$HEAD_SHA"
+      - name: Report whether the PR waits for the user's review
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: scripts/loop/ci-user-review.sh

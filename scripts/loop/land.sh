@@ -3,6 +3,7 @@
 # its pull request and turns on auto-merge, so GitHub merges it once the required CI checks
 # pass. A PR that changes the CI workflows or the hook wiring (LOOP_USER_REVIEW_PATHS, as the
 # base or the branch defines it) or that pattern itself waits for the user's review instead.
+# CI enforces that from the base's copy whatever this script does (ci-user-review.sh).
 # Records the PR on the bead, which stays in progress until sweep.sh sees the merge.
 # Usage: scripts/loop/land.sh [--rebased]   (--rebased pushes with --force-with-lease)
 set -euo pipefail
