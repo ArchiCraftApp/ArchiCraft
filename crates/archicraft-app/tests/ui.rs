@@ -177,3 +177,19 @@ fn unreadable_or_oversized_file_shows_cannot_open() {
         assert!(harness.query_by_label("Cannot open the project").is_none());
     }
 }
+
+/// A damaged file opens, and the load report lists what was skipped or
+/// repaired (PRJ-008): here a layer record that is not an object.
+#[test]
+fn a_damaged_file_opens_with_the_load_report() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../archicraft-ifcx/tests/corrupt/non-object-layer.ifcx");
+    let mut harness = harness("load-report");
+    harness.state_mut().open_path(&path);
+    harness.run_steps(2);
+    harness.get_by_label("The project was opened with problems");
+    harness.get_by_label_contains("layer record 1 skipped");
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    assert!(harness.query_by_label("The project was opened with problems").is_none());
+}

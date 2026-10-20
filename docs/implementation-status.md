@@ -10,18 +10,18 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
-| done | 58 | 4 | 0 | 62 |
-| partial | 118 | 36 | 6 | 160 |
+| done | 59 | 4 | 0 | 63 |
+| partial | 117 | 36 | 6 | 159 |
 | missing | 138 | 159 | 48 | 345 |
 | **total** | 314 | 199 | 54 | 567 |
 
-Remaining effort of the 505 open requirements: S 124, M 218, L 138, XL 25.
+Remaining effort of the 504 open requirements: S 123, M 218, L 138, XL 25.
 
 ## Per-section status (done/partial/missing)
 
 | Section | Title | Must | Should | Could | Total |
 |---|---|---|---|---|---:|
-| 4.1 | Project and file management | 2/4/0 | 1/1/4 | 0/1/0 | 13 |
+| 4.1 | Project and file management | 3/3/0 | 1/1/4 | 0/1/0 | 13 |
 | 4.2 | Project structure, location and units | 7/5/0 | 0/0/2 | 0/0/1 | 15 |
 | 4.3 | Workspace and user interface | 1/7/0 | 1/6/1 | 0/0/1 | 17 |
 | 4.4 | Views and navigation | 2/8/8 | 0/2/15 | 0/0/3 | 38 |
@@ -191,7 +191,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | PRJ-005 | M | done | none | Done: crates/archicraft-app/src/persistence/mod.rs:70-108 save_atomically (temp file in target folder, sync_all, backup rotation, rename), 52-63 backup_path → 'house.ifcx.bak', 'house.ifcx.bak2' (the open dialog filters on the if… |
 | PRJ-006 | S | missing | M | No per-project lock or in-use detection, no warning, no read-only open mode (would need Save disabled and a read-only indicator). |
 | PRJ-007 | M | partial | S | Layer structures, profiles, presets and stair rule defaults are not in the model, so not stored (they belong to other areas). Personal settings: the tab/split layout is not persisted (tile tree rebuilt by default_tree, app.rs:81-… |
-| PRJ-008 | M | partial | S | A few things are dropped or defaulted silently, violating 'never omit silently': layer records that are not objects (reader.rs:266 `as_object()?`), malformed view records (reader.rs:391-405 filter_map with `.ok()?`), a missing/in… |
+| PRJ-008 | M | done | none | Done: the reader loads every valid part and reports each skipped or repaired record as “<record> skipped: …” or “<record> repaired: …” at the project, storey or element node (crates/archicraft-ifcx/src/alpha/reader.rs Report::skipped/repaired; module docs list the optional fields whose absence is no problem). Pinned by crates/archicraft-ifcx/tests/corrupt.rs (ten committed fixtures under tests/corrupt/, no_record_disappears_silently) and a_damaged_file_opens_with_the_load_report (crates/archicraft-app/tests/ui.rs). Referential-integrity repairs beyond the reader stay with NFR-REL-004. |
 | PRJ-009 | S | missing | L | No start screen: no New-with-template-choice, no Open, no searchable recent list, no thumbnails (needs a snapshot rendered at save and cached outside the project). |
 | PRJ-013 | C | partial | S | Nothing in the UI offers a sample project; needs a start-screen entry (or menu item) that opens samples::two_storey_shell(). |
 | PRJ-010 | S | done | none | Done. round-trip tests only cover samples with empty info fields except name |
