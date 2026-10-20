@@ -1,25 +1,37 @@
 //! Regression net for the done application requirements (UI-006, UI-007,
 //! STR-003, STR-004, NFR-USE-004, VIEW-002, VIEW-014, WAL-001,
-//! NFR-PORT-005).
+//! NFR-PORT-005, PRJ-004, NFR-REL-002, PRJ-005, NFR-REL-001, NFR-REL-003,
+//! IFX-001, IFX-002, UND-001, ELM-004, NFR-ACC-005, XCH-008).
 //!
 //! Every test is named after the requirement it pins, so the traceability
 //! table in docs/testing.md and the status script can find it. The tests run
 //! the whole application without a GPU and find widgets by their accessible
 //! labels (AccessKit). Tests that already exist elsewhere (the unit tests in
-//! camera.rs and tools/mod.rs) are referenced in docs/testing.md rather than
-//! repeated here.
+//! camera.rs, tools/mod.rs and persistence/) are referenced in docs/testing.md
+//! rather than repeated here.
 
 mod common;
 
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
 use archicraft_app::ArchiCraftApp;
+use archicraft_app::app::{IFCX_EXTENSIONS, with_ifcx_extension};
 use archicraft_app::input::{InputConsumer, Outcome};
+use archicraft_app::persistence::autosave::{RecoveryInfo, Session, write_autosave};
+use archicraft_app::persistence::prefs::{Preferences, SeparatorChoice};
+use archicraft_app::persistence::{DataDirs, backup_path};
 use archicraft_app::tools::{ToolKind, WallMode};
 use archicraft_app::views::camera::Camera2d;
 use archicraft_app::workspace::{Pane, SceneKey};
+use archicraft_geometry::ModelGeometry;
+use archicraft_ifcx::IfcxFile;
+use archicraft_ifcx::container::Header;
 use archicraft_model::glam::DVec2;
 use archicraft_model::project::Projection;
-use archicraft_model::{Command, ElementId, StoreyId, ViewId};
-use common::{assert_present, harness, harness_at};
+use archicraft_model::{Command, ElementId, ElementKind, StoreyId, ViewId};
+use common::{assert_present, data_dir, harness, harness_at, harness_in};
 use egui::accesskit::Role;
 use egui::{Event, Id, Key, Modifiers, MouseWheelUnit, PointerButton, Pos2, Rect, TouchPhase, Vec2};
 use egui_kittest::Harness;
@@ -676,4 +688,344 @@ fn nfr_port_005_main_window_at_100_to_200_percent_scaling() {
             assert_present(&h, label);
         }
     }
+}
+
+/// A fresh, empty folder for the project files of the test `name`.
+fn project_folder(name: &str) -> PathBuf {
+    let folder = data_dir(&format!("{name}-files"));
+    fs::create_dir_all(&folder).expect("the project folder");
+    folder
+}
+
+/// The names of the files in `folder`, sorted.
+fn file_names(folder: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(folder)
+        .expect("the folder")
+        .map(|e| e.expect("an entry").file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// The header of the IFCX file at `path`.
+fn header(path: &Path) -> Header {
+    let file: IfcxFile = serde_json::from_slice(&fs::read(path).expect("the saved file")).expect("an IFCX file");
+    file.header
+}
+
+/// Saves with Ctrl+S, which writes to the project's own path without a
+/// dialog once it has one.
+fn save_with_shortcut(h: &mut App) {
+    assert!(
+        h.state_mut().workspace().doc.path.is_some(),
+        "the project has no path yet"
+    );
+    h.key_press_modifiers(CTRL, Key::S);
+    h.run_steps(2);
+}
+
+/// Waits up to ten seconds for the autosave thread to write `path`.
+fn wait_for(path: &Path) -> bool {
+    let until = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < until {
+        if path.exists() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    path.exists()
+}
+
+/// PRJ-004 and NFR-REL-002: an autosave left in the recovery folder by a
+/// session that ended abnormally is offered at the next start, and Recover
+/// opens it.
+#[test]
+fn prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start() {
+    let dir = data_dir("prj-004");
+    let recovery = DataDirs::at(&dir).recovery();
+    let project = archicraft_model::samples::storey_with_walls_and_slab();
+    let info = RecoveryInfo {
+        project_name: "Crashed house".into(),
+        original_path: None,
+        saved_at: "2026-10-20T08:00:00Z".into(),
+    };
+    let crashed = Session::start(&recovery).expect("a session");
+    write_autosave(
+        crashed.dir(),
+        &project,
+        &ModelGeometry::evaluate(&project),
+        &info,
+        "Test",
+    )
+    .expect("the autosave");
+    let crashed_dir = crashed.dir().to_owned();
+    // Releases the lock without removing the folder, as a crash would. The
+    // new name keeps it apart from the session the application starts.
+    drop(crashed);
+    let abandoned = recovery.join("session-abandoned");
+    fs::rename(crashed_dir, &abandoned).expect("the abandoned session");
+
+    let mut h = harness_in(&dir, Preferences::default(), 1.0);
+    assert_present(&h, "Recover unsaved work");
+    h.get_by_label("Crashed house — autosaved 2026-10-20T08:00:00Z (never saved)");
+    h.get_by_label("Recover").click();
+    h.run_steps(2);
+    assert!(h.query_all_by_label("Recover unsaved work").next().is_none());
+    let ws = h.state_mut().workspace();
+    assert_eq!(ws.doc.project.elements.len(), project.elements.len());
+    assert!(!abandoned.exists(), "the recovered session is removed");
+}
+
+/// PRJ-004 and NFR-REL-002: the application autosaves to its own session
+/// folder under the recovery folder, never next to the project, once the
+/// interval of `prefs.autosave_minutes` has passed.
+#[test]
+fn prj_004_nfr_rel_002_autosaves_follow_the_preference_interval() {
+    let dir = data_dir("prj-004-interval");
+    let mut h = harness_in(&dir, Preferences::default(), 1.0);
+    assert_eq!(h.state_mut().workspace().prefs.autosave_minutes, 5);
+    let sessions: Vec<PathBuf> = fs::read_dir(DataDirs::at(&dir).recovery())
+        .expect("the recovery folder")
+        .map(|e| e.expect("an entry").path())
+        .collect();
+    let [session] = sessions.as_slice() else {
+        panic!("one session folder expected: {sessions:?}");
+    };
+    let autosave = session.join("autosave.json");
+
+    // An edit within the five minutes is not autosaved yet.
+    add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
+    h.run_steps(3);
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!autosave.exists(), "autosaved before the interval passed");
+
+    // With an interval of zero minutes the next frame autosaves.
+    h.state_mut().workspace().prefs.autosave_minutes = 0;
+    h.run_steps(1);
+    assert!(wait_for(&autosave), "no autosave in {}", session.display());
+    let model = fs::read(session.join("autosave.ifcx")).expect("the autosaved model");
+    let saved = archicraft_ifcx::load(&model).expect("a readable autosave");
+    assert_eq!(saved.project.elements.len(), 1);
+    assert_eq!(h.state_mut().workspace().doc.path, None, "no project file was written");
+}
+
+/// PRJ-005, NFR-REL-001 and NFR-REL-003: every save replaces the file
+/// atomically and keeps the previous version as a backup, as many as
+/// `prefs.backups` (default 1); no temporary file is left, and the backups
+/// do not have the extension the open dialog lists.
+#[test]
+fn prj_005_nfr_rel_001_nfr_rel_003_saves_are_atomic_with_configurable_backups() {
+    let mut h = harness("prj-005");
+    assert_eq!(h.state_mut().workspace().prefs.backups, 1);
+    let folder = project_folder("prj-005");
+    let path = folder.join("house.ifcx");
+    let (bak, bak2) = (folder.join("house.ifcx.bak"), folder.join("house.ifcx.bak2"));
+    assert_eq!(
+        (backup_path(&path, 1), backup_path(&path, 2)),
+        (bak.clone(), bak2.clone())
+    );
+
+    add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
+    assert!(h.state_mut().save_to(&path));
+    assert_eq!(file_names(&folder), ["house.ifcx"]);
+    let first = fs::read(&path).expect("the first save");
+
+    add_wall(&mut h, DVec2::new(4.0, 0.0), DVec2::new(4.0, 3.0));
+    save_with_shortcut(&mut h);
+    let second = fs::read(&path).expect("the second save");
+    assert_ne!(second, first);
+    assert_eq!(file_names(&folder), ["house.ifcx", "house.ifcx.bak"]);
+    assert_eq!(fs::read(&bak).expect("the backup"), first);
+
+    h.state_mut().workspace().prefs.backups = 2;
+    add_wall(&mut h, DVec2::new(4.0, 3.0), DVec2::new(0.0, 3.0));
+    save_with_shortcut(&mut h);
+    assert_eq!(file_names(&folder), ["house.ifcx", "house.ifcx.bak", "house.ifcx.bak2"]);
+    assert_eq!(fs::read(&bak).expect("the newest backup"), second);
+    assert_eq!(fs::read(&bak2).expect("the older backup"), first);
+
+    // The open dialog lists only IFCX files, which the backups are not.
+    assert_eq!(IFCX_EXTENSIONS, ["ifcx"]);
+    let listed = |p: &Path| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| IFCX_EXTENSIONS.contains(&e))
+    };
+    assert!(listed(&path));
+    assert!(!listed(&bak) && !listed(&bak2), "backups are listed by the open dialog");
+}
+
+/// IFX-001: a file name chosen without an extension is saved with .ifcx; a
+/// name with an extension is kept.
+#[test]
+fn ifx_001_save_adds_the_ifcx_extension() {
+    let folder = Path::new("projects");
+    assert_eq!(with_ifcx_extension(PathBuf::from("house")), PathBuf::from("house.ifcx"));
+    assert_eq!(with_ifcx_extension(folder.join("house")), folder.join("house.ifcx"));
+    assert_eq!(
+        with_ifcx_extension(folder.join("house.ifcx")),
+        folder.join("house.ifcx")
+    );
+    assert_eq!(
+        with_ifcx_extension(folder.join("house.v2.ifcx")),
+        folder.join("house.v2.ifcx")
+    );
+}
+
+/// IFX-002: every save writes the next dataVersion, and the author is the
+/// author of the preferences, by default "ArchiCraft user".
+#[test]
+fn ifx_002_every_save_increments_data_version_and_writes_the_author() {
+    let mut h = harness("ifx-002");
+    assert_eq!(h.state_mut().workspace().prefs.author, "ArchiCraft user");
+    let n = h.state_mut().workspace().doc.project.data_version;
+    let path = project_folder("ifx-002").join("house.ifcx");
+
+    assert!(h.state_mut().save_to(&path));
+    let first = header(&path);
+    assert_eq!(first.data_version, (n + 1).to_string());
+    assert_eq!(first.author, "ArchiCraft user");
+
+    h.state_mut().workspace().prefs.author = "Jane Architect".into();
+    save_with_shortcut(&mut h);
+    let second = header(&path);
+    assert_eq!(second.data_version, (n + 2).to_string());
+    assert_eq!(second.author, "Jane Architect");
+}
+
+/// UND-001: saving does not clear the history; Ctrl+Z after a save undoes
+/// the last edit.
+#[test]
+fn und_001_saving_keeps_the_undo_history() {
+    let mut h = harness("und-001");
+    let kept = add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
+    let last = add_wall(&mut h, DVec2::new(4.0, 0.0), DVec2::new(4.0, 3.0));
+    let stack = |h: &mut App| {
+        let history = &h.state_mut().workspace().doc.history;
+        (history.undo_len(), history.undo_label())
+    };
+    let before = stack(&mut h);
+    assert_eq!(before.0, 2);
+
+    assert!(h.state_mut().save_to(&project_folder("und-001").join("house.ifcx")));
+    h.run_steps(2);
+    assert_eq!(stack(&mut h), before, "saving changed the undo stack");
+
+    h.key_press_modifiers(CTRL, Key::Z);
+    h.run_steps(2);
+    let project = &h.state_mut().workspace().doc.project;
+    assert!(project.element(last).is_none(), "Ctrl+Z did not undo the last edit");
+    assert!(project.element(kept).is_some());
+}
+
+/// The text field of the properties strip that shows `value`.
+fn strip_field(value: &str) -> By<'_> {
+    By::new().role(Role::TextInput).value(value)
+}
+
+/// ELM-004: the properties strip of one selected wall has an editable Name
+/// field, and committing it renames the wall through UpdateElements; with
+/// two walls selected there is no Name field.
+#[test]
+fn elm_004_the_properties_strip_renames_a_single_wall() {
+    let mut h = harness("elm-004");
+    let wall = add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
+    let other = add_wall(&mut h, DVec2::new(4.0, 0.0), DVec2::new(4.0, 3.0));
+    let name_of = |h: &mut App, id: ElementId| {
+        let project = &h.state_mut().workspace().doc.project;
+        project.element(id).map(|e| e.name.clone()).expect("the wall")
+    };
+    let name = name_of(&mut h, wall);
+    h.state_mut().workspace().selection.insert(wall);
+    h.run_steps(2);
+    assert_present(&h, "Name");
+
+    h.get(strip_field(&name)).click();
+    h.run_steps(1);
+    h.get(strip_field(&name)).type_text("North wall");
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert_eq!(name_of(&mut h, wall), "North wall");
+    let history = &h.state_mut().workspace().doc.history;
+    assert!(
+        matches!(history.applied_commands().last(), Some(Command::UpdateElements(e)) if e.len() == 1 && e[0].id == wall),
+        "the rename is not an UpdateElements of the wall"
+    );
+
+    let other_name = name_of(&mut h, other);
+    h.state_mut().workspace().selection.insert(other);
+    h.run_steps(2);
+    assert!(h.query_all(strip_field("North wall")).next().is_none());
+    assert!(h.query_all(strip_field(&other_name)).next().is_none());
+}
+
+/// NFR-ACC-005: the properties strip shows a wall thickness of 0.123456 m
+/// rounded to 0.123, and committing the field unedited leaves the stored
+/// value bit-identical.
+#[test]
+fn nfr_acc_005_property_fields_round_only_the_display() {
+    let prefs = Preferences {
+        decimal_separator: SeparatorChoice::Point,
+        ..Preferences::default()
+    };
+    let mut h = harness_in(&data_dir("nfr-acc-005"), prefs, 1.0);
+    let thickness = 0.123456;
+    let wall = {
+        let ws = h.state_mut().workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let mut wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+        if let ElementKind::Wall(w) = &mut wall.kind {
+            w.thickness = thickness;
+        }
+        let id = wall.id;
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+        ws.selection.insert(id);
+        id
+    };
+    h.run_steps(2);
+    let stored = |h: &mut App| {
+        let project = &h.state_mut().workspace().doc.project;
+        project
+            .element(wall)
+            .and_then(|e| e.as_wall())
+            .map(|w| w.thickness.to_bits())
+    };
+    assert_eq!(stored(&mut h), Some(thickness.to_bits()));
+    let undo_len = h.state_mut().workspace().doc.history.undo_len();
+
+    h.get(strip_field("0.123")).click();
+    h.run_steps(1);
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert_eq!(stored(&mut h), Some(thickness.to_bits()), "the shown value was stored");
+    assert_eq!(h.state_mut().workspace().doc.history.undo_len(), undo_len);
+    h.get(strip_field("0.123"));
+}
+
+/// XCH-008: a saved file opens through the application without load
+/// problems, and its elements accept UpdateElements.
+#[test]
+fn xch_008_a_saved_file_opens_editable_without_problems() {
+    let path = project_folder("xch-008").join("house.ifcx");
+    let wall = {
+        let mut h = harness("xch-008-save");
+        let wall = add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
+        assert!(h.state_mut().save_to(&path));
+        wall
+    };
+
+    let mut h = harness("xch-008-open");
+    h.state_mut().open_path(&path);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().prompt_title(), None, "the file opened with a prompt");
+    assert_present(&h, "No problems");
+    let ws = h.state_mut().workspace();
+    assert_eq!(ws.doc.path.as_deref(), Some(path.as_path()));
+    let mut renamed = ws.doc.project.element(wall).cloned().expect("the saved wall");
+    renamed.name = "Opened wall".into();
+    assert!(ws.execute(Command::UpdateElements(vec![renamed])));
+    assert_eq!(
+        ws.doc.project.element(wall).map(|e| e.name.as_str()),
+        Some("Opened wall")
+    );
 }

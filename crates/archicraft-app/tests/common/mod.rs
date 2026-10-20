@@ -1,6 +1,7 @@
 //! The test harness shared by the UI test crates: the application without a
 //! GPU, its widgets found by their accessible labels (AccessKit).
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use archicraft_app::ArchiCraftApp;
@@ -20,14 +21,21 @@ pub fn harness(name: &str) -> Harness<'static, ArchiCraftApp> {
 /// The application at `pixels_per_point` (NFR-PORT-005: 1.0 to 2.0 is 100 to
 /// 200 % scaling).
 pub fn harness_at(name: &str, pixels_per_point: f32) -> Harness<'static, ArchiCraftApp> {
+    harness_in(&data_dir(name), Preferences::default(), pixels_per_point)
+}
+
+/// An empty data folder for the test `name`, keyed by the process id, so
+/// tests running in parallel do not share recovery folders.
+pub fn data_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("archicraft-ui-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let app = ArchiCraftApp::new(
-        DataDirs::at(&dir),
-        Preferences::default(),
-        Arc::new(RecentLog::default()),
-        None,
-    );
+    dir
+}
+
+/// The application with its data in `dir`, as left by the test, and with
+/// `prefs`.
+pub fn harness_in(dir: &Path, prefs: Preferences, pixels_per_point: f32) -> Harness<'static, ArchiCraftApp> {
+    let app = ArchiCraftApp::new(DataDirs::at(dir), prefs, Arc::new(RecentLog::default()), None);
     let mut harness = Harness::builder()
         .with_size(egui::vec2(1400.0, 900.0))
         .with_pixels_per_point(pixels_per_point)
