@@ -375,13 +375,50 @@ mod tests {
         }
     }
 
+    /// Set in the child process that [`alone_in_a_child_process`] starts.
+    const CHILD_TEST_ENV: &str = "ARCHICRAFT_I18N_CHILD_TEST";
+
+    /// Runs the test named `test` (its path inside this crate) in a child
+    /// process of this test binary, the only test there, and fails unless it
+    /// passed. In the child, `body` runs.
+    ///
+    /// tracing caches each callsite's interest process-wide. Another test
+    /// thread that is first to reach a shared callsite, while only one
+    /// dispatcher is registered, may store "never" even after this test has
+    /// installed its subscriber; no test-local setup closes that race.
+    fn alone_in_a_child_process(test: &str, body: impl FnOnce()) {
+        if std::env::var_os(CHILD_TEST_ENV).is_some() {
+            body();
+            return;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([test, "--exact", "--test-threads=1"])
+            .env(CHILD_TEST_ENV, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "{test} in a child process:\n{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     #[test]
     fn a_missing_key_is_visible_and_logged_once() {
-        // tracing caches each callsite's interest globally. While a single
-        // dispatcher is registered, a callsite first hit on another test
-        // thread asks only that thread's (no-op) default and caches "never",
-        // which hides the warning from this thread's subscriber. A second
-        // live dispatcher makes every registration ask all of them, ours too.
+        alone_in_a_child_process(
+            "i18n::tests::a_missing_key_is_visible_and_logged_once",
+            a_missing_key_is_visible_and_logged_once_here,
+        );
+    }
+
+    /// NFR-L10N-001: a missing key shows the key itself and warns once.
+    fn a_missing_key_is_visible_and_logged_once_here() {
+        // While a single dispatcher is registered, a callsite first reached on
+        // a thread without a subscriber asks only that thread's (no-op)
+        // default and caches "never", which hides the warning from this
+        // thread's subscriber. A second live dispatcher makes every
+        // registration ask all of them, ours too.
         let _second_dispatcher = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
         let warnings = Arc::new(AtomicUsize::new(0));
         let subscriber = tracing_subscriber::registry().with(CountWarnings(Arc::clone(&warnings)));
