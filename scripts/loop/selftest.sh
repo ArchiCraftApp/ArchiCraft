@@ -57,8 +57,9 @@ cat >"$work/bin/gh" <<'EOF'
 # Stub: every call goes to FAKE_GH_LOG. pr view answers the open PR's url from FAKE_GH_URL
 # (--json url,state), whether auto-merge is on from FAKE_GH_AUTO (--json autoMergeRequest) and
 # the state from FAKE_GH_STATE otherwise; pr create prints a url; pr diff prints the files in
-# FAKE_GH_FILES, or fails when FAKE_GH_FAIL is set. pr create and pr edit copy the PR body
-# (--body-file) to FAKE_GH_BODY when it is set.
+# FAKE_GH_FILES, or fails when FAKE_GH_FAIL is set; pr view --json labels prints FAKE_GH_LABELS,
+# or fails when FAKE_GH_FAIL is set. pr create and pr edit copy the PR body (--body-file) to
+# FAKE_GH_BODY when it is set.
 [ -n "${FAKE_GH_LOG:-}" ] && echo "$*" >>"$FAKE_GH_LOG"
 if [ -n "${FAKE_GH_BODY:-}" ]; then
     prev=""
@@ -68,6 +69,7 @@ case "$1 $2" in
     "pr view")
         case "$*" in
             *url,state*) echo "${FAKE_GH_URL:-}" ;;
+            *"--json labels"*) [ -z "${FAKE_GH_FAIL:-}" ] || exit 1; echo "${FAKE_GH_LABELS:-}" ;;
             *autoMergeRequest*) echo "${FAKE_GH_AUTO:-false}" ;;
             *) echo "${FAKE_GH_STATE:-}" ;;
         esac
@@ -387,6 +389,16 @@ git commit -qam loop
 expect "loop change in a feature bead" fail "$(ci bead/archicraft-ab12.1-demo 'archicraft-ab12.1: x' format-change)"
 expect "loop change in a loop bead" pass "$(ci bead/archicraft-ab12.1-demo 'archicraft-ab12.1: x' format-change,loop)"
 expect "loop change outside the loop" pass "$(ci claude/setup 'Set up the loop' format-change)"
+# In CI (PR_NUMBER set) the labels come live from gh, not from the event payload: land.sh's
+# gh pr create attaches them after the opened event (archicraft-z9yp).
+ci_live() { # ci_live <live labels> <payload labels> [fail]: ci-check with PR_NUMBER
+    FAKE_GH_LABELS="$1" FAKE_GH_FAIL="${3:-}" PR_NUMBER=9 \
+        ci bead/archicraft-ab12.1-demo 'archicraft-ab12.1: x' "$2"
+}
+expect "labels attached after opening, read live" pass "$(ci_live format-change,loop '')"
+expect "loop change without the live label loop" fail "$(ci_live format-change format-change,loop)"
+expect "golden change without the live label format-change" fail "$(ci_live loop format-change,loop)"
+expect "labels that cannot be read live" fail "$(ci_live format-change,loop format-change,loop fail)"
 # A pull_request run checks out the PR merged into the base as it is now (refs/pull/N/merge),
 # while BASE_SHA stays at the base the PR was opened against.
 pr_merge() { # pr_merge <branch>: detach at the merge of <branch> into moved-base

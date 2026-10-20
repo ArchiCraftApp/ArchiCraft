@@ -79,6 +79,10 @@ jobs:
   loop-policy:
     name: Loop policy
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # ci-check.sh reads the PR labels live: gh pr create attaches them after the PR is opened.
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,7 +100,9 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: scripts/loop/ci-check.sh
 
   # NFR-LEG-001: licence inventory and policy; RustSec advisories; NFR-SEC-001/NFR-SEC-004:
