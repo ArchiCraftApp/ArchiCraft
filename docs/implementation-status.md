@@ -195,7 +195,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | PRJ-008 | M | done | none | Done: the reader loads every valid part and reports each skipped or repaired record as “<record> skipped: …” or “<record> repaired: …” at the project, storey or element node (crates/archicraft-ifcx/src/alpha/reader.rs Report::skipped/repaired; module docs list the optional fields whose absence is no problem). Pinned by crates/archicraft-ifcx/tests/corrupt.rs (ten committed fixtures under tests/corrupt/, no_record_disappears_silently) and a_damaged_file_opens_with_the_load_report (crates/archicraft-app/tests/ui.rs). Referential-integrity repairs beyond the reader stay with NFR-REL-004. |
 | PRJ-009 | S | missing | L | No start screen: no New-with-template-choice, no Open, no searchable recent list, no thumbnails (needs a snapshot rendered at save and cached outside the project). |
 | PRJ-013 | C | partial | S | Nothing in the UI offers a sample project; needs a start-screen entry (or menu item) that opens samples::two_storey_shell(). |
-| PRJ-010 | S | done | none | Done. round-trip tests only cover samples with empty info fields except name |
+| PRJ-010 | S | done | none | Done. all six fields with non-ASCII text round-trip and SetInfo undoes: prj_010_project_information_is_editable_and_round_trips (crates/archicraft-ifcx/tests/done_requirements.rs) |
 | PRJ-011 | S | missing | L | No second window/instance for a second project; no cross-project copy/paste. Either multi-process (spawn a second ArchiCraft process, exchange via the OS clipboard) or egui multi-viewport with per-viewport wgpu state. |
 | PRJ-012 | S | partial | S | No imperial template (feet-inches units, imperial storey heights/wall thicknesses/tool defaults) and no way to choose it at New. |
 
@@ -275,7 +275,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | VIEW-044 | S | missing | M | Region filter drawn in plan (rectangle/polygon), inside/outside, trim or keep whole, selectable cut elements |
 | VIEW-045 | S | partial | S | 'Show in 3D' does not zoom to the selection; no 'show selection in plan' command from 3D (would need to pick the storey of the selection and zoom) |
 | VIEW-046 | C | missing | M | Exploded display offsetting storeys vertically in 3D |
-| VIEW-047 | M | partial | S | The governed features (filters, hidden elements, cut planes) do not exist yet, and no test asserts that saved IFCX is identical with hidden layers / any view state (IFX-068) |
+| VIEW-047 | M | partial | S | The governed features (filters, hidden elements, cut planes) do not exist yet, and no test asserts that saved IFCX is identical with any view state (IFX-068); hidden and locked layers are covered by lay_005_hidden_and_locked_layers_leave_the_standard_content_unchanged (crates/archicraft-ifcx/tests/done_requirements.rs) |
 | VIEW-050 | M | partial | M | No adjustable edge thickness (1-px LineList pipeline render3d.rs:362-368); no switch to turn transparency off for performance |
 | VIEW-051 | S | missing | L | Named display-style resources (mode, transparency, monochrome override, background, edges, shadows), shipped presets, per-view application, persistence |
 | VIEW-052 | S | missing | L | Directional sun (azimuth/altitude), real-time shadow mapping, sun from location/true north and date/time |
@@ -752,7 +752,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | LAY-002 | M | partial | S | No sorting (by name, count or manual order); layers are listed in insertion order (project.rs:171, command.rs:220-223). |
 | LAY-003 | S | missing | M | Layer combination resource, store/apply command, UI, IFCX persistence and saved-view reference. |
 | LAY-004 | M | done | none | Done: Eleven template layers matching the SRS list (Structure, Exterior walls, Interior walls, Slabs, Roof, Openings, Stairs and railings, Terrain, Furniture, 2D construction, References): crates/archicraft-model/src/template.rs:… |
-| LAY-005 | M | done | none | Done. no explicit test writes a project with a hidden layer, see observations |
+| LAY-005 | M | done | none | Done. a hidden and a locked layer leave the standard-namespace content unchanged: lay_005_hidden_and_locked_layers_leave_the_standard_content_unchanged (crates/archicraft-ifcx/tests/done_requirements.rs) |
 
 ### 4.29 Measurement and element information
 
