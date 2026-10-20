@@ -1,0 +1,42 @@
+name: Windows
+
+# NFR-PORT-001: build and test on Windows. Runs on every push to main, nightly and when started
+# by hand, not on pull requests: the Windows job took 10 to 17 minutes where Linux took 1.5 to 9,
+# and per-bead CI feedback has to be fast (user decision of 2026-10-20, docs/loop.md, Enforcement).
+# sweep.sh reports a failed newest run on main as an ATTENTION line. Start it by hand with:
+# gh workflow run windows.yml --ref <branch>
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "47 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  test:
+    name: Test (windows-latest)
+    runs-on: windows-latest
+    steps:
+      # NFR-PORT-004: check out as a Windows developer would, with end-of-line conversion on;
+      # .gitattributes keeps the golden files byte-exact all the same.
+      - name: Enable end-of-line conversion (core.autocrlf=true)
+        run: git config --global core.autocrlf true
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --workspace --all-targets --locked
+      - name: Test
+        run: cargo test --workspace --locked

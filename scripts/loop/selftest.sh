@@ -61,7 +61,7 @@ cat >"$work/bin/gh" <<'EOF'
 # files in FAKE_GH_FILES ("<old>=><new>" is a move; --name-only lists only the new paths, like gh),
 # each changing line x into FAKE_GH_LINE (default y), or fails when FAKE_GH_FAIL is set; pr view --json labels prints FAKE_GH_LABELS, or fails when
 # FAKE_GH_FAIL is set. pr create and pr edit copy the PR body (--body-file) to FAKE_GH_BODY when
-# it is set.
+# it is set. run list prints the JSON in FAKE_GH_RUNS.
 [ -n "${FAKE_GH_LOG:-}" ] && echo "$*" >>"$FAKE_GH_LOG"
 if [ -n "${FAKE_GH_BODY:-}" ]; then
     prev=""
@@ -77,6 +77,7 @@ case "$1 $2" in
         esac
         ;;
     "pr create") echo "https://github.com/o/r/pull/9" ;;
+    "run list") echo "${FAKE_GH_RUNS:-}" ;;
     "pr diff")
         [ -z "${FAKE_GH_FAIL:-}" ] || exit 1
         shift 2
@@ -569,6 +570,21 @@ expect "sweep reports each refused close" 2 "$(grep -cE '^refused  x-(blocked|me
 expect "sweep reports beads for a human after a refused close" 1 "$(grep -c '^  x-human Needs a decision$' "$work/sweep.out")"
 expect "sweep reports epics due for a demo after a refused close" 1 \
     "$(grep -c '^  archicraft-epic1 Demo epic' "$work/sweep.out")"
+
+# The newest finished, not cancelled Windows run on main decides (.github/workflows/windows.yml).
+windows_attention() { FAKE_GH_RUNS="$1" bash scripts/loop/sweep.sh 2>&1 | grep -c '^ATTENTION windows: '; }
+win_run() { printf '{"status":"%s","conclusion":"%s","headSha":"abcdef0123","url":"https://github.com/o/r/actions/runs/%s"}' "$@"; }
+expect "sweep reports a failed newest Windows run on main" 1 \
+    "$(windows_attention "[$(win_run completed failure 3),$(win_run completed success 2)]")"
+expect "sweep names the failed Windows run" 1 \
+    "$(FAKE_GH_RUNS="[$(win_run completed failure 3)]" bash scripts/loop/sweep.sh 2>&1 |
+        grep -c '^ATTENTION windows: the newest Windows run on main (abcdef0) ended in failure: https://github.com/o/r/actions/runs/3$')"
+expect "sweep skips running and cancelled Windows runs" 1 \
+    "$(windows_attention "[$(win_run in_progress '' 5),$(win_run completed cancelled 4),$(win_run completed timed_out 3),$(win_run completed success 2)]")"
+expect "sweep is quiet when the newest Windows run passed" 0 \
+    "$(windows_attention "[$(win_run in_progress '' 4),$(win_run completed cancelled 3),$(win_run completed success 2),$(win_run completed failure 1)]")"
+expect "sweep is quiet without Windows runs or an answer from gh" "0 0" \
+    "$(windows_attention '[]') $(windows_attention '')"
 unset FAKE_BD_DB
 
 # --- diff budget -------------------------------------------------------------------------------
