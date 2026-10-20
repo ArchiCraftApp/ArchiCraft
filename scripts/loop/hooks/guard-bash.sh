@@ -72,7 +72,7 @@ git_checks() {
         loop_stamp_valid gate.ok "$tree" ||
             hook_deny "No passing gate for the current tree of $bead. Run scripts/loop/gate.sh (any edit after the gate needs a new run)."
         loop_review_valid "$tree" ||
-            hook_deny "No passing review for the current tree of $bead. Launch the bead-reviewer agent with 'Review bead $bead' (any edit to code or the loop's files after the review needs a new one)."
+            hook_deny "No passing review for the current tree of $bead. Launch the bead-reviewer agent with 'Review bead $bead' (any edit after the review other than to docs/ or a top-level Markdown file needs a new one)."
         ;;
     esac
 }

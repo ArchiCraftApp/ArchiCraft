@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
 # Step 1 of the bead loop (docs/loop.md): claims a bead and puts this worktree on its branch
 # bead/<id>-<slug>, cut from the latest main. Re-running it for a bead in progress resumes
-# its existing branch.
+# its existing branch. It runs as it is on origin/main: a worktree cut from an older main has
+# outdated loop scripts until this switch moves it, so when its scripts/loop differs from
+# origin/main's, it re-executes origin/main's copy.
 # Usage: scripts/loop/start-bead.sh <bead-id>
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 cd "$(loop_root)"
+
+# The copy removes its directory when done; a LOOP_START_BASE_COPY that does not hold this very
+# script (one leaked into the environment) is ignored.
+if [ "${LOOP_START_BASE_COPY:-}/scripts/loop" = "$(dirname "${BASH_SOURCE[0]}")" ]; then
+    trap 'rm -rf "$LOOP_START_BASE_COPY"' EXIT
+else
+    git fetch --quiet origin main || echo "warning: could not fetch origin/main; branching from the local ref"
+    if ! git diff --quiet "$(loop_base)" -- scripts/loop; then
+        copy="$(mktemp -d "${TMPDIR:-/tmp}/loop-start-bead.XXXXXX")"
+        git archive "$(loop_base)" scripts/loop | tar -x -C "$copy"
+        LOOP_START_BASE_COPY="$copy" exec bash "$copy/scripts/loop/start-bead.sh" "$@"
+    fi
+fi
 
 id="${1:?usage: scripts/loop/start-bead.sh <bead-id>}"
 bead="$(loop_bead_json "$id")"
@@ -36,7 +51,6 @@ if git status --porcelain | grep -v ' \.beads/' | grep -q .; then
     exit 1
 fi
 
-git fetch --quiet origin main || echo "warning: could not fetch origin/main; branching from the local ref"
 # The beads post-checkout hook re-imports the whole JSONL export (minutes) into the database
 # every worktree already shares; skip git hooks for this switch.
 switch() { git -c core.hooksPath=/dev/null switch --quiet "$@"; }

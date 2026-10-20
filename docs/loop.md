@@ -13,7 +13,7 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | Step | What happens | Tool |
 |---|---|---|
 | 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report closes bd refused, waiting PRs, beads for a human, epics due for a demo. The copy on `origin/main` runs, since a new worktree may be cut from an older `main` | `scripts/loop/sweep.sh` |
-| 1 Claim | Claim the bead, branch `bead/<id>-<slug>` from `origin/main`, clone the warm build cache | `scripts/loop/start-bead.sh <id>` |
+| 1 Claim | Claim the bead, branch `bead/<id>-<slug>` from `origin/main`, clone the warm build cache. It re-executes the copy on `origin/main` when the worktree's `scripts/loop` differs | `scripts/loop/start-bead.sh <id>` |
 | 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines (a top-level `#[cfg(test)] mod tests` does not count), or with separable criteria | `bd create --parent` |
 | 3 Tests first | Every acceptance criterion becomes a failing test | |
 | 4 Implement | CLAUDE.md conventions; rustfmt runs after every edit | |
@@ -23,10 +23,11 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | 8 Close | Bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |
 
 The gate and the review stamp the exact tree they checked (`loop_tree_hash` in
-`scripts/loop/lib.sh`). Any later edit invalidates the gate stamp. The review stamp survives
-only edits outside code and the loop's own files (`loop_review_valid`): a trivial doc fix for
-a minor finding after a `PASS` needs a new gate run but no new review, and every other minor
-finding becomes a follow-up bead instead of another review round. Stamps, logs and counters
+`scripts/loop/lib.sh`). Any later edit invalidates the gate stamp. The review stamp belongs to
+the branch's bead and survives only edits to prose (`docs/` and top-level Markdown files,
+`loop_review_valid`, `LOOP_REVIEW_CARRY_PATHS`): a trivial doc fix for a minor finding after
+a `PASS` needs a new gate run but no new review, and every other minor finding becomes a
+follow-up bead instead of another review round. Stamps, logs and counters
 live in the worktree's git dir (`git rev-parse --git-path loop`), never in the repository.
 `scripts/loop/status.sh` shows where a worktree stands.
 

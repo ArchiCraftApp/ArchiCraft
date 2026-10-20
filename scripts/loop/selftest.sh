@@ -57,8 +57,13 @@ cat >"$work/bin/gh" <<'EOF'
 # Stub: every call goes to FAKE_GH_LOG. pr view answers the open PR's url from FAKE_GH_URL
 # (--json url,state), whether auto-merge is on from FAKE_GH_AUTO (--json autoMergeRequest) and
 # the state from FAKE_GH_STATE otherwise; pr create prints a url; pr diff prints the files in
-# FAKE_GH_FILES, or fails when FAKE_GH_FAIL is set.
+# FAKE_GH_FILES, or fails when FAKE_GH_FAIL is set. pr create and pr edit copy the PR body
+# (--body-file) to FAKE_GH_BODY when it is set.
 [ -n "${FAKE_GH_LOG:-}" ] && echo "$*" >>"$FAKE_GH_LOG"
+if [ -n "${FAKE_GH_BODY:-}" ]; then
+    prev=""
+    for a in "$@"; do [ "$prev" = --body-file ] && cp "$a" "$FAKE_GH_BODY"; prev="$a"; done
+fi
 case "$1 $2" in
     "pr view")
         case "$*" in
@@ -118,7 +123,7 @@ check() { # check <description> <expected: deny|allow|block|pass> <output>
         printf 'FAIL %s: expected %s, got %s\n%s\n' "$1" "$2" "$got" "$3"
     fi
 }
-stamp() { loop_stamp_write "$1" "$(loop_tree_hash)" test; }
+stamp() { loop_stamp_write "$1" "$(loop_tree_hash)" "$(loop_bead_from_branch || echo -)"; }
 expect() { if [ "$2" = "$3" ]; then passed=$((passed + 1)); else failed=$((failed + 1)); echo "FAIL $1: expected $2, got $3"; fi; }
 reset_state() { rm -rf "$(loop_dir)"; git checkout -q -- . 2>/dev/null; git clean -qfd crates docs; }
 
@@ -295,6 +300,24 @@ check "code commit after a doc fix, before a new gate" deny "$(hook guard-bash "
 stamp gate.ok
 check "code commit after a doc fix and a new gate" allow "$(hook guard-bash "$(bash_input 'git commit -am x')")"
 loop_review_valid && passed=$((passed + 1)) || { failed=$((failed + 1)); echo "FAIL review not carried over a doc fix"; }
+expect "status.sh shows a review carried over a doc fix" "  review: passed before changes to prose only: docs/a.md" \
+    "$(bash scripts/loop/status.sh | grep '^  review:')"
+loop_stamp_write review.ok "$(loop_stamp_tree review.ok)" archicraft-zz99
+check "code commit after a doc fix with another bead's review" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
+git checkout -q -- docs/a.md
+stamp gate.ok
+loop_stamp_write review.ok "$(loop_tree_hash)" archicraft-zz99
+check "code commit with another bead's review of this tree" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
+expect "status.sh does not count another bead's review" "  review: not passed on this tree" \
+    "$(bash scripts/loop/status.sh | grep '^  review:')"
+stamp review.ok
+expect "status.sh shows a review of this tree" "  review: passed on this tree" "$(bash scripts/loop/status.sh | grep '^  review:')"
+for f in scripts/package-macos.sh .codex/hooks.json .cursor/hooks.json; do
+    mkdir -p "$(dirname "$f")" && echo '# minor fix' >"$f"
+    stamp gate.ok
+    check "code commit after a fix to $f and a new gate" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
+    rm -f "$f"
+done
 echo '# minor fix' >>scripts/loop/gate.sh
 stamp gate.ok
 check "code commit after a loop-file fix and a new gate" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
@@ -453,14 +476,17 @@ budget_base="$(git rev-parse HEAD)"
 # does not end the file (8 lines); the file's own test module grows by 2.
 printf '%s\n' 'pub fn demo() {}' 'pub fn added() {}' '#[cfg(test)]' 'pub fn helper() {}' 'mod inner {' \
     '    #[cfg(test)]' '    mod tests {}' '    pub fn g() {}' '}' '' '#[cfg(test)]' '#[allow(dead_code)]' \
-    'mod tests {' '    #[test]' '    fn old() {}' '    #[test]' '    fn new() {}' '}' >crates/demo/src/lib.rs
-# A new source file (1 line before its test module); an out-of-line test module declaration and a
+    'mod tests {' '    #[test]' '    fn old() {' '    }' '    #[test]' '    fn new() {}' '}' \
+    'mod after {' '    pub fn h() {}' '}' >crates/demo/src/lib.rs
+# A module after the test module, which clippy's items_after_test_module allows, counts (3).
+# A new source file (1 line before its one-line test module, 1 after); an out-of-line test module declaration and a
 # test-only module not named tests, which clippy does not keep last, count like any other line (4);
 # an integration test does not count.
-printf 'pub fn extra() {}\n#[cfg(test)] mod tests { fn t() {} }\n' >crates/demo/src/extra.rs
+printf 'pub fn extra() {}\n#[cfg(test)] mod tests { fn t() {} }\npub fn after() {}\n' >crates/demo/src/extra.rs
 printf '#[cfg(test)]\nmod tests;\n#[cfg(test)]\nmod fixtures {}\n' >crates/demo/src/other.rs
 printf '#[test]\nfn it() {}\n' >crates/demo/tests/it.rs
-expect "diff budget leaves out inline test modules and tests/" 13 "$(loop_budget_lines "$budget_base")"
+expect "diff budget leaves out inline test modules and tests/, not what follows them" 17 \
+    "$(loop_budget_lines "$budget_base")"
 reset_state
 
 # --- land.sh helpers ---------------------------------------------------------------------------
@@ -471,6 +497,9 @@ expect "SRS ids up to the end of the sentence" "NFR-ACC-003" \
 expect "SRS ids in one-paragraph notes" "WAL-020, NFR-PERF-005" \
     "$(srs 'Split from x. SRS: WAL-020 (partial, see 4.2), NFR-PERF-005. Depends on GEO-004.')"
 expect "SRS ids with digits in the prefix" "NFR-L10N-003, NFR-A11Y-001" "$(srs 'SRS: NFR-L10N-003, NFR-A11Y-001\nFollow-up')"
+expect "scenario and decision ids with a one-letter prefix or two digits" "AS-03, D-11, O-07, WAL-020" \
+    "$(srs 'SRS: AS-03, D-11 (decision), O-07/WAL-020.')"
+expect "SRS ids only as whole words" "D-11" "$(srs 'SRS: D-11 with ISO-8601 dates, WAL-0200, UTF-8, xWAL-020.')"
 expect "notes without SRS ids" "" "$(srs 'No requirements. Mentions WAL-020 only in passing.')"
 printf '%s\n' 'Intro' '## Acceptance criteria' '- ok' '```bash' '# a comment' '```' '### Detail' '## Findings' \
     >"$work/review.md"
@@ -525,7 +554,37 @@ git switch -q -c bead/archicraft-lp04-move main
 git mv .github/workflows/ci.yml docs/ci.yml && git commit -qm "archicraft-lp04: move"
 out="$(land loop)"
 expect "land.sh leaves auto-merge off for a loop bead that moves a CI workflow away" "" "$(merge_calls)"
+commit_on bead/archicraft-fe02-docfix crates/demo/src/lib.rs
+stamp review.ok
+echo 'typo fix' >>docs/a.md && git commit -qam "archicraft-fe02: typo"
+stamp gate.ok
+: >"$FAKE_GH_LOG"
+FAKE_GH_BODY="$work/pr-body.md" bash scripts/loop/land.sh >/dev/null 2>&1
+expect "land.sh names the doc fixes a carried-over review did not see" 1 \
+    "$(grep -c "the review passed before these changes to prose only: \`docs/a\.md\`\.$" "$work/pr-body.md")"
+expect "land.sh turns on auto-merge after a carried-over review" "pr merge $pr --auto --squash" "$(merge_calls)"
 unset FAKE_GH_LOG
+
+# --- start-bead.sh runs as it is on origin/main ------------------------------------------------
+git switch -q main
+# origin/main's start-bead.sh says where it ran from; the worktree's copy, one commit older, does not.
+{ sed -n 1p scripts/loop/start-bead.sh; echo 'echo "start-bead ran from $(dirname "${BASH_SOURCE[0]}")"'
+    sed 1d scripts/loop/start-bead.sh; } >"$work/start-bead.sh"
+cat "$work/start-bead.sh" >scripts/loop/start-bead.sh
+git commit -qam "start-bead marker" && git push -q origin main
+git switch -q -c stale HEAD~1
+mkdir -p "$work/tmp"
+start_bead() { FAKE_BD_STATUS=in_progress TMPDIR="$work/tmp" bash scripts/loop/start-bead.sh "$1" 2>&1; }
+out="$(start_bead archicraft-sb01)"
+expect "start-bead.sh in a worktree cut from an older main runs origin/main's copy, once" 1 \
+    "$(grep -c "^start-bead ran from $work/tmp/loop-start-bead\.[^/]*/scripts/loop$" <<<"$out")"
+expect "start-bead.sh cuts the bead branch from origin/main" "$(git rev-parse origin/main)" "$(git rev-parse HEAD)"
+expect "start-bead.sh removes origin/main's copy when done" "" "$(ls -A "$work/tmp")"
+mkdir -p "$work/keep"
+out="$(LOOP_START_BASE_COPY="$work/keep" start_bead archicraft-sb01)"
+expect "start-bead.sh runs its own copy when it matches origin/main" 1 "$(grep -c '^start-bead ran from scripts/loop$' <<<"$out")"
+expect "start-bead.sh keeps a directory that a leaked LOOP_START_BASE_COPY names" yes \
+    "$([ -d "$work/keep" ] && echo yes || echo no)"
 
 [ -f "$work/crashes" ] && failed=$((failed + $(wc -l <"$work/crashes")))
 echo "loop selftest: $passed passed, $failed failed"

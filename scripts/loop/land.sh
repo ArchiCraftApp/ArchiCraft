@@ -50,7 +50,7 @@ body="$(mktemp "${TMPDIR:-/tmp}/loop-pr.XXXXXX")"
     if [ -z "$since" ]; then
         echo "Local gate and review passed on tree \`$tree\`."
     else
-        echo "Local gate passed on tree \`$tree\`; the review passed before these changes outside code: $since."
+        echo "Local gate passed on tree \`$tree\`; the review passed before these changes to prose only: $since."
     fi
     if [ -n "$waits" ]; then
         echo
