@@ -311,8 +311,9 @@ Figures from lib.rs on 2026-10-16.
 | fluent-bundle | 0.16.0 | 2025-05-22 | 2.5 M | MIT/Apache | Project Fluent (Mozilla), six owners; mature, few releases |
 | fluent-syntax | 0.12.0 | 2025-05-22 | 2.6 M | MIT/Apache | Project Fluent; released with fluent-bundle |
 | unic-langid | 0.9.6 | 2025-05-09 | 3.2 M | MIT/Apache | Zibi Braniecki and Manish Goregaokar |
+| criterion | 0.8.2 | 2026-02-04 | 22.6 M | MIT/Apache | Dev-dependency for the benches; default features (rayon, plotters) off |
 
-The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them.
+The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them. The criterion row was added on 2026-10-20 the same way.
 
 serde, serde_json, uuid, thiserror, anyhow, tracing, bytemuck and insta are among the most widely used crates in the Rust ecosystem and were not checked individually. Not checked yet: the tools added when aligning with the SRS (cargo-fuzz, cargo-deny, Playwright) and the planned HTTP client.
 

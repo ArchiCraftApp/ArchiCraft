@@ -59,6 +59,15 @@ fn s_shell_is_registered_at_increment_zero() {
     assert_eq!(names(&built), names(&sample));
 }
 
+/// NFR-PERF-001: the provisional bench model is an extra fixture, so it
+/// inherits the generic model, geometry and IFCX checks.
+#[test]
+fn the_tiled_shell_bench_model_is_an_extra_fixture() {
+    let tiled = EXTRA.iter().find(|f| f.id == "tiled-shell").unwrap();
+    assert_eq!(tiled.increment, 1);
+    assert_eq!(tiled.build.unwrap()().elements.len(), 972);
+}
+
 fn entry(id: &'static str, increment: u8, build: Option<fn() -> Project>) -> Fixture {
     Fixture {
         id,

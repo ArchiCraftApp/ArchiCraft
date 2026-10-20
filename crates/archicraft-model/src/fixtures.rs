@@ -106,15 +106,28 @@ pub const D7: [Fixture; 9] = [
 ];
 
 /// Named cases outside Appendix D.7.
-pub const EXTRA: &[Fixture] = &[Fixture {
-    id: "S-shell",
-    title: "Two-storey shell with a T junction and a slab opening",
-    source: "samples::two_storey_shell",
-    owner: "regression-and-status",
-    increment: 0,
-    seeded: false,
-    build: Some(samples::two_storey_shell),
-}];
+pub const EXTRA: &[Fixture] = &[
+    Fixture {
+        id: "S-shell",
+        title: "Two-storey shell with a T junction and a slab opening",
+        source: "samples::two_storey_shell",
+        owner: "regression-and-status",
+        increment: 0,
+        seeded: false,
+        build: Some(samples::two_storey_shell),
+    },
+    // The provisional bench model of NFR-PERF-001, held to the generic
+    // checks so a bench never measures a model that fails to evaluate.
+    Fixture {
+        id: "tiled-shell",
+        title: "Two-storey shell repeated on a 9 x 9 grid (972 elements)",
+        source: "samples::tiled_shell_bench",
+        owner: "regression-and-status",
+        increment: 1,
+        seeded: false,
+        build: Some(samples::tiled_shell_bench),
+    },
+];
 
 /// Every entry at or below this increment must have a constructor. The
 /// verification of an increment's exit criterion raises it.
