@@ -73,9 +73,32 @@ loop_changed_files() {
 
 loop_code_changed() { loop_changed_files | grep -Eq "$LOOP_CODE_PATHS"; }
 
-# The files of this branch's change that make its PR wait for the user (LOOP_USER_REVIEW_PATHS),
-# one per line. Prints nothing when the PR may auto-merge.
-loop_user_review_files() { loop_changed_files | grep -E "$LOOP_USER_REVIEW_PATHS" || true; }
+# LOOP_USER_REVIEW_PATHS as scripts/loop/lib.sh at <rev> defines it; empty when it has no such line.
+loop_user_review_paths_at() {
+    git show "$1:scripts/loop/lib.sh" 2>/dev/null |
+        sed -n "s/^LOOP_USER_REVIEW_PATHS='\(.*\)'\$/\1/p" | head -n 1
+}
+
+# The pattern of the files that make a PR wait for the user: LOOP_USER_REVIEW_PATHS as the base
+# defines it or as this tree does. A branch's own copy alone does not decide, so a branch that
+# narrows it still waits for every file the base names (archicraft-3c2i).
+loop_user_review_pattern() {
+    local base
+    base="$(loop_user_review_paths_at "$(loop_base)")"
+    printf '%s\n' "${base:+$base|}$LOOP_USER_REVIEW_PATHS"
+}
+
+# The files of this branch's change that make its PR wait for the user (loop_user_review_pattern),
+# one per line, plus scripts/loop/lib.sh when the branch changes LOOP_USER_REVIEW_PATHS: which
+# files wait is the user's to review too. Prints nothing when the PR may auto-merge.
+loop_user_review_files() {
+    local fork
+    fork="$(git merge-base "$(loop_base)" HEAD 2>/dev/null || git rev-parse HEAD)"
+    {
+        loop_changed_files | grep -E "$(loop_user_review_pattern)"
+        [ "$(loop_user_review_paths_at "$fork")" = "$LOOP_USER_REVIEW_PATHS" ] || echo scripts/loop/lib.sh
+    } | sort -u
+}
 
 # A Rust source on stdin without its inline test module: the first top-level `#[cfg(test)]`
 # (further attributes allowed) followed by `mod tests {`, up to the module's closing `}` in

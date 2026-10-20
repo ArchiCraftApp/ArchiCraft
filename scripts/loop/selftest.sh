@@ -59,7 +59,7 @@ cat >"$work/bin/gh" <<'EOF'
 # the state from FAKE_GH_STATE otherwise; pr create prints a url; pr diff answers only for the PR
 # in FAKE_GH_PR (as named, HEAD for the branch's PR, "<repo>#<pr>" with -R) and prints a diff of the
 # files in FAKE_GH_FILES ("<old>=><new>" is a move; --name-only lists only the new paths, like gh),
-# or fails when FAKE_GH_FAIL is set; pr view --json labels prints FAKE_GH_LABELS, or fails when
+# each changing line x into FAKE_GH_LINE (default y), or fails when FAKE_GH_FAIL is set; pr view --json labels prints FAKE_GH_LABELS, or fails when
 # FAKE_GH_FAIL is set. pr create and pr edit copy the PR body (--body-file) to FAKE_GH_BODY when
 # it is set.
 [ -n "${FAKE_GH_LOG:-}" ] && echo "$*" >>"$FAKE_GH_LOG"
@@ -99,7 +99,7 @@ case "$1 $2" in
             if [ "$old" != "$new" ]; then
                 printf 'similarity index 100%%\nrename from %s\nrename to %s\n' "$old" "$new"
             else
-                printf -- '--- a/%s\n+++ b/%s\n@@ -1 +1 @@\n-x\n+y\n' "$old" "$new"
+                printf -- '--- a/%s\n+++ b/%s\n@@ -1 +1 @@\n-x\n+%s\n' "$old" "$new" "${FAKE_GH_LINE:-y}"
             fi
         done
         ;;
@@ -246,6 +246,17 @@ check "auto-merge for a PR that renames the hook wiring" deny \
     "$(merge_with 12 '.claude/settings.json=>.claude/settings.old.json' 'gh pr merge 12 --auto --squash')"
 check "auto-merge for a PR that moves a file within docs" allow \
     "$(merge_with 12 'docs/a.md=>docs/b.md' 'gh pr merge 12 --auto --squash')"
+# A branch's narrower LOOP_USER_REVIEW_PATHS does not let its own workflow change through: the
+# guard judges by the base's pattern too, and a PR that changes the pattern waits (archicraft-3c2i).
+narrow_review_paths() { sed -i.bak "s|^LOOP_USER_REVIEW_PATHS=.*|LOOP_USER_REVIEW_PATHS='^\\\\.claude/settings\\\\.json\$'|" scripts/loop/lib.sh && rm scripts/loop/lib.sh.bak; }
+narrow_review_paths
+check "auto-merge for a PR that narrows the review paths and changes a CI workflow" deny \
+    "$(merge_with 12 'scripts/loop/lib.sh .github/workflows/ci.yml' 'gh pr merge 12 --auto --squash')"
+git checkout -q -- scripts/loop/lib.sh
+check "auto-merge for a PR that changes the review paths" deny \
+    "$(FAKE_GH_LINE="LOOP_USER_REVIEW_PATHS='^x$'" merge_with 12 scripts/loop/lib.sh 'gh pr merge 12 --auto --squash')"
+check "auto-merge for a PR that changes other lines of lib.sh" allow \
+    "$(merge_with 12 scripts/loop/lib.sh 'gh pr merge 12 --auto --squash')"
 # The push, merge and commit rules also look at the commands a line runs: a bead note, a commit
 # message or a grep pattern may name them (hooks/shell-commands.awk).
 main_bash() { hook guard-bash "$(bash_input "$1")"; }
@@ -631,6 +642,24 @@ out="$(land loop)"
 expect "land.sh leaves auto-merge off for a loop bead that moves a CI workflow away" "" "$(merge_calls)"
 expect "land.sh names the CI workflow a move takes away" 1 \
     "$(grep -c "waits for the user's review.*\`\.github/workflows/ci\.yml\`" <<<"$out")"
+# A branch that narrows LOOP_USER_REVIEW_PATHS runs land.sh with its own lib.sh: the base's pattern
+# still makes its workflow change wait, and changing the pattern alone waits too (archicraft-3c2i).
+git switch -q -c bead/archicraft-lp05-narrow main
+narrow_review_paths && echo '# lp05' >>.github/workflows/ci.yml
+git add -A && git commit -qm "archicraft-lp05: narrow"
+out="$(land loop)"
+expect "land.sh leaves auto-merge off for a branch that narrows the review paths and changes a CI workflow" "" \
+    "$(merge_calls)"
+expect "land.sh names the CI workflow and the narrowed review paths" 1 \
+    "$(grep -c "waits for the user's review.*\`\.github/workflows/ci\.yml\` \`scripts/loop/lib\.sh\`" <<<"$out")"
+git switch -q -c bead/archicraft-lp06-paths main
+narrow_review_paths && git commit -qam "archicraft-lp06: narrow"
+out="$(land loop)"
+expect "land.sh leaves auto-merge off for a branch that only changes the review paths" "" "$(merge_calls)"
+commit_on bead/archicraft-lp07-lib scripts/loop/lib.sh
+out="$(land loop)"
+expect "land.sh turns on auto-merge for a branch that changes lib.sh but not the review paths" \
+    "pr merge $pr --auto --squash" "$(merge_calls)"
 commit_on bead/archicraft-fe02-docfix crates/demo/src/lib.rs
 stamp review.ok
 echo 'typo fix' >>docs/a.md && git commit -qam "archicraft-fe02: typo"

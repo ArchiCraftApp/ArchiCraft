@@ -112,6 +112,9 @@ review), so the loop runs for hours without the user. The exception is a PR that
 `scripts/loop/lib.sh`): they hold the CI gate and the hook wiring, the gates that cannot be
 bypassed. `land.sh` leaves auto-merge off for such a PR, also when an earlier run turned it on,
 and names the files; `guard-bash` refuses turning it on by hand; the user reviews and merges it.
+Both judge by the pattern as `origin/main` defines it as well as the branch's copy, so a branch
+that narrows `LOOP_USER_REVIEW_PATHS` still waits for every file the base names, and both also
+make a PR wait when it changes the pattern itself (naming `scripts/loop/lib.sh`).
 A CODEOWNERS review cannot enforce this while Claude works under the user's GitHub account,
 because GitHub does not let an account approve its own PR.
 

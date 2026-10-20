@@ -147,8 +147,15 @@ while IFS= read -r rec; do
     diff="$(gh pr diff ${repo:+-R "$repo"} ${pr:+"$pr"} --color never 2>/dev/null)" ||
         hook_deny "Could not list the files of PR '${pr:-of this branch}${repo:+ in $repo}' (gh pr diff), so auto-merge stays off. scripts/loop/land.sh decides it from the branch."
     files="$(awk 'sub(/^diff --git /, "") { gsub(/"/, ""); i = index($0, " b/"); print substr($0, 3, i - 3); print substr($0, i + 3) }' <<<"$diff")"
-    waits="$(grep -E "$LOOP_USER_REVIEW_PATHS" <<<"$files" | sort -u | paste -sd ' ' - || true)"
+    # The base's pattern too, so a PR that narrows the branch's copy still waits, and a PR that
+    # changes the pattern itself waits like land.sh makes it (archicraft-3c2i).
+    pattern="$LOOP_USER_REVIEW_PATHS"
+    if declare -F loop_user_review_pattern >/dev/null; then pattern="$(loop_user_review_pattern)"; fi
+    waits="$({
+        grep -E "$pattern" <<<"$files"
+        if grep -q '^[-+]LOOP_USER_REVIEW_PATHS=' <<<"$diff"; then echo scripts/loop/lib.sh; fi
+    } | sort -u | paste -sd ' ' - || true)"
     [ -z "$waits" ] ||
-        hook_deny "This PR changes the CI workflows or the hook wiring ($waits), so it waits for the user's review and auto-merge stays off (user decision of 2026-10-19, docs/loop.md)."
+        hook_deny "This PR changes the CI workflows, the hook wiring or which files wait for the user ($waits), so it waits for the user's review and auto-merge stays off (user decision of 2026-10-19, docs/loop.md)."
 done < <(grep -E -- "^gh${t}pr${t}merge($t|\$)" <<<"$cmds")
 exit 0
