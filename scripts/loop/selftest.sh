@@ -675,6 +675,74 @@ expect "land.sh names the doc fixes a carried-over review did not see" 1 \
 expect "land.sh turns on auto-merge after a carried-over review" "pr merge $pr --auto --squash" "$(merge_calls)"
 unset FAKE_GH_LOG
 
+# --- ci-user-review: the base decides whether a PR waits ---------------------------------------
+# The workflow runs the base's script on the PR's commits, so a branch that rewrites land.sh, lib.sh
+# and the check itself to skip the rule still waits for the user (archicraft-9nlk).
+git switch -q main
+user_review() { # user_review <branch>: the base's check on <branch>'s head, from the base's checkout
+    HEAD_SHA="$(git rev-parse "$1")" bash scripts/loop/ci-user-review.sh 2>&1
+}
+waits_for() { # waits_for <branch>: the files the check names, or "pass"
+    local out
+    if out="$(user_review "$1")"; then echo pass; else sed -n "s/^User review: .*which files wait: //p" <<<"$out"; fi
+}
+expect "user-review check passes a feature PR" pass "$(waits_for bead/archicraft-fe01-feature)"
+expect "user-review check passes a loop PR that changes no workflow or hook wiring" pass \
+    "$(waits_for bead/archicraft-lp01-loop)"
+expect "user-review check passes a PR that changes lib.sh but not the review paths" pass \
+    "$(waits_for bead/archicraft-lp07-lib)"
+expect "user-review check fails a PR that changes a CI workflow" .github/workflows/ci.yml \
+    "$(waits_for bead/archicraft-lp02-ci)"
+expect "user-review check fails a PR that changes the hook wiring" .claude/settings.json \
+    "$(waits_for bead/archicraft-lp03-hooks)"
+expect "user-review check fails a PR that moves a CI workflow away" .github/workflows/ci.yml \
+    "$(waits_for bead/archicraft-lp04-move)"
+expect "user-review check fails a PR that only changes the review paths" scripts/loop/lib.sh \
+    "$(waits_for bead/archicraft-lp06-paths)"
+# A branch whose land.sh, lib.sh and check skip the rule: its own land.sh turns auto-merge on, the
+# base's check still fails the PR.
+git switch -q -c bead/archicraft-lp08-skip main
+mkdir -p .claude && echo 'loop_user_review_files() { :; }' >>scripts/loop/lib.sh
+sed -i.bak 's/^if \[ -n "\$waits" \]; then$/if false; then/' scripts/loop/land.sh && rm scripts/loop/land.sh.bak
+printf '#!/bin/sh\necho "User review: skipped"\n' >scripts/loop/ci-user-review.sh
+echo '# lp08' >>.github/workflows/ci.yml && echo '{}' >.claude/settings.json
+git add -A && git commit -qm "archicraft-lp08: skip the rule"
+FAKE_GH_LOG="$work/gh.log"
+export FAKE_GH_LOG
+out="$(land loop)"
+expect "a branch that rewrites land.sh and lib.sh gets auto-merge from its own land.sh (the gap)" \
+    "pr merge $pr --auto --squash" "$(merge_calls)"
+expect "the branch's own check would pass it" "User review: skipped" \
+    "$(HEAD_SHA=x bash scripts/loop/ci-user-review.sh)"
+git switch -q main
+expect "user-review check from the base fails a branch that rewrites land.sh, lib.sh and the check" \
+    ".claude/settings.json .github/workflows/ci.yml" "$(waits_for bead/archicraft-lp08-skip)"
+# Only what the PR changes since its fork point counts, not what the base received since.
+git switch -q -c moved-main main
+echo '# base moves' >>.github/workflows/ci.yml && narrow_review_paths
+git commit -qam "base moves: workflow and review paths"
+expect "user-review check passes a feature PR after the base changed a workflow and the review paths" pass \
+    "$(waits_for bead/archicraft-fe01-feature)"
+git switch -q main
+# In CI it posts the status on the PR's head commit, which branch protection requires.
+: >"$FAKE_GH_LOG"
+GH_REPO=o/r GITHUB_RUN_ID=7 user_review bead/archicraft-lp02-ci >/dev/null
+expect "user-review check posts a failing status on the PR's head" 1 "$(grep -c "^api -X POST repos/o/r/statuses/$(
+    git rev-parse bead/archicraft-lp02-ci) -f state=failure -f context=User review -f description=Waits for the user's review: .* -f target_url=https://github.com/o/r/actions/runs/7$" "$FAKE_GH_LOG")"
+: >"$FAKE_GH_LOG"
+GH_REPO=o/r user_review bead/archicraft-fe01-feature >/dev/null
+expect "user-review check posts a passing status on the PR's head" 1 "$(grep -c "^api -X POST repos/o/r/statuses/$(
+    git rev-parse bead/archicraft-fe01-feature) -f state=success -f context=User review -f description=" "$FAKE_GH_LOG")"
+unset FAKE_GH_LOG
+# The workflow runs the base's copy (pull_request_target, no checkout of the PR) and branch
+# protection requires its status.
+wf="$src/../../.github/workflows/user-review.yml"
+expect "the user-review workflow runs on pull_request_target only" "pull_request_target:" \
+    "$(sed -n '/^on:/,/^[a-z]/p' "$wf" | grep -E '^  [a-z_]+:' | sed 's/^ *//')"
+expect "the user-review workflow checks out the base, not the PR" 0 "$(grep -Ec '^ *(ref|repository):' "$wf")"
+expect "the user-review workflow runs the check" 1 "$(grep -c '^ *run: scripts/loop/ci-user-review\.sh$' "$wf")"
+expect "branch protection requires the user-review status" 1 "$(grep -c '^ *"User review",\?$' "$src/setup-github.sh")"
+
 # --- start-bead.sh runs as it is on origin/main ------------------------------------------------
 git switch -q main
 # origin/main's start-bead.sh says where it ran from; the worktree's copy, one commit older, does not.

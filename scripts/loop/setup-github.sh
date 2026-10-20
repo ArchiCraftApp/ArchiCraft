@@ -7,6 +7,9 @@
 #   No macOS check is required: macOS runs only for releases (.github/workflows/macos.yml),
 #   because GitHub's hosted macOS runners were too slow or never picked the jobs up
 #   (2026-10-19) and no PR could merge (docs/loop.md).
+# - main also requires the status "User review" (.github/workflows/user-review.yml), which fails
+#   for a PR that changes the CI workflows or the hook wiring: auto-merge never merges it, the
+#   owner merges it after the review (archicraft-9nlk).
 # Usage: scripts/loop/setup-github.sh
 set -euo pipefail
 command -v gh >/dev/null || { echo "gh is not installed: brew install gh && gh auth login"; exit 1; }
@@ -35,7 +38,8 @@ gh api -X PUT "repos/$repo/branches/main/protection" --input - >/dev/null <<'EOF
       "IFCX conformance (buildingSMART reference code)",
       "Licences and sources",
       "Loop policy",
-      "Repository guards"
+      "Repository guards",
+      "User review"
     ]
   },
   "enforce_admins": false,
@@ -45,4 +49,4 @@ gh api -X PUT "repos/$repo/branches/main/protection" --input - >/dev/null <<'EOF
   "allow_deletions": false
 }
 EOF
-echo "  main requires the six CI checks"
+echo "  main requires the seven CI checks and the status User review"
