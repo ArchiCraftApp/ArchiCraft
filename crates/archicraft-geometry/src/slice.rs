@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use archicraft_model::tolerance::{Cell2, near_zero, quantise};
+use archicraft_model::tolerance::{Cell2, cross_is_zero, quantise};
 use geo::{Coord, LineString, Polygon};
 use glam::{DVec2, DVec3};
 
@@ -117,11 +117,8 @@ fn simplify_collinear(ring: Vec<DVec2>) -> Vec<DVec2> {
         let prev = ring[(i + n - 1) % n];
         let p = ring[i];
         let next = ring[(i + 1) % n];
-        let (u, v) = (p - prev, next - p);
-        // The rounding error of the cross product scales with the coordinate
-        // magnitude times the lengths of the differences.
-        let magnitude = prev.abs().max(p.abs()).max(next.abs()).max_element();
-        if !near_zero(u.perp_dot(v), magnitude * (u.length() + v.length())) || u.dot(v) < 0.0 {
+        // A point where the ring turns back (a spike) is kept.
+        if !cross_is_zero(prev, p, next) || (p - prev).dot(next - p) < 0.0 {
             out.push(p);
         }
     }

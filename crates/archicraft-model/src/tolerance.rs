@@ -20,7 +20,8 @@
 //! * **Dimensionless robustness guards** (determinants, cross products, ray
 //!   parameters) are not tolerances. [`near_zero`] compares them with the
 //!   rounding error of `f64` at the scale of their operands, so that a guard
-//!   never decides about real geometry, however small.
+//!   never decides about real geometry, however small; [`cross_is_zero`] and
+//!   [`cross_is_zero3`] apply it to the cross product of three points.
 //!
 //! Boolean operations (SOL-020): the Boolean wrapper of the solid kernel
 //! must pass [`MODEL_TOLERANCE`] to the kernel as its merge tolerance, so
@@ -104,6 +105,26 @@ pub fn is_parallel(a: DVec2, b: DVec2) -> bool {
 /// coordinate magnitude times `|u| + |v|`, which bounds its rounding error.
 pub fn near_zero(value: f64, scale: f64) -> bool {
     value.abs() <= 64.0 * f64::EPSILON * scale.abs()
+}
+
+/// True if the cross product `(b - a) × (c - a)` of three plan points
+/// vanishes up to rounding ([`near_zero`] with the largest coordinate
+/// magnitude times `|b - a| + |c - a|` as its scale): the points are
+/// collinear or coincide. This is a robustness guard, not a tolerance:
+/// slivers are real geometry and their cross product is not zero, however
+/// small their area.
+pub fn cross_is_zero(a: DVec2, b: DVec2, c: DVec2) -> bool {
+    let (u, v) = (b - a, c - a);
+    let magnitude = a.abs().max(b.abs()).max(c.abs()).max_element();
+    near_zero(u.perp_dot(v), magnitude * (u.length() + v.length()))
+}
+
+/// [`cross_is_zero`] for three points in space: the length of the cross
+/// product, twice the area of the triangle `a b c`, vanishes up to rounding.
+pub fn cross_is_zero3(a: DVec3, b: DVec3, c: DVec3) -> bool {
+    let (u, v) = (b - a, c - a);
+    let magnitude = a.abs().max(b.abs()).max(c.abs()).max_element();
+    near_zero(u.cross(v).length(), magnitude * (u.length() + v.length()))
 }
 
 /// A point type that [`Welder`] can merge: [`DVec2`] or [`DVec3`].
@@ -323,17 +344,32 @@ mod tests {
             let b = a + DVec2::X * 1e-4;
             let c = a + DVec2::from_angle(0.1_f64.to_radians()) * 1e-4;
             let midpoint = a + (b - a) * 0.5;
-            let cross = |p: DVec2, q: DVec2| {
-                let (u, v) = (p - a, q - a);
-                let magnitude = a.abs().max(p.abs()).max(q.abs()).max_element();
-                (u.perp_dot(v), magnitude * (u.length() + v.length()))
-            };
-            let (sliver, scale) = cross(b, c);
+            let sliver = (b - a).perp_dot(c - a);
             assert!(sliver / 2.0 < MODEL_TOLERANCE * MODEL_TOLERANCE);
-            assert!(!near_zero(sliver, scale), "sliver at {origin}");
-            let (flat, scale) = cross(b, midpoint);
-            assert!(near_zero(flat, scale), "collinear at {origin}: {flat}");
+            assert!(!cross_is_zero(a, b, c), "sliver at {origin}");
+            assert!(cross_is_zero(a, b, midpoint), "collinear at {origin}");
+            assert!(cross_is_zero(a, midpoint, b), "the order does not matter");
         }
+    }
+
+    #[test]
+    fn cross_is_zero_in_space() {
+        // As in the plan: an EDT-019 sliver, tilted out of the plan, is not
+        // degenerate; a collinear or coincident triple is, from the origin
+        // out to the coordinate limit (NFR-ACC-001).
+        for origin in [0.0, 100.0, 100_000.0] {
+            let a = DVec3::splat(origin);
+            let b = a + DVec3::new(1.0, 0.0, 1.0).normalize() * 1e-4;
+            let c = a + DVec3::new(0.0, 1.0, 1.0).normalize() * 1e-4;
+            // Two 0.1 mm edges at 0.1°.
+            let sliver = a + (b - a).rotate_towards(c - a, 0.1_f64.to_radians());
+            assert!(!cross_is_zero3(a, b, c), "a small triangle at {origin}");
+            assert!(!cross_is_zero3(a, b, sliver), "sliver at {origin}");
+            assert!(cross_is_zero3(a, b, a + (b - a) * 0.5), "collinear at {origin}");
+            assert!(cross_is_zero3(a, a, c), "coincident at {origin}");
+        }
+        assert!(cross_is_zero(DVec2::ONE, DVec2::ONE, DVec2::ONE));
+        assert!(!cross_is_zero(DVec2::ZERO, DVec2::X, DVec2::Y));
     }
 
     #[test]
