@@ -1,0 +1,35 @@
+# String literals the literal-string lint (string_lint.rs) reports that are
+# not user-interface text (NFR-L10N-001). One entry per line:
+#
+#   <scope> | "<literal>" | <reason>
+#   <scope> | * | <reason>
+#
+# <scope> is a file relative to the repository root, optionally followed by
+# ::<item> (for example ::Dialogs::about_window) to cover one item only.
+# <literal> is written as Rust prints it with {:?}; * covers every literal in
+# the scope. Every entry needs a reason, and an entry that no longer matches
+# a literal fails the lint.
+
+# Project data: the default template and the reference models create names
+# that are saved in the project file and edited by the user.
+crates/archicraft-model/src/template.rs::default_metric_project | "00 Ground floor" | default storey name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project | "01 First floor" | default storey name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project | "Untitled project" | default project name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project | "Site" | default site name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project | "Building" | default building name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project | "3D perspective" | default 3D view name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project | "3D parallel" | default 3D view name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project | "Brick" | looks up a material of MATERIALS by name for the wall tool defaults
+crates/archicraft-model/src/template.rs::default_metric_project | "Reinforced concrete" | looks up a material of MATERIALS by name for the slab tool defaults
+crates/archicraft-model/src/template.rs::default_metric_project | "Exterior walls" | looks up a layer of LAYERS by name for the wall tool defaults
+crates/archicraft-model/src/template.rs::default_metric_project | "Slabs" | looks up a layer of LAYERS by name for the slab tool defaults
+crates/archicraft-model/src/template.rs::LAYERS | * | data table: default layer names of the metric template (project data)
+crates/archicraft-model/src/template.rs::MATERIALS | * | data table: default material names and codes of the metric template (project data)
+crates/archicraft-model/src/fixtures.rs | * | test fixture registry (SRS Appendix D.7): fixture titles, sources and check messages read by tests and docs, not shown in the UI
+crates/archicraft-model/src/samples.rs | * | reference models for the golden files and conformance tests (project data)
+crates/archicraft-model/src/kinds/wall.rs::Wall | "W" | KindDescriptor::name_prefix: prefix of generated wall names such as W-1 (project data)
+crates/archicraft-model/src/kinds/slab.rs::Slab | "SL" | KindDescriptor::name_prefix: prefix of generated slab names such as SL-1 (project data)
+
+# File-format keywords.
+crates/archicraft-model/src/element.rs::IfcClass::code | * | keyword table: IFC class names written to IFCX (bsi::ifc::class)
+crates/archicraft-model/src/material.rs::MaterialCategory::code | * | keyword table: IFC material category codes written to IFCX

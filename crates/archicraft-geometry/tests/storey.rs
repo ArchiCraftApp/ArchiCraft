@@ -1,11 +1,13 @@
-//! A storey with four joined walls and a slab: closed bodies, clean plan.
+//! A storey with four joined walls and a slab: closed bodies, clean plan;
+//! walls shortened by a storey edit.
 
 #![allow(clippy::unwrap_used)]
 
 use archicraft_geometry::{ModelGeometry, ViewRange, plan_drawing};
 use archicraft_model::glam::DVec2;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Command, History, Project};
+use archicraft_model::validate::validate_element;
+use archicraft_model::{Command, ElementKind, History, Project, TopLink};
 use geo::Area;
 
 fn house() -> Project {
@@ -73,4 +75,62 @@ fn plan_cuts_walls_and_projects_slab() {
     let upper = p.storeys.as_slice()[1].id;
     let plan = plan_drawing(&p, &geometry, upper, ViewRange::for_storey(&p, upper), |_| true);
     assert!(plan.elements.is_empty());
+}
+
+/// NFR-ACC-003: an element lower than the model tolerance has no body. A
+/// wall whose top is linked to a storey passes validation (at least 1 mm
+/// high, validate.rs) and is then shortened by moving that storey, which
+/// does not validate the walls linked to it; so heights between 5 and 20 µm
+/// reach evaluation.
+#[test]
+fn a_wall_lower_than_the_model_tolerance_has_no_body() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let [ground, first] = [0, 1].map(|i| p.storeys.as_slice()[i].id);
+    let mut wall = p.new_wall(ground, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+    let ElementKind::Wall(kind) = &mut wall.kind else {
+        unreachable!("a new wall is a wall")
+    };
+    kind.base_offset = 0.0;
+    // 1 cm high while the first floor is at 3 m.
+    kind.top = TopLink::Storey {
+        storey: first,
+        offset: -2.99,
+    };
+    let id = wall.id;
+    h.execute(&mut p, Command::AddElements(vec![wall])).unwrap();
+    let height = |p: &Project| {
+        let (bottom, top) = p.vertical_extent(p.element(id).unwrap()).unwrap();
+        top - bottom
+    };
+    for (elevation, has_body) in [(2.990_005, false), (2.990_02, true)] {
+        h.execute(
+            &mut p,
+            Command::SetStoreyElevation {
+                storey: first,
+                elevation,
+                shift_above: false,
+            },
+        )
+        .unwrap();
+        let micrometres = height(&p) * 1e6;
+        assert!(
+            (micrometres - if has_body { 20.0 } else { 5.0 }).abs() < 1e-3,
+            "{micrometres} µm"
+        );
+        assert!(
+            validate_element(&p, p.element(id).unwrap()).is_err(),
+            "below the 1 mm minimum"
+        );
+        let geometry = ModelGeometry::evaluate(&p);
+        if has_body {
+            assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+            let body = geometry.get(id).unwrap();
+            let (lo, hi) = body.bounds().unwrap();
+            assert!((hi.z - lo.z - 2e-5).abs() < 1e-9);
+        } else {
+            assert!(geometry.get(id).is_none());
+            assert_eq!(geometry.problems[&id], "the element has no height");
+        }
+    }
 }

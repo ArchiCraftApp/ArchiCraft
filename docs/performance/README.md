@@ -64,7 +64,9 @@ checks of docs/testing.md.
 
 The benches above cannot see frame rates or the latency a user feels. Builds with the
 `perf` feature of `archicraft-app` record them in the running application. The feature is
-off by default, and without it none of this code is compiled.
+off by default, and without it none of this code is compiled. CI builds and tests
+`archicraft-app` with the feature on Linux and runs clippy on it (`.github/workflows/ci.yml`),
+so the feature-gated code does not rot.
 
 ```bash
 cargo run --release -p archicraft-app --features perf -- <project.ifcx>

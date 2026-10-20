@@ -17,13 +17,12 @@ fn defines(source: &str, item: &str) -> bool {
     source.lines().any(|line| {
         line.trim_start()
             .strip_prefix(item)
-            .is_some_and(|rest| rest.starts_with([' ', '{', '(', '<']))
+            .is_some_and(|rest| rest.starts_with([' ', '{', '(', '<', ':']))
     })
 }
 
 /// The wall and slab payloads live in their kind modules, and `element.rs`
-/// keeps the envelope (Element, ElementKind, KindTag, IfcClass, Position,
-/// TopLink).
+/// keeps the envelope (Element, IfcClass, Position, TopLink).
 #[test]
 fn kind_payloads_live_in_their_kind_modules() {
     let element = source("element.rs");
@@ -41,13 +40,48 @@ fn kind_payloads_live_in_their_kind_modules() {
     }
     for item in [
         "pub struct Element",
-        "pub enum ElementKind",
-        "pub enum KindTag",
         "pub enum IfcClass",
         "pub enum Position",
         "pub enum TopLink",
     ] {
         assert!(defines(&element, item), "element.rs must keep `{item}`");
+    }
+}
+
+/// `ElementKind`, `KindTag` and the registry are generated in `kinds/mod.rs`
+/// from one `kinds!` invocation that lists every kind once (SRS 3.2,
+/// ELM-011), so adding a kind is one module plus one line.
+#[test]
+fn element_kinds_are_generated_from_one_list() {
+    let element = source("element.rs");
+    let kinds = source("kinds/mod.rs");
+    for item in ["pub enum ElementKind", "pub enum KindTag", "pub static KINDS"] {
+        assert!(defines(&kinds, item), "kinds/mod.rs must generate `{item}`");
+        assert!(!defines(&element, item), "element.rs must not define `{item}`");
+    }
+    let invocation = kinds
+        .split_once("\nkinds! {")
+        .and_then(|(_, rest)| rest.split_once("\n}"))
+        .map(|(list, _)| list)
+        .expect("kinds/mod.rs must invoke `kinds! { … }`");
+    for (module, payload) in [("wall", "Wall"), ("slab", "Slab")] {
+        let entry = format!("{module} => {payload}");
+        assert_eq!(invocation.matches(&entry).count(), 1, "`{entry}` must be listed once");
+    }
+}
+
+/// The project, validation and command code ask the registry instead of
+/// matching on kinds: no `KindTag::<kind> =>` arm and no per-kind counter
+/// field (ELM-011, ELM-019).
+#[test]
+fn core_model_code_does_not_match_on_kind_tags() {
+    for file in ["project.rs", "validate.rs", "command.rs"] {
+        let text = source(file);
+        for (n, line) in text.lines().enumerate() {
+            for pattern in ["KindTag::Wall =>", "KindTag::Slab =>", "counters.wall", "counters.slab"] {
+                assert!(!line.contains(pattern), "{file}:{}: `{pattern}` in {line:?}", n + 1);
+            }
+        }
     }
 }
 

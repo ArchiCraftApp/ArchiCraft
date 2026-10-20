@@ -69,7 +69,9 @@ The tests run on macOS (Apple silicon) when a version tag `v*` is pushed, or
 by hand with `gh workflow run macos.yml`. The conformance check runs on Linux,
 Windows and macOS every night, and on Linux and Windows for pull requests that
 change the model, geometry, IFCX or conformance code
-(`.github/workflows/conformance-matrix.yml`).
+(`.github/workflows/conformance-matrix.yml`). The IFCX reader and the
+typed-input parser are fuzzed every night, and for an hour per target before a
+release (`gh workflow run fuzz.yml -f minutes=60`; docs/testing.md, Fuzzing).
 
 Each release also goes through the manual checks of
 [docs/test-plan/release-checklist.md](docs/test-plan/release-checklist.md),

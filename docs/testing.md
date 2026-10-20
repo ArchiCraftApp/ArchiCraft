@@ -234,8 +234,21 @@ request; the CI step is the regression check.
 | IFX-021 | Name on the project, site, building, storeys and elements; the project description as `bsi::ifc::prop::Description` (elements have no description in the model yet) | Test: `ifx_021_names_everywhere_and_the_project_description` (ifcx) |
 | IFX-022 | IsExternal true for exterior and false for interior walls, absent for a slab with an undefined position | Test: `ifx_022_is_external_follows_the_known_position` (ifcx) |
 | IFX-025 | The stair hole of `two_storey_shell` is part of the slab body mesh; no IfcOpeningElement, no Void or opening child | Test: `ifx_025_slab_holes_are_geometry_not_openings` (ifcx) |
+| IFX-030 | Metres, +Z up, +Y project north, right-handed: a 5 m wall along +X with a fixed height of 2.7 m is written as a body from (0, 0, 0) to (5, thickness, 2.7) with positive signed volume and its top face counter-clockwise from above; altitude, survey point and true north round-trip in `archicraft::project.location` (standard-namespace georeferencing is IFX-070) | Test: `ifx_030_metres_z_up_right_handed_with_the_location_in_archicraft_project` (ifcx) |
+| IFX-031 | Storey `usd::xformop` matrices are 4×4, row-major, identity rotation, translation in the fourth row equal to the elevation; no other node is placed; written mesh and axis points composed with their ancestors' transforms lie within 0.1 mm of the model, on a project far from the origin with an odd elevation | Test: `ifx_031_storey_transforms_carry_the_elevation_and_world_points_match_within_0_1_mm` (ifcx); also `exported_points_stay_within_a_tenth_of_a_millimetre_in_world_coordinates` (determinism.rs) |
+| IFX-032 | Every written body mesh of the samples is closed, 2-manifold, consistently oriented and free of degenerate and duplicate triangles and unreferenced points (`TriMesh::check_closed`); the fixture registry runs the same check on every built fixture | Test: `written_meshes_are_closed_bodies` (roundtrip.rs); also `crates/archicraft-ifcx/tests/fixtures.rs` |
+| IFX-043 | Every body inherits a material node, every material node carries the Name of its project material, and the material nodes are exactly the referenced ones | Test: `ifx_043_every_body_references_a_named_material_node` (ifcx) |
 | IFX-061 | Every `archicraft::` attribute is declared in `schemas` with a value description that covers every member it carries, through nested objects and arrays | Test: `ifx_061_every_archicraft_attribute_has_a_complete_value_description` (ifcx) |
+| IFX-063 | A copy with every `archicraft::` attribute and schema removed validates, keeps every standard attribute, child and inherit, and composes to the same classes, names and mesh counts, which are those of the model | Test: `ifx_063_without_the_archicraft_namespace_the_file_describes_the_same_building` (ifcx) |
+| IFX-064 | After save and reopen every element equals the saved one bit for bit, and geometry regenerated from the reopened project matches the stored meshes (same triangles, points within 0.1 mm) on a project far from the origin with odd coordinates, junctions and a slab hole; save, reopen and save is byte-identical | Test: `ifx_064_reopened_elements_keep_their_parameters_and_regenerate_the_stored_geometry` (ifcx); also `round_trip_restores_the_editable_model`, `regenerated_geometry_matches_the_stored_geometry` (roundtrip.rs) and `crates/archicraft-ifcx/tests/fixtures.rs` |
+| IFX-067 | An unused material and an unused layer are records in `archicraft::project` with every material, layer and view and the tool defaults; only the used material is a node; the project is the single root | Test: `ifx_067_unused_resources_live_in_archicraft_project_and_the_tree_keeps_one_root` (ifcx) |
+| IFX-080 | A file the system wrote opens from disk without problems; every element accepts an UpdateElements command changing its name and a parameter; the edits save and reopen, and undo restores the elements as opened | Test: `ifx_080_xch_008_every_element_of_an_opened_file_accepts_update_elements` (ifcx) |
 | IFX-090 | The writer emits only `ifcx_alpha` (`WRITTEN_VERSION`), compact and indented; `load` dispatches on ifcxVersion through the adapter table `ADAPTERS` and refuses another version by name, naming every supported version; the frozen format-1 fixture loads with `source_version` `ifcx_alpha` and saves as `ifcx_alpha` | Test: `ifx_090_one_written_version_and_load_dispatches_on_it` (ifcx); also `malformed_input_is_rejected_without_panicking` (roundtrip.rs) and tests/formats.rs (all tests) |
+| XCH-008 | IFCX files are opened according to IFX-080 (`load_path` on a written file, every element editable) and IFX-090 (dispatch on ifcxVersion) | Test: `ifx_080_xch_008_every_element_of_an_opened_file_accepts_update_elements` (ifcx), `ifx_090_one_written_version_and_load_dispatches_on_it` (ifcx) |
+| LAY-005 | A project with a hidden and a locked layer writes the same standard-namespace content as with every layer visible and unlocked; the flags and the layer assignment are in `archicraft::project` and `archicraft::element`, and elements on the hidden layer keep their bodies | Test: `lay_005_hidden_and_locked_layers_leave_the_standard_content_unchanged` (ifcx) |
+| PRJ-010 | SetInfo changes all six project information fields, undo restores them and redo reapplies them; with non-ASCII text the name and description are written as `bsi::ifc::prop::Name` and `Description` on the project node, number, client, address and author in `archicraft::project.info`, and all six read back | Test: `prj_010_project_information_is_editable_and_round_trips` (ifcx) |
+| NFR-ACC-001 | A wall starting at (9999.99, -9999.99) round-trips its parameters bit for bit, its written mesh and axis points lie within 0.01 mm of the model, and the spacing of doubles at 10 km is below 10⁻⁸ m | Test: `nfr_acc_001_a_wall_ten_kilometres_out_round_trips_exactly_and_meshes_within_0_01_mm` (ifcx); also `imperial_and_far_parameters_round_trip_bit_exactly` (determinism.rs) |
+| NFR-ACC-002 | IFCX half: values typed at 0.1 mm and 1/64 inch resolution are written in `archicraft::wall` with round-trip precision and read back bit for bit; mesh, axis and storey placement coordinates have at most six decimals and lie within 0.5 µm of the model (IFX-007) | Test: `nfr_acc_002_parameters_keep_round_trip_precision_and_only_coordinates_are_rounded` (ifcx); also `storey_placements_are_rounded_and_storey_parameters_are_not` (determinism.rs) |
 | PRJ-008 | A damaged file loads all valid parts; every skipped or repaired record (non-object layer, malformed views, missing tool defaults, bad or missing counters, an invalid info field, wrong element flags, a non-numeric colour, an invalid ground storey, an invalid wall) is reported at its project or element node, and per collection loaded plus reported-skipped records equal the records in the file; the app shows the load report | Test: `no_record_disappears_silently` and one test per fixture (corrupt.rs: `crates/archicraft-ifcx/tests/corrupt.rs`); `a_damaged_file_opens_with_the_load_report` (ui.rs: `crates/archicraft-app/tests/ui.rs`); also `invalid_elements_are_skipped_and_reported`, `missing_references_are_repaired_and_reported` (roundtrip.rs) |
 
 Rows with "Test:" name `cargo test` functions, which the "Test" step of the "Test" job runs on
@@ -250,7 +263,8 @@ egui_kittest, without a GPU, find widgets by their accessible labels and share t
 marked "(ifcx)" live in `crates/archicraft-ifcx/tests/done_requirements.rs`: they save
 `samples::two_storey_shell` or small projects built through commands with the helpers of
 `crates/archicraft-ifcx/tests/common/mod.rs` and inspect the written IFCX; tests named with
-roundtrip.rs live in `crates/archicraft-ifcx/tests/roundtrip.rs`.
+roundtrip.rs live in `crates/archicraft-ifcx/tests/roundtrip.rs`, and those named with determinism.rs in
+`crates/archicraft-ifcx/tests/determinism.rs`.
 
 The negative self-test (`scripts/guards-selftest.sh`) runs each guard on a canned violation
 (`cargo tree` output in `scripts/testdata/`, and a scratch repository with a trademark line and
@@ -285,20 +299,38 @@ committed (NFR-LEG-003); the script keeps the list of example paths. Existing co
 stay, so later runs build on earlier ones. The output (`fuzz/target/`, `fuzz/corpus/`,
 `fuzz/artifacts/`, `fuzz/coverage/`) is git-ignored: `git status` is clean after a run.
 
-**Local run.** Install the tools once, seed, then run a target:
+**Local run.** Install the tools once, seed, then run a target for some minutes (10 when
+left out):
 
 ```sh
 rustup toolchain install nightly --profile minimal --component rustfmt
-cargo +nightly install cargo-fuzz --locked
+cargo install cargo-fuzz --version 0.13.2 --locked
 scripts/fuzz-corpus.sh
-cargo +nightly fuzz run ifcx_load -- -dict=fuzz/dict/ifcx.dict \
-    -rss_limit_mb=2048 -timeout=10 -max_len=4194304 -max_total_time=600
+scripts/fuzz-run.sh ifcx_load 10
 ```
 
-The limits make memory-hungry and slow inputs findings too: a crafted file that exhausts
-memory or stalls the reader is a denial of service, in scope of NFR-SEC-003. libFuzzer
-truncates seeds above `-max_len` (Tekla House is about 40 MB). `cargo +nightly fmt --check`
-in `fuzz/` checks the targets' formatting.
+`scripts/fuzz-run.sh` holds the run flags the nightly job uses too:
+`-rss_limit_mb=2048 -timeout=10 -max_len=4194304`, plus `-dict=fuzz/dict/ifcx.dict` for the
+IFCX targets. The limits make memory-hungry and slow inputs findings too: a crafted file that
+exhausts memory or stalls the reader is a denial of service, in scope of NFR-SEC-003.
+libFuzzer truncates seeds above `-max_len` (Tekla House is about 40 MB). Further libFuzzer
+flags go straight to `cargo +nightly fuzz run <target> -- <flags>`.
+`cargo +nightly fmt --check` in `fuzz/` checks the targets' formatting.
+
+**Nightly job.** `.github/workflows/fuzz.yml` runs every night at 02:17 UTC on `main` with
+10 minutes per target, and by hand with a duration of 1 to 100 minutes per target
+(`gh workflow run fuzz.yml -f minutes=<n>`). It is the only CI job with a nightly toolchain.
+It checks the formatting of `fuzz/`, restores the corpus of the newest earlier run from the
+Actions cache (key prefix `fuzz-corpus-`), seeds it with `scripts/fuzz-corpus.sh`, builds the
+targets (and fails when that changes `fuzz/Cargo.lock`), then runs `ifcx_load`,
+`ifcx_validate` and `units_parse` one after another with `scripts/fuzz-run.sh`, within
+GitHub's 6-hour job cap. Each target runs even when an earlier one found something. The
+grown corpus is minimised (`cargo +nightly fuzz cmin`: one input per coverage feature,
+truncated to `-max_len`) and saved under a new key, after a finding too, so the next run
+starts from it. A run by hand refuses a duration outside 1 to 100 minutes.
+Any crash, timeout or out-of-memory input fails the job and is uploaded as the
+`fuzz-findings` artefact (the contents of `fuzz/artifacts/`, kept for 30 days); download it
+with `gh run download <run id> -n fuzz-findings` and promote each input as described next.
 
 **Promoting a finding.** A crash, timeout or out-of-memory input lands in
 `fuzz/artifacts/<target>/`. Minimise it with
@@ -312,7 +344,8 @@ The directory starts with the inputs of `malformed_input_is_rejected_without_pan
 `crates/archicraft-model/src/units.rs` instead.
 
 **Release rule.** Before every release, each target runs for at least one hour on the seeded
-corpus (D.9) without a finding; findings are fixed and promoted first.
+corpus (D.9) without a finding: `gh workflow run fuzz.yml -f minutes=60` (about three and a
+half hours in all). Findings are fixed and promoted first.
 
 **Licences.** The fuzz crate is outside the workspace, so `cargo deny` does not list it;
 this paragraph is its entry in the licence inventory (NFR-LEG-001). Beyond the ArchiCraft
@@ -324,8 +357,6 @@ uses it: the fuzz binaries are a test tool and are never distributed.
 
 **Preference import.** When SET-004 adds the preference import, its epic adds a
 `prefs_import` target here and seeds it with exported preference files.
-
-_To be completed: the nightly and on-demand fuzz workflow (archicraft-76tg.2)._
 
 ## Security review
 

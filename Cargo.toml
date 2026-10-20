@@ -74,6 +74,10 @@ fluent-bundle = "0.16.0"
 fluent-syntax = "0.12.0"
 unic-langid = "0.9.6"
 
+# Test-only: the literal-string lint parses the sources (NFR-L10N-001).
+syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "visit"] }
+proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 missing_debug_implementations = "warn"

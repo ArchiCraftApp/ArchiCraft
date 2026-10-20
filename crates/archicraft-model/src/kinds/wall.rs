@@ -3,8 +3,11 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use crate::element::TopLink;
+use super::{Kind, KindDescriptor};
+use crate::element::{IfcClass, TopLink};
 use crate::ids::MaterialId;
+use crate::storey::StoreyList;
+use crate::validate;
 
 /// Location of a wall's reference line within its thickness (WAL-003).
 ///
@@ -73,5 +76,36 @@ impl Wall {
 
     pub fn direction(&self) -> DVec2 {
         (self.end - self.start).normalize_or_zero()
+    }
+}
+
+impl Kind for Wall {
+    /// ELM-011: `IfcWall` by default, `IfcFooting` selectable; ELM-019:
+    /// names `W-001`, `W-002`, …
+    const DESCRIPTOR: KindDescriptor = KindDescriptor {
+        label: "Wall",
+        code: "wall",
+        name_prefix: "W",
+        default_class: IfcClass::Wall,
+        ifc_classes: &[IfcClass::Wall, IfcClass::Footing],
+        has_tool: true,
+    };
+
+    fn material(&self) -> MaterialId {
+        self.material
+    }
+
+    fn set_material(&mut self, material: MaterialId) {
+        self.material = material;
+    }
+
+    fn validate(&self, storeys: &StoreyList) -> Result<Self, String> {
+        validate::validate_wall(self)?;
+        if let TopLink::Storey { storey, .. } = self.top
+            && storeys.get(storey).is_none()
+        {
+            return Err("The storey the wall top is linked to does not exist.".into());
+        }
+        Ok(self.clone())
     }
 }

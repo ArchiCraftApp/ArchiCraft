@@ -1,5 +1,7 @@
 //! The project document (SRS 3.1, 3.4, 4.1, 4.2).
 
+use std::collections::BTreeMap;
+
 use glam::DVec2;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -219,11 +221,46 @@ pub struct ToolDefaults {
     pub slab: SlabDefaults,
 }
 
-/// Counters for automatic element names (ELM-019).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct NameCounters {
-    pub wall: u32,
-    pub slab: u32,
+/// Counters for automatic element names, one per kind (ELM-019).
+///
+/// A counter is the number of elements of its kind named so far; kinds
+/// without a counter count zero. Zero counters are not stored, so two
+/// counter sets with the same values compare equal.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(from = "BTreeMap<KindTag, u32>")]
+pub struct NameCounters(BTreeMap<KindTag, u32>);
+
+impl From<BTreeMap<KindTag, u32>> for NameCounters {
+    fn from(mut counters: BTreeMap<KindTag, u32>) -> Self {
+        counters.retain(|_, n| *n != 0);
+        Self(counters)
+    }
+}
+
+impl NameCounters {
+    /// The number of elements of `kind` named so far.
+    pub fn get(&self, kind: KindTag) -> u32 {
+        self.0.get(&kind).copied().unwrap_or(0)
+    }
+
+    /// The number the next element of `kind` gets.
+    pub fn next(&self, kind: KindTag) -> u32 {
+        self.get(kind).saturating_add(1)
+    }
+
+    /// Advances the counter of `kind` by one, as adding an element does.
+    pub fn bump(&mut self, kind: KindTag) {
+        let next = self.next(kind);
+        self.set(kind, next);
+    }
+
+    pub fn set(&mut self, kind: KindTag, value: u32) {
+        if value == 0 {
+            self.0.remove(&kind);
+        } else {
+            self.0.insert(kind, value);
+        }
+    }
 }
 
 /// The project: settings, spatial structure, resources and elements.
@@ -339,11 +376,7 @@ impl Project {
     /// example `W-004` (ELM-019). The counter itself advances when elements
     /// are added.
     pub fn next_element_name(&self, kind: KindTag, nth: u32) -> String {
-        let n = match kind {
-            KindTag::Wall => self.counters.wall,
-            KindTag::Slab => self.counters.slab,
-        } + 1
-            + nth;
+        let n = self.counters.next(kind).saturating_add(nth);
         format!("{}-{n:03}", kind.name_prefix())
     }
 

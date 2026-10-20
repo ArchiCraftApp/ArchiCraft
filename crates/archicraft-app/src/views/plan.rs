@@ -14,8 +14,8 @@ use egui::{
 };
 
 use super::camera::{Camera2d, ZoomHistory};
-use crate::input::{Field, Snap, SnapKind, SnapTargets, constrain, snap};
-use crate::tools::{ToolKind, ToolOutcome};
+use crate::input::{Field, InputConsumer, Outcome, Snap, SnapKind, SnapTargets, constrain, is_numeric_input, snap};
+use crate::tools::ToolKind;
 use crate::workspace::{Pane, Request, Workspace};
 
 /// Per-view state of a plan view.
@@ -356,11 +356,6 @@ fn draw_snap_marker(painter: &egui::Painter, p: Pos2, snap: SnapKind, color: Col
     }
 }
 
-/// Characters that a typed length or angle may contain (INP-003, INP-005).
-fn is_numeric_input(c: char) -> bool {
-    c.is_ascii_digit() || " .,+-/'\"′″°mcfitn".contains(c)
-}
-
 /// Shows the plan of `storey` and handles its input.
 pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
@@ -521,15 +516,15 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
                 None => {}
             }
         } else if let Some(s) = snapped {
-            let outcome = ws.tool.add_point(&ws.doc.project, storey, s.point);
-            if let ToolOutcome::Execute(command) = outcome {
+            let outcome = ws.tool.commit(&ws.doc.project, storey, s.point);
+            if let Outcome::Execute(command) = outcome {
                 ws.execute(command);
             }
         }
     }
     if response.double_clicked_by(PointerButton::Primary) && drawing_tool && !selecting {
         let outcome = ws.tool.finish(&ws.doc.project);
-        if let ToolOutcome::Execute(command) = outcome {
+        if let Outcome::Execute(command) = outcome {
             ws.execute(command);
         }
     }
@@ -583,7 +578,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     }
     if let (Some(s), Some(p)) = (snapped, pointer) {
         let target = camera.to_screen(rect, s.point);
-        for (ring, closed) in ws.tool.preview(s.point) {
+        for (ring, closed) in ws.tool.outlines(s.point) {
             let points: Vec<Pos2> = ring.iter().map(|q| camera.to_screen(rect, *q)).collect();
             let stroke = Stroke::new(1.5, palette.preview);
             if closed {
@@ -684,8 +679,8 @@ fn handle_keys(
                 Key::Enter if drawing => {
                     if !ws.tool.typed.is_empty() {
                         if let Some(s) = snapped.filter(|s| s.kind == SnapKind::Typed) {
-                            let outcome = ws.tool.add_point(&ws.doc.project, storey, s.point);
-                            if let ToolOutcome::Execute(command) = outcome {
+                            let outcome = ws.tool.commit(&ws.doc.project, storey, s.point);
+                            if let Outcome::Execute(command) = outcome {
                                 ws.execute(command);
                             }
                         } else {
@@ -693,7 +688,7 @@ fn handle_keys(
                         }
                     } else {
                         let outcome = ws.tool.finish(&ws.doc.project);
-                        if let ToolOutcome::Execute(command) = outcome {
+                        if let Outcome::Execute(command) = outcome {
                             ws.execute(command);
                         }
                     }
@@ -734,7 +729,7 @@ fn context_menu(ui: &mut Ui, ws: &mut Workspace) {
     if ws.tool.is_drawing() {
         if ui.button("Finish").clicked() {
             let outcome = ws.tool.finish(&ws.doc.project);
-            if let ToolOutcome::Execute(command) = outcome {
+            if let Outcome::Execute(command) = outcome {
                 ws.execute(command);
             }
             ui.close();

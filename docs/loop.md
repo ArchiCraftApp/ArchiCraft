@@ -17,7 +17,7 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines (a top-level `#[cfg(test)] mod tests` does not count), or with separable criteria | `bd create --parent` |
 | 3 Tests first | Every acceptance criterion becomes a failing test | |
 | 4 Implement | CLAUDE.md conventions; rustfmt runs after every edit | |
-| 5 Gate | fmt, clippy, tests, layering, golden files, diff budget, `.beads/`, conformance, licences | `scripts/loop/gate.sh` |
+| 5 Gate | fmt, clippy, tests, layering, golden files, diff budget, `.beads/`, loop guardrails only under label `loop`, conformance, licences | `scripts/loop/gate.sh` |
 | 6 Review | Fresh-context `bead-reviewer` agent; its verdict becomes the review stamp | `.claude/agents/bead-reviewer.md` |
 | 7 Land | Commit `<id>: <summary>`, push, PR, squash auto-merge on green CI (a PR that changes `.github/workflows/` or `.claude/settings.json` waits for the user) | `scripts/loop/land.sh` |
 | 8 Close | Bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |
@@ -64,7 +64,8 @@ Instructions are soft; these are not:
 | Hook `stop-gate` (Stop) | A bead session does not end with uncommitted code that has not passed the gate and the review; it runs the gate, blocks at most three times per tree, and `pause.sh` is the explicit way out |
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
 | CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop` (labels read live at run time, since `gh pr create` attaches them after the PR is opened); headless layering; the hooks' self-test |
-| Branch protection on `main` | Auto-merge waits for the six required CI checks on Linux and Windows; macOS runs only for releases and the nightly conformance matrix (below) |
+| CI workflow `User review` | A PR that changes `.github/workflows/` or `.claude/settings.json` (or `LOOP_USER_REVIEW_PATHS`) gets the failing status `User review`, decided by the base's `scripts/loop/ci-user-review.sh` (`pull_request_target`), never by the PR's own scripts |
+| Branch protection on `main` | Auto-merge waits for the seven required CI checks on Linux and Windows and the status `User review`; macOS runs only for releases and the nightly conformance matrix (below) |
 
 **macOS runs only for releases and the nightly conformance matrix.** No macOS job runs on a
 push or pull request, and none is a required check. On 2026-10-19 GitHub's hosted macOS
@@ -124,6 +125,18 @@ and names the files; `guard-bash` refuses turning it on by hand; the user review
 Both judge by the pattern as `origin/main` defines it as well as the branch's copy, so a branch
 that narrows `LOOP_USER_REVIEW_PATHS` still waits for every file the base names, and both also
 make a PR wait when it changes the pattern itself (naming `scripts/loop/lib.sh`).
+Both still run the branch's own copies, though, so a branch that rewrites `land.sh` or
+`lib.sh` could turn auto-merge on for its own workflow change. CI closes that gap
+(archicraft-9nlk): `.github/workflows/user-review.yml` runs on `pull_request_target`, so GitHub
+takes the workflow and its script `scripts/loop/ci-user-review.sh` from `main`; it checks out
+`main`, reads the PR's commits as data and posts the commit status `User review` on the PR's
+head, failing when the PR changes a file of `main`'s `LOOP_USER_REVIEW_PATHS` or the pattern
+itself. Branch protection requires that status, so auto-merge does not merge such a PR even
+when a branch whose scripts skip the rule turned it on; the user merges it after the review as
+an admin, past the failing status ("Merge without waiting for requirements", or
+`gh pr merge --admin`, which the hooks refuse to agents). Protection names the status by its
+context only, so a status of the same name from another source (the PR's own workflow, a
+`gh api` call) could still overwrite it; closing that is archicraft-t9zs.
 A CODEOWNERS review cannot enforce this while Claude works under the user's GitHub account,
 because GitHub does not let an account approve its own PR.
 
@@ -133,7 +146,9 @@ Once per machine: `brew install gh && gh auth login` (PRs and auto-merge), optio
 `cargo install cargo-deny` (the gate skips the licence check without it; CI runs it).
 
 Once per repository, by an admin: `scripts/loop/setup-github.sh` (auto-merge, labels,
-required checks on `main`).
+required checks on `main`). Run it again after a change to its list of required checks. A PR
+opened before the status `User review` became required gets it with its next push (or a close
+and reopen).
 
 After changing a hook or loop script: `scripts/loop/selftest.sh`.
 
