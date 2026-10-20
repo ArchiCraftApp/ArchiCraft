@@ -2,7 +2,10 @@
 //! `tests/fuzz-regressions/` goes through the open path of the `ifcx_load`
 //! fuzz target (`fuzz/fuzz_targets/ifcx_load.rs`) on stable, in the normal
 //! test job: load, and when that succeeds evaluate the geometry, save and
-//! load again. None of it may panic, and a rejected file carries a message.
+//! load again. None of it may panic, a rejected file carries a message, and
+//! no file takes longer than the fuzz runs' time-out (`-timeout=10` in
+//! `scripts/fuzz-run.sh`): a file that stalls the reader is a denial of
+//! service (NFR-SEC-003).
 //!
 //! A crash found by `cargo fuzz` is minimised with `cargo fuzz tmin` and
 //! committed here under a descriptive name (docs/testing.md, Fuzzing).
@@ -12,8 +15,13 @@
 mod common;
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use archicraft_geometry::ModelGeometry;
+
+/// The time-out of the fuzz runs (`scripts/fuzz-run.sh`): an input that
+/// takes longer is a finding.
+const TIME_LIMIT: Duration = Duration::from_secs(10);
 
 fn regression_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fuzz-regressions")
@@ -41,15 +49,19 @@ fn open(bytes: &[u8]) {
     }
 }
 
-/// NFR-REL-007: no file of the regression corpus crashes the open path.
+/// NFR-REL-007, NFR-SEC-003: no file of the regression corpus crashes the
+/// open path or stalls it beyond the fuzz runs' time-out.
 #[test]
 fn every_fuzz_regression_opens_without_panicking() {
     let files = regression_files();
     assert!(!files.is_empty(), "no files in {}", regression_dir().display());
     for path in files {
         let bytes = std::fs::read(&path).unwrap();
+        let start = Instant::now();
         let outcome = std::panic::catch_unwind(|| open(&bytes));
+        let elapsed = start.elapsed();
         assert!(outcome.is_ok(), "{} panicked", path.display());
+        assert!(elapsed < TIME_LIMIT, "{} took {elapsed:?}", path.display());
     }
 }
 
@@ -80,4 +92,60 @@ fn the_regression_corpus_holds_the_malformed_inputs() {
         assert_eq!(std::fs::read(&path).unwrap(), input, "{}", path.display());
         assert!(archicraft_ifcx::load(input).is_err(), "{name} was accepted");
     }
+}
+
+/// NFR-SEC-003: a slab of more than `MAX_SLAB_POINTS` points stalled the
+/// open path in the first fuzz campaign (docs/testing.md, Fuzzing): the
+/// self-intersection checks grow with the square of the points, and 32,003
+/// took 16 s. Such a slab is now skipped with a message naming the limit,
+/// before those checks run, and the rest of the project opens.
+#[test]
+fn a_slab_with_too_many_points_is_skipped_with_a_message() {
+    let bytes = std::fs::read(regression_dir().join("slab-outline-1003-points.ifcx")).unwrap();
+    let outcome = archicraft_ifcx::load(&bytes).unwrap();
+    assert_eq!(outcome.project.elements.len(), 4, "only the four walls are left");
+    assert!(
+        outcome
+            .problems
+            .iter()
+            .any(|p| p.message.contains("SL-001") && p.message.contains("model-error-slab-points(max=1000)")),
+        "{:?}",
+        outcome.problems
+    );
+}
+
+/// NFR-SEC-003: a storey listed many times among the building's children was
+/// read once per listing in the first fuzz campaign; 5,000 listings in a
+/// 260 KB file made 5,000 storeys and saving them took more than 2 GB. A
+/// storey is now read once and each further listing is reported.
+#[test]
+fn a_storey_listed_three_times_is_read_once() {
+    let bytes = std::fs::read(regression_dir().join("storey-listed-three-times.ifcx")).unwrap();
+    let outcome = archicraft_ifcx::load(&bytes).unwrap();
+    assert_eq!(outcome.project.storeys.len(), 2);
+    assert_eq!(outcome.project.elements.len(), 5);
+    let repeats = outcome
+        .problems
+        .iter()
+        .filter(|p| {
+            p.message
+                .contains("storey 00 Ground floor skipped: the building lists it more than once")
+        })
+        .count();
+    assert_eq!(repeats, 2, "{:?}", outcome.problems);
+}
+
+/// NFR-SEC-003: an element listed many times among a storey's children was
+/// read and validated once per listing, found when reviewing the first fuzz
+/// campaign: a slab of 999 points listed 20,000 times (1 MB) took longer than
+/// the 10 s time-out. An element is now read once and each further listing
+/// is reported; here the slab is above the point limit, so reading it again
+/// would report the limit again.
+#[test]
+fn an_element_listed_three_times_is_read_once() {
+    let bytes = std::fs::read(regression_dir().join("slab-listed-three-times.ifcx")).unwrap();
+    let outcome = archicraft_ifcx::load(&bytes).unwrap();
+    let count = |text: &str| outcome.problems.iter().filter(|p| p.message.contains(text)).count();
+    assert_eq!(count("model-error-slab-points"), 1, "{:?}", outcome.problems);
+    assert_eq!(count("SL-001 appears twice"), 2, "{:?}", outcome.problems);
 }

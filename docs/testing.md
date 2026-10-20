@@ -364,7 +364,13 @@ with `gh run download <run id> -n fuzz-findings` and promote each input as descr
 the minimised input to `crates/archicraft-ifcx/tests/fuzz-regressions/` under a name that
 says what it exercises, with the `.ifcx` extension (so `.gitattributes` keeps its bytes).
 `crates/archicraft-ifcx/tests/fuzz_regressions.rs` replays every file there along the
-`ifcx_load` path on stable, in the test jobs of `ci.yml` (Linux), `windows.yml` and `macos.yml`.
+`ifcx_load` path on stable, in the test jobs of `ci.yml` (Linux), `windows.yml` and `macos.yml`,
+and fails on a file that takes longer than the fuzz runs' 10 s time-out. A time-out or
+out-of-memory input is often too large to commit at the size that crosses the limit, so the
+committed input is the smallest one the fix treats differently, and a test there pins what the
+fix does with it (such as a slab skipped with a message);
+`crates/archicraft-app/tests/ui.rs` opens every file there and every corrupt fixture through
+the application and expects the load report or the "Cannot open the project" message.
 The directory starts with the inputs of `malformed_input_is_rejected_without_panicking`
 (tests/roundtrip.rs). A `units_parse` finding becomes a unit test in
 `crates/archicraft-model/src/units.rs` instead.
@@ -372,6 +378,54 @@ The directory starts with the inputs of `malformed_input_is_rejected_without_pan
 **Release rule.** Before every release, each target runs for at least one hour on the seeded
 corpus (D.9) without a finding: `gh workflow run fuzz.yml -f minutes=60` (about three and a
 half hours in all). Findings are fixed and promoted first.
+
+Record each release run in the table below (the release checklist links here): the date, the
+commit, each target's duration, executions and coverage from libFuzzer's final statistics
+(`-print_final_stats=1`: `stat::number_of_executed_units` and the last `cov:` and `ft:` values),
+and the findings with their fixes. A finding is a panic, a rejection without a message, an
+input that takes longer than 10 s or one that needs more than 2 GB of memory (the flags of
+`scripts/fuzz-run.sh`).
+
+**Campaigns.**
+
+| Date | Commit | Host | Target | Duration | Executions | Coverage (`cov` / `ft`) | Peak RSS | Findings |
+|---|---|---|---|---|---|---|---|---|
+| 2026-10-20 | `34b65fe` plus the code of the archicraft-lnow pull request | macOS 27 on Apple silicon (16 cores), nightly 1.101.0 | `ifcx_load` | 60 min | 4,691,710 | 8,930 / 32,977 | 1,073 MB | none |
+| 2026-10-20 | same | same | `ifcx_validate` | 60 min | 10,504,874 | 4,121 / 18,043 | 1,163 MB | none |
+| 2026-10-20 | same | same | `units_parse` | 30 min | 32,260,617 | 545 / 2,247 | 654 MB | none |
+| 2026-10-20 | `1c7ec92` (main, with the new digit grouping of archicraft-eya.1) | same | `units_parse` | 30 min | 13,312,209 | 716 / 2,925 | 1,649 MB | none |
+
+The first campaign (archicraft-lnow) started with a 15-minute exploratory round of each target
+in fork mode (`-fork`, findings ignored so that one does not stop the others; about 1.1 M,
+1.3 M and 2.6 M executions), which found nothing, and hand-crafted inputs for the hot spots
+that random mutation rarely reaches: huge slab outlines, many walls meeting at one point or
+crossing, thousands of storeys, repeated `children` entries, and every number of the
+ArchiCraft attributes of a golden file replaced in turn by extreme values (3,330 files). They
+found four problems:
+
+1. *Time-out:* a slab outline of 32,003 points (324 KB) took 16 s to open, because the
+   self-intersection checks of `validate_ring` grow with the square of the points. Fixed:
+   `MAX_SLAB_POINTS` limits a slab to 1,000 points in its outline and holes together, checked
+   before those checks run; the slab is skipped with a message. Regression:
+   `slab-outline-1003-points.ifcx`.
+2. *Out of memory:* a storey listed 5,000 times among the building's children (260 KB) was
+   read once per listing; saving the 5,000 storeys needed more than 2 GB. Fixed: the reader
+   reads a storey once and reports each further listing. Regression:
+   `storey-listed-three-times.ifcx`.
+3. *Time-out* (found in review): a slab of 999 points listed 20,000 times among a storey's
+   children (1 MB) was read and validated once per listing and took longer than 10 s. Fixed:
+   the reader reads an element once and reports each further listing before reading it again.
+   Regression: `slab-listed-three-times.ifcx`.
+4. *Out of memory, not fixed here:* 400 valid slabs of 999 points each (3.3 MB) open with about
+   300 MB, but saving them writes 52 MB of meshes and needs 2.7 GB, and reading that file
+   back needs 2.8 GB. The IFCX reader and writer hold the whole file as a JSON tree; that is a
+   design change, filed as archicraft-4rrc with the recipe for the input.
+
+The final runs above used `scripts/fuzz-run.sh` on the corpus grown by the exploratory round
+and earlier runs, with the regression files added, one process per target, all at once. The
+units grammar changed on `main` during the campaign (archicraft-eya.1), so `units_parse` also
+ran on that commit. The hand-crafted inputs were not added to the seeded corpus, and coverage
+was not checked with `cargo fuzz coverage`; both are archicraft-4ehi.
 
 **Licences.** The fuzz crate is outside the workspace, so `cargo deny` does not list it;
 this paragraph is its entry in the licence inventory (NFR-LEG-001). Beyond the ArchiCraft
@@ -400,6 +454,13 @@ reader enforces the limits of SRS Appendix D.9, each tested at its boundary in
   `serde_json`);
 - `children`/`inherits` chains at most 64 deep, reported with the node path;
 - at most 32 imports.
+
+Beyond D.9, three bounds keep a small crafted file from stalling the reader or exhausting memory
+(found by the first fuzz campaign, Fuzzing): a slab has at most 1,000 points in its outline
+and holes together (`MAX_SLAB_POINTS` in `crates/archicraft-model/src/validate.rs`, because
+the self-intersection checks grow with the square of the points), and a storey that the
+building lists more than once is read once, the further listings reported, and so is an
+element listed more than once in one storey or several.
 
 **No execution.** File content only ever becomes data: the reader has no `eval`, loads no
 plugins or libraries and spawns no processes, and nothing in a file selects code to run.

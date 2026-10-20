@@ -35,6 +35,12 @@ pub const MAX_OFFSET: f64 = 1000.0;
 /// Largest number of storeys a wall top may be linked across.
 pub const MAX_LINKED_STOREYS: usize = 200;
 
+/// Most points a slab may have in its outline and holes together. The
+/// self-intersection and hole checks grow with the square of the points, so
+/// a crafted file with tens of thousands stalled opening for minutes
+/// (NFR-SEC-003, found by the first fuzz campaign, docs/testing.md).
+pub const MAX_SLAB_POINTS: usize = 1000;
+
 /// Largest step or spacing of a drafting grid, in metres (INP-013).
 pub const MAX_GRID_SPACING: f64 = 1000.0;
 
@@ -187,11 +193,15 @@ fn rings_touch(a: &[DVec2], b: &[DVec2]) -> bool {
 }
 
 /// Validates a slab outline with holes. Returns the outline counter-clockwise
-/// and the holes clockwise (SLB-001, SLB-003, EDT-018).
+/// and the holes clockwise (SLB-001, SLB-003, EDT-018). It has at most
+/// [`MAX_SLAB_POINTS`] points (NFR-SEC-003).
 pub fn validate_slab_polygon(
     outline: &[DVec2],
     holes: &[Vec<DVec2>],
 ) -> Result<(Vec<DVec2>, Vec<Vec<DVec2>>), Message> {
+    if outline.len() + holes.iter().map(Vec::len).sum::<usize>() > MAX_SLAB_POINTS {
+        return Err(Message::new("model-error-slab-points").count("max", MAX_SLAB_POINTS));
+    }
     let outline = validate_ring(outline)?;
     let mut cleaned_holes: Vec<Vec<DVec2>> = Vec::with_capacity(holes.len());
     for hole in holes {
@@ -358,5 +368,42 @@ mod tests {
         assert!(validate_slab_polygon(&square(4.0), &[outside]).is_err());
         let touching: Vec<DVec2> = square(1.0);
         assert!(validate_slab_polygon(&square(4.0), &[touching]).is_err());
+    }
+
+    /// A comb with `teeth` teeth: `4 * teeth + 3` points, right angles only
+    /// and no self-intersection.
+    fn comb(teeth: usize) -> Vec<DVec2> {
+        let mut ring = Vec::new();
+        for i in 0..teeth {
+            let x = 2.0 * i as f64;
+            ring.extend([
+                DVec2::new(x, 0.0),
+                DVec2::new(x, 1.0),
+                DVec2::new(x + 1.0, 1.0),
+                DVec2::new(x + 1.0, 0.0),
+            ]);
+        }
+        let end = 2.0 * teeth as f64;
+        ring.extend([DVec2::new(end, 0.0), DVec2::new(end, -1.0), DVec2::new(0.0, -1.0)]);
+        ring
+    }
+
+    /// NFR-SEC-003: the self-intersection checks grow with the square of the
+    /// points, so a slab of more than MAX_SLAB_POINTS points in its outline
+    /// and holes together is rejected with a message before they run.
+    #[test]
+    fn slab_polygons_are_limited_to_max_slab_points() {
+        let largest = comb((MAX_SLAB_POINTS - 3) / 4);
+        assert!(largest.len() <= MAX_SLAB_POINTS);
+        assert!(validate_slab_polygon(&largest, &[]).is_ok());
+        let too_large = comb((MAX_SLAB_POINTS - 3) / 4 + 1);
+        assert!(too_large.len() > MAX_SLAB_POINTS);
+        let error = validate_slab_polygon(&too_large, &[]).unwrap_err();
+        assert_eq!(error, Message::new("model-error-slab-points").count("max", 1000));
+        // The holes count too.
+        let hole: Vec<DVec2> = square(0.5).into_iter().map(|p| p + DVec2::new(0.25, -0.75)).collect();
+        let holes = vec![hole; MAX_SLAB_POINTS / 4];
+        let error = validate_slab_polygon(&comb(10), &holes).unwrap_err();
+        assert_eq!(error.key(), "model-error-slab-points");
     }
 }

@@ -101,6 +101,7 @@ model-error-polygon-self-intersection = The polygon outline intersects itself.
 model-error-hole = Hole: { $reason }
 model-error-hole-outside = A hole must lie inside the slab outline without touching it.
 model-error-holes-overlap = Holes must not overlap each other.
+model-error-slab-points = A slab may have at most { $max_text } points in its outline and holes together.
 model-error-thickness-range = Thickness must be between { $min } and { $max }.
 model-error-base-offset-range = The base offset must be a finite value within ±{ $max }.
 model-error-top-offset-range = The top offset must be a finite value within ±{ $max }.

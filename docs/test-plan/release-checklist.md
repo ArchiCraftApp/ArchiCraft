@@ -44,9 +44,13 @@ SRS R2 is still the right one).
 
 ### 2. One-hour fuzz run (NFR-REL-007, NFR-SEC-003, SRS D.9)
 
-- [ ] _Placeholder: the fuzz campaign task (archicraft-lnow) replaces this item with a link to
-      the document it writes._ Until then: each target of docs/testing.md "Fuzzing" ran for at
-      least one hour on the seeded corpus without a finding (the release rule there).
+- [ ] Each target of [docs/testing.md, Fuzzing](../testing.md#fuzzing) ran for at least one
+      hour on the release commit without a finding (its release rule):
+      `gh workflow run fuzz.yml --ref <tag or branch> -f minutes=60`. Findings are fixed and
+      promoted to `crates/archicraft-ifcx/tests/fuzz-regressions/` first.
+- [ ] The run is recorded as a new row of the Campaigns table there, with the first campaign's
+      row (archicraft-lnow) as the template: date, commit, each target's duration, executions
+      and coverage, findings and fixes. Column "2 Fuzz" below links the job.
 
 ### 3. AS-05 crash recovery on Windows, macOS and Linux
 

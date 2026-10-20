@@ -370,6 +370,38 @@ fn a_damaged_file_opens_with_the_load_report() {
     assert!(harness.query_by_label("The project was opened with problems").is_none());
 }
 
+/// NFR-REL-007, NFR-SEC-003: every fuzz regression and every corrupt fixture
+/// of the IFCX crate goes through the application's open path without a
+/// panic, and the application answers each with the load report or the
+/// “Cannot open the project” message.
+#[test]
+fn malformed_files_open_with_a_report_or_a_message() {
+    let ifcx_tests = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../archicraft-ifcx/tests");
+    let mut files: Vec<_> = ["fuzz-regressions", "corrupt"]
+        .iter()
+        .flat_map(|dir| std::fs::read_dir(ifcx_tests.join(dir)).unwrap())
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.is_file())
+        .collect();
+    files.sort();
+    assert!(files.len() > 10, "{files:?}");
+    let mut harness = harness("malformed-files");
+    for path in files {
+        harness.state_mut().open_path(&path);
+        harness.run_steps(2);
+        let answer = ["The project was opened with problems", "Cannot open the project"]
+            .into_iter()
+            .find(|label| harness.query_by_label(label).is_some());
+        assert!(
+            answer.is_some(),
+            "{} opened without a report or a message",
+            path.display()
+        );
+        harness.get_by_label("OK").click();
+        harness.run_steps(2);
+    }
+}
+
 /// IFX-008: the Preferences window offers indented, human-readable IFCX;
 /// confirming it with OK makes the next save indented.
 #[test]

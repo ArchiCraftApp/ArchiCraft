@@ -36,6 +36,7 @@ use archicraft_model::{
 use std::fmt::Display;
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
@@ -694,12 +695,19 @@ fn read_storeys(
     problems: &mut Vec<Problem>,
 ) -> Vec<(Storey, Vec<String>)> {
     let mut storeys = Vec::new();
+    let mut seen = HashSet::new();
     for (path, node) in children_with_class(nodes, building, "IfcBuildingStorey") {
         let mut report = Report::new(
             problems,
             path,
             format!("storey {}", name(node).as_deref().unwrap_or(path)),
         );
+        // NFR-SEC-003: a storey listed again is read once, so a file cannot
+        // multiply it (found by the first fuzz campaign, docs/testing.md).
+        if !seen.insert(path) {
+            report.skipped("the building lists it more than once");
+            continue;
+        }
         let id = StoreyId::from_uuid(node_uuid(path, &mut report));
         let name = name(node).unwrap_or_else(|| {
             report.repaired("it has no name; “Storey” is used");
@@ -1057,6 +1065,7 @@ pub(crate) fn read_with(file: &IfcxFile, migrations: &[Migration], current: u32)
         0
     });
 
+    let mut seen = HashSet::new();
     for (storey, children) in &storey_entries {
         let storey_lost = project.storeys.get(storey.id).is_none();
         for child in children {
@@ -1076,6 +1085,18 @@ pub(crate) fn read_with(file: &IfcxFile, migrations: &[Migration], current: u32)
                     Some(child),
                     format!(
                         "“{}” has no ArchiCraft data and was not loaded; importing elements from other tools is not supported yet",
+                        name(node).unwrap_or_else(|| child.clone())
+                    ),
+                ));
+                continue;
+            }
+            // NFR-SEC-003: an element listed again is read once, so a file
+            // cannot multiply its validation (docs/testing.md, Fuzzing).
+            if !seen.insert(child.as_str()) {
+                problems.push(Problem::error(
+                    Some(child),
+                    format!(
+                        "{} appears twice; the second occurrence was skipped",
                         name(node).unwrap_or_else(|| child.clone())
                     ),
                 ));
