@@ -118,7 +118,7 @@ request; the CI step is the regression check.
 
 | Requirement | What is guarded | Regression check (CI job: step) |
 |---|---|---|
-| NFR-PORT-004 | Golden files keep their exact bytes on every platform: `.gitattributes` sets `*.ifcx -text` and `*.snap text eol=lf` | Test (windows-latest): "Enable end-of-line conversion (core.autocrlf=true)", then "Test" (`golden_files_are_reproduced`) |
+| NFR-PORT-004 | Golden files keep their exact bytes on every platform: `.gitattributes` sets `*.ifcx -text` and `*.snap text eol=lf`; the output has no carriage return and no platform path, and a file opened from a temp folder saves back to the same bytes | Test (windows-latest): "Enable end-of-line conversion (core.autocrlf=true)", then "Test" (`golden_files_are_reproduced`); Test: `nfr_port_004_output_has_no_carriage_return_and_no_platform_path` (ifcx) |
 | NFR-LEG-002 | No trademark of the reference product or its maker outside reviewed nominative lines (`scripts/legal-allowlist.txt`); no tracked image, library-part or template file without origin and licence (`scripts/asset-allowlist.txt`) | Repository guards: "No unreviewed trademarks or third-party assets (NFR-LEG-002)" (`scripts/check-legal.sh`) and "Negative self-test of the guards" |
 | NFR-SEC-001 | No HTTP client crate in the dependency graph: `deny.toml` [bans] | Licences and sources: `cargo deny check advisories licenses sources bans` |
 | NFR-SEC-004 | As NFR-SEC-001, until ifcx-interop adds the consent-gated import fetch (IFX-081) and lifts the ban | Licences and sources: `cargo deny check advisories licenses sources bans` |
@@ -145,6 +145,18 @@ request; the CI step is the regression check.
 | VIEW-014 | Middle-button pan, Ctrl+wheel and pinch zoom keep the point under the cursor within 1e-9 m, fit to window and zoom to selection; previous/next zoom walks 20 of 25 recorded steps | Test: `view_014_plan_navigation_pans_zooms_and_fits` (app), `zoom_history_keeps_20_steps` (camera.rs); also `plan_round_trip_and_zoom_anchor`, `zoom_history` (camera.rs) |
 | WAL-001 | The four wall mode buttons switch WallMode; chained walls share their ends, both rectangles create four walls sharing their corners | Test: `wal_001_wall_modes_single_chained_rectangle_and_rotated_rectangle` (app); also `wall_chain_closes_into_joined_walls`, `rectangle_tools` (tools/mod.rs) |
 | NFR-PORT-005 | The main window parts of UI-001 are present at 100, 150 and 200 % scaling | Test: `nfr_port_005_main_window_at_100_to_200_percent_scaling` (app) |
+| IFX-001 | The output is UTF-8 (non-ASCII text verbatim) and its top-level object has exactly header, imports, schemas and data, compact and indented; the container matches the JSON Schema of `ifcx.tsp` (the `.ifcx` extension of the dialogs is pinned with the app requirements) | Test: `ifx_001_output_is_utf8_json_with_header_imports_schemas_and_data` (ifcx); also `container_matches_the_ifcx_json_schema` (roundtrip.rs) |
+| IFX-002 | header.id is `archicraft:project/<project UUID>`, ifcxVersion `ifcx_alpha`, dataVersion and author as given in WriteOptions, timestamp ISO 8601 UTC (the save counter and the author preference live in the app) | Test: `ifx_002_header_carries_id_version_data_version_author_and_utc_timestamp` (ifcx); also `written_files_validate_without_problems` (roundtrip.rs) |
+| IFX-005 | Every attribute key in `data` is declared by a bundled import or in the file's `schemas` | Test: `ifx_005_every_data_attribute_key_is_declared` (ifcx); also `written_files_validate_without_problems`, `schema_violations_are_reported` (roundtrip.rs) |
+| IFX-010 | Project, site, building, storey, element and material nodes have RFC 9562 UUID paths (version 4); Body and Axis sub-nodes equal `sub_node_id(owner, role)` (version 5) and keep it when a wall thickness change regenerates the body | Test: `ifx_010_nodes_have_uuid_paths_and_sub_nodes_name_based_uuids` (ifcx); also `spatial_tree_and_identities` (roundtrip.rs) |
+| IFX-013 | IfcProject is the only root; header.id stays the same after renaming the project and saving under another name in another folder | Test: `ifx_013_header_id_survives_rename_and_move` (ifcx); also `spatial_tree_and_identities` (roundtrip.rs) |
+| IFX-014 | Children of the project, site, building and storeys are keyed `<Kind>_<8 hex>` from their UUID, unique per parent and unchanged after renaming every element; sub-nodes are keyed by role (`Body`, `Axis`) | Test: `ifx_014_child_keys_are_unique_readable_and_survive_rename` (ifcx) |
+| IFX-020 | Every spatial node and element has its Table 5-1 class code under its Table 5-1 parent, including the IfcFooting and IfcCovering overrides, with the bSDD IFC 4.3 uri of the code; nothing else is classified (compound parts: IFX-016 extends the test) | Test: `ifx_020_classes_and_parents_follow_table_5_1` (ifcx) |
+| IFX-021 | Name on the project, site, building, storeys and elements; the project description as `bsi::ifc::prop::Description` (elements have no description in the model yet) | Test: `ifx_021_names_everywhere_and_the_project_description` (ifcx) |
+| IFX-022 | IsExternal true for exterior and false for interior walls, absent for a slab with an undefined position | Test: `ifx_022_is_external_follows_the_known_position` (ifcx) |
+| IFX-025 | The stair hole of `two_storey_shell` is part of the slab body mesh; no IfcOpeningElement, no Void or opening child | Test: `ifx_025_slab_holes_are_geometry_not_openings` (ifcx) |
+| IFX-061 | Every `archicraft::` attribute is declared in `schemas` with a value description that covers every member it carries, through nested objects and arrays | Test: `ifx_061_every_archicraft_attribute_has_a_complete_value_description` (ifcx) |
+| IFX-090 | The writer emits only `ifcx_alpha` (`WRITTEN_VERSION`), compact and indented; `load` dispatches on ifcxVersion and refuses another version by name | Test: `ifx_090_one_written_version_and_load_dispatches_on_it` (ifcx); also `malformed_input_is_rejected_without_panicking` (roundtrip.rs) |
 
 Rows with "Test:" name `cargo test` functions, which the "Test" step of the "Test" job runs on
 Linux and Windows for every push and pull request, and `.github/workflows/macos.yml` on macOS
@@ -154,7 +166,11 @@ default template and changes it only through commands; tests named with a file i
 parentheses already existed and are not repeated there. Tests marked "(app)" live in
 `crates/archicraft-app/tests/done_requirements.rs`: they run the whole application with
 egui_kittest, without a GPU, find widgets by their accessible labels and share the harness of
-`crates/archicraft-app/tests/common/mod.rs`, which gives each test its own data folder.
+`crates/archicraft-app/tests/common/mod.rs`, which gives each test its own data folder. Tests
+marked "(ifcx)" live in `crates/archicraft-ifcx/tests/done_requirements.rs`: they save
+`samples::two_storey_shell` or small projects built through commands with the helpers of
+`crates/archicraft-ifcx/tests/common/mod.rs` and inspect the written IFCX; tests named with
+roundtrip.rs live in `crates/archicraft-ifcx/tests/roundtrip.rs`.
 
 The negative self-test (`scripts/guards-selftest.sh`) runs each guard on a canned violation
 (`cargo tree` output in `scripts/testdata/`, and a scratch repository with a trademark line and
