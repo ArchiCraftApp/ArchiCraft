@@ -87,6 +87,7 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-hole",
     "model-error-hole-outside",
     "model-error-holes-overlap",
+    "model-error-slab-points",
     "model-error-thickness-range",
     "model-error-base-offset-range",
     "model-error-top-offset-range",
