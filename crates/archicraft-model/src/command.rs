@@ -15,13 +15,14 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::element::{Element, ElementKind, KindTag, TopLink};
+use crate::element::{Element, KindTag, TopLink};
 use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
 use crate::project::{Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
 use crate::storey::{Storey, StoreyList};
+use crate::transform::{PlanTransform, TransformError};
 use crate::validate;
 
 /// What happens to the elements of a storey that is deleted (STR-004).
@@ -150,15 +151,7 @@ impl Command {
                 if !delta.is_finite() {
                     return Err(CommandError::Invalid("Enter a valid distance.".into()));
                 }
-                let moved = ids
-                    .iter()
-                    .map(|id| {
-                        let mut e = find_element(project, *id)?.clone();
-                        e.kind.translate(*delta);
-                        Ok(e)
-                    })
-                    .collect::<Result<Vec<_>, CommandError>>()?;
-                plan_update_elements(project, &moved)
+                plan_transform_elements(project, ids, &PlanTransform::translation(*delta))
             }
             Command::InsertStorey {
                 reference,
@@ -387,41 +380,46 @@ fn plan_update_elements(project: &Project, elements: &[Element]) -> Result<Vec<E
     Ok(edits)
 }
 
+/// Moves, rotates or mirrors elements through their kinds' transform hooks
+/// (EDT-001…EDT-003). A kind that cannot represent the result rejects the
+/// whole command.
+fn plan_transform_elements(
+    project: &Project,
+    ids: &[ElementId],
+    transform: &PlanTransform,
+) -> Result<Vec<Edit>, CommandError> {
+    let transformed = ids
+        .iter()
+        .map(|id| {
+            let mut e = find_element(project, *id)?.clone();
+            e.kind.transform(transform).map_err(|err| match err {
+                TransformError::Unsupported => {
+                    CommandError::Invalid(format!("{} cannot be transformed like this.", e.name))
+                }
+            })?;
+            Ok(e)
+        })
+        .collect::<Result<Vec<_>, CommandError>>()?;
+    plan_update_elements(project, &transformed)
+}
+
 /// Keeps an element's absolute position while it moves to `target` storey
-/// whose elevation will be `target_elevation`.
+/// whose elevation will be `target_elevation`; storey-linked values become
+/// fixed (STR-004).
 fn rehome(project: &Project, element: &Element, target: StoreyId, target_elevation: f64) -> Option<Element> {
-    let (bottom, top) = project.vertical_extent(element)?;
-    let home = project.storeys.get(element.storey)?.elevation;
     let mut moved = element.clone();
+    moved.kind.rehome(element.storey, &project.storeys, target_elevation)?;
     moved.storey = target;
-    match &mut moved.kind {
-        ElementKind::Wall(wall) => {
-            wall.base_offset = bottom - target_elevation;
-            wall.top = TopLink::Fixed { height: top - bottom };
-        }
-        ElementKind::Slab(slab) => {
-            slab.offset = home + slab.offset - target_elevation;
-        }
-    }
     Some(moved)
 }
 
 /// The element moved to another home storey while keeping its absolute
-/// position (ELM-005). A wall top linked relative to the old home storey is
+/// position (ELM-005). A top linked relative to the old home storey is
 /// linked to the same storey absolutely, so the top stays where it is.
 pub fn relink_to_storey(project: &Project, element: &Element, target: StoreyId) -> Option<Element> {
-    let target_elevation = project.storeys.get(target)?.elevation;
-    let mut moved = rehome(project, element, target, target_elevation)?;
-    if let (ElementKind::Wall(old), ElementKind::Wall(new)) = (&element.kind, &mut moved.kind) {
-        new.top = match old.top {
-            TopLink::Relative { storeys, offset } => match project.storeys.relative(element.storey, storeys) {
-                Some(s) => TopLink::Storey { storey: s.id, offset },
-                None => new.top,
-            },
-            other @ TopLink::Storey { .. } => other,
-            TopLink::Fixed { .. } => new.top,
-        };
-    }
+    let mut moved = element.clone();
+    moved.kind.relink(element.storey, &project.storeys, target)?;
+    moved.storey = target;
     Some(moved)
 }
 
@@ -447,15 +445,11 @@ fn plan_delete_storey(project: &Project, storey: StoreyId, mode: StoreyElements)
                     edits.push(Edit::ReplaceElement(moved));
                 }
             }
-        } else if let ElementKind::Wall(wall) = &element.kind
-            && matches!(wall.top, TopLink::Storey { storey: s, .. } if s == storey)
-        {
-            // The linked storey disappears: keep the current top as a fixed height.
-            if let Some((bottom, top)) = project.vertical_extent(element) {
-                let mut kept = element.clone();
-                if let ElementKind::Wall(w) = &mut kept.kind {
-                    w.top = TopLink::Fixed { height: top - bottom };
-                }
+        } else {
+            // A linked storey disappears: keep the current top as a fixed
+            // height (STR-004).
+            let mut kept = element.clone();
+            if kept.kind.unlink_storey(element.storey, &project.storeys, storey) {
                 edits.push(Edit::ReplaceElement(kept));
             }
         }

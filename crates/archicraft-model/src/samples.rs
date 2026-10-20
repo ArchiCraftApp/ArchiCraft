@@ -5,7 +5,7 @@
 use glam::DVec2;
 
 use crate::command::{Command, History};
-use crate::element::{ElementKind, KindTag, Position};
+use crate::element::{KindTag, Position};
 use crate::ids::ElementId;
 use crate::kinds::ReferenceLine;
 use crate::project::Project;
@@ -63,7 +63,7 @@ pub fn two_storey_shell() -> Project {
             .iter()
             .find(|l| l.name == "Interior walls")
             .map_or(interior.layer, |l| l.id);
-        if let ElementKind::Wall(wall) = &mut interior.kind {
+        if let Some(wall) = interior.as_wall_mut() {
             wall.thickness = 0.115;
             wall.reference_line = ReferenceLine::Center;
             if let Some(m) = project.materials.iter().find(|m| m.name == "Sand-lime brick") {

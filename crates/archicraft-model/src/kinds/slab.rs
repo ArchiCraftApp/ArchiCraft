@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{Kind, KindDescriptor};
 use crate::element::IfcClass;
-use crate::ids::MaterialId;
+use crate::ids::{MaterialId, StoreyId};
 use crate::storey::StoreyList;
+use crate::transform::{PlanTransform, TransformError};
 use crate::validate;
 
 /// Which face of a slab its elevation refers to (SLB-002).
@@ -48,6 +49,17 @@ pub struct Slab {
     pub material: MaterialId,
 }
 
+/// The ring transformed point by point. A mirror reverses the orientation,
+/// so the ring is reversed as well, keeping its first point first.
+fn transform_ring(ring: &mut [DVec2], transform: &PlanTransform) {
+    for p in ring.iter_mut() {
+        *p = transform.apply(*p);
+    }
+    if transform.is_mirror() && ring.len() > 1 {
+        ring[1..].reverse();
+    }
+}
+
 impl Kind for Slab {
     /// ELM-011: `IfcSlab` by default, `IfcFooting` and `IfcCovering`
     /// selectable; ELM-019: names `SL-001`, `SL-002`, …
@@ -73,5 +85,30 @@ impl Kind for Slab {
     /// Normalises the outline and holes (EDT-018).
     fn validate(&self, _storeys: &StoreyList) -> Result<Self, String> {
         validate::validate_slab(self)
+    }
+
+    /// Keeps the outline counter-clockwise and the holes clockwise, also
+    /// when mirrored (SLB-001).
+    fn transform(&mut self, transform: &PlanTransform) -> Result<(), TransformError> {
+        transform_ring(&mut self.outline, transform);
+        for hole in &mut self.holes {
+            transform_ring(hole, transform);
+        }
+        Ok(())
+    }
+
+    /// The reference face is at the offset above the home storey (SLB-002).
+    fn vertical_extent(&self, home: StoreyId, storeys: &StoreyList) -> Option<(f64, f64)> {
+        let reference = storeys.get(home)?.elevation + self.offset;
+        Some(match self.reference {
+            SlabReference::Top => (reference - self.thickness, reference),
+            SlabReference::Bottom => (reference, reference + self.thickness),
+        })
+    }
+
+    fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target_elevation: f64) -> Option<()> {
+        let home = storeys.get(home)?.elevation;
+        self.offset = home + self.offset - target_elevation;
+        Some(())
     }
 }

@@ -18,6 +18,7 @@ pub mod samples;
 pub mod storey;
 pub mod template;
 pub mod tolerance;
+pub mod transform;
 pub mod units;
 pub mod validate;
 
