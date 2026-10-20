@@ -3,7 +3,7 @@
 
 use glam::DVec2;
 
-use crate::element::{Element, ElementKind, TopLink};
+use crate::element::{Element, TopLink};
 use crate::kinds::{ReferenceLine, Slab, Wall};
 use crate::project::Project;
 
@@ -270,25 +270,19 @@ pub fn validate_element(project: &Project, element: &Element) -> Result<Element,
     if project.material(element.kind.material()).is_none() {
         return Err("The element's material does not exist.".into());
     }
-    if !element.tag().ifc_classes().contains(&element.ifc_class) {
+    // ELM-011: the class must be one of the kind's selectable classes.
+    let descriptor = element.kind.descriptor();
+    if !descriptor.ifc_classes.contains(&element.ifc_class) {
         return Err(format!(
             "{} is not an allowed IFC class for a {}.",
             element.ifc_class.code(),
-            element.tag().label().to_lowercase()
+            descriptor.label.to_lowercase()
         ));
     }
-    let mut element = element.clone();
-    match &mut element.kind {
-        ElementKind::Wall(wall) => {
-            validate_wall(wall)?;
-            if let TopLink::Storey { storey, .. } = wall.top
-                && project.storeys.get(storey).is_none()
-            {
-                return Err("The storey the wall top is linked to does not exist.".into());
-            }
-        }
-        ElementKind::Slab(slab) => *slab = validate_slab(slab)?,
-    }
+    let element = Element {
+        kind: element.kind.validate(&project.storeys)?,
+        ..element.clone()
+    };
     let (bottom, top) = project
         .vertical_extent(&element)
         .ok_or("The element's vertical extent cannot be determined.")?;

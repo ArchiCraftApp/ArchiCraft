@@ -479,3 +479,42 @@ fn an_auxiliary_spacing_above_the_main_spacing_falls_back_to_the_defaults() {
     assert_eq!(grid.main_spacing, PlanGrid::default().main_spacing);
     assert_eq!(grid.auxiliary_spacing, PlanGrid::default().auxiliary_spacing);
 }
+
+/// ELM-019: name counters are keyed by kind code. A counter of a kind this
+/// build does not know (written by a later version) reads without a
+/// problem, and the known counters are kept.
+#[test]
+fn a_counter_of_an_unknown_kind_reads_without_problems() {
+    let project = samples::storey_with_walls_and_slab();
+    let bytes = edit(&project, |v| {
+        v["data"][0]["attributes"]["archicraft::project"]["counters"]["curtain-wall"] = 3.into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert_eq!(loaded.project.counters, project.counters);
+}
+
+/// ELM-011: an IFC class the element's kind does not allow is repaired to
+/// the kind's default class (the descriptor's `default_class`).
+#[test]
+fn a_class_outside_the_kinds_set_falls_back_to_the_kind_default() {
+    let project = samples::storey_with_walls_and_slab();
+    for (name, class, expected) in [("W-001", "IfcCovering", "IfcWall"), ("SL-001", "IfcWall", "IfcSlab")] {
+        let bytes = edit(&project, |v| {
+            let i = node_index(v, name);
+            v["data"][i]["attributes"]["bsi::ifc::class"]["code"] = class.into();
+        });
+        let loaded = archicraft_ifcx::load(&bytes).unwrap();
+        let element = loaded.project.elements.values().find(|e| e.name == name).unwrap();
+        assert_eq!(element.ifc_class.code(), expected, "{name}");
+        assert_eq!(element.ifc_class, element.tag().descriptor().default_class, "{name}");
+        assert!(
+            loaded
+                .problems
+                .iter()
+                .any(|p| p.message.contains("unsupported IFC class") && p.message.contains(expected)),
+            "{name}: {:#?}",
+            loaded.problems
+        );
+    }
+}

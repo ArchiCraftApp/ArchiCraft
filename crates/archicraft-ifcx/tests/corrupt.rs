@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use archicraft_ifcx::ReadOutcome;
 use archicraft_ifcx::validate::{Problem, Severity};
 use archicraft_model::material::Rgb;
-use archicraft_model::{Position, Project};
+use archicraft_model::{KindTag, Position, Project};
 use serde_json::{Value, json};
 
 use common::{edit, node_index};
@@ -237,7 +237,13 @@ fn missing_tool_defaults_are_repaired_from_the_template() {
 #[test]
 fn invalid_counters_are_repaired_and_reported() {
     let (outcome, value) = load("bad-counters");
-    assert_eq!((outcome.project.counters.wall, outcome.project.counters.slab), (4, 1));
+    assert_eq!(
+        (
+            outcome.project.counters.get(KindTag::Wall),
+            outcome.project.counters.get(KindTag::Slab)
+        ),
+        (4, 1)
+    );
     let root = root_path(&value);
     problem(&outcome, &root, &["counters repaired", "“wall” is negative", "4"]);
     problem(&outcome, &root, &["counters repaired", "“slab” is not an integer", "1"]);
@@ -247,7 +253,13 @@ fn invalid_counters_are_repaired_and_reported() {
 #[test]
 fn missing_counters_are_repaired_and_reported() {
     let (outcome, value) = load("missing-counters");
-    assert_eq!((outcome.project.counters.wall, outcome.project.counters.slab), (4, 1));
+    assert_eq!(
+        (
+            outcome.project.counters.get(KindTag::Wall),
+            outcome.project.counters.get(KindTag::Slab)
+        ),
+        (4, 1)
+    );
     problem(
         &outcome,
         &root_path(&value),
