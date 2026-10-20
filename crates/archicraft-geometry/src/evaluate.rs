@@ -147,7 +147,9 @@ fn square_footprint(start: DVec2, end: DVec2, offsets: (f64, f64)) -> Footprint 
 
 /// Evaluates one element. `footprint` is the junction-resolved footprint of a
 /// wall, if available. An element whose height is below the model tolerance
-/// (NFR-ACC-003) has no body.
+/// (NFR-ACC-003) has no body. Validation keeps elements at least 1 mm high,
+/// but moving a storey shortens the walls linked to it without validating
+/// them again, so such heights do reach this point (tests/storey.rs).
 pub fn evaluate_element(
     project: &Project,
     element: &Element,

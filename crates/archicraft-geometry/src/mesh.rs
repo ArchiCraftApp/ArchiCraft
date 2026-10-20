@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use archicraft_model::tolerance::{Welder, near_zero};
+use archicraft_model::tolerance::{Welder, cross_is_zero, cross_is_zero3, near_zero};
 use glam::{DVec2, DVec3};
 
 /// A triangle list. Coordinates are in metres.
@@ -56,14 +56,6 @@ pub const MAX_MESH_POINTS: usize = 65_535;
 /// rounding errors.
 fn magnitude(points: &[DVec3]) -> f64 {
     points.iter().map(|p| p.abs().max_element()).fold(0.0, f64::max)
-}
-
-/// True if the cross product `(b - a) × (c - a)` (twice the triangle's area)
-/// vanishes up to rounding. Slivers are real geometry and not degenerate,
-/// however small their area.
-fn is_degenerate(a: DVec3, b: DVec3, c: DVec3) -> bool {
-    let (u, v) = (b - a, c - a);
-    near_zero(u.cross(v).length(), magnitude(&[a, b, c]) * (u.length() + v.length()))
 }
 
 impl TriMesh {
@@ -152,8 +144,9 @@ impl TriMesh {
             if a == b || b == c || a == c {
                 return Err(MeshIssue::DegenerateTriangle);
             }
+            // Flat up to rounding; slivers are real geometry, however small.
             let [pa, pb, pc] = [t[0], t[1], t[2]].map(|i| self.points[i as usize]);
-            if is_degenerate(pa, pb, pc) {
+            if cross_is_zero3(pa, pb, pc) {
                 return Err(MeshIssue::DegenerateTriangle);
             }
             let mut sorted = [a, b, c];
@@ -210,11 +203,11 @@ impl TriMesh {
         let mut welder: Welder<DVec2> = Welder::new();
         let mut edges: HashMap<(usize, usize), (DVec2, DVec2, i32)> = HashMap::new();
         for [a, b, c] in self.triangles() {
-            let (u, v) = (b - a, c - a);
-            let normal = u.cross(v);
+            let normal = (b - a).cross(c - a);
             let facing = if up { normal.z } else { -normal.z };
             // Vertical faces (facing zero up to rounding) belong to neither.
-            if facing <= 0.0 || near_zero(facing, magnitude(&[a, b, c]) * (u.length() + v.length())) {
+            // The z component of the normal is the plan cross product.
+            if facing <= 0.0 || cross_is_zero(a.truncate(), b.truncate(), c.truncate()) {
                 continue;
             }
             for (p, q) in [(a, b), (b, c), (c, a)] {
@@ -274,7 +267,10 @@ fn ray_triangle(origin: DVec3, dir: DVec3, a: DVec3, b: DVec3, c: DVec3) -> Opti
     let p = dir.cross(e2);
     let det = e1.dot(p);
     // The ray runs in the triangle's plane, or the triangle is degenerate.
-    if near_zero(det, e1.length() * dir.length() * e2.length()) {
+    // The edges carry the rounding of their coordinate differences, so the
+    // determinant's rounding error grows with the coordinate magnitude.
+    let (l1, l2) = (e1.length(), e2.length());
+    if near_zero(det, dir.length() * (l1 * l2 + magnitude(&[a, b, c]) * (l1 + l2))) {
         return None;
     }
     let inv = 1.0 / det;
@@ -425,5 +421,34 @@ mod tests {
         let far = m.translated(DVec3::new(90_000.0, -90_000.0, 0.0));
         let t = far.ray_hit(DVec3::new(90_000.5, -89_999.5, 1.0), DVec3::NEG_Z).unwrap();
         assert!((t - 1.0).abs() < 1e-9, "{t}");
+    }
+
+    /// A ray in the plane of a triangle far from the origin (NFR-ACC-001)
+    /// runs past it: the rounding of the triangle's edges, which grows with
+    /// the coordinate magnitude, must not turn into hits.
+    #[test]
+    fn rays_in_the_plane_of_a_far_triangle_do_not_hit() {
+        let u = DVec3::new(0.3, 0.7, 0.1).normalize();
+        let v = DVec3::new(-0.6, 0.2, 0.9).normalize();
+        let a = DVec3::new(90_000.0, -90_000.0, 1.0);
+        let (b, c) = (a + u, a + v);
+        let mut hits = Vec::new();
+        for i in 1..20 {
+            for j in 1..20 {
+                // Starts before the triangle and runs along it, in its plane.
+                let origin = a + v * (j as f64 / 20.0) - u * (i as f64 / 4.0);
+                for dir in [u, (u - v).normalize(), (u + v * 0.3).normalize()] {
+                    if let Some(t) = ray_triangle(origin, dir, a, b, c) {
+                        hits.push((i, j, t));
+                    }
+                }
+            }
+        }
+        assert!(hits.is_empty(), "{hits:?}");
+        // A ray at a shallow but real angle (0.1°) to the plane still hits.
+        let tilted = (u + u.cross(v).normalize() * 0.1_f64.to_radians().tan()).normalize();
+        let centroid = a + (u + v) / 3.0;
+        let t = ray_triangle(centroid - tilted * 2.0, tilted, a, b, c).unwrap();
+        assert!((t - 2.0).abs() < 1e-6, "{t}");
     }
 }
