@@ -8,7 +8,7 @@ mod common;
 use std::rc::Rc;
 
 use archicraft_app::i18n::{self, Localizer};
-use archicraft_app::input::{InputConsumer, InputMode};
+use archicraft_app::input::{Field, InputConsumer, InputMode};
 use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::{ToolKind, WallMode};
 use archicraft_app::{ArchiCraftApp, tr};
@@ -69,7 +69,8 @@ fn status_line_shows_the_step_prompt_and_its_keys() {
     harness.run_steps(2);
     assert_present(
         &harness,
-        "Wall: click the start point of the reference line · R cycles the reference line",
+        "Wall: click the start point of the reference line · R cycles the reference line · 0–9 types the coordinates \
+         · P switches polar and Cartesian",
     );
     let pos = {
         let ws = harness.state_mut().workspace();
@@ -89,15 +90,15 @@ fn status_line_shows_the_step_prompt_and_its_keys() {
     assert_eq!(harness.state_mut().workspace().tool.points.len(), 1);
     assert_present(
         &harness,
-        "Wall chain: click the next point or type a distance · Tab switches between distance and angle \
-         · Shift constrains angles · Enter or double-click ends the chain · Backspace removes the last point \
+        "Wall chain: click the next point or type a distance · Tab moves to the next field \
+         · P switches polar and Cartesian · Shift+P switches relative and absolute · Shift constrains angles · Enter or double-click ends the chain · Backspace removes the last point \
          · Esc cancels the step",
     );
     let ws = harness.state_mut().workspace();
     assert_eq!(
         ws.tool.step().unwrap().status_line(),
-        "Wall chain: click the next point or type a distance · Tab switches between distance and angle \
-         · Shift constrains angles · Enter or double-click ends the chain · Backspace removes the last point \
+        "Wall chain: click the next point or type a distance · Tab moves to the next field \
+         · P switches polar and Cartesian · Shift+P switches relative and absolute · Shift constrains angles · Enter or double-click ends the chain · Backspace removes the last point \
          · Esc cancels the step",
         "the status line is the step's StepSpec"
     );
@@ -141,7 +142,11 @@ fn escape_cancels_one_step_per_press() {
     click_at(&mut harness, pos + egui::vec2(120.0, 0.0));
     let state = |h: &mut Harness<'static, ArchiCraftApp>| {
         let ws = h.state_mut().workspace();
-        (ws.tool.points.len(), ws.input.typed.distance.clone(), ws.tool.kind)
+        (
+            ws.tool.points.len(),
+            ws.input.typed.text(Field::Distance).to_owned(),
+            ws.tool.kind,
+        )
     };
     assert_eq!(state(&mut harness), (2, String::new(), ToolKind::Wall));
 
@@ -164,8 +169,8 @@ fn escape_cancels_one_step_per_press() {
     );
     assert_present(
         &harness,
-        "Rotated wall rectangle: click the end of the base edge or type a distance · Tab switches between \
-         distance and angle · Shift constrains angles · Backspace removes the last point · Esc cancels the step",
+        "Rotated wall rectangle: click the end of the base edge or type a distance · Tab moves to the next \
+         field · P switches polar and Cartesian · Shift+P switches relative and absolute · Shift constrains angles · Backspace removes the last point · Esc cancels the step",
     );
 
     harness.event(Event::Text("12".into()));
@@ -188,6 +193,78 @@ fn escape_cancels_one_step_per_press() {
     harness.key_press(Key::Escape);
     harness.run_steps(2);
     assert_eq!(state(&mut harness), (0, String::new(), ToolKind::Select));
+}
+
+/// INP-003, UI-008: before the first point a key that does not start a value
+/// stays a shortcut (S switches to the Slab tool); a digit starts typing the
+/// first point, and the unit letters that follow in the same frame are part
+/// of the value, not shortcuts: '3ft' leaves the view unfitted and the
+/// tracker shows it in the X field.
+#[test]
+fn typing_the_first_point_keeps_shortcuts_until_a_value_starts() {
+    let mut harness = harness("first-point");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let (storey, pos) = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let far = DVec2::new(500.0, 500.0);
+        let wall = ws.doc.project.new_wall(storey, far, far + DVec2::X, 0);
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+        (storey, ws.plan_views[&storey].last_rect.center())
+    };
+    harness.hover_at(pos);
+    harness.run_steps(2);
+
+    harness.key_press(Key::S);
+    harness.event(Event::Text("s".into()));
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Slab);
+    harness.key_press(Key::W);
+    harness.event(Event::Text("w".into()));
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Wall);
+
+    let camera = |h: &mut Harness<'static, ArchiCraftApp>| h.state_mut().workspace().plan_views[&storey].camera;
+    let before = camera(&mut harness);
+    // Typed slowly (a frame per event) and fast (all keys in one frame).
+    for same_frame in [false, true] {
+        let mut events = Vec::new();
+        for (key, text) in [(Key::Num3, "3"), (Key::F, "f"), (Key::T, "t")] {
+            for pressed in [true, false] {
+                events.push(Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                });
+            }
+            events.push(Event::Text(text.into()));
+        }
+        if same_frame {
+            harness.input_mut().events.extend(events);
+        } else {
+            for event in events {
+                harness.event(event);
+            }
+        }
+        harness.run_steps(2);
+        assert_eq!(camera(&mut harness), before, "F belongs to the typed value");
+        let ws = harness.state_mut().workspace();
+        assert_eq!(ws.input.typed.text(Field::X), "3ft", "same frame: {same_frame}");
+        assert!(ws.tool.points.is_empty());
+        let tracker = ws.plan_views[&storey].tracker.clone().unwrap_or_default();
+        assert!(tracker.starts_with("▸X 3ft_\n"), "{tracker}");
+        harness.key_press(Key::Escape);
+        harness.run_steps(2);
+        assert!(harness.state_mut().workspace().input.typed.is_empty());
+    }
+
+    // Without typed text F fits the view again.
+    harness.key_press(Key::F);
+    harness.run_steps(2);
+    assert_ne!(camera(&mut harness), before);
 }
 
 #[test]
@@ -680,6 +757,7 @@ fn preferences_offer_the_input_mode_in_the_input_group() {
     assert_present(
         &harness,
         "Wall: click the start point of the reference line · R cycles the reference line \
+         · 0–9 types the coordinates · P switches polar and Cartesian \
          · Press-drag-release: press at a point, drag and release at the next",
     );
 }

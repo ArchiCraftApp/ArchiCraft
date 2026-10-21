@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use archicraft_geometry::plan::{PlanDrawing, polygon_rings};
-use archicraft_model::glam::DVec2;
+use archicraft_model::glam::{DVec2, DVec3};
 use archicraft_model::units::{NumberFormat, UnitSettings};
 use archicraft_model::{ElementId, ElementKind, KindTag, Project, StoreyId};
 use egui::epaint::Vertex;
@@ -39,6 +39,8 @@ pub struct PlanViewState {
     /// Last pick position and the index into its candidates (Tab cycling).
     pick: Option<(DVec2, usize)>,
     last_record: f64,
+    /// The tracker text drawn last frame (INP-002).
+    pub tracker: Option<String>,
 }
 
 impl Default for PlanViewState {
@@ -51,6 +53,7 @@ impl Default for PlanViewState {
             last_rect: Rect::NOTHING,
             pick: None,
             last_record: 0.0,
+            tracker: None,
         }
     }
 }
@@ -187,6 +190,8 @@ impl PlanInput {
             angle_increment_deg: self.angle_increment_deg,
             snap_step: self.snap_step,
             frame: self.frame,
+            user_origin: self.frame.to_plane(DVec3::ZERO),
+            marked: None,
         }
     }
 }
@@ -667,6 +672,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
                 let tracker = ws.input.tracker(resolved.point, &ctx);
                 (resolved, tracker)
             });
+    state.tracker = resolved.as_ref().and_then(|(_, tracker)| tracker.clone());
 
     // Area selection (SEL-003): left to right = fully inside,
     // right to left = touching.
@@ -822,6 +828,14 @@ fn handle_keys(
                         });
                     }
                     continue;
+                }
+                // INP-004: provisional keys; Problems is Ctrl+Shift+P.
+                Key::P if !modifiers.command && ws.tool.step().is_some() => {
+                    if modifiers.shift {
+                        KeyInput::SwitchReference
+                    } else {
+                        KeyInput::SwitchFields
+                    }
                 }
                 Key::Enter => KeyInput::Enter,
                 Key::Backspace => KeyInput::Backspace,

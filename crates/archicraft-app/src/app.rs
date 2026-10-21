@@ -547,10 +547,22 @@ impl ArchiCraftApp {
     }
 
     /// Keyboard shortcuts (UI-008). Single-key shortcuts are ignored while a
-    /// text field has focus or a value is being typed during point input.
+    /// text field has focus or a value is being typed during point input,
+    /// also when the typing starts in this frame: '3ft' arriving at once is a
+    /// typed length, not a 3 and Fit (INP-003).
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.text_edit_focused();
-        let drawing = self.ws.input.captures_keys(&self.ws.tool);
+        let nf = self.ws.prefs.number_format();
+        let starts_typing = ctx.input(|i| {
+            i.events
+                .iter()
+                .find_map(|e| match e {
+                    egui::Event::Text(text) => Some(text),
+                    _ => None,
+                })
+                .is_some_and(|text| self.ws.input.starts_typing(&self.ws.tool, text, &nf))
+        });
+        let drawing = starts_typing || self.ws.input.captures_keys(&self.ws.tool);
         let mut triggered = ctx.input_mut(|i| {
             Action::consume_shortcuts(i, |action| {
                 (!typing || action.works_while_typing())

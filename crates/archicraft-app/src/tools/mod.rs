@@ -360,10 +360,15 @@ impl InputConsumer for ToolState {
                 if self.kind == ToolKind::Wall {
                     hints.push(KeyHint::new("R", "cycles the reference line"));
                 }
+                // INP-003, INP-004: the first point can be typed as X and Y.
+                hints.push(KeyHint::new("0–9", "types the coordinates"));
+                hints.push(KeyHint::new("P", "switches polar and Cartesian"));
                 Expect::Point
             }
             Some(&from) => {
-                hints.push(KeyHint::new("Tab", "switches between distance and angle"));
+                hints.push(KeyHint::new("Tab", "moves to the next field"));
+                hints.push(KeyHint::new("P", "switches polar and Cartesian"));
+                hints.push(KeyHint::new("Shift+P", "switches relative and absolute"));
                 hints.push(KeyHint::new("Shift", "constrains angles"));
                 match (self.kind, self.wall_mode, self.slab_mode) {
                     (ToolKind::Wall, WallMode::Chain, _) => {
