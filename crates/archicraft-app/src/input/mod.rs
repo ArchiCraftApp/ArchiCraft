@@ -356,7 +356,7 @@ mod tests {
             self.base
         }
 
-        fn preview(&self, resolved: &Resolved) -> Preview {
+        fn preview(&self, _project: &Project, resolved: &Resolved) -> Preview {
             let Some(base) = self.base else {
                 return Preview::default();
             };
@@ -449,7 +449,7 @@ mod tests {
             self.reference.or(self.centre)
         }
 
-        fn preview(&self, resolved: &Resolved) -> Preview {
+        fn preview(&self, _project: &Project, resolved: &Resolved) -> Preview {
             Preview {
                 outlines: self
                     .centre
@@ -604,14 +604,14 @@ mod tests {
         let ctx = env.ctx(&stub);
         let resolved = input.resolve(DVec2::new(1.0, 0.0), Modifiers::default(), &ctx);
         assert_eq!(
-            stub.preview(&resolved).outlines,
+            stub.preview(&env.project, &resolved).outlines,
             [(vec![DVec2::new(1.0, 0.0), DVec2::new(1.0, 2.0)], false)]
         );
         assert_eq!(input.key(text("2.5"), &mut stub, &ctx), Effect::None);
         let resolved = input.resolve(DVec2::new(1.0, 0.0), Modifiers::default(), &ctx);
         assert_eq!(resolved.snap.kind, SnapKind::Typed);
         assert_eq!(
-            stub.preview(&resolved).outlines,
+            stub.preview(&env.project, &resolved).outlines,
             [(vec![DVec2::new(2.5, 0.0), DVec2::new(2.5, 2.0)], false)]
         );
         assert_eq!(
@@ -740,7 +740,7 @@ mod tests {
                 assert!(!step.prompt.is_empty() && !step.status_line().is_empty());
                 let ctx = env.ctx(&tool);
                 let resolved = input.resolve(DVec2::new(p.0, p.1), Modifiers::default(), &ctx);
-                let preview = tool.preview(&resolved);
+                let preview = tool.preview(&env.project, &resolved);
                 assert_eq!(preview.outlines.is_empty(), i == 0, "{:?} step {i}", tool.step());
                 env.click(&mut input, &mut tool, *p);
             }

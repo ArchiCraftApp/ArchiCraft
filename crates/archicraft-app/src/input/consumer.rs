@@ -129,8 +129,9 @@ pub trait InputConsumer {
     /// The point the current step is relative to: typed values, the angle
     /// constraint and perpendicular snaps start there.
     fn reference_point(&self) -> Option<DVec2>;
-    /// The live preview for a resolved point.
-    fn preview(&self, resolved: &Resolved) -> Preview;
+    /// The live preview for a resolved point; `project` gives the defaults
+    /// of the elements it would create.
+    fn preview(&self, project: &Project, resolved: &Resolved) -> Preview;
     /// Takes a resolved point on `storey`.
     fn commit(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome;
     /// Cancels the current step (INP-003). Returns `false` when there was
