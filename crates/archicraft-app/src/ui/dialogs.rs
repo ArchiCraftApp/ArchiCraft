@@ -745,6 +745,10 @@ impl Dialogs {
                         ui.label("Angle increment (°)");
                         widgets::decimal(ui, &mut draft.angle_increment_deg, 1.0..=90.0, 1, 1.0, nf);
                         ui.end_row();
+                        // INP-002: distance and angle, X/Y/Z on demand.
+                        ui.label("Tracker");
+                        ui.checkbox(&mut draft.tracker_xyz, "Show X, Y and Z");
+                        ui.end_row();
                         // INP-020: click-click by default.
                         ui.label("Input mode");
                         ui.horizontal(|ui| {

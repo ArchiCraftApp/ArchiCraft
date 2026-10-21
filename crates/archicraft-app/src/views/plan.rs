@@ -21,7 +21,7 @@ use egui::{
 use super::camera::{Camera2d, ZoomHistory};
 use crate::input::{
     Effect, Expect, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput, PointerEvent, Resolved,
-    SnapIndex, SnapKind, SurfaceFrame, ViewSurface,
+    SnapIndex, SnapKind, SurfaceFrame, TrackerMode, ViewSurface,
 };
 use crate::tools::{ToolKind, ToolState};
 use crate::tr;
@@ -146,6 +146,7 @@ struct PlanInput {
     number_format: NumberFormat,
     angle_increment_deg: f64,
     snap_step: f64,
+    tracker_xyz: bool,
 }
 
 impl PlanInput {
@@ -168,6 +169,7 @@ impl PlanInput {
             number_format: ws.prefs.number_format(),
             angle_increment_deg: ws.prefs.angle_increment_deg,
             snap_step: ws.prefs.snap_step,
+            tracker_xyz: ws.prefs.tracker_xyz,
         }
     }
 
@@ -175,6 +177,7 @@ impl PlanInput {
     /// storey are no reference in this view.
     fn ctx<'a>(&'a self, project: &'a Project, tool: &ToolState) -> InputContext<'a> {
         let here = on_storey(tool, self.storey);
+        let step = tool.step().filter(|_| here);
         InputContext {
             project,
             storey: self.storey,
@@ -182,7 +185,9 @@ impl PlanInput {
             pending: &self.pending,
             previous: tool.reference_point().filter(|_| here),
             guides: &[],
-            expects: tool.step().filter(|_| here).map_or(Expect::Point, |s| s.expects),
+            expects: step.as_ref().map_or(Expect::Point, |s| s.expects),
+            tracker: step.as_ref().map_or(TrackerMode::Relative, |s| s.tracker),
+            tracker_xyz: self.tracker_xyz,
             radius: self.radius,
             drag_threshold: self.drag_threshold,
             units: &self.units,

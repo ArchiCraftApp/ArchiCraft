@@ -1,11 +1,12 @@
 //! The tracker next to the cursor (INP-002): one line per field of the
-//! active field set, with the live value or the typed text.
+//! active field set, with the live value or the typed text, and on demand
+//! the absolute X, Y and Z.
 
-use archicraft_model::glam::DVec2;
+use archicraft_model::glam::{DVec2, DVec3};
 use archicraft_model::units::{format_angle, format_length};
 
 use super::InputContext;
-use super::typed::{Field, Reference, TypedInput};
+use super::typed::{Field, FieldSet, Origin, Reference, TypedInput};
 
 /// One tracker line.
 #[derive(Clone, Debug, PartialEq)]
@@ -22,14 +23,25 @@ pub struct TrackerLine {
 /// polar fields show the distance and the angle from `base_angle`,
 /// Cartesian fields the coordinate differences, or the coordinates in
 /// absolute input. Z is the elevation of the working plane at the point;
-/// ΔZ is 0 in plan views.
+/// ΔZ is 0 in plan views. A stretch shows its active field only, the total
+/// length by default and the length change on demand, with the point
+/// projected onto the stretch direction. With the X/Y/Z preference on, the
+/// absolute X, Y and Z from the project origin follow, unless the fields
+/// already are those.
 pub fn lines(typed: &TypedInput, base: DVec2, base_angle: f64, point: DVec2, ctx: &InputContext) -> Vec<TrackerLine> {
     let offset = point - base;
     let length = |v: f64| format_length(v, ctx.units, ctx.number_format, true);
-    typed
+    let total = || {
+        ctx.tracker
+            .stretch()
+            .map_or(offset.length(), |(base, dir, _)| (point - base).dot(dir))
+    };
+    let stretch = matches!(typed.set, FieldSet::Stretch { .. });
+    let mut lines: Vec<TrackerLine> = typed
         .set
         .fields()
         .iter()
+        .filter(|&&field| !stretch || field == typed.field)
         .map(|&field| {
             let text = typed.text(field);
             let value = if !text.is_empty() {
@@ -45,6 +57,8 @@ pub fn lines(typed: &TypedInput, base: DVec2, base_angle: f64, point: DVec2, ctx
                     Field::Y => length(offset.y),
                     Field::Z if typed.reference == Reference::Relative => length(0.0),
                     Field::Z => length(ctx.frame.to_model(point).z),
+                    Field::Total => length(total()),
+                    Field::Change => length(total() - ctx.tracker.stretch().map_or(0.0, |(_, _, l)| l)),
                 }
             };
             TrackerLine {
@@ -54,7 +68,22 @@ pub fn lines(typed: &TypedInput, base: DVec2, base_angle: f64, point: DVec2, ctx
                 active: typed.field == field,
             }
         })
-        .collect()
+        .collect();
+    let absolute = Reference::Absolute(Origin::Project);
+    let shown = matches!(typed.set, FieldSet::Cartesian { .. }) && typed.reference == absolute;
+    if ctx.tracker_xyz && !shown {
+        let xy = point - ctx.frame.to_plane(DVec3::ZERO);
+        let z = ctx.frame.to_model(point).z;
+        lines.extend(
+            [(Field::X, xy.x), (Field::Y, xy.y), (Field::Z, z)].map(|(field, v)| TrackerLine {
+                field,
+                label: field.label(absolute),
+                value: length(v),
+                active: false,
+            }),
+        );
+    }
+    lines
 }
 
 /// The tracker text: one line per field, the active field marked with ▸.

@@ -13,12 +13,12 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
-| done | 63 | 7 | 1 | 71 |
-| partial | 113 | 34 | 6 | 153 |
+| done | 64 | 7 | 1 | 72 |
+| partial | 112 | 34 | 6 | 152 |
 | missing | 138 | 158 | 47 | 343 |
 | **total** | 314 | 199 | 54 | 567 |
 
-Remaining effort of the 496 open requirements: S 116, M 219, L 136, XL 25.
+Remaining effort of the 495 open requirements: S 116, M 218, L 136, XL 25.
 
 <!-- status:end counts -->
 
@@ -34,7 +34,7 @@ Remaining effort of the 496 open requirements: S 116, M 219, L 136, XL 25.
 | 4.3 | Workspace and user interface | 1/7/0 | 1/6/1 | 0/0/1 | 17 |
 | 4.4 | Views and navigation | 2/8/8 | 0/2/15 | 0/0/3 | 38 |
 | 4.5 | Plan display and graphic attributes | 0/7/1 | 0/2/7 | 0/1/2 | 20 |
-| 4.6 | Drawing input and precision | 1/8/6 | 2/0/6 | 0/0/1 | 24 |
+| 4.6 | Drawing input and precision | 2/7/6 | 2/0/6 | 0/0/1 | 24 |
 | 4.7 | Selection | 0/5/1 | 0/0/3 | 0/0/1 | 10 |
 | 4.8 | Editing and transformation | 0/4/11 | 0/0/9 | 0/0/1 | 25 |
 | 4.9 | Common element behaviour | 3/5/4 | 0/2/5 | 0/0/1 | 20 |
@@ -327,7 +327,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | ID | Pri | Status | Effort | Gap / evidence |
 |---|---|---|---|---|
 | INP-001 | M | partial | L | The headless service (crates/archicraft-app/src/input/: PointInput, the InputConsumer step/preview contract, ViewSurface) exists, the tools implement it and the plan view routes every point through it (views/plan.rs builds a PlanSurface and the step's InputContext, translates egui events into KeyInput and draws Resolved and Preview); the status-line prompt comes from the step's StepSpec. Point input exists only in plan views and only for element creation: the 3D view has no point input at all (crates/archicraft-app/src/views/view3d.rs handles navigation and picking only); no transforms, reshaping, guides, measuring or dimensioning consumers yet (they plug into InputConsumer in their epics). |
-| INP-002 | M | partial | M | The tracker shows one line per field of the active set: distance and angle, ΔX/ΔY/ΔZ, or absolute X/Y/Z with Z the surface elevation (crates/archicraft-app/src/input/tracker.rs). Missing: X/Y/Z on demand beside the polar fields (a tracker-behaviour preference) and the stretch modes, so neither total length nor length change is shown or accepted as typed input during stretching (archicraft-o76a.2). |
+| INP-002 | M | done | none | Done: the tracker shows one line per field of the active set, distance and angle, ΔX/ΔY/ΔZ or absolute X/Y/Z with Z the surface elevation, and with the tracker preference (Preferences::tracker_xyz, Preferences dialog) also the absolute X, Y and Z in working units (crates/archicraft-app/src/input/tracker.rs). A consumer's StepSpec chooses TrackerMode::TotalLength or LengthChange for a stretch (crates/archicraft-app/src/input/consumer.rs): the tracker shows the resulting total length by default and, after Tab, the length change, and accepts either as typed input (FieldSet::Stretch in crates/archicraft-app/src/input/typed.rs, PointInput::apply_typed in crates/archicraft-app/src/input/mod.rs). Tests: the_tracker_adds_absolute_xyz_on_demand, a_stretch_takes_a_typed_total_length, a_stretch_takes_a_typed_length_change_on_demand (crates/archicraft-app/src/input/mod.rs, with a StretchStub consumer), preferences_turn_on_xyz_in_the_tracker (crates/archicraft-app/tests/ui.rs). The stretch command uses the modes once it exists (edit-reshape-palette); the 3D views show the tracker once they take point input (INP-001). |
 | INP-003 | M | partial | S | Esc cancels one step per press (typed text, then the step in progress, then the selection, then back to the Select tool; PointInput::key and views/plan.rs apply) and Backspace removes one typed character, then one point. The first point is typed too: a digit, sign or decimal separator starts absolute X/Y input without a point (PointInput::starts_typing, also looked ahead by app.rs shortcuts so '3ft' in one frame is not a Fit); tests the_first_point_takes_absolute_coordinates (input/mod.rs) and typing_the_first_point_keeps_shortcuts_until_a_value_starts (tests/ui.rs). Remaining gap: point input exists only in plan views, so nothing can be typed in 3D views (INP-001). |
 | INP-004 | M | partial | M | Polar (distance, angle) and Cartesian (ΔX, ΔY, ΔZ) fields, relative or absolute from the project origin (crates/archicraft-app/src/input/typed.rs: FieldSet, Reference, Origin); P switches polar/Cartesian converting typed values exactly, Shift+P relative/absolute (provisional keys); the first point defaults to absolute X/Y. ΔZ is display-only in plan views. Missing: placing the user origin (INP-014, archicraft-k2uv; InputContext::user_origin is the project origin until then) and marking a snap point (InputContext::marked is always None), so Origin::User and Origin::Marked are not reachable yet. |
 | INP-005 | M | done | none | Done: typed into every point-input field, regressed in the ΔX field by imperial_lengths_in_the_dx_field (crates/archicraft-app/src/input/mod.rs); crates/archicraft-model/src/units.rs:391-424 (parse_length: suffixes mm, cm, m, ft, in, ', " in any unit setting), units.rs:474-529 (normalises ′ ″ typographic marks, the locale decimal separator and digit groupings), units.rs:560-623 (mixed nu… |
@@ -792,7 +792,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 
 | ID | Pri | Status | Effort | Gap / evidence |
 |---|---|---|---|---|
-| SET-001 | M | partial | M | Missing preference items: UI language (strings are inline literals, NFR-L10N-001 not done), navigation scheme (SET-003), snap dwell time (INP-011), tracker behaviour (INP-002), default units for new projects (New always uses defa… |
+| SET-001 | M | partial | M | Missing preference items: UI language (strings are inline literals, NFR-L10N-001 not done), navigation scheme (SET-003), snap dwell time (INP-011), default units for new projects (New always uses defa… |
 | SET-002 | M | partial | M | Of PRJ-007's list, layer structures, profiles, presets, saved views (View3d holds only id/name/projection model/src/project.rs:111-116, no camera or visibility state) and stair rule defaults do not exist in the model or the file. |
 | SET-003 | S | partial | M | A NavigationScheme type with the ArchiCraft default, a trackpad-first preset and CAD/3D-tool-like presets, stored in Preferences and selectable in the dialog, with the plan and 3D views reading bindings from it. |
 | SET-004 | S | partial | M | Export/import commands with file dialogs, a versioned file format covering preferences and (once UI-009 exists) shortcuts, validation of imported data, and the D.9 fuzzing of the import parser. |

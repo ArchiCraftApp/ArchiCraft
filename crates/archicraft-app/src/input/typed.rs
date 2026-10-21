@@ -1,7 +1,8 @@
-//! Values typed during point input (INP-003, INP-004, INP-005).
+//! Values typed during point input (INP-002, INP-003, INP-004, INP-005).
 //!
 //! The typed values form a field set: relative or absolute polar coordinates
-//! (distance, angle) or Cartesian coordinates (X, Y, Z). Each field keeps
+//! (distance, angle), Cartesian coordinates (X, Y, Z) or, while an element is
+//! stretched, its total length or length change. Each field keeps
 //! its text and, once a value was converted into it, the exact `f64`, so
 //! switching field sets does not round typed values (AS-04).
 
@@ -10,6 +11,7 @@ use archicraft_model::units::{
     NumberFormat, ParseError, UnitSettings, format_angle, format_length, parse_angle, parse_length,
 };
 
+use super::consumer::TrackerMode;
 use crate::tr;
 
 /// One typed field.
@@ -24,6 +26,10 @@ pub enum Field {
     /// ΔZ in relative, Z in absolute coordinates. Display-only in plan
     /// views: planar consumers ignore it until the 3D working plane exists.
     Z,
+    /// The total length of a stretched element (INP-002).
+    Total,
+    /// The length change of a stretched element (INP-002).
+    Change,
 }
 
 impl Field {
@@ -40,6 +46,8 @@ impl Field {
             Field::X => tr!("tracker-x"),
             Field::Y => tr!("tracker-y"),
             Field::Z => tr!("tracker-z"),
+            Field::Total => tr!("tracker-total"),
+            Field::Change => tr!("tracker-change"),
         }
     }
 }
@@ -72,11 +80,23 @@ impl Value {
     }
 }
 
-/// The fields of one coordinate kind (INP-004).
+/// The fields of one coordinate kind (INP-002, INP-004).
 #[derive(Clone, Debug, PartialEq)]
 pub enum FieldSet {
-    Polar { distance: Value, angle: Value },
-    Cartesian { dx: Value, dy: Value, dz: Value },
+    Polar {
+        distance: Value,
+        angle: Value,
+    },
+    Cartesian {
+        dx: Value,
+        dy: Value,
+        dz: Value,
+    },
+    /// The alternatives of a stretch: either value gives the point.
+    Stretch {
+        total: Value,
+        change: Value,
+    },
 }
 
 impl FieldSet {
@@ -95,11 +115,19 @@ impl FieldSet {
         }
     }
 
+    pub fn stretch() -> Self {
+        FieldSet::Stretch {
+            total: Value::default(),
+            change: Value::default(),
+        }
+    }
+
     /// The fields in Tab order.
     pub fn fields(&self) -> &'static [Field] {
         match self {
             FieldSet::Polar { .. } => &[Field::Distance, Field::Angle],
             FieldSet::Cartesian { .. } => &[Field::X, Field::Y, Field::Z],
+            FieldSet::Stretch { .. } => &[Field::Total, Field::Change],
         }
     }
 
@@ -110,6 +138,8 @@ impl FieldSet {
             (FieldSet::Cartesian { dx, .. }, Field::X) => Some(dx),
             (FieldSet::Cartesian { dy, .. }, Field::Y) => Some(dy),
             (FieldSet::Cartesian { dz, .. }, Field::Z) => Some(dz),
+            (FieldSet::Stretch { total, .. }, Field::Total) => Some(total),
+            (FieldSet::Stretch { change, .. }, Field::Change) => Some(change),
             _ => None,
         }
     }
@@ -121,6 +151,8 @@ impl FieldSet {
             (FieldSet::Cartesian { dx, .. }, Field::X) => Some(dx),
             (FieldSet::Cartesian { dy, .. }, Field::Y) => Some(dy),
             (FieldSet::Cartesian { dz, .. }, Field::Z) => Some(dz),
+            (FieldSet::Stretch { total, .. }, Field::Total) => Some(total),
+            (FieldSet::Stretch { change, .. }, Field::Change) => Some(change),
             _ => None,
         }
     }
@@ -161,16 +193,22 @@ pub struct TypedInput {
 
 impl Default for TypedInput {
     fn default() -> Self {
-        Self::for_step(true, false)
+        Self::for_step(true, false, TrackerMode::Relative)
     }
 }
 
 impl TypedInput {
-    /// The fields a step starts with: the first point of a step sequence
-    /// takes absolute X and Y from the project origin, later points a
-    /// relative distance and angle; an angle step types the angle first.
-    pub fn for_step(first: bool, angle_first: bool) -> Self {
-        let (set, reference, field) = if first {
+    /// The fields a step starts with: a stretch takes the field of its
+    /// tracker mode, the first point of a step sequence absolute X and Y
+    /// from the project origin, later points a relative distance and angle;
+    /// an angle step types the angle first.
+    pub fn for_step(first: bool, angle_first: bool, tracker: TrackerMode) -> Self {
+        let stretch = tracker.stretch().is_some();
+        let (set, reference, field) = if stretch && matches!(tracker, TrackerMode::TotalLength { .. }) {
+            (FieldSet::stretch(), Reference::Relative, Field::Total)
+        } else if stretch {
+            (FieldSet::stretch(), Reference::Relative, Field::Change)
+        } else if first {
             (FieldSet::cartesian(), Reference::Absolute(Origin::Project), Field::X)
         } else if angle_first {
             (FieldSet::polar(), Reference::Relative, Field::Angle)
@@ -188,10 +226,12 @@ impl TypedInput {
 
     /// Takes the step's defaults unless a value is typed or a key chose the
     /// fields for this kind of step. Removing the last point (Backspace)
-    /// brings back the first point's absolute X and Y.
-    pub fn follow_step(&mut self, first: bool, angle_first: bool) {
-        if self.is_empty() && (!self.chosen || self.first != first) {
-            *self = Self::for_step(first, angle_first);
+    /// brings back the first point's absolute X and Y; a stretch step and
+    /// any other step never share their fields.
+    pub fn follow_step(&mut self, first: bool, angle_first: bool, tracker: TrackerMode) {
+        let stretch = matches!(self.set, FieldSet::Stretch { .. });
+        if self.is_empty() && (!self.chosen || self.first != first || stretch != tracker.stretch().is_some()) {
+            *self = Self::for_step(first, angle_first, tracker);
         }
     }
 
@@ -258,7 +298,7 @@ impl TypedInput {
     /// point does; `base_angle` is the direction a polar angle is measured
     /// from. With nothing typed the new fields start empty; without a
     /// cursor to complete a field from, the set stays. ΔZ has no polar field
-    /// and is dropped.
+    /// and is dropped. A stretch has neither and keeps its fields.
     pub fn switch_set(&mut self, base_angle: f64, cursor: Option<DVec2>, units: &UnitSettings, nf: &NumberFormat) {
         let parsed = |f| self.value(f, units, nf).and_then(Result::ok);
         let typed = |a: Option<f64>, b: Option<f64>| a.is_some() || b.is_some();
@@ -294,14 +334,19 @@ impl TypedInput {
                 }
                 _ => FieldSet::polar(),
             },
+            FieldSet::Stretch { .. } => return,
         };
         self.field = self.set.fields()[0];
         self.chosen = true;
     }
 
     /// Switches between relative and absolute coordinates (INP-004). The
-    /// typed text stays and is read in the new reference.
+    /// typed text stays and is read in the new reference. A stretch length
+    /// has no reference.
     pub fn switch_reference(&mut self) {
+        if let FieldSet::Stretch { .. } = self.set {
+            return;
+        }
         self.reference = match self.reference {
             Reference::Relative => Reference::Absolute(Origin::Project),
             Reference::Absolute(_) => Reference::Relative,

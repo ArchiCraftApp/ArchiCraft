@@ -68,6 +68,11 @@ pub struct InputContext<'a> {
     pub guides: &'a [GuideShape],
     /// What the consumer's current step expects.
     pub expects: Expect,
+    /// How the consumer's current step reports and takes values (INP-002).
+    pub tracker: TrackerMode,
+    /// The tracker adds the absolute X, Y and Z (INP-002, the tracker
+    /// preference of SET-001).
+    pub tracker_xyz: bool,
     /// The snap radius in model units: the radius in pixels times the
     /// surface's model length per pixel.
     pub radius: f64,
@@ -118,7 +123,11 @@ impl InputContext<'_> {
 
     /// The typed fields this step starts with (INP-004).
     fn follow(&self, typed: &mut TypedInput) {
-        typed.follow_step(self.origin().is_none(), matches!(self.expects, Expect::Angle { .. }));
+        typed.follow_step(
+            self.origin().is_none(),
+            matches!(self.expects, Expect::Angle { .. }),
+            self.tracker,
+        );
     }
 }
 
@@ -183,11 +192,14 @@ impl PointInput {
 
     /// The tracker text next to the cursor (INP-002): one line per field
     /// of the active field set with the value of `point`, or the typed text
-    /// with the active field marked.
+    /// with the active field marked; a stretch measures from its fixed end.
     pub fn tracker(&self, point: DVec2, ctx: &InputContext) -> Option<String> {
         let mut typed = self.typed.clone();
         ctx.follow(&mut typed);
-        let base = ctx.base(typed.reference)?;
+        let base = match (&typed.set, ctx.tracker.stretch()) {
+            (FieldSet::Stretch { .. }, Some((base, _, _))) => base,
+            _ => ctx.base(typed.reference)?,
+        };
         let lines = tracker::lines(&typed, base, ctx.base_angle(typed.reference), point, ctx);
         Some(tracker::text(&lines))
     }
@@ -205,7 +217,8 @@ impl PointInput {
     /// then the angle constraint while Shift is held, then snapping to the
     /// candidate chosen with Tab, the first one unless the user cycled
     /// (INP-003, INP-006, INP-009). Leaving the snap radius around the
-    /// position where cycling started ends the cycle.
+    /// position where cycling started ends the cycle. In a stretch every
+    /// point that is not typed is projected onto the stretch line (INP-002).
     pub fn resolve(&mut self, cursor: DVec2, mods: Modifiers, ctx: &InputContext) -> Resolved {
         ctx.follow(&mut self.typed);
         self.cursor = Some((cursor, mods));
@@ -235,6 +248,18 @@ impl PointInput {
                 ctx.guides,
             ),
         };
+        let stretch = ctx
+            .tracker
+            .stretch()
+            .filter(|_| matches!(self.typed.set, FieldSet::Stretch { .. }));
+        let onto_stretch = |s: Snap| match stretch {
+            Some((base, dir, _)) if s.kind != SnapKind::Typed => Snap {
+                point: base + dir * (s.point - base).dot(dir),
+                ..s
+            },
+            _ => s,
+        };
+        let candidates: Vec<Snap> = candidates.into_iter().map(onto_stretch).collect();
         let chosen = match self.cycle {
             Some((start, i)) if start.distance(cursor) <= ctx.radius => i,
             _ => {
@@ -245,9 +270,11 @@ impl PointInput {
         let s = candidates
             .get(chosen % candidates.len().max(1))
             .copied()
-            .unwrap_or(Snap {
-                point: cursor,
-                kind: SnapKind::Free,
+            .unwrap_or_else(|| {
+                onto_stretch(Snap {
+                    point: cursor,
+                    kind: SnapKind::Free,
+                })
             });
         let resolved = Resolved {
             point: s.point,
@@ -259,28 +286,42 @@ impl PointInput {
         resolved
     }
 
-    /// The typed values applied from their base point (INP-003, INP-004):
-    /// an empty field takes its value from the cursor (a typed ΔX with the
-    /// cursor's ΔY, a typed distance with the cursor's angle). `None` when a
-    /// value does not parse or the base point is unknown.
+    /// The typed values applied from their base point (INP-002, INP-003,
+    /// INP-004): an empty field takes its value from the cursor (a typed ΔX
+    /// with the cursor's ΔY, a typed distance with the cursor's angle). A
+    /// stretch takes the typed total length or length change along its
+    /// direction, the active field first. `None` when a value does not
+    /// parse or the base point is unknown.
     fn apply_typed(&self, cursor: DVec2, ctx: &InputContext) -> Option<DVec2> {
         let typed = &self.typed;
-        let base = ctx.base(typed.reference)?;
-        let offset = cursor - base;
         let value = |field| typed.value(field, ctx.units, ctx.number_format).transpose().ok();
+        let base = ctx.base(typed.reference);
         match typed.set {
             FieldSet::Polar { .. } => {
+                let (base, offset) = base.map(|b| (b, cursor - b))?;
                 let angle = value(Field::Angle)?.map_or(offset.to_angle(), |a| ctx.base_angle(typed.reference) + a);
                 let distance = value(Field::Distance)?.unwrap_or(offset.length());
                 Some(base + DVec2::from_angle(angle) * distance)
             }
             FieldSet::Cartesian { .. } => {
+                let (base, offset) = base.map(|b| (b, cursor - b))?;
                 // A plan view's working plane is the storey plane: planar
                 // consumers ignore ΔZ until the 3D working plane exists.
                 value(Field::Z)?;
                 let x = value(Field::X)?.unwrap_or(offset.x);
                 let y = value(Field::Y)?.unwrap_or(offset.y);
                 Some(base + DVec2::new(x, y))
+            }
+            FieldSet::Stretch { .. } => {
+                let (base, dir, length) = ctx.tracker.stretch()?;
+                let total = value(Field::Total)?;
+                let changed = value(Field::Change)?.map(|change| length + change);
+                let total = if typed.field == Field::Change {
+                    changed.or(total)
+                } else {
+                    total.or(changed)
+                };
+                total.map(|total| base + dir * total)
             }
         }
     }
@@ -634,6 +675,67 @@ mod tests {
         }
     }
 
+    /// A stretch-shaped consumer (INP-002): moves the end of a 4 m long
+    /// element from (1, 1) along X, in the tracker mode `mode` opens with.
+    struct StretchStub {
+        change: bool,
+        end: Option<DVec2>,
+    }
+
+    impl StretchStub {
+        const BASE: DVec2 = DVec2::new(1.0, 1.0);
+        const LENGTH: f64 = 4.0;
+
+        fn new(change: bool) -> Self {
+            Self { change, end: None }
+        }
+    }
+
+    impl InputConsumer for StretchStub {
+        fn step(&self) -> Option<StepSpec> {
+            let (base, dir, length) = (Self::BASE, DVec2::X, Self::LENGTH);
+            self.end.is_none().then(|| StepSpec {
+                tracker: if self.change {
+                    TrackerMode::LengthChange { base, dir, length }
+                } else {
+                    TrackerMode::TotalLength { base, dir, length }
+                },
+                ..StepSpec::new(
+                    "Stretch: click the new end or type the length",
+                    Expect::Distance { from: base },
+                )
+            })
+        }
+
+        fn reference_point(&self) -> Option<DVec2> {
+            Some(Self::BASE)
+        }
+
+        fn preview(&self, _project: &Project, resolved: &Resolved) -> Preview {
+            Preview {
+                outlines: vec![(vec![Self::BASE, resolved.point], false)],
+                cursor: CursorState::Normal,
+            }
+        }
+
+        fn commit(&mut self, _project: &Project, _storey: StoreyId, point: DVec2) -> Outcome {
+            self.end = Some(point);
+            Outcome::Done
+        }
+
+        fn cancel_step(&mut self) -> bool {
+            false
+        }
+
+        fn backspace(&mut self) -> bool {
+            false
+        }
+
+        fn finish(&mut self, _project: &Project) -> Outcome {
+            Outcome::Continue
+        }
+    }
+
     struct Env {
         project: Project,
         storey: StoreyId,
@@ -642,6 +744,7 @@ mod tests {
         units: UnitSettings,
         nf: NumberFormat,
         elevation: f64,
+        tracker_xyz: bool,
     }
 
     impl Env {
@@ -656,6 +759,7 @@ mod tests {
                 units: UnitSettings::default(),
                 nf: NumberFormat::default(),
                 elevation: 0.0,
+                tracker_xyz: false,
             }
         }
 
@@ -669,6 +773,8 @@ mod tests {
                 previous: consumer.reference_point(),
                 guides: &[],
                 expects: consumer.step().map_or(Expect::Point, |s| s.expects),
+                tracker: consumer.step().map_or(TrackerMode::Relative, |s| s.tracker),
+                tracker_xyz: self.tracker_xyz,
                 radius: 0.1,
                 drag_threshold: 6.0 * PIXEL,
                 units: &self.units,
@@ -1493,5 +1599,126 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!((d - 6.0f64.hypot(4.0)).abs() < 1e-12, "{d}");
+    }
+
+    /// INP-002, SET-001: with the X/Y/Z preference on, the tracker adds the
+    /// absolute X, Y and Z of the point in working units beside the distance
+    /// and angle and beside ΔX, ΔY and ΔZ; absolute X/Y/Z input shows them
+    /// once.
+    #[test]
+    fn the_tracker_adds_absolute_xyz_on_demand() {
+        let mut env = Env::new();
+        env.elevation = 3.0;
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.tracker_xyz = true;
+        let tracker = input.tracker(DVec2::new(2.0, -1.5), &env.ctx(&tool)).unwrap();
+        assert_eq!(tracker, "▸X 2.000 m\n Y -1.500 m\n Z 3.000 m");
+        env.click(&mut input, &mut tool, (1.0, 1.0));
+        env.tracker_xyz = false;
+        let tracker = input.tracker(DVec2::new(4.0, 5.0), &env.ctx(&tool)).unwrap();
+        assert_eq!(tracker, "▸d 5.000 m\n a 53.13°");
+        env.tracker_xyz = true;
+        let tracker = input.tracker(DVec2::new(4.0, 5.0), &env.ctx(&tool)).unwrap();
+        assert_eq!(tracker, "▸d 5.000 m\n a 53.13°\n X 4.000 m\n Y 5.000 m\n Z 3.000 m");
+        env.key(&mut input, &mut tool, KeyInput::SwitchFields);
+        let tracker = input.tracker(DVec2::new(4.0, 5.0), &env.ctx(&tool)).unwrap();
+        assert_eq!(
+            tracker,
+            "▸ΔX 3.000 m\n ΔY 4.000 m\n ΔZ 0.000 m\n X 4.000 m\n Y 5.000 m\n Z 3.000 m"
+        );
+        env.units.length = archicraft_model::units::LengthUnit::Centimeter;
+        env.units.length_decimals = 1;
+        env.key(&mut input, &mut tool, KeyInput::SwitchFields);
+        let tracker = input.tracker(DVec2::new(4.0, 5.0), &env.ctx(&tool)).unwrap();
+        assert!(tracker.ends_with(" X 400.0 cm\n Y 500.0 cm\n Z 300.0 cm"), "{tracker}");
+    }
+
+    /// INP-002: a stretch opens in total-length mode, so the tracker shows the
+    /// resulting total length, the cursor projected onto the direction; a
+    /// typed total of 5.0 on a 4.0 long element moves its end by 1.0.
+    #[test]
+    fn a_stretch_takes_a_typed_total_length() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut stub = StretchStub::new(false);
+        let cursor = DVec2::new(5.5, 2.0);
+        let tracker = input.tracker(cursor, &env.ctx(&stub)).unwrap();
+        assert_eq!(tracker, "▸L 4.500 m");
+        assert!(input.captures_keys(&stub));
+        env.key(&mut input, &mut stub, text("5"));
+        assert_eq!(input.typed.field, Field::Total);
+        assert_eq!(input.tracker(cursor, &env.ctx(&stub)).unwrap(), "▸L 5_");
+        assert_eq!(point_at(&env, &mut input, &stub, (3.0, 2.0)), DVec2::new(6.0, 1.0));
+        assert_eq!(env.key(&mut input, &mut stub, KeyInput::Enter), Effect::None);
+        let end = StretchStub::BASE + DVec2::X * StretchStub::LENGTH;
+        assert_eq!(stub.end, Some(end + DVec2::new(1.0, 0.0)), "the end moved by 1.0");
+    }
+
+    /// INP-002: an untyped stretch point lies on the stretch line, the cursor
+    /// projected onto the direction, so a click commits the length the
+    /// tracker shows and the preview ends there.
+    #[test]
+    fn an_untyped_stretch_point_lies_on_the_stretch_line() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut stub = StretchStub::new(false);
+        let cursor = DVec2::new(5.5, 2.0);
+        let resolved = resolve_at(&env, &mut input, &stub, cursor);
+        assert_eq!(resolved.point, DVec2::new(5.5, 1.0));
+        assert_eq!(input.tracker(resolved.point, &env.ctx(&stub)).unwrap(), "▸L 4.500 m");
+        let preview = stub.preview(&env.project, &resolved);
+        assert_eq!(preview.outlines[0].0[1], DVec2::new(5.5, 1.0));
+        assert_eq!(env.click(&mut input, &mut stub, (5.5, 2.0)), Effect::None);
+        assert_eq!(stub.end, Some(DVec2::new(5.5, 1.0)));
+    }
+
+    /// INP-002: a stretch direction is used as a unit vector whatever its
+    /// length.
+    #[test]
+    fn a_stretch_direction_is_normalised() {
+        let mode = TrackerMode::TotalLength {
+            base: DVec2::ZERO,
+            dir: DVec2::new(0.0, 2.0),
+            length: 1.0,
+        };
+        assert_eq!(mode.stretch(), Some((DVec2::ZERO, DVec2::Y, 1.0)));
+        let degenerate = TrackerMode::LengthChange {
+            base: DVec2::ZERO,
+            dir: DVec2::ZERO,
+            length: 1.0,
+        };
+        assert_eq!(degenerate.stretch(), None);
+    }
+
+    /// INP-002: Tab switches a stretch to the length change on demand; the
+    /// tracker then shows the change and a typed change of 0.5 on a 4.0 long
+    /// element gives the total length 4.5. A consumer can open in that mode.
+    #[test]
+    fn a_stretch_takes_a_typed_length_change_on_demand() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut stub = StretchStub::new(false);
+        let cursor = DVec2::new(5.5, 2.0);
+        env.key(&mut input, &mut stub, KeyInput::Tab);
+        assert_eq!(input.typed.field, Field::Change);
+        assert_eq!(input.tracker(cursor, &env.ctx(&stub)).unwrap(), "▸ΔL 0.500 m");
+        for key in [text("0.5"), KeyInput::SwitchFields, KeyInput::SwitchReference] {
+            env.key(&mut input, &mut stub, key);
+        }
+        assert_eq!(input.tracker(cursor, &env.ctx(&stub)).unwrap(), "▸ΔL 0.5_");
+        assert_eq!(env.key(&mut input, &mut stub, KeyInput::Enter), Effect::None);
+        let end = stub.end.unwrap();
+        assert_eq!(end, DVec2::new(5.5, 1.0));
+        assert_eq!(end.distance(StretchStub::BASE), 4.5, "the total length");
+
+        let mut input = PointInput::default();
+        let stub = StretchStub::new(true);
+        assert_eq!(
+            input.tracker(DVec2::new(3.0, 0.0), &env.ctx(&stub)).unwrap(),
+            "▸ΔL -2.000 m"
+        );
+        resolve_at(&env, &mut input, &stub, DVec2::new(3.0, 0.0));
+        assert_eq!(input.typed.field, Field::Change);
     }
 }

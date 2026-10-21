@@ -51,6 +51,9 @@ pub struct Preferences {
     pub input_mode: InputMode,
     /// Step of the invisible snap grid in metres (INP-013).
     pub snap_step: f64,
+    /// Tracker behaviour (SET-001): show the absolute X, Y and Z beside
+    /// the distance and angle (INP-002, default off).
+    pub tracker_xyz: bool,
     /// Show the reference lines of all walls in plan views (WAL-007).
     pub show_reference_lines: bool,
     /// Save projects as indented, human-readable IFCX instead of compact JSON
@@ -76,6 +79,7 @@ impl Default for Preferences {
             angle_increment_deg: 45.0,
             input_mode: InputMode::ClickClick,
             snap_step: 0.05,
+            tracker_xyz: false,
             show_reference_lines: false,
             indented_ifcx: false,
             recent: Vec::new(),
@@ -242,6 +246,24 @@ mod tests {
         assert_eq!(Preferences::load(&path), prefs);
         std::fs::write(&path, r#"{"author": "Ada"}"#).unwrap();
         assert_eq!(Preferences::load(&path).input_mode, InputMode::ClickClick);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// SET-001, INP-002: the tracker shows X, Y and Z only on demand; the
+    /// choice survives a restart and older files read as off.
+    #[test]
+    fn tracker_xyz_defaults_to_off_and_persists() {
+        assert!(!Preferences::default().tracker_xyz);
+        let dir = std::env::temp_dir().join(format!("archicraft-prefs-tracker-{}", std::process::id()));
+        let path = dir.join("preferences.json");
+        let prefs = Preferences {
+            tracker_xyz: true,
+            ..Preferences::default()
+        };
+        prefs.save(&path).unwrap();
+        assert_eq!(Preferences::load(&path), prefs);
+        std::fs::write(&path, r#"{"author": "Ada"}"#).unwrap();
+        assert!(!Preferences::load(&path).tracker_xyz);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

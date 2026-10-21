@@ -1044,10 +1044,10 @@
       "id": "INP-002",
       "priority": "M",
       "section": "4.6",
-      "status": "partial",
-      "remaining_effort": "M",
-      "evidence": "",
-      "gap": "The tracker shows one line per field of the active set: distance and angle, ΔX/ΔY/ΔZ, or absolute X/Y/Z with Z the surface elevation (crates/archicraft-app/src/input/tracker.rs). Missing: X/Y/Z on demand beside the polar fields (a tracker-behaviour preference) and the stretch modes, so neither total length nor length change is shown or accepted as typed input during stretching (archicraft-o76a.2).",
+      "status": "done",
+      "remaining_effort": "none",
+      "evidence": "Done: the tracker shows one line per field of the active set, distance and angle, ΔX/ΔY/ΔZ or absolute X/Y/Z with Z the surface elevation, and with the tracker preference (Preferences::tracker_xyz, Preferences dialog) also the absolute X, Y and Z in working units (crates/archicraft-app/src/input/tracker.rs). A consumer's StepSpec chooses TrackerMode::TotalLength or LengthChange for a stretch (crates/archicraft-app/src/input/consumer.rs): the tracker shows the resulting total length by default and, after Tab, the length change, and accepts either as typed input (FieldSet::Stretch in crates/archicraft-app/src/input/typed.rs, PointInput::apply_typed in crates/archicraft-app/src/input/mod.rs). Tests: the_tracker_adds_absolute_xyz_on_demand, a_stretch_takes_a_typed_total_length, a_stretch_takes_a_typed_length_change_on_demand (crates/archicraft-app/src/input/mod.rs, with a StretchStub consumer), preferences_turn_on_xyz_in_the_tracker (crates/archicraft-app/tests/ui.rs). The stretch command uses the modes once it exists (edit-reshape-palette); the 3D views show the tracker once they take point input (INP-001).",
+      "gap": "",
       "depends_on": []
     },
     {
@@ -4447,7 +4447,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Missing preference items: UI language (strings are inline literals, NFR-L10N-001 not done), navigation scheme (SET-003), snap dwell time (INP-011), tracker behaviour (INP-002), default units for new projects (New always uses defa…",
+      "gap": "Missing preference items: UI language (strings are inline literals, NFR-L10N-001 not done), navigation scheme (SET-003), snap dwell time (INP-011), default units for new projects (New always uses defa…",
       "depends_on": []
     },
     {

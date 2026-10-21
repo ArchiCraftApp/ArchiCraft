@@ -54,12 +54,33 @@ impl Expect {
     }
 }
 
-/// How the tracker next to the cursor reports values (INP-002).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// How the tracker next to the cursor reports values and how typed values
+/// turn into a point (INP-002).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum TrackerMode {
     /// Distance and angle from the origin of the step.
     #[default]
     Relative,
+    /// Stretching an element of `length` that starts at `base` along `dir`
+    /// (normalised; a zero vector is no stretch): the tracker shows the resulting total length and
+    /// a typed total gives the point `base + dir × total`.
+    TotalLength { base: DVec2, dir: DVec2, length: f64 },
+    /// Like [`TrackerMode::TotalLength`], showing the length change: a typed
+    /// change gives the point `base + dir × (length + change)`.
+    LengthChange { base: DVec2, dir: DVec2, length: f64 },
+}
+
+impl TrackerMode {
+    /// The fixed end, the direction as a unit vector and the length before
+    /// the stretch, for a stretch with a direction.
+    pub fn stretch(self) -> Option<(DVec2, DVec2, f64)> {
+        match self {
+            TrackerMode::Relative => None,
+            TrackerMode::TotalLength { base, dir, length } | TrackerMode::LengthChange { base, dir, length } => {
+                dir.try_normalize().map(|dir| (base, dir, length))
+            }
+        }
+    }
 }
 
 /// One step of a consumer: the prompt naming the expected input and the keys
