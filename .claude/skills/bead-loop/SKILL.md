@@ -1,6 +1,6 @@
 ---
 name: bead-loop
-description: Orchestrate the bead loop over several beads — sweep, start a batch of ready beads with disjoint crates, each in its own fresh session and worktree with /bead, verify what they landed, never wait on a merge, report blockers in one line, and stop after N beads or at an epic boundary for the user's demo.
+description: Orchestrate the bead loop over several beads — sweep, start a batch of ready beads with disjoint crates, each in its own fresh session and worktree with /bead at the model and effort of its tier, verify what they landed, never wait on a merge, report blockers in one line, and stop after N beads or at an epic boundary for the user's demo.
 argument-hint: "[count] [parallel] [epic-id] [loop]"
 disable-model-invocation: true
 ---
@@ -20,8 +20,56 @@ the same beads and the same crates and end up coordinating through the user. If 
 orchestrator session is still working (`mcp__ccd_session_mgmt__list_sessions`), say so in one
 line and stop.
 
+**Opus 5.5 at effort max.** Run this session on Claude Opus 5.5 at effort `max` (the app's
+model menu). `start_session` gives a new session at most the caller's own effort and ignores a
+model above the caller's, so only an orchestrator at `max` can start every Opus tier (Tiers
+below). `mcp__ccd_session_mgmt__get_session` with `self` shows this session's `model` and
+`effort`. A bead whose tier is above this session's effort is not started: it goes into the
+`Needs you:` line with "switch the orchestrator to Opus 5.5, effort max".
+
 The user's time is the budget: ask nothing that a rule below answers, keep every report to
 one line per bead, and never end a turn by waiting for a merge.
+
+## Tiers
+
+Every bead runs at a tier, named by its label `tier:<x>`:
+
+| Tier | Model | Effort |
+|---|---|---|
+| `medium` | Claude Opus 5.5 (`claude-opus-5-5`) | `medium` |
+| `high` | Claude Opus 5.5 | `high` |
+| `xhigh` | Claude Opus 5.5 | `xhigh` |
+| `max` | Claude Opus 5.5 | `max` |
+| `fable` | Claude Fable 5.1 (`claude-fable-5-1`), 2.5 times Opus 5.5's price per token | `high` |
+
+A `tier:` label on the bead wins: slicing, an escalation or the user set it. A bead without
+one gets the first tier of this rubric that fits, and the label before it starts
+(`bd update <id> --add-label tier:<x>`):
+
+1. `xhigh`: a bead labelled `red-main` or `loop`; an `archicraft-geometry` algorithm (wall
+   junctions, plan cuts, meshing, solid operations); an IFCX format, reader or writer change
+   (label `format-change`, or an `archicraft-ifcx` bead that changes what is read or written).
+2. `medium`: an estimate of 30 minutes or less (`estimated_minutes` in `bd show <id> --json`):
+   tidy-ups, test tightening, docs, chores.
+3. `high`: everything else, also a bead without an estimate.
+
+`max` and `fable` never come from the rubric. A bead gets them by escalation (Stop rules in
+`/bead`) or when slicing marked it so: `max` for an estimate of 360 minutes or more, `fable`
+for a memory or architecture redesign that later beads build on. The reviewer runs at effort
+`xhigh` whatever the tier (`.claude/agents/bead-reviewer.md`): the gate and the review are what
+make a cheaper implementer safe.
+
+**A `fable` bead is never started from here.** `start_session` cannot raise the model, and
+`set_session_model` applies only from a session's next turn, while `/bead` runs in its first.
+The bead goes into the `Needs you:` line instead, with the way to start it: "`<id>` (tier
+fable): new Code session, pick Claude Fable 5.1 (effort high) in the model menu, send
+`/bead <id>`". Repeat it each turn until the bead is in progress; it takes no batch slot.
+
+**Escalation.** A bead session that hits the stop rule (two failed reviews or three gate
+failures) runs `scripts/loop/escalate.sh`. The first time, a bead below `max` moves one tier
+up (new `tier:` label, label `escalated`, a note) and is ready again; its next session resumes
+the bead branch and finds the unreviewed work of the run before as a patch. A second stop, or
+one at `max` or `fable`, gives it the label `human` as before.
 
 ## A user turn: start a batch
 
@@ -62,22 +110,27 @@ So each user turn starts a whole batch at once:
    (only `--exclude-label human` when the user passed `loop`; add `--parent <epic>` when an
    epic was given). `bd ready` leaves out beads in progress and beads blocked by an open
    bead, so a bead whose blocker's PR has not merged yet waits for a later batch by itself.
-   Walk the list in its order (priority) and take a bead when its crate labels
-   (`archicraft-model`, `archicraft-geometry`, `archicraft-ifcx`, `archicraft-app`) overlap
-   neither those of the beads already taken nor those of beads still in progress
-   (`bd list --status in_progress --json`), until the batch holds `parallel` beads or the
-   remaining count is reached. At most one loop bead per batch, and none while another loop
-   bead's PR is open (`gh pr list --state open --label loop`), because loop beads edit the
-   same files. If nothing is ready, say in one line which open PRs the remaining work waits
-   on and end the turn; the user's next "continue" sweeps again.
+   Walk the list in its order (priority), a bead labelled `escalated` first after a `red-main`
+   one, and take a bead when its crate labels (`archicraft-model`, `archicraft-geometry`,
+   `archicraft-ifcx`, `archicraft-app`) overlap neither those of the beads already taken nor
+   those of beads still in progress (`bd list --status in_progress --json`), until the batch
+   holds `parallel` beads or the remaining count is reached. Give each bead you take its tier
+   (Tiers), labelling it when it has none. A `fable` bead, or one whose tier is above this
+   session's effort, is not taken: it goes into the `Needs you:` line and takes no slot. At
+   most one loop bead per batch, and none while another loop bead's PR is open
+   (`gh pr list --state open --label loop`), because loop beads edit the same files. If
+   nothing is ready, say in one line which open PRs the remaining work waits on and end the
+   turn; the user's next "continue" sweeps again.
 4. **Start.** In the Claude desktop app, load `mcp__ccd_session__start_session` with
    ToolSearch, mark a chapter for the batch (`mcp__ccd_session__mark_chapter`), and start every bead of the batch in the same
    message: `initiation` "user_asked" (the user ran /bead-loop or said continue), `context`
-   "fresh", `use_worktree` true, title `<id>: <bead title>`, prompt `/bead <id>`. Outside the
-   desktop app, give the user the command per bead
-   (`claude --worktree bead-<id> "/bead <id>"`) and stop.
-5. **End the turn.** One line: the beads started. The app continues this session when the
-   bead sessions report.
+   "fresh", `use_worktree` true, `model` "claude-opus-5-5", `effort` the bead's tier
+   (`medium`, `high`, `xhigh` or `max`), title `<id>: <bead title>`, prompt `/bead <id>`.
+   Outside the desktop app, give the user the command per bead
+   (`claude --worktree bead-<id> --model claude-opus-5-5 --effort <tier> "/bead <id>"`) and
+   stop.
+5. **End the turn.** One line: the beads started, each with its tier. The app continues this
+   session when the bead sessions report.
 
 ## A report turn: verify and report
 
@@ -85,29 +138,36 @@ When the app continues this session with the bead sessions' reports, start nothi
 would refuse it) and do not restate the reports. For each bead that reported:
 
 1. **Verify, do not trust the report.** `bd show <id>`: the bead has a PR in `external_ref`,
-   or the label `human`. With a PR, `gh pr view <url> --json state,autoMergeRequest,files`
-   shows it open with auto-merge on, or already merged, or open with auto-merge off because
+   the label `human`, or the label `escalated` with a higher `tier:` label and status open
+   (`escalate.sh` moved it up a tier; its note says so). With a PR,
+   `gh pr view <url> --json state,autoMergeRequest,files` shows it open with auto-merge on, or
+   already merged, or open with auto-merge off because
    it changes `.github/workflows/` or `.claude/settings.json`: such a PR waits for the user's
    review (user decision of 2026-10-19), and `land.sh` named the files.
 2. **Count, never wait.** The bead counts once its PR is open with auto-merge on, merged, or
    waiting for the user's review. Do not wait for a merge: the app's PR monitor wakes a bead
    session on a CI failure, a conflict or a review comment, never on a merge, and the next
-   sweep closes merged beads. A bead without a PR, with auto-merge off for any other reason,
-   or with the label `human` does not count; it goes into the `Needs you:` line with its
-   session link.
+   sweep closes merged beads. An escalated bead does not count yet: it starts again in the
+   next batch, and nobody needs to do anything for it. A bead without a PR, with auto-merge off
+   for any other reason, or with the label `human` does not count; it goes into the
+   `Needs you:` line with its session link. A `human` bead at tier `max` names Claude Fable 5.1
+   as the other way out: "decide, or pick Claude Fable 5.1 in its session's model menu and say
+   continue".
 
 Then report, one line per bead and nothing else:
 
 ```
-<id> ✅ PR #<n> (auto-merge): <one line: what changed>
-<id> ✅ PR #<n> (waits for you): <one line>
-<id> ⏸ blocked: <the reason, session link>
+<id> ✅ PR #<n> (auto-merge, <tier>): <one line: what changed>
+<id> ✅ PR #<n> (waits for you, <tier>): <one line>
+<id> ⏫ escalated to <tier>: <the reason>; it starts again in the next batch
+<id> ⏸ blocked (<tier>): <the reason, session link>
 Needs you: <the one thing, or leave the line out>
 ```
 
 Add `Needs you:` only when something does: a PR that waits for the user's review, a bead
-labelled `human`, a sweep line from step 1. When beads of the batch are still working, end the
-turn; the app continues this session when they report. When the whole batch reported and the
+labelled `human`, a `fable` bead or one above this session's effort (Tiers), a sweep line from
+step 1. When beads of the batch are still working, end the turn; the app continues this
+session when they report. When the whole batch reported and the
 count is not reached, end with "continue" starting the next batch. When the count is reached,
 the last report is the run's summary.
 
@@ -129,6 +189,7 @@ demo, because automated tests do not judge how a CAD tool feels:
 
 ## Budget
 
-Each bead session is a full working session. Start no more beads than the count the user
-gave and no more at once than `parallel`, never fan out further, and report a blocker in the
-`Needs you:` line instead of retrying it.
+Each bead session is a full working session, priced by its tier: small beads run at `medium`,
+and Claude Fable 5.1 runs only when the user starts it. Start no more beads than the count the
+user gave and no more at once than `parallel`, never fan out further, and report a blocker in
+the `Needs you:` line instead of retrying it.

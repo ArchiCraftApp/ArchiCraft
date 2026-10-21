@@ -20,7 +20,7 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | 5 Gate | fmt, clippy, tests, layering, golden files, diff budget, `.beads/`, loop guardrails only under label `loop`, conformance, licences | `scripts/loop/gate.sh` |
 | 6 Review | Fresh-context `bead-reviewer` agent; its verdict becomes the review stamp | `.claude/agents/bead-reviewer.md` |
 | 7 Land | Commit `<id>: <summary>`, push, PR, squash auto-merge on green CI (a PR that changes `.github/workflows/` or `.claude/settings.json` waits for the user) | `scripts/loop/land.sh` |
-| 8 Close | Bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |
+| 8 Close | Close note (tier, review rounds, gate failures); bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |
 
 The gate and the review stamp the exact tree they checked (`loop_tree_hash` in
 `scripts/loop/lib.sh`). Any later edit invalidates the gate stamp. The review stamp belongs to
@@ -32,10 +32,17 @@ follow-up bead instead of another review round. Stamps, logs and counters
 live in the worktree's git dir (`git rev-parse --git-path loop`), never in the repository.
 `scripts/loop/status.sh` shows where a worktree stands.
 
-**Stop rules.** Three gate failures on the same problem or two failed reviews: the bead gets
-the label `human` and the session pauses (`scripts/loop/pause.sh "<reason>"`); the orchestrator
-reports the bead in its `Needs you:` line and carries on with other beads. The same applies
-when a decision belongs to the user.
+**Stop rules.** Three gate failures on the same problem or two failed reviews: the session runs
+`scripts/loop/escalate.sh "<reason>"`. The first time, a bead below tier `max` moves one tier
+up (`medium`, `high`, `xhigh`, `max`; Tiers below): its `tier:` label changes, it gets the
+label `escalated` and a note, and its claim is released. The script saves the session's
+uncommitted work as a patch in the git dir all worktrees share (`loop_escalation_patch`) and
+detaches the worktree from the bead branch, so the orchestrator's next batch resumes the branch
+in a fresh session on the stronger tier, where `start-bead.sh` names the patch. The second
+time, or at tier `max` or `fable`, the bead gets the label `human` and the session pauses
+(`pause.sh`); the orchestrator reports the bead in its `Needs you:` line and carries on with
+other beads. A decision that belongs to the user skips the escalation: the bead gets the label
+`human` and the session pauses (`scripts/loop/pause.sh "<reason>"`).
 
 ## Several beads
 
@@ -51,6 +58,28 @@ while another loop bead's PR is open, because loop beads edit the same files. A 
 sweep's `ATTENTION windows` line or a failed CI run on `main`) becomes a P0 bead labelled
 `red-main` that starts first in the next batch, without asking.
 
+**Tiers: model and effort per bead.** Every bead runs at a tier, its label `tier:<x>`:
+`medium`, `high`, `xhigh` and `max` are Claude Opus 5.5 at that effort, `fable` is Claude
+Fable 5.1 (2.5 times Opus 5.5's price per token). A bead without the label gets one from the
+rubric in `/bead-loop` before it starts: `xhigh` for `archicraft-geometry` algorithms, IFCX
+format, reader or writer changes, beads labelled `loop` and `red-main`; `medium` for estimates
+of 30 minutes or less (tidy-ups, test tightening, docs, chores); `high` otherwise. `max` and
+`fable` come only from an escalation (stop rules above) or from slicing, which marks a child so
+for an estimate of 360 minutes or more or a memory or architecture redesign; slicing gives
+every child a tier. The orchestrator passes the tier's model and effort to `start_session`,
+which takes only an effort at or below the caller's own and ignores a model above it, so the
+orchestrator must run on Opus 5.5 at effort `max`, or the higher tiers cannot start. It never
+starts a `fable` bead: it cannot raise the model, and `set_session_model` applies only from a
+session's next turn, while `/bead` runs in the first. The bead goes into the `Needs you:` line
+with the way to start it (`/bead <id>` in a new session with Claude Fable 5.1 picked). The
+reviewer runs at effort `xhigh` whatever the tier (`effort` in
+`.claude/agents/bead-reviewer.md`), because the gate and the review are what make a cheaper
+implementer safe. The field works: on Claude Code 2.1.299 (2026-10-21) a probe subagent with
+`effort: xhigh` ran at `xhigh` under a parent at `medium` and at `max` (session transcripts
+record `effort` per message). Each bead's close note (`Close: tier <x>, <n> review rounds, <m>
+gate failures, …`) is the data to calibrate the rubric with. Multi-agent workflows stay out of
+the loop: one session per bead.
+
 Turns triggered by the bead sessions' reports only verify each PR and auto-merge and report.
 Nobody waits on a merge: the app's PR monitor wakes a session on a CI failure, a conflict or
 a review comment, never on a merge. A bead counts once its PR is open with auto-merge on, or
@@ -59,11 +88,12 @@ and goes into a later batch, and the sweep closes merged beads. The run stops af
 beads or when an epic's tasks are all closed.
 
 **Reports.** A bead session ends with at most 4 lines:
-`<id> ✅ PR #N (auto-merge|waits for you|blocked): <what changed>`, then `Needs you: -` or the
-one thing the user has to do. The orchestrator reports one line per bead and a `Needs you:`
-line only when something does, without restating the sessions' reports. Details only on
-request. A review finding becomes a loop bead (priority 3) only when it caused a real defect;
-anything less goes into `bd remember`.
+`<id> ✅ PR #N (auto-merge|waits for you|blocked, <tier>): <what changed>` (⏫ for an
+escalated bead, ⏸ for one labelled `human`), then `Needs you: -` or the one thing the user has
+to do. The orchestrator reports one line per bead and a `Needs you:` line only when something
+does, without restating the sessions' reports. Details only on request. A review finding
+becomes a loop bead (priority 3) only when it caused a real defect; anything less goes into
+`bd remember`.
 
 **Demo checkpoint.** An epic closes only after the user tried it: the orchestrator builds and
 launches the app from `main`, lists what the epic delivered, and closes the epic on the user's
@@ -79,7 +109,7 @@ Instructions are soft; these are not:
 | Hook `format-rust` (PostToolUse) | rustfmt on every edited `.rs` file; syntax errors reported back |
 | Hook `guard-bash` (PreToolUse Bash) | No force push, no push to `main`, no PR merge without `--auto`, no `--admin`, no auto-merge for a PR that changes `.github/workflows/` or `.claude/settings.json`; code commits only on a bead branch with a gate on the exact tree and a review that covers it; stamps cannot be written by hand; the reviewer runs read-only commands |
 | Hook `review-verdict` (SubagentStop) | The reviewer's `VERDICT: PASS` stamps the tree, only when the gate passed on it |
-| Hook `stop-gate` (Stop) | A bead session does not end with uncommitted code that has not passed the gate and the review; it runs the gate, blocks at most three times per tree, and `pause.sh` is the explicit way out |
+| Hook `stop-gate` (Stop) | A bead session does not end with uncommitted code that has not passed the gate and the review; it runs the gate, blocks at most three times per tree, and `escalate.sh` (the stop rules) and `pause.sh` are the explicit ways out |
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
 | CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop` (labels read live at run time, since `gh pr create` attaches them after the PR is opened); headless layering; the hooks' self-test |
 | CI workflow `User review` | A PR that changes `.github/workflows/` or `.claude/settings.json` (or `LOOP_USER_REVIEW_PATHS`) gets the failing status `User review`, decided by the base's `scripts/loop/ci-user-review.sh` (`pull_request_target`), never by the PR's own scripts |

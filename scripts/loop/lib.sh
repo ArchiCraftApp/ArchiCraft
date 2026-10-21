@@ -220,3 +220,6 @@ loop_review_valid() {
 # One bead as a JSON object (bd show prints an array).
 loop_bead_json() { bd show "$1" --json 2>/dev/null | jq -c 'if type == "array" then .[0] else . end'; }
 loop_bead_has_label() { loop_bead_json "$1" | jq -e --arg l "$2" '(.labels // []) | index($l) != null' >/dev/null; }
+# Where escalate.sh keeps the unreviewed work of a bead's run on the lower tier: in the git dir
+# every worktree shares, so the session that resumes the bead in another worktree finds it.
+loop_escalation_patch() { printf '%s/bead-escalations/%s.diff\n' "$(git rev-parse --path-format=absolute --git-common-dir)" "$1"; }
