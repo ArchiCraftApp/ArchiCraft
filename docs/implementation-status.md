@@ -10,12 +10,12 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
-| done | 59 | 5 | 1 | 65 |
-| partial | 117 | 36 | 5 | 158 |
+| done | 59 | 6 | 1 | 66 |
+| partial | 117 | 35 | 5 | 157 |
 | missing | 138 | 158 | 48 | 344 |
 | **total** | 314 | 199 | 54 | 567 |
 
-Remaining effort of the 502 open requirements: S 121, M 220, L 136, XL 25.
+Remaining effort of the 501 open requirements: S 120, M 220, L 136, XL 25.
 
 ## Per-section status (done/partial/missing)
 
@@ -26,7 +26,7 @@ Remaining effort of the 502 open requirements: S 121, M 220, L 136, XL 25.
 | 4.3 | Workspace and user interface | 1/7/0 | 1/6/1 | 0/0/1 | 17 |
 | 4.4 | Views and navigation | 2/8/8 | 0/2/15 | 0/0/3 | 38 |
 | 4.5 | Plan display and graphic attributes | 0/7/1 | 0/2/7 | 0/1/2 | 20 |
-| 4.6 | Drawing input and precision | 1/8/6 | 0/2/6 | 0/0/1 | 24 |
+| 4.6 | Drawing input and precision | 1/8/6 | 1/1/6 | 0/0/1 | 24 |
 | 4.7 | Selection | 0/5/1 | 0/0/3 | 0/0/1 | 10 |
 | 4.8 | Editing and transformation | 0/4/11 | 0/0/9 | 0/0/1 | 25 |
 | 4.9 | Common element behaviour | 3/5/4 | 0/2/5 | 0/0/1 | 20 |
@@ -332,7 +332,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | INP-014 | M | missing | M | Whole requirement: placeable/rotatable user origin, coordinate display and entry relative to it, reset to project origin. |
 | INP-015 | M | missing | L | Whole requirement: horizontal plane at typed elevation (default active storey), vertical through two points, three-point plane, picked from a face, and a look-perpendicular command. |
 | INP-016 | M | missing | L | Whole requirement: point-on-face snapping and X/Y/Z axis-parallel inference guides from the last point in 3D. |
-| INP-017 | S | partial | S | Locked elements keep providing snap targets (asserted in crates/archicraft-app/src/input/targets.rs). No way to exclude an element, layer or reference from producing snap targets without hiding it: Layer has only visible/locked (crates/archicraft-model/src/layer.rs:8-15), Element has only locked (element.rs:276-287). |
+| INP-017 | S | done | none | Done: Element.snap_excluded and Layer.snap_excluded (crates/archicraft-model/src/element.rs, layer.rs), changed through UpdateElements/UpdateLayer (an element-locked element accepts the snap flag like its lock flag); Project::provides_snaps filters the snap index (crates/archicraft-app/src/input/targets.rs SnapIndex::update) while is_visible keeps drawing and selection; locked elements keep providing targets. References switch off as a whole source with SnapIndex::set_source_excluded (the linked reference-model source itself comes with IFX-084). IFCX: optional `snapExcluded` in archicraft::element and the project's layers entries, written only when set and not declared in the embedded schemas. UI: 'Snap targets' checkbox beside 'Locked' (ui/properties.rs) and the 'Snaps' column of the Layers dialog. |
 | INP-018 | S | missing | L | Whole requirement: contour-detection key, preview and creation from a clicked edge, edge chain or smallest closed region, in plan and 3D, preserving arcs. |
 | INP-019 | C | missing | M | Whole requirement: gravity option taking the elevation of the highest slab/roof/terrain under the pointer for columns, walls, objects, stairs. |
 | INP-020 | S | partial | S | Press-drag-release input is not selectable: no preference field (prefs.rs:28-50) and no drag-based point commit. |

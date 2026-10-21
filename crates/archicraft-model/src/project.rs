@@ -316,6 +316,13 @@ impl Project {
         self.layer(element.layer).is_none_or(|l| l.visible)
     }
 
+    /// True if the element provides snap targets: it is visible and neither
+    /// it nor its layer is excluded from snapping. Locking does not matter
+    /// (INP-017).
+    pub fn provides_snaps(&self, element: &Element) -> bool {
+        !element.snap_excluded && self.layer(element.layer).is_none_or(|l| l.visible && !l.snap_excluded)
+    }
+
     /// Why an element cannot be edited, if it cannot (ELM-013, LAY-001), as
     /// a message key (NFR-L10N-001).
     pub fn edit_lock_reason(&self, element: &Element) -> Option<Message> {
@@ -375,6 +382,7 @@ impl Project {
             ifc_class: d.ifc_class,
             position: d.position,
             locked: false,
+            snap_excluded: false,
             kind: Wall {
                 start,
                 end,
@@ -399,6 +407,7 @@ impl Project {
             ifc_class: d.ifc_class,
             position: d.position,
             locked: false,
+            snap_excluded: false,
             kind: Slab {
                 outline,
                 holes,

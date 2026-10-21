@@ -649,6 +649,23 @@ fn lock_toggle(ui: &mut Ui, ws: &mut Workspace) {
             .map(|e| Element { locked, ..(*e).clone() })
             .collect();
         ws.execute(Command::UpdateElements(changed));
+        return;
+    }
+    let mut snaps = selected.iter().all(|e| !e.snap_excluded);
+    if ui
+        .checkbox(&mut snaps, "Snap targets")
+        .on_hover_text("Cleared, the element stays visible but provides no snap targets (INP-017)")
+        .changed()
+    {
+        let changed: Vec<Element> = selected
+            .iter()
+            .filter(|e| e.snap_excluded == snaps)
+            .map(|e| Element {
+                snap_excluded: !snaps,
+                ..(*e).clone()
+            })
+            .collect();
+        ws.execute(Command::UpdateElements(changed));
     }
 }
 

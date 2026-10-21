@@ -9,11 +9,13 @@
 //! changes more than a quarter of the owners, bulk-load the trees instead.
 //!
 //! Targets come from [`SnapSource`]s: the plan's elements (cut rings,
-//! projected and overhead lines) and the walls' reference lines. Only layer
-//! visibility filters them, so locked elements stay snappable while they
-//! reject edits (INP-017).
+//! projected and overhead lines) and the walls' reference lines. Elements
+//! that are hidden or excluded from snapping, themselves or through their
+//! layer, provide none; locked elements stay snappable while they reject
+//! edits (INP-017). A whole source, such as a linked reference model, can
+//! be switched off with [`SnapIndex::set_source_excluded`].
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use archicraft_geometry::plan::{PlanDrawing, PlanElement, polygon_rings};
@@ -30,6 +32,8 @@ pub enum TargetOwner {
     Element(ElementId),
     /// A guide line, by its number.
     Guide(u64),
+    /// A linked reference model, by its number (IFX-084).
+    Reference(u64),
 }
 
 /// The kind of geometry a target comes from.
@@ -45,6 +49,8 @@ pub enum SourceClass {
     Overhead,
     /// A guide line.
     Guide,
+    /// A linked reference model's geometry (IFX-084).
+    Reference,
 }
 
 /// Where a target sits among all targets: its owner, which of the owner's
@@ -208,14 +214,26 @@ impl OwnerTargets {
     }
 }
 
+/// Inserts the targets of one owner into the trees.
+fn insert_targets(points: &mut RTree<IndexedPoint>, edges: &mut RTree<IndexedEdge>, targets: &OwnerTargets) {
+    for p in &targets.points {
+        points.insert(*p);
+    }
+    for e in &targets.edges {
+        edges.insert(*e);
+    }
+}
+
 /// How often the index was built and updated, for tests and diagnostics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct IndexStats {
     /// Bulk loads of all targets.
     pub full_builds: u64,
-    /// Owners inserted by incremental updates, new or changed.
+    /// Owners inserted by incremental updates, new or changed, and by
+    /// switching their source back on.
     pub inserted_owners: u64,
-    /// Owners removed by incremental updates, gone or changed.
+    /// Owners removed by incremental updates, gone or changed, and by
+    /// switching their source off.
     pub removed_owners: u64,
 }
 
@@ -228,6 +246,8 @@ pub struct SnapIndex {
     owners: HashMap<TargetOwner, OwnerTargets>,
     /// The position of each source in the order the sources were given.
     order: HashMap<(TargetOwner, u8), u32>,
+    /// Owners whose targets are kept but not in the trees (INP-017).
+    excluded: HashSet<TargetOwner>,
     stats: IndexStats,
 }
 
@@ -241,22 +261,23 @@ impl SnapIndex {
         self.stats
     }
 
-    /// Brings the index to the project's revision: the visible walls'
-    /// reference lines in model order, then the elements of `plan`, the
-    /// storey's plan. Locked elements stay targets (INP-017).
+    /// Brings the index to the project's revision: the reference lines of
+    /// the walls that provide snaps in model order, then the elements of
+    /// `plan`, the storey's plan. Hidden and excluded elements provide none;
+    /// locked elements stay targets (INP-017).
     pub fn update(&mut self, project: &Project, storey: StoreyId, plan: &PlanDrawing) {
         if self.revision == Some(project.revision) {
             return;
         }
-        let visible = |id: ElementId| project.element(id).is_some_and(|e| project.is_visible(e));
+        let snappable = |id: ElementId| project.element(id).is_some_and(|e| project.provides_snaps(e));
         let references = project
             .elements_on(storey)
-            .filter(|e| project.is_visible(e))
+            .filter(|e| project.provides_snaps(e))
             .map(|e| e as &dyn SnapSource);
         let plans = plan
             .elements
             .iter()
-            .filter(|e| visible(e.id))
+            .filter(|e| snappable(e.id))
             .map(|e| e as &dyn SnapSource);
         let sources: Vec<&dyn SnapSource> = references.chain(plans).collect();
         self.sync(project.revision, &sources);
@@ -303,35 +324,60 @@ impl SnapIndex {
             .collect();
         let edits = changed.len() + gone.len();
         if self.revision.is_none() || edits * 4 > owners.len() {
-            self.points = RTree::bulk_load(owners.values().flat_map(|t| t.points.iter().copied()).collect());
-            self.edges = RTree::bulk_load(owners.values().flat_map(|t| t.edges.iter().copied()).collect());
+            let included = || owners.iter().filter(|(owner, _)| !self.excluded.contains(owner));
+            self.points = RTree::bulk_load(included().flat_map(|(_, t)| t.points.iter().copied()).collect());
+            self.edges = RTree::bulk_load(included().flat_map(|(_, t)| t.edges.iter().copied()).collect());
             self.stats.full_builds += 1;
         } else {
             for owner in gone.iter().chain(&changed) {
-                if let Some(old) = self.owners.get(owner) {
-                    for p in &old.points {
-                        self.points.remove(p);
-                    }
-                    for e in &old.edges {
-                        self.edges.remove(e);
-                    }
-                    self.stats.removed_owners += 1;
-                }
+                self.remove_owner(*owner);
             }
             for owner in &changed {
-                let new = &owners[owner];
-                for p in &new.points {
-                    self.points.insert(*p);
+                if !self.excluded.contains(owner) {
+                    insert_targets(&mut self.points, &mut self.edges, &owners[owner]);
+                    self.stats.inserted_owners += 1;
                 }
-                for e in &new.edges {
-                    self.edges.insert(*e);
-                }
-                self.stats.inserted_owners += 1;
             }
         }
         self.owners = owners;
         self.order = order;
         self.revision = Some(revision);
+    }
+
+    /// Switches all targets of `source` off or back on (INP-017), for example
+    /// a linked reference model's. Only that source's targets leave or
+    /// enter the trees; the switch holds across revisions until it is
+    /// switched back.
+    pub fn set_source_excluded(&mut self, source: TargetOwner, excluded: bool) {
+        if excluded {
+            if self.excluded.contains(&source) {
+                return;
+            }
+            self.remove_owner(source);
+            self.excluded.insert(source);
+        } else if self.excluded.remove(&source)
+            && let Some(targets) = self.owners.get(&source)
+        {
+            insert_targets(&mut self.points, &mut self.edges, targets);
+            self.stats.inserted_owners += 1;
+        }
+    }
+
+    /// Removes the targets of `owner` from the trees, unless they are not
+    /// there because the owner is new or excluded.
+    fn remove_owner(&mut self, owner: TargetOwner) {
+        if self.excluded.contains(&owner) {
+            return;
+        }
+        if let Some(old) = self.owners.get(&owner) {
+            for p in &old.points {
+                self.points.remove(p);
+            }
+            for e in &old.edges {
+                self.edges.remove(e);
+            }
+            self.stats.removed_owners += 1;
+        }
     }
 
     /// The order of a target among all targets: its source's position, then
@@ -671,6 +717,131 @@ pub(crate) mod tests {
         assert!(index.edges_near((start + end) / 2.0, 0.5).is_empty());
         let s = snap(&index, &[], end + DVec2::new(0.02, 0.01), 0.1, 0.0, None);
         assert_eq!(s.kind, SnapKind::Free);
+    }
+
+    /// The ends of `wall` and whether the index offers them as nodes and
+    /// its middle as an edge.
+    fn offers(index: &SnapIndex, wall: &Element) -> (bool, bool) {
+        let w = wall.as_wall().unwrap();
+        let nodes = [w.start, w.end].iter().all(|p| index.nodes_near(*p, 0.01).contains(p));
+        let edge = (index.edges_near((w.start + w.end) / 2.0, 0.01)).contains(&[w.start, w.end]);
+        (nodes, edge)
+    }
+
+    /// INP-017: an excluded wall and a wall on an excluded layer provide no
+    /// nodes or edges while they stay visible; a locked wall still does.
+    /// Excluding a wall by command drops only its owner from the index.
+    #[test]
+    fn excluded_walls_and_layers_provide_no_targets() {
+        let mut project = default_metric_project();
+        let storey = project.storeys.ground();
+        let excluded_layer = Layer {
+            snap_excluded: true,
+            ..Layer::new("No snaps")
+        };
+        let mut excluded = project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+        excluded.snap_excluded = true;
+        let mut on_excluded_layer = project.new_wall(storey, DVec2::new(0.0, 3.0), DVec2::new(4.0, 3.0), 1);
+        on_excluded_layer.layer = excluded_layer.id;
+        let mut locked = project.new_wall(storey, DVec2::new(0.0, 6.0), DVec2::new(4.0, 6.0), 2);
+        locked.locked = true;
+        project.layers.push(excluded_layer);
+        // Enough other walls that excluding one updates the index in place.
+        let others = (3..8).map(|n| {
+            let y = 3.0 * f64::from(n);
+            project.new_wall(storey, DVec2::new(0.0, y), DVec2::new(4.0, y), n)
+        });
+        let walls: Vec<Element> = [excluded, on_excluded_layer, locked]
+            .into_iter()
+            .chain(others)
+            .collect();
+        let mut ws = workspace(project);
+        assert!(ws.execute(Command::AddElements(walls.clone())));
+        let index = ws.snap_index(storey);
+        for wall in &walls[..2] {
+            assert!(ws.doc.project.is_visible(wall), "{}", wall.name);
+            assert_eq!(offers(&index, wall), (false, false), "{}", wall.name);
+            let end = wall.as_wall().unwrap().end;
+            let s = snap(&index, &[], end + DVec2::new(0.02, 0.01), 0.1, 0.0, None);
+            assert_eq!(s.kind, SnapKind::Free, "{}", wall.name);
+        }
+        for wall in &walls[2..] {
+            assert_eq!(offers(&index, wall), (true, true), "{}", wall.name);
+        }
+
+        let before = index.stats();
+        let locked = Element {
+            snap_excluded: true,
+            ..walls[2].clone()
+        };
+        assert!(ws.execute(Command::UpdateElements(vec![locked])));
+        let index = ws.snap_index(storey);
+        assert_eq!(offers(&index, &walls[2]), (false, false));
+        for wall in &walls[3..] {
+            assert_eq!(offers(&index, wall), (true, true), "{}", wall.name);
+        }
+        assert_eq!(
+            index.stats(),
+            IndexStats {
+                removed_owners: before.removed_owners + 1,
+                ..before
+            }
+        );
+    }
+
+    /// A stub of a linked reference model's targets (IFX-084).
+    struct Reference(Vec<DVec2>);
+
+    impl SnapSource for Reference {
+        fn owner(&self) -> TargetOwner {
+            TargetOwner::Reference(1)
+        }
+
+        fn targets(&self, sink: &mut TargetSink) {
+            for &p in &self.0 {
+                sink.node(SourceClass::Reference, p);
+            }
+            sink.edge(SourceClass::Reference, [self.0[0], self.0[1]]);
+        }
+    }
+
+    /// INP-017: switching a reference source off removes all its targets and
+    /// switching it back restores them, without a full rebuild; the switch
+    /// holds across later revisions.
+    #[test]
+    fn a_reference_source_can_be_switched_off_and_on() {
+        let reference = Reference(vec![DVec2::new(10.0, 0.0), DVec2::new(10.0, 5.0)]);
+        let walls = [DVec2::ZERO, DVec2::new(4.0, 0.0)];
+        let explicit = Explicit {
+            nodes: &walls,
+            edges: &[[walls[0], walls[1]]],
+        };
+        let mut index = SnapIndex::default();
+        index.sync(1, &[&explicit, &reference]);
+        let offered = |index: &SnapIndex| {
+            let nodes = reference
+                .0
+                .iter()
+                .filter(|p| index.nodes_near(**p, 0.01).contains(p))
+                .count();
+            let edges = index.edges_near(DVec2::new(10.0, 2.5), 0.01).len();
+            (nodes, edges)
+        };
+        assert_eq!(offered(&index), (2, 1));
+        let built = index.stats();
+
+        index.set_source_excluded(TargetOwner::Reference(1), true);
+        assert_eq!(offered(&index), (0, 0));
+        assert_eq!(index.nodes_near(walls[1], 0.01), vec![walls[1]], "other sources stay");
+        index.sync(2, &[&explicit, &reference]);
+        assert_eq!(offered(&index), (0, 0), "the switch holds across revisions");
+
+        index.set_source_excluded(TargetOwner::Reference(1), false);
+        assert_eq!(offered(&index), (2, 1));
+        assert_eq!(index.stats().full_builds, built.full_builds);
+        index.sync(3, &[&explicit, &reference]);
+        assert_eq!(offered(&index), (2, 1));
+        assert_eq!(index.stats().full_builds, built.full_builds);
     }
 
     /// The average time of `count` resolves at seeded cursor positions in

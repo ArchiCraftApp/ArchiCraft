@@ -518,3 +518,65 @@ fn a_class_outside_the_kinds_set_falls_back_to_the_kind_default() {
         );
     }
 }
+
+/// INP-017: an element and a layer excluded from producing snap targets
+/// keep both flags through a save and a load, and the file validates.
+#[test]
+fn snap_exclusion_flags_round_trip() {
+    let mut project = samples::storey_with_walls_and_slab();
+    let wall = project.elements.values().find(|e| e.name == "W-001").unwrap().id;
+    project.elements.get_mut(&wall).unwrap().snap_excluded = true;
+    let layer = project.layers.len() - 1;
+    project.layers[layer].snap_excluded = true;
+    let bytes = save(&project);
+    let problems = validate::validate(&validate::parse(&bytes).unwrap());
+    assert!(problems.is_empty(), "{problems:#?}");
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert!(loaded.project.element(wall).unwrap().snap_excluded);
+    assert!(loaded.project.layers[layer].snap_excluded);
+    let excluded = |p: &archicraft_model::Project| {
+        let elements = p.elements.values().filter(|e| e.snap_excluded).count();
+        let layers = p.layers.iter().filter(|l| l.snap_excluded).count();
+        (elements, layers)
+    };
+    assert_eq!(excluded(&loaded.project), (1, 1));
+}
+
+/// INP-017: the flag is written only when set, so files without it (all
+/// files written before it existed) read as not excluded without a problem.
+#[test]
+fn a_missing_snap_exclusion_flag_reads_as_false() {
+    for project in samples() {
+        assert!(project.elements.values().all(|e| !e.snap_excluded));
+        let bytes = save(&project);
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        assert!(!text.contains("snapExcluded"), "{}", project.info.name);
+        let loaded = archicraft_ifcx::load(&bytes).unwrap();
+        assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+        assert!(loaded.project.elements.values().all(|e| !e.snap_excluded));
+        assert!(loaded.project.layers.iter().all(|l| !l.snap_excluded));
+    }
+}
+
+/// INP-017: the flag is not declared in the embedded schemas, so the reader
+/// checks its type: a flag that is not true or false is reported and read
+/// as not excluded.
+#[test]
+fn an_invalid_snap_exclusion_flag_is_repaired_and_reported() {
+    let project = samples::storey_with_walls_and_slab();
+    let bytes = edit(&project, |v| {
+        let i = node_index(v, "W-001");
+        v["data"][i]["attributes"]["archicraft::element"]["snapExcluded"] = "yes".into();
+        v["data"][0]["attributes"]["archicraft::project"]["layers"][0]["snapExcluded"] = 1.into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.project.elements.values().all(|e| !e.snap_excluded));
+    assert!(loaded.project.layers.iter().all(|l| !l.snap_excluded));
+    let repaired = loaded
+        .problems
+        .iter()
+        .filter(|p| p.message.contains("“snapExcluded” is not true or false"))
+        .count();
+    assert_eq!(repaired, 2, "{:#?}", loaded.problems);
+}

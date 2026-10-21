@@ -12,6 +12,10 @@ pub struct Layer {
     pub visible: bool,
     /// Elements on locked layers are drawn but not editable.
     pub locked: bool,
+    /// Elements on excluded layers are drawn but provide no snap targets
+    /// (INP-017).
+    #[serde(default)]
+    pub snap_excluded: bool,
 }
 
 impl Layer {
@@ -21,6 +25,7 @@ impl Layer {
             name: name.into(),
             visible: true,
             locked: false,
+            snap_excluded: false,
         }
     }
 }

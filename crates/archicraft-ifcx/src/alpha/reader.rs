@@ -15,8 +15,10 @@
 //! An absent field is damage, like a present field of the wrong type or out
 //! of range, because the writer writes every field. The exceptions are the
 //! optional fields the writer leaves out when they are not set: a material's
-//! cut-fill `background`, a storey's `cutPlaneHeight` and the settings'
-//! `planGrid` (files from before INP-013). Their absence is no problem.
+//! cut-fill `background`, a storey's `cutPlaneHeight`, the settings'
+//! `planGrid` (files from before INP-013) and the `snapExcluded` flag of
+//! elements and layers, written only when set (INP-017). Their absence is
+//! no problem.
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
@@ -343,6 +345,7 @@ fn read_layer(index: usize, value: &Value, path: &str, problems: &mut Vec<Proble
         name: report.or(text(map, "name"), "Layer".to_owned()),
         visible: report.or(boolean(map, "visible"), true),
         locked: report.or(boolean(map, "locked"), false),
+        snap_excluded: report.optional(map, "snapExcluded", boolean).unwrap_or(false),
     })
 }
 
@@ -930,6 +933,7 @@ fn read_element(
         ifc_class,
         position: report.or(code(common, "position", Position::from_code), Position::default()),
         locked: report.or(boolean(common, "locked"), false),
+        snap_excluded: report.optional(common, "snapExcluded", boolean).unwrap_or(false),
         kind: element_kind,
     };
     match validate_element(project, &element) {

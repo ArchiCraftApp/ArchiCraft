@@ -300,8 +300,8 @@ impl Dialogs {
                     .cloned()
                     .collect();
                 egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
-                    egui::Grid::new("layers").striped(true).num_columns(5).show(ui, |ui| {
-                        for header in ["Visible", "Locked", "Name", "Elements", ""] {
+                    egui::Grid::new("layers").striped(true).num_columns(6).show(ui, |ui| {
+                        for header in ["Visible", "Locked", "Snaps", "Name", "Elements", ""] {
                             ui.strong(header);
                         }
                         ui.end_row();
@@ -318,6 +318,15 @@ impl Dialogs {
                             if ui.checkbox(&mut locked, "").changed() {
                                 ws.execute(Command::UpdateLayer(Layer {
                                     locked,
+                                    ..layer.clone()
+                                }));
+                            }
+                            // Cleared, the layer's elements stay visible but
+                            // provide no snap targets (INP-017).
+                            let mut snaps = !layer.snap_excluded;
+                            if ui.checkbox(&mut snaps, "").changed() {
+                                ws.execute(Command::UpdateLayer(Layer {
+                                    snap_excluded: !snaps,
                                     ..layer.clone()
                                 }));
                             }

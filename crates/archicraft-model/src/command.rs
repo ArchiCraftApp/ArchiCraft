@@ -367,11 +367,13 @@ fn plan_delete_elements(project: &Project, ids: &[ElementId]) -> Result<Vec<Edit
     Ok(edits)
 }
 
-/// True if `new` differs from `old` only in the element lock flag, which is
-/// the one change a locked element accepts.
-fn only_lock_changed(old: &Element, new: &Element) -> bool {
+/// True if `new` differs from `old` only in the element lock flag or the
+/// snap flag, the changes an element-locked element accepts (ELM-013,
+/// INP-017): the snap flag is an input aid, not an edit of the element.
+fn only_lock_or_snap_changed(old: &Element, new: &Element) -> bool {
     Element {
         locked: old.locked,
+        snap_excluded: old.snap_excluded,
         ..new.clone()
     } == *old
 }
@@ -388,7 +390,7 @@ fn plan_update_elements(project: &Project, elements: &[Element]) -> Result<Vec<E
         }
         if let Some(reason) = project.edit_lock_reason(old) {
             let layer_locked = project.layer(old.layer).is_some_and(|l| l.locked);
-            if layer_locked || !only_lock_changed(old, element) {
+            if layer_locked || !only_lock_or_snap_changed(old, element) {
                 return Err(CommandError::Locked(reason));
             }
         }
