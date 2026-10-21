@@ -762,6 +762,50 @@ fn preferences_offer_the_input_mode_in_the_input_group() {
     );
 }
 
+/// SET-001, INP-002: the Preferences window offers the tracker behaviour in
+/// its "Input" group; turning on X/Y/Z with OK stores it, and the plan
+/// view's tracker then adds the absolute X, Y and Z beside the distance and
+/// angle from the previous point.
+#[test]
+fn preferences_turn_on_xyz_in_the_tracker() {
+    let mut harness = harness("tracker-xyz");
+    assert!(!harness.state_mut().workspace().prefs.tracker_xyz);
+    harness.get_by_label("File").click();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Preferences").click();
+    harness.run_steps(4);
+    assert_present(&harness, "Tracker");
+    harness.get_by_label("Show X, Y and Z").click();
+    harness.run_steps(2);
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    assert!(harness.state_mut().workspace().prefs.tracker_xyz);
+
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let (start, storey) = {
+        let ws = harness.state_mut().workspace();
+        ws.tool.wall_mode = WallMode::Single;
+        let storey = ws.active_storey;
+        (ws.plan_views[&storey].last_rect.center(), storey)
+    };
+    click_at(&mut harness, start);
+    assert_eq!(
+        harness.state_mut().workspace().tool.points.len(),
+        1,
+        "the click took the start point"
+    );
+    harness.hover_at(start + egui::vec2(40.0, -30.0));
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let tracker = ws.plan_views[&storey].tracker.clone().unwrap_or_default();
+    let lines: Vec<&str> = tracker.lines().collect();
+    assert_eq!(lines.len(), 5, "{tracker}");
+    for (line, label) in lines.iter().zip(["▸d ", " a ", " X ", " Y ", " Z "]) {
+        assert!(line.starts_with(label), "{tracker}");
+    }
+}
+
 /// INP-020: with press-drag-release chosen, pressing in the plan view,
 /// dragging 120 px and releasing draws a wall from the press to the release;
 /// a plain click still takes one point.

@@ -429,7 +429,8 @@ pub(crate) mod tests {
     use crate::document::Document;
     use crate::input::snap::{collect, segment_intersection};
     use crate::input::{
-        Expect, InputContext, Modifiers, PointInput, Resolved, Snap, SnapKind, SurfaceFrame, candidates, snap,
+        Expect, InputContext, Modifiers, PointInput, Resolved, Snap, SnapKind, SurfaceFrame, TrackerMode, candidates,
+        snap,
     };
     use crate::persistence::prefs::Preferences;
     use crate::workspace::Workspace;
@@ -557,6 +558,8 @@ pub(crate) mod tests {
             previous: None,
             guides: &[],
             expects: Expect::Point,
+            tracker: TrackerMode::Relative,
+            tracker_xyz: false,
             radius: 0.2,
             drag_threshold: 0.06,
             units: &ws.doc.project.settings.units,
