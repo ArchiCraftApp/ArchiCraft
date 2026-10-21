@@ -252,6 +252,7 @@ dependencies = [
  "fluent-syntax",
  "proc-macro2",
  "rfd",
+ "rstar",
  "serde",
  "serde_json",
  "syn 3.0.9",

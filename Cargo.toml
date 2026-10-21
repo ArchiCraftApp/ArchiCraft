@@ -48,6 +48,9 @@ bytemuck = { version = "1.25", features = ["derive"] }
 glam = { version = "0.34.1", features = ["serde"] }
 geo = { version = "0.33.1", default-features = false }
 spade = "2.15"
+# Spatial index of snap targets (NFR-PERF-005). Keep at the version geo pins
+# (0.12), so only one copy is compiled (docs/technology-choices.md).
+rstar = "0.12.2"
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["float_roundtrip", "preserve_order", "raw_value"] }

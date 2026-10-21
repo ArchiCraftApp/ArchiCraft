@@ -6,6 +6,8 @@
 //! Points go through the point-input service (`crate::input`, INP-001): the
 //! view offers its surface, translates egui events and draws the result.
 
+use std::sync::Arc;
+
 use archicraft_geometry::plan::{PlanDrawing, polygon_rings};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{NumberFormat, UnitSettings};
@@ -18,8 +20,8 @@ use egui::{
 
 use super::camera::{Camera2d, ZoomHistory};
 use crate::input::{
-    Effect, Expect, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput, Resolved, SnapKind,
-    SnapTargets, SurfaceFrame, ViewSurface,
+    Effect, Expect, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput, Resolved, SnapIndex,
+    SnapKind, SurfaceFrame, ViewSurface,
 };
 use crate::tools::{ToolKind, ToolState};
 use crate::workspace::{Pane, Request, Workspace};
@@ -127,12 +129,13 @@ impl ViewSurface for PlanSurface {
 }
 
 /// What a plan view gives point input besides the consumer's step: the snap
-/// targets of the storey and the settings, from which each step's context is
-/// built (INP-001).
+/// targets of the storey, the tool's points entered so far and the settings,
+/// from which each step's context is built (INP-001).
 struct PlanInput {
     storey: StoreyId,
     frame: SurfaceFrame,
-    targets: SnapTargets,
+    targets: Arc<SnapIndex>,
+    pending: Vec<DVec2>,
     radius: f64,
     units: UnitSettings,
     number_format: NumberFormat,
@@ -141,15 +144,17 @@ struct PlanInput {
 }
 
 impl PlanInput {
-    fn new(ws: &Workspace, plan: &PlanDrawing, storey: StoreyId, surface: &PlanSurface) -> Self {
-        let mut targets = SnapTargets::from_plan(plan, &ws.doc.project, storey);
-        if on_storey(&ws.tool, storey) {
-            targets.nodes.extend(ws.tool.points.iter().copied());
-        }
+    fn new(ws: &mut Workspace, storey: StoreyId, surface: &PlanSurface) -> Self {
+        let pending = if on_storey(&ws.tool, storey) {
+            ws.tool.points.clone()
+        } else {
+            Vec::new()
+        };
         Self {
             storey,
             frame: surface.frame(),
-            targets,
+            targets: ws.snap_index(storey),
+            pending,
             radius: f64::from(ws.prefs.snap_radius) * surface.model_per_pixel(),
             units: ws.doc.project.settings.units.clone(),
             number_format: ws.prefs.number_format(),
@@ -166,6 +171,7 @@ impl PlanInput {
             project,
             storey: self.storey,
             targets: &self.targets,
+            pending: &self.pending,
             previous: tool.reference_point().filter(|_| here),
             expects: tool.step().filter(|_| here).map_or(Expect::Point, |s| s.expects),
             radius: self.radius,
@@ -553,8 +559,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     let selecting = !drawing_tool || ui.input(|i| i.modifiers.command);
     let mods = ui.input(|i| modifiers(i.modifiers));
     // Only the view under the cursor or taking the keys needs snap targets.
-    let input =
-        (drawing_tool && (cursor_world.is_some() || active)).then(|| PlanInput::new(ws, &plan, storey, &surface));
+    let input = (drawing_tool && (cursor_world.is_some() || active)).then(|| PlanInput::new(ws, storey, &surface));
 
     // Hover: preselection for the selection tool (SEL-001).
     if let Some(world) = cursor_world {
