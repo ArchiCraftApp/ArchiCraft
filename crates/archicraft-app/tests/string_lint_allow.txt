@@ -19,10 +19,10 @@ crates/archicraft-model/src/template.rs::default_metric_project_with | "Site" | 
 crates/archicraft-model/src/template.rs::default_metric_project_with | "Building" | default building name of the metric template (project data)
 crates/archicraft-model/src/template.rs::default_metric_project_with | "3D perspective" | default 3D view name of the metric template (project data)
 crates/archicraft-model/src/template.rs::default_metric_project_with | "3D parallel" | default 3D view name of the metric template (project data)
-crates/archicraft-model/src/template.rs::default_metric_project_with | "Brick" | looks up a material of MATERIALS by name for the wall tool defaults
-crates/archicraft-model/src/template.rs::default_metric_project_with | "Reinforced concrete" | looks up a material of MATERIALS by name for the slab tool defaults
-crates/archicraft-model/src/template.rs::default_metric_project_with | "Exterior walls" | looks up a layer of LAYERS by name for the wall tool defaults
-crates/archicraft-model/src/template.rs::default_metric_project_with | "Slabs" | looks up a layer of LAYERS by name for the slab tool defaults
+crates/archicraft-model/src/kinds/wall.rs::template_defaults | "Brick" | looks up a template material by name for the wall tool defaults
+crates/archicraft-model/src/kinds/wall.rs::template_defaults | "Exterior walls" | looks up a template layer by name for the wall tool defaults
+crates/archicraft-model/src/kinds/slab.rs::template_defaults | "Reinforced concrete" | looks up a template material by name for the slab tool defaults
+crates/archicraft-model/src/kinds/slab.rs::template_defaults | "Slabs" | looks up a template layer by name for the slab tool defaults
 crates/archicraft-model/src/template.rs::LAYERS | * | data table: default layer names of the metric template (project data)
 crates/archicraft-model/src/template.rs::MATERIALS | * | data table: default material names and codes of the metric template (project data)
 crates/archicraft-model/src/fixtures.rs | * | test fixture registry (SRS Appendix D.7): fixture titles, sources and check messages read by tests and docs, not shown in the UI

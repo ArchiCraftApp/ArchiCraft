@@ -14,8 +14,8 @@ use std::collections::HashSet;
 use archicraft_geometry::{ModelGeometry, TriMesh};
 use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
-use archicraft_model::project::{NameCounters, SlabDefaults, WallDefaults};
-use archicraft_model::{Element, ElementKind, KindTag, Layer, MaterialId, Project, ReferenceLine, TopLink};
+use archicraft_model::project::{DefaultsSlot, NameCounters};
+use archicraft_model::{Element, ElementKind, KindTag, Layer, MaterialId, Project, ReferenceLine, Slab, TopLink, Wall};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
@@ -104,29 +104,58 @@ fn reference_line(map: &mut Map<String, Value>, line: ReferenceLine) {
     }
 }
 
-fn wall_defaults(d: &WallDefaults) -> Value {
+/// The wall tool's defaults: the prototype's parameters without its
+/// placeholder geometry.
+fn wall_defaults(slot: &DefaultsSlot, w: &Wall) -> Value {
     let mut map = Map::new();
-    map.insert("thickness".into(), json!(d.thickness));
-    reference_line(&mut map, d.reference_line);
-    map.insert("baseOffset".into(), json!(d.base_offset));
-    map.insert("top".into(), top_link(d.top));
-    map.insert("material".into(), json!(d.material.to_string()));
-    map.insert("layer".into(), json!(d.layer.to_string()));
-    map.insert("position".into(), json!(d.position.code()));
-    map.insert("ifcClass".into(), json!(d.ifc_class.code()));
+    map.insert("thickness".into(), json!(w.thickness));
+    reference_line(&mut map, w.reference_line);
+    map.insert("baseOffset".into(), json!(w.base_offset));
+    map.insert("top".into(), top_link(w.top));
+    map.insert("material".into(), json!(w.material.to_string()));
+    map.insert("layer".into(), json!(slot.layer.to_string()));
+    map.insert("position".into(), json!(slot.position.code()));
+    map.insert("ifcClass".into(), json!(slot.ifc_class.code()));
     Value::Object(map)
 }
 
-fn slab_defaults(d: &SlabDefaults) -> Value {
+/// The slab tool's defaults: the prototype's parameters without its
+/// placeholder outline.
+fn slab_defaults(slot: &DefaultsSlot, s: &Slab) -> Value {
     json!({
-        "thickness": d.thickness,
-        "reference": d.reference.code(),
-        "offset": d.offset,
-        "material": d.material.to_string(),
-        "layer": d.layer.to_string(),
-        "position": d.position.code(),
-        "ifcClass": d.ifc_class.code(),
+        "thickness": s.thickness,
+        "reference": s.reference.code(),
+        "offset": s.offset,
+        "material": s.material.to_string(),
+        "layer": slot.layer.to_string(),
+        "position": slot.position.code(),
+        "ifcClass": slot.ifc_class.code(),
     })
+}
+
+/// The tool defaults, one member per kind code in slot order (ELM-001).
+/// A slot of a kind this format has no defaults shape for is left out with
+/// a warning.
+fn tool_defaults(p: &Project, warnings: &mut Vec<Problem>) -> Value {
+    let mut map = Map::new();
+    for (kind, slot) in p.tool_defaults.iter() {
+        let value = match &slot.kind {
+            ElementKind::Wall(w) => wall_defaults(slot, w),
+            ElementKind::Slab(s) => slab_defaults(slot, s),
+            _ => {
+                warnings.push(Problem::warning(
+                    None,
+                    format!(
+                        "The defaults of the “{}” tool cannot be stored in this file format yet and were not saved.",
+                        kind.code()
+                    ),
+                ));
+                continue;
+            }
+        };
+        map.insert(kind.code().into(), value);
+    }
+    Value::Object(map)
 }
 
 /// A layer entry of the project; `snapExcluded` only when set (INP-017), so
@@ -166,7 +195,7 @@ fn material_record(m: &Material) -> Value {
 
 /// `archicraft::project`: settings and every resource, used or not (IFX-060,
 /// IFX-067).
-fn project_attribute(p: &Project) -> Value {
+fn project_attribute(p: &Project, warnings: &mut Vec<Problem>) -> Value {
     let units = &p.settings.units;
     let grid = &p.settings.plan_grid;
     json!({
@@ -206,10 +235,7 @@ fn project_attribute(p: &Project) -> Value {
         "groundStorey": p.storeys.ground().to_string(),
         "layers": p.layers.iter().map(layer_record).collect::<Vec<_>>(),
         "materials": p.materials.iter().map(material_record).collect::<Vec<_>>(),
-        "toolDefaults": {
-            "wall": wall_defaults(&p.tool_defaults.wall),
-            "slab": slab_defaults(&p.tool_defaults.slab),
-        },
+        "toolDefaults": tool_defaults(p, warnings),
         "views": p.views.iter().map(|v| json!({
             "id": v.id.to_string(),
             "name": v.name,
@@ -312,7 +338,7 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
             .insert("bsi::ifc::prop::Description".into(), json!(project.info.description));
     }
     root.attributes
-        .insert(schema::PROJECT.into(), project_attribute(project));
+        .insert(schema::PROJECT.into(), project_attribute(project, &mut warnings));
     data.push(root);
 
     let mut site = Node::new(site_uuid.to_string());

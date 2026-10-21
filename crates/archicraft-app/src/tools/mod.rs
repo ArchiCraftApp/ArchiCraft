@@ -10,7 +10,7 @@ mod wall;
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::tolerance::coincident;
-use archicraft_model::{Command, Element, Project, StoreyId};
+use archicraft_model::{Command, Element, ElementKind, KindTag, Project, StoreyId};
 
 use crate::input::{Expect, InputConsumer, KeyHint, Outcome, Preview, Resolved, StepSpec};
 
@@ -279,8 +279,14 @@ impl ToolState {
             (ToolKind::Wall, WallMode::Chain, _, _) => {
                 let mut line = p.clone();
                 line.push(cursor);
-                let defaults = &project.tool_defaults.wall;
-                let (exterior, interior) = defaults.reference_line.face_offsets(defaults.thickness);
+                let (exterior, interior) = project
+                    .tool_defaults
+                    .get(KindTag::Wall)
+                    .and_then(|slot| match &slot.kind {
+                        ElementKind::Wall(w) => Some(w),
+                        _ => None,
+                    })
+                    .map_or((0.0, 0.0), |w| w.reference_line.face_offsets(w.thickness));
                 let faces = line.windows(2).filter_map(|w| {
                     let normal = (w[1] - w[0]).try_normalize()?.perp();
                     Some((
@@ -530,8 +536,11 @@ mod tests {
     #[test]
     fn wall_chain_previews_the_pending_walls() {
         let mut project = default_metric_project();
-        project.tool_defaults.wall.thickness = 0.2;
-        project.tool_defaults.wall.reference_line = archicraft_model::ReferenceLine::Outside;
+        let Some(ElementKind::Wall(wall)) = project.tool_defaults.get_mut(KindTag::Wall).map(|s| &mut s.kind) else {
+            panic!("the template has a wall slot");
+        };
+        wall.thickness = 0.2;
+        wall.reference_line = archicraft_model::ReferenceLine::Outside;
         let storey = project.storeys.ground();
         let mut tool = ToolState::default();
         tool.select(ToolKind::Wall);

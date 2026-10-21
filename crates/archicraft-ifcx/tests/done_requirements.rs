@@ -1417,8 +1417,8 @@ fn lay_005_hidden_and_locked_layers_leave_the_standard_content_unchanged() {
     let (visible, _) = small_project();
     let mut flagged = visible.clone();
     let mut history = History::default();
-    let walls = flagged.tool_defaults.wall.layer;
-    let slabs = flagged.tool_defaults.slab.layer;
+    let walls = flagged.tool_defaults.get(KindTag::Wall).unwrap().layer;
+    let slabs = flagged.tool_defaults.get(KindTag::Slab).unwrap().layer;
     assert_ne!(walls, slabs);
     for (layer, count) in [(walls, 2), (slabs, 1)] {
         assert_eq!(flagged.elements.values().filter(|e| e.layer == layer).count(), count);

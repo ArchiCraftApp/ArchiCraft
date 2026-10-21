@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::KINDS;
 use archicraft_model::project::NameCounters;
-use archicraft_model::template::default_metric_project;
+use archicraft_model::template::{TemplateContext, default_metric_project};
 use archicraft_model::{Arg, Command, CommandError, History, IfcClass, KindTag};
 use common::{ground, wall};
 
@@ -27,7 +27,8 @@ fn the_registry_has_wall_and_slab() {
     assert_eq!(codes, ["wall", "slab", "dummy"]);
     assert_eq!(KINDS.len(), KindTag::ALL.len());
     for (tag, descriptor) in KindTag::ALL.iter().zip(KINDS) {
-        assert_eq!(tag.descriptor(), *descriptor, "{tag:?}");
+        // Codes are unique (below), so equal codes mean the same entry.
+        assert_eq!(tag.descriptor().code, descriptor.code, "{tag:?}");
     }
     assert!(KindTag::Wall.descriptor().has_tool && KindTag::Slab.descriptor().has_tool);
 }
@@ -153,4 +154,29 @@ fn the_test_kind_has_its_own_descriptor() {
     assert_eq!(d.default_class, IfcClass::BuildingElementProxy);
     assert_eq!(IfcClass::from_code("IfcBuildingElementProxy"), Some(d.default_class));
     assert_eq!(KindTag::from_code("dummy"), Some(KindTag::Dummy));
+}
+
+/// ELM-001, ELM-011: every kind with a tool has template defaults, a slot
+/// of its own kind with its descriptor's default class; the template
+/// project holds exactly those slots, in registry order. The test kind has
+/// no tool and no slot.
+#[test]
+fn template_defaults_follow_the_descriptors() {
+    let p = default_metric_project();
+    let context = TemplateContext::new(&p.materials, &p.layers);
+    let mut with_defaults = Vec::new();
+    for &kind in KindTag::ALL {
+        let descriptor = kind.descriptor();
+        assert_eq!(descriptor.template_defaults.is_some(), descriptor.has_tool, "{kind:?}");
+        let Some(template) = descriptor.template_defaults else {
+            continue;
+        };
+        let slot = template(&context);
+        assert_eq!(slot.tag(), kind);
+        assert_eq!(slot.ifc_class, descriptor.default_class, "{kind:?}");
+        assert_eq!(p.tool_defaults.get(kind), Some(&slot), "{kind:?}");
+        with_defaults.push(kind);
+    }
+    let slots: Vec<KindTag> = p.tool_defaults.iter().map(|(kind, _)| kind).collect();
+    assert_eq!(slots, with_defaults);
 }

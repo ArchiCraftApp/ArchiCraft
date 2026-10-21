@@ -85,10 +85,10 @@ fn the_template_takes_identities_from_the_source() {
     assert_eq!(count("view"), 2);
     let ids: HashSet<Uuid> = (1..=n).map(Uuid::from_u128).collect();
     assert!(identities(&p).iter().all(|id| ids.contains(id)));
-    assert!(p.material(p.tool_defaults.wall.material).is_some());
-    assert!(p.layer(p.tool_defaults.wall.layer).is_some());
-    assert!(p.material(p.tool_defaults.slab.material).is_some());
-    assert!(p.layer(p.tool_defaults.slab.layer).is_some());
+    for (_, slot) in p.tool_defaults.iter() {
+        assert!(p.material(slot.kind.material()).is_some());
+        assert!(p.layer(slot.layer).is_some());
+    }
     // Without a source, every project still gets new random identities.
     let (a, b) = (default_metric_project(), default_metric_project());
     assert_ne!(a.id, b.id);
@@ -134,7 +134,7 @@ fn the_builder_creates_elements_of_any_kind() {
     assert_eq!(dummy.name, "X-001");
     let wall = &p.elements[&wall];
     assert_eq!(wall.ifc_class, IfcClass::Wall);
-    assert_eq!(wall.layer, p.tool_defaults.wall.layer);
+    assert_eq!(wall.layer, p.tool_defaults.get(KindTag::Wall).unwrap().layer);
     assert_eq!(wall.position, Position::Exterior);
     assert!(p.integrity_problems().is_empty());
 }

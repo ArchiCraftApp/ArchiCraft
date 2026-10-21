@@ -23,10 +23,10 @@
 use archicraft_model::glam::DVec2;
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use archicraft_model::project::{
-    Building, Location, NameCounters, Projection, Site, SlabDefaults, Tessellation, ToolDefaults, View3d, WallDefaults,
+    Building, DefaultsSlot, Location, NameCounters, Projection, Site, Tessellation, ToolDefaults, View3d,
 };
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
-use archicraft_model::template::default_metric_project;
+use archicraft_model::template::{TemplateContext, template_tool_defaults};
 use archicraft_model::tolerance::MODEL_TOLERANCE;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit};
 use archicraft_model::validate::{valid_grid_origin, valid_grid_spacing, validate_element};
@@ -603,37 +603,12 @@ fn read_counters(
     counters
 }
 
-/// The template's tool defaults, with its material and layer found by name
-/// among `materials` and `layers`, else the first of each.
-fn template_tool_defaults(materials: &[Material], layers: &[Layer]) -> ToolDefaults {
-    let template = default_metric_project();
-    let material = |id: MaterialId| {
-        let name = template.material(id).map(|m| m.name.as_str());
-        materials
-            .iter()
-            .find(|m| Some(m.name.as_str()) == name)
-            .unwrap_or(&materials[0])
-            .id
-    };
-    let layer = |id: LayerId| {
-        let name = template.layer(id).map(|l| l.name.as_str());
-        layers
-            .iter()
-            .find(|l| Some(l.name.as_str()) == name)
-            .unwrap_or(&layers[0])
-            .id
-    };
-    let mut defaults = template.tool_defaults.clone();
-    defaults.wall.material = material(defaults.wall.material);
-    defaults.wall.layer = layer(defaults.wall.layer);
-    defaults.slab.material = material(defaults.slab.material);
-    defaults.slab.layer = layer(defaults.slab.layer);
-    defaults
-}
-
-/// The tool defaults of the project at `path`. Missing tool defaults were
-/// reported with the project data; the template's are used then, and they
-/// are the default of every invalid field.
+/// The tool defaults of the project at `path`, one slot per kind with
+/// template defaults (ELM-001). Missing tool defaults were reported with the
+/// project data. The template's slots, with their material and layer found
+/// by name among `materials` and `layers`, stand in for missing tool
+/// defaults and missing slots, and their values for invalid fields. Members
+/// that name no kind with a tool are ignored and reported.
 fn read_tool_defaults(
     map: Option<&Object>,
     materials: &[Material],
@@ -641,54 +616,95 @@ fn read_tool_defaults(
     path: &str,
     problems: &mut Vec<Problem>,
 ) -> ToolDefaults {
-    let template = template_tool_defaults(materials, layers);
+    let template = template_tool_defaults(&TemplateContext::new(materials, layers));
     let Some(map) = map else {
         return template;
     };
     let mut report = Report::new(problems, path, "tool defaults");
-    let wall = report.or(object(map, "wall").cloned(), Object::new());
-    let slab = report.or(object(map, "slab").cloned(), Object::new());
-    let material_ref = |m: &Object, default: MaterialId, report: &mut Report<'_>| {
-        let id = report.or(uuid(m, "material").map(MaterialId::from_uuid), default);
+    for key in map.keys() {
+        if !template.iter().any(|(kind, _)| kind.code() == key) {
+            report.repaired(format!("“{key}” is not a tool this version knows; it is ignored"));
+        }
+    }
+    template
+        .iter()
+        .map(|(kind, default)| match object(map, kind.code()) {
+            Ok(slot) => read_defaults_slot(slot, default, materials, layers, &mut report),
+            Err(e) => {
+                report.repaired(format!("{e}; the template defaults of the tool are used"));
+                default.clone()
+            }
+        })
+        .collect()
+}
+
+/// One tool's defaults, with `default`'s values for invalid fields and its
+/// placeholder geometry (ELM-001). A class the kind does not allow is
+/// replaced by the default's (ELM-011).
+fn read_defaults_slot(
+    map: &Object,
+    default: &DefaultsSlot,
+    materials: &[Material],
+    layers: &[Layer],
+    report: &mut Report<'_>,
+) -> DefaultsSlot {
+    let kind = default.tag();
+    let material = {
+        let id = report.or(
+            uuid(map, "material").map(MaterialId::from_uuid),
+            default.kind.material(),
+        );
         if materials.iter().any(|m| m.id == id) {
             id
         } else {
             report.repaired("a tool's default material does not exist; the template default is used");
-            default
+            default.kind.material()
         }
     };
-    let layer_ref = |m: &Object, default: LayerId, report: &mut Report<'_>| {
-        let id = report.or(uuid(m, "layer").map(LayerId::from_uuid), default);
+    let layer = {
+        let id = report.or(uuid(map, "layer").map(LayerId::from_uuid), default.layer);
         if layers.iter().any(|l| l.id == id) {
             id
         } else {
             report.repaired("a tool's default layer does not exist; the template default is used");
-            default
+            default.layer
         }
     };
-    let (w, s) = (&template.wall, &template.slab);
-    let wall_defaults = WallDefaults {
-        thickness: report.or(real(&wall, "thickness"), w.thickness),
-        reference_line: report.or(reference_line(&wall), w.reference_line),
-        base_offset: report.or(real(&wall, "baseOffset"), w.base_offset),
-        top: report.or(object(&wall, "top").and_then(top_link), w.top),
-        material: material_ref(&wall, w.material, &mut report),
-        layer: layer_ref(&wall, w.layer, &mut report),
-        position: report.or(code(&wall, "position", Position::from_code), w.position),
-        ifc_class: report.or(code(&wall, "ifcClass", IfcClass::from_code), w.ifc_class),
+    let mut ifc_class = report.or(code(map, "ifcClass", IfcClass::from_code), default.ifc_class);
+    if !kind.ifc_classes().contains(&ifc_class) {
+        report.repaired(format!(
+            "{} is not an allowed class for the “{}” tool; {} is used",
+            ifc_class.code(),
+            kind.code(),
+            default.ifc_class.code()
+        ));
+        ifc_class = default.ifc_class;
+    }
+    let mut payload = match &default.kind {
+        ElementKind::Wall(w) => Wall {
+            thickness: report.or(real(map, "thickness"), w.thickness),
+            reference_line: report.or(reference_line(map), w.reference_line),
+            base_offset: report.or(real(map, "baseOffset"), w.base_offset),
+            top: report.or(object(map, "top").and_then(top_link), w.top),
+            ..w.clone()
+        }
+        .into(),
+        ElementKind::Slab(s) => Slab {
+            thickness: report.or(real(map, "thickness"), s.thickness),
+            reference: report.or(code(map, "reference", SlabReference::from_code), s.reference),
+            offset: report.or(real(map, "offset"), s.offset),
+            ..s.clone()
+        }
+        .into(),
+        // Kinds without a defaults shape in this format keep the template's.
+        other => other.clone(),
     };
-    let slab_defaults = SlabDefaults {
-        thickness: report.or(real(&slab, "thickness"), s.thickness),
-        reference: report.or(code(&slab, "reference", SlabReference::from_code), s.reference),
-        offset: report.or(real(&slab, "offset"), s.offset),
-        material: material_ref(&slab, s.material, &mut report),
-        layer: layer_ref(&slab, s.layer, &mut report),
-        position: report.or(code(&slab, "position", Position::from_code), s.position),
-        ifc_class: report.or(code(&slab, "ifcClass", IfcClass::from_code), s.ifc_class),
-    };
-    ToolDefaults {
-        wall: wall_defaults,
-        slab: slab_defaults,
+    payload.set_material(material);
+    DefaultsSlot {
+        layer,
+        position: report.or(code(map, "position", Position::from_code), default.position),
+        ifc_class,
+        kind: payload,
     }
 }
 

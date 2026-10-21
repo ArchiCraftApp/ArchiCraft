@@ -96,6 +96,7 @@ impl Kind for Dummy {
         default_class: IfcClass::BuildingElementProxy,
         ifc_classes: &[IfcClass::BuildingElementProxy, IfcClass::Footing],
         has_tool: false,
+        template_defaults: None,
     };
 
     fn material(&self) -> MaterialId {
