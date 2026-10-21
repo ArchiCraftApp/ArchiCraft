@@ -2,23 +2,24 @@
 //! (IFX-062, IFX-091).
 //!
 //! The `formatVersion` in `archicraft::project` versions the ArchiCraft
-//! schema ([`FORMAT_VERSION`]). The reader upgrades a file of an earlier
-//! format step by step before it validates and reads it: each [`Migration`]
-//! turns format `from` into `from + 1` on the parsed container, so a step
-//! needs none of the old Rust types and old shapes never reach the domain
-//! model or geometry (NFR-MNT-004). After the last step the file declares the
-//! current `archicraft::` schemas, so validation checks the migrated data
-//! against the shapes the reader expects.
+//! schema ([`FORMAT_VERSION`](schema::FORMAT_VERSION)). The reader upgrades a
+//! file of an earlier format step by step before it validates and reads it:
+//! each [`Migration`] turns format `from` into `from + 1` on the parsed
+//! container, so a step needs none of the old Rust types and old shapes never
+//! reach the domain model or geometry (NFR-MNT-004). After the last step the
+//! file declares the current `archicraft::` schemas, so validation checks the
+//! migrated data against the shapes the reader expects.
 //!
 //! No migration is registered yet: format 1 is the only format ever written.
-//! Whenever a reader-visible shape changes, bump [`FORMAT_VERSION`] and add a
-//! step to [`MIGRATIONS`]; optional additions need neither.
+//! Whenever a reader-visible shape changes, bump
+//! [`FORMAT_VERSION`](schema::FORMAT_VERSION) and add a step to
+//! [`MIGRATIONS`]; optional additions need neither.
 
 use std::borrow::Cow;
 
 use serde_json::Value;
 
-use super::schema::{self, FORMAT_VERSION};
+use super::schema;
 use crate::container::IfcxFile;
 use crate::validate::Problem;
 
@@ -33,8 +34,8 @@ pub struct Migration {
     pub apply: fn(&mut IfcxFile, &mut Vec<Problem>),
 }
 
-/// The migration chain up to [`FORMAT_VERSION`], one step per earlier
-/// format, in order.
+/// The migration chain up to [`FORMAT_VERSION`](schema::FORMAT_VERSION), one
+/// step per earlier format, in order.
 pub const MIGRATIONS: &[Migration] = &[];
 
 /// The format version of the file and the path of its project node: the last
@@ -52,10 +53,11 @@ fn format_version(file: &IfcxFile) -> Option<(String, u32)> {
 /// Upgrades `file` from its format version to `target` with `migrations`,
 /// reporting each step as an info problem “migrated from format n to format
 /// n+1: …”. The file is copied only when a step runs. Returns the format the
-/// file was written in if it was migrated. A file without a readable format
-/// version, or at `target` or newer, is left as it is; the reader reports
-/// those.
-pub fn upgrade(
+/// file was written in if it was migrated
+/// ([`ReadOutcome::migrated_from`](super::reader::ReadOutcome::migrated_from)).
+/// A file without a readable format version, or at `target` or newer, is
+/// left as it is; the reader reports those.
+pub(crate) fn upgrade(
     file: &mut Cow<'_, IfcxFile>,
     migrations: &[Migration],
     target: u32,
@@ -96,15 +98,11 @@ pub fn upgrade(
     Some(from)
 }
 
-/// [`upgrade`] with the registered chain to the format this release writes.
-pub fn migrate(file: &mut Cow<'_, IfcxFile>, problems: &mut Vec<Problem>) -> Option<u32> {
-    upgrade(file, MIGRATIONS, FORMAT_VERSION, problems)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::alpha::reader;
+    use crate::alpha::schema::FORMAT_VERSION;
     use crate::validate::{self, Severity};
 
     /// A file written at format 1 (tests/formats/, never regenerated).
@@ -180,6 +178,7 @@ mod tests {
         assert_eq!(outcome.problems.len(), 1, "{:#?}", outcome.problems);
         assert!(!outcome.newer_format);
         assert_eq!(outcome.source_version, "ifcx_alpha");
+        assert_eq!(outcome.migrated_from, Some(1));
         assert_eq!(outcome.project.elements.len(), 12);
 
         let mut file = Cow::Owned(format_1());
@@ -205,6 +204,7 @@ mod tests {
             ]
         );
         assert_eq!(outcome.problems.len(), 2, "{:#?}", outcome.problems);
+        assert_eq!(outcome.migrated_from, Some(1));
     }
 
     /// After migrating, the file declares the current `archicraft::`
@@ -226,7 +226,8 @@ mod tests {
         assert_eq!(file.schemas.get(schema::SLAB), schema::declarations().get(schema::SLAB));
     }
 
-    /// A file at the current format is read without copying or reporting.
+    /// A file at the current format is read without copying or reporting,
+    /// with the test chain as with the registered one.
     #[test]
     fn a_file_at_the_target_format_is_left_as_it_is() {
         let file = format_1();
@@ -235,13 +236,23 @@ mod tests {
         assert_eq!(upgrade(&mut cow, TEST_MIGRATIONS, 1, &mut problems), None);
         assert!(matches!(cow, Cow::Borrowed(_)));
         assert!(problems.is_empty());
-        assert_eq!(migrate(&mut cow, &mut problems), None);
+        assert_eq!(upgrade(&mut cow, MIGRATIONS, FORMAT_VERSION, &mut problems), None);
         assert!(matches!(cow, Cow::Borrowed(_)));
+        assert!(problems.is_empty());
+        assert_eq!(reader::read(&file).unwrap().migrated_from, None);
     }
 
-    /// A format without a step is reported and read as it is.
+    /// A format without a step is reported and read as it is; a file that
+    /// no step could upgrade at all counts as not migrated.
     #[test]
     fn a_missing_step_is_reported() {
+        let outcome = reader::read_with(&format_1(), &[], 2).unwrap();
+        assert_eq!(
+            messages(&outcome.problems, Severity::Warning),
+            ["no migration from ArchiCraft format 1 is known; the file is read as it is"]
+        );
+        assert_eq!(outcome.migrated_from, None);
+
         let mut problems = Vec::new();
         let mut file = Cow::Owned(format_1());
         assert_eq!(upgrade(&mut file, &TEST_MIGRATIONS[1..], 3, &mut problems), Some(1));
