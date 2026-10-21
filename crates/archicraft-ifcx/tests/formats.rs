@@ -59,13 +59,15 @@ fn frozen_format_fixtures_never_change() {
 }
 
 /// IFX-091, IFX-062: a file written at format 1 loads with no problem at all
-/// into the project it holds, and reports the IFCX version it was read as.
+/// into the project it holds, and reports the IFCX version it was read as;
+/// format 1 is the current format, so nothing was migrated.
 #[test]
 fn format_1_loads_without_problems_into_the_expected_project() {
     let loaded = archicraft_ifcx::load(&format_1()).unwrap();
     assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
     assert!(!loaded.newer_format);
     assert_eq!(loaded.source_version, "ifcx_alpha");
+    assert_eq!(loaded.migrated_from, None);
 
     let project = &loaded.project;
     assert_eq!(project.info.name, "Two-storey shell");

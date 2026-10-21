@@ -4887,7 +4887,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The migration hook exists: the reader runs crates/archicraft-ifcx/src/alpha/migrate.rs before validating (steps on the parsed container, current archicraft:: schemas declared afterwards, info “migrated from format n to format n+1: …”), tested with a synthetic step registry; no real migration is registered because only format 1 exists, and the app does not yet show the migration beyond the load report",
+      "gap": "The migration hook exists: the reader runs crates/archicraft-ifcx/src/alpha/migrate.rs before validating (steps on the parsed container, current archicraft:: schemas declared afterwards, info “migrated from format n to format n+1: …”, `ReadOutcome::migrated_from` naming the format a migrated file was written in), tested with a synthetic step registry; no real migration is registered because only format 1 exists, and the app does not yet show the migration beyond the load report",
       "depends_on": []
     },
     {

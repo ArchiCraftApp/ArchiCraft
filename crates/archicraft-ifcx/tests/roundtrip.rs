@@ -443,13 +443,16 @@ fn schema_violations_are_reported() {
     );
 }
 
+/// IFX-062: a file of a newer format is flagged, not migrated.
 #[test]
 fn newer_format_versions_are_flagged() {
     let project = samples::storey_with_walls_and_slab();
     let bytes = edit(&project, |v| {
         v["data"][0]["attributes"]["archicraft::project"]["formatVersion"] = "99".into();
     });
-    assert!(archicraft_ifcx::load(&bytes).unwrap().newer_format);
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.newer_format);
+    assert_eq!(loaded.migrated_from, None);
 }
 
 #[test]

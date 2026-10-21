@@ -60,6 +60,13 @@ pub struct ReadOutcome {
     /// The IFCX version the file was read as (IFX-090). When it is not
     /// [`crate::WRITTEN_VERSION`], saving converts the file to that version.
     pub source_version: &'static str,
+    /// The ArchiCraft format the file was written in, when the reader
+    /// migrated it from that earlier format (IFX-062); each step is also
+    /// reported as an info problem. `None` when no migration step ran: for a
+    /// file at the current format or a newer one ([`Self::newer_format`]),
+    /// and for one whose format version is unreadable or has no migration
+    /// (both reported as warnings).
+    pub migrated_from: Option<u32>,
 }
 
 type Object = Map<String, Value>;
@@ -1000,7 +1007,7 @@ pub fn read(file: &IfcxFile) -> Result<ReadOutcome, Problem> {
 pub(crate) fn read_with(file: &IfcxFile, migrations: &[Migration], current: u32) -> Result<ReadOutcome, Problem> {
     let mut problems = Vec::new();
     let mut file = Cow::Borrowed(file);
-    migrate::upgrade(&mut file, migrations, current, &mut problems);
+    let migrated_from = migrate::upgrade(&mut file, migrations, current, &mut problems);
     problems.extend(validate::validate(&file));
     let nodes = validate::flatten(&file);
 
@@ -1178,5 +1185,6 @@ pub(crate) fn read_with(file: &IfcxFile, migrations: &[Migration], current: u32)
         problems,
         newer_format: data.newer_format,
         source_version: IFCX_VERSION,
+        migrated_from,
     })
 }
