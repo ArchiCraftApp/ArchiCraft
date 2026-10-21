@@ -901,13 +901,26 @@ pub(crate) mod tests {
     /// compiled (docs/technology-choices.md).
     #[test]
     fn one_rstar_version_is_compiled() {
-        let lock = include_str!("../../../../Cargo.lock");
-        let versions: Vec<&str> = lock
-            .split("[[package]]")
-            .filter(|p| p.contains("\nname = \"rstar\"\n"))
-            .filter_map(|p| p.lines().find_map(|l| l.strip_prefix("version = ")))
-            .collect();
+        let versions = locked_versions(include_str!("../../../../Cargo.lock"), "rstar");
         assert_eq!(versions.len(), 1, "{versions:?}");
         assert!(versions[0].starts_with("\"0.12."), "{versions:?}");
+    }
+
+    /// The quoted versions of the package `name` in a Cargo.lock. Line based, so a
+    /// checkout with CRLF line endings (Windows) reads the same as one with LF.
+    fn locked_versions<'a>(lock: &'a str, name: &str) -> Vec<&'a str> {
+        let name_line = format!("name = \"{name}\"");
+        lock.split("[[package]]")
+            .filter(|p| p.lines().any(|l| l == name_line))
+            .filter_map(|p| p.lines().find_map(|l| l.strip_prefix("version = ")))
+            .collect()
+    }
+
+    #[test]
+    fn locked_versions_ignore_line_endings() {
+        let lf = "[[package]]\nname = \"rstar\"\nversion = \"0.12.2\"\n\n[[package]]\nname = \"rstar-x\"\nversion = \"1.0.0\"\n";
+        let crlf = lf.replace('\n', "\r\n");
+        assert_eq!(locked_versions(lf, "rstar"), ["\"0.12.2\""]);
+        assert_eq!(locked_versions(&crlf, "rstar"), ["\"0.12.2\""]);
     }
 }
