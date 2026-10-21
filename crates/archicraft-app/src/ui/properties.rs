@@ -19,6 +19,7 @@ use egui::{Id, Ui};
 
 use super::widgets::{self, Edited, common};
 use crate::tools::{SlabMode, ToolKind, WallMode};
+use crate::tr;
 use crate::workspace::{Request, Workspace};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -272,7 +273,7 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
     ]
     .iter()
     .enumerate()
-    .map(|(i, r)| (i as u8, r.label().to_owned()))
+    .map(|(i, r)| (i as u8, tr!(r.label_key())))
     .collect();
     let reference_index = |r: ReferenceLine| match r {
         ReferenceLine::Outside => 0u8,
@@ -480,7 +481,7 @@ fn classification_fields(ui: &mut Ui, f: &mut Fields<'_>) {
     f.choice(ui, "Layer", "layer", &layers, |e| Some(e.layer), |e, l| e.layer = *l);
     let kinds = common(f.targets.iter().map(Element::tag));
     if let Some(kind) = kinds {
-        let classes: Vec<(IfcClass, String)> = kind.ifc_classes().iter().map(|c| (*c, c.code().to_owned())).collect();
+        let classes: Vec<(IfcClass, String)> = kind.ifc_classes().iter().map(|c| (*c, tr!(c.label_key()))).collect();
         f.choice(
             ui,
             "IFC class",

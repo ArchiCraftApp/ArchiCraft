@@ -156,3 +156,41 @@ model-error-layer-locked = { $name } is on the locked layer “{ $layer }”.
 model-problem-home-storey-missing = { $name }: the home storey is missing.
 model-problem-layer-missing = { $name }: the layer is missing.
 model-problem-material-missing = { $name }: the material is missing.
+
+## Typed lengths and angles (INP-005). $text is what the user typed.
+
+model-error-parse-empty = Enter a number.
+model-error-parse-length = “{ $text }” is not a valid length.
+model-error-parse-angle = “{ $text }” is not a valid angle.
+
+## Unit names in the project settings (STR-009).
+
+model-unit-length-m = Metre
+model-unit-length-cm = Centimetre
+model-unit-length-mm = Millimetre
+model-unit-length-ft-in = Feet and inches
+model-unit-length-ft = Decimal feet
+model-unit-length-in = Decimal inches
+model-unit-angle-deg = Decimal degrees
+model-unit-angle-dms = Degrees, minutes, seconds
+model-unit-angle-grad = Gradians
+model-unit-angle-rad = Radians
+model-unit-slope-deg = Degrees
+model-unit-slope-percent = Percent
+model-unit-slope-ratio = Ratio
+model-unit-area-m2 = Square metres
+model-unit-area-ft2 = Square feet
+model-unit-volume-m3 = Cubic metres
+model-unit-volume-ft3 = Cubic feet
+
+## IFC classes, shown by their IFC 4.3 names, and the locations of a wall's
+## reference line (WAL-003).
+
+model-ifc-class-wall = IfcWall
+model-ifc-class-slab = IfcSlab
+model-ifc-class-footing = IfcFooting
+model-ifc-class-covering = IfcCovering
+model-reference-line-outside = Exterior face
+model-reference-line-center = Centre
+model-reference-line-inside = Interior face
+model-reference-line-custom = Custom offset

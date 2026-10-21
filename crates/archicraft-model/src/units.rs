@@ -8,6 +8,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::message::Message;
+
 pub const METERS_PER_INCH: f64 = 0.0254;
 pub const METERS_PER_FOOT: f64 = 0.3048;
 
@@ -52,15 +54,15 @@ impl LengthUnit {
         Self::ALL.into_iter().find(|u| u.code() == code)
     }
 
-    /// Human-readable name for menus.
-    pub fn label(self) -> &'static str {
+    /// Message key of the name shown in menus (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
         match self {
-            LengthUnit::Meter => "Metre",
-            LengthUnit::Centimeter => "Centimetre",
-            LengthUnit::Millimeter => "Millimetre",
-            LengthUnit::FeetInches => "Feet and inches",
-            LengthUnit::Feet => "Decimal feet",
-            LengthUnit::Inches => "Decimal inches",
+            LengthUnit::Meter => "model-unit-length-m",
+            LengthUnit::Centimeter => "model-unit-length-cm",
+            LengthUnit::Millimeter => "model-unit-length-mm",
+            LengthUnit::FeetInches => "model-unit-length-ft-in",
+            LengthUnit::Feet => "model-unit-length-ft",
+            LengthUnit::Inches => "model-unit-length-in",
         }
     }
 
@@ -112,12 +114,13 @@ impl AngleUnit {
         Self::ALL.into_iter().find(|u| u.code() == code)
     }
 
-    pub fn label(self) -> &'static str {
+    /// Message key of the name shown in menus (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
         match self {
-            AngleUnit::DecimalDegrees => "Decimal degrees",
-            AngleUnit::DegreesMinutesSeconds => "Degrees, minutes, seconds",
-            AngleUnit::Gradians => "Gradians",
-            AngleUnit::Radians => "Radians",
+            AngleUnit::DecimalDegrees => "model-unit-angle-deg",
+            AngleUnit::DegreesMinutesSeconds => "model-unit-angle-dms",
+            AngleUnit::Gradians => "model-unit-angle-grad",
+            AngleUnit::Radians => "model-unit-angle-rad",
         }
     }
 }
@@ -145,6 +148,15 @@ impl SlopeFormat {
     pub fn from_code(code: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|u| u.code() == code)
     }
+
+    /// Message key of the name shown in menus (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
+        match self {
+            SlopeFormat::Degrees => "model-unit-slope-deg",
+            SlopeFormat::Percent => "model-unit-slope-percent",
+            SlopeFormat::Ratio => "model-unit-slope-ratio",
+        }
+    }
 }
 
 /// Display unit for areas.
@@ -168,6 +180,14 @@ impl AreaUnit {
     pub fn from_code(code: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|u| u.code() == code)
     }
+
+    /// Message key of the name shown in menus (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
+        match self {
+            AreaUnit::SquareMeter => "model-unit-area-m2",
+            AreaUnit::SquareFoot => "model-unit-area-ft2",
+        }
+    }
 }
 
 /// Display unit for volumes.
@@ -190,6 +210,14 @@ impl VolumeUnit {
 
     pub fn from_code(code: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|u| u.code() == code)
+    }
+
+    /// Message key of the name shown in menus (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
+        match self {
+            VolumeUnit::CubicMeter => "model-unit-volume-m3",
+            VolumeUnit::CubicFoot => "model-unit-volume-ft3",
+        }
     }
 }
 
@@ -374,14 +402,29 @@ pub fn format_volume(cubic_meters: f64, units: &UnitSettings, nf: &NumberFormat)
     }
 }
 
+/// Why a typed length or angle was not accepted. `Display` is the key form,
+/// for logs only; the user interface renders [`ParseError::message`]
+/// (NFR-L10N-001).
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum ParseError {
-    #[error("enter a number")]
+    #[error("{}", self.message())]
     Empty,
-    #[error("“{0}” is not a valid length")]
+    #[error("{}", self.message())]
     InvalidLength(String),
-    #[error("“{0}” is not a valid angle")]
+    #[error("{}", self.message())]
     InvalidAngle(String),
+}
+
+impl ParseError {
+    /// The message to show the user, with the rejected text as the `text`
+    /// argument.
+    pub fn message(&self) -> Message {
+        match self {
+            ParseError::Empty => Message::new("model-error-parse-empty"),
+            ParseError::InvalidLength(text) => Message::new("model-error-parse-length").text("text", text.as_str()),
+            ParseError::InvalidAngle(text) => Message::new("model-error-parse-angle").text("text", text.as_str()),
+        }
+    }
 }
 
 /// Parses a typed length (INP-005). Accepts plain numbers in the default unit
@@ -628,6 +671,27 @@ mod tests {
 
     fn nf() -> NumberFormat {
         NumberFormat::default()
+    }
+
+    /// NFR-L10N-001: parse errors are message keys with the rejected text
+    /// as the `text` argument; `Display` is the key form.
+    #[test]
+    fn parse_errors_are_message_keys_with_the_rejected_text() {
+        let empty = parse_length("  ", LengthUnit::Meter, &nf()).unwrap_err();
+        assert_eq!(empty.message().key(), "model-error-parse-empty");
+        let length = parse_length(" 1/0 ", LengthUnit::Meter, &nf()).unwrap_err();
+        assert_eq!(length.message().key(), "model-error-parse-length");
+        assert_eq!(
+            length.message().arg("text"),
+            Some(&crate::message::Arg::Text("1/0".into()))
+        );
+        assert_eq!(length.to_string(), length.message().to_string());
+        let angle = parse_angle("north", AngleUnit::DecimalDegrees, &nf()).unwrap_err();
+        assert_eq!(angle.message().key(), "model-error-parse-angle");
+        assert_eq!(
+            angle.message().arg("text"),
+            Some(&crate::message::Arg::Text("north".into()))
+        );
     }
 
     #[test]

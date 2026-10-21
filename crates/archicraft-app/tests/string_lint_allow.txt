@@ -36,5 +36,14 @@ crates/archicraft-model/src/kinds/slab.rs::Slab | "Slab" | KindDescriptor::node_
 crates/archicraft-model/src/element.rs::IfcClass::code | * | keyword table: IFC class names written to IFCX (bsi::ifc::class)
 crates/archicraft-model/src/material.rs::MaterialCategory::code | * | keyword table: IFC material category codes written to IFCX
 
+# Unit symbols: international symbols appended to formatted numbers (STR-009,
+# NFR-L10N-003), the same in every language.
+crates/archicraft-model/src/units.rs::format_angle | "{text} gon" | unit symbol of gradians after the formatted number
+crates/archicraft-model/src/units.rs::format_angle | "{text} rad" | unit symbol of radians after the formatted number
+crates/archicraft-model/src/units.rs::format_area | "{} m²" | unit symbol of square metres after the formatted number
+crates/archicraft-model/src/units.rs::format_area | "{} ft²" | unit symbol of square feet after the formatted number
+crates/archicraft-model/src/units.rs::format_volume | "{} m³" | unit symbol of cubic metres after the formatted number
+crates/archicraft-model/src/units.rs::format_volume | "{} ft³" | unit symbol of cubic feet after the formatted number
+
 # Developer-facing errors.
 crates/archicraft-model/src/message.rs::Message::try_from | * | serde error for a journal or log entry with an unknown key or argument name, never shown in the UI

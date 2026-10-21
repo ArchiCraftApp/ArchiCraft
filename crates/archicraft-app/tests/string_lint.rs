@@ -74,9 +74,6 @@ const PENDING: &[&str] = &[
     "crates/archicraft-app/src/ui/dialogs.rs::problems_panel",
     "crates/archicraft-app/src/ui/properties.rs",
     "crates/archicraft-app/src/ui/widgets.rs",
-    // archicraft-9w3: archicraft-model returns message keys.
-    "crates/archicraft-model/src/kinds/wall.rs",
-    "crates/archicraft-model/src/units.rs",
 ];
 
 /// The allowlist, next to this file.
@@ -920,4 +917,16 @@ fn pending_and_allowlist_entries_must_match_something() {
     assert!(Scope::parse("a.rs::Dialogs").contains(&findings[0]));
     assert!(parse_allowlist("a.rs | Storeys | no quotes\n").is_err());
     assert!(parse_allowlist("a.rs | \"Storeys\" |  \n").is_err());
+}
+
+/// archicraft-model returns message keys for all its user-visible text
+/// (archicraft-9w3), so none of its files may be pending again
+/// (NFR-L10N-001).
+#[test]
+fn no_model_file_is_pending() {
+    let model: Vec<&&str> = PENDING
+        .iter()
+        .filter(|p| p.starts_with("crates/archicraft-model/"))
+        .collect();
+    assert!(model.is_empty(), "{model:?}");
 }

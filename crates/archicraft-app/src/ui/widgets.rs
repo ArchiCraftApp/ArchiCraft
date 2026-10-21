@@ -70,7 +70,7 @@ pub fn length(
 ) -> Edited<f64> {
     let shown = value.map(|v| format_length(v, units, nf, false));
     let (response, result) = committed_text(ui, id, shown, width, |text| {
-        parse_length(text, units.length, nf).map_err(|e| e.to_string())
+        parse_length(text, units.length, nf).map_err(|e| crate::i18n::render(&e.message(), units, nf))
     });
     response.on_hover_text("Type a length; units such as mm, cm, m, ft and in are accepted");
     result
@@ -87,7 +87,7 @@ pub fn angle(
 ) -> Edited<f64> {
     let shown = value.map(|v| format_angle(v, units, nf, false));
     let (_, result) = committed_text(ui, id, shown, width, |text| {
-        parse_angle(text, units.angle, nf).map_err(|e| e.to_string())
+        parse_angle(text, units.angle, nf).map_err(|e| crate::i18n::render(&e.message(), units, nf))
     });
     result
 }

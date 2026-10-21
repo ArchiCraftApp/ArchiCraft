@@ -7,8 +7,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use archicraft_app::i18n::{self, Localizer, catalogue, model::fluent_names};
 use archicraft_model::message::ALL_KEYS;
-use archicraft_model::units::{LengthUnit, NumberFormat, UnitSettings, format_length};
-use archicraft_model::{KindTag, Message};
+use archicraft_model::units::{
+    AngleUnit, AreaUnit, LengthUnit, NumberFormat, ParseError, SlopeFormat, UnitSettings, VolumeUnit, format_length,
+};
+use archicraft_model::{IfcClass, KindTag, Message, ReferenceLine};
 use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};
 use fluent_syntax::parser;
 
@@ -52,6 +54,39 @@ fn representatives() -> Vec<Message> {
         messages.push(Message::new(kind.noun_key()));
     }
     messages.extend(error_representatives());
+    messages.extend(label_representatives());
+    messages
+}
+
+/// The names of units, IFC classes and wall reference lines, and the parse
+/// errors of typed lengths and angles (units.rs, kinds/wall.rs).
+fn label_representatives() -> Vec<Message> {
+    let mut keys: Vec<&'static str> = Vec::new();
+    keys.extend(LengthUnit::ALL.map(LengthUnit::label_key));
+    keys.extend(AngleUnit::ALL.map(AngleUnit::label_key));
+    keys.extend(SlopeFormat::ALL.map(SlopeFormat::label_key));
+    keys.extend(AreaUnit::ALL.map(AreaUnit::label_key));
+    keys.extend(VolumeUnit::ALL.map(VolumeUnit::label_key));
+    keys.extend([IfcClass::Wall, IfcClass::Slab, IfcClass::Footing, IfcClass::Covering].map(IfcClass::label_key));
+    keys.extend(
+        [
+            ReferenceLine::Outside,
+            ReferenceLine::Center,
+            ReferenceLine::Inside,
+            ReferenceLine::Custom(0.1),
+        ]
+        .map(ReferenceLine::label_key),
+    );
+    let mut messages: Vec<Message> = keys.into_iter().map(Message::new).collect();
+    messages.extend(
+        [
+            ParseError::Empty,
+            ParseError::InvalidLength("3 furlongs".into()),
+            ParseError::InvalidAngle("north".into()),
+        ]
+        .iter()
+        .map(ParseError::message),
+    );
     messages
 }
 
@@ -345,4 +380,37 @@ fn model_errors_render_in_english_with_project_units() {
         .kind("kind", KindTag::Wall);
     assert_eq!(render(&class), "IfcCovering is not an allowed IFC class for a wall.");
     assert_eq!(render(&Message::new("model-error-no-change")), "Nothing to change.");
+}
+
+/// NFR-L10N-001: unit, IFC class and reference-line names and the parse
+/// errors of typed values render as English text.
+#[test]
+fn unit_names_and_parse_errors_render_in_english() {
+    let units = UnitSettings::default();
+    let nf = NumberFormat {
+        decimal_separator: '.',
+        grouping: None,
+    };
+    let render = |m: &Message| i18n::with(std::rc::Rc::new(Localizer::english()), || i18n::render(m, &units, &nf));
+    let label = |key| render(&Message::new(key));
+    assert_eq!(label(LengthUnit::Millimeter.label_key()), "Millimetre");
+    assert_eq!(label(LengthUnit::FeetInches.label_key()), "Feet and inches");
+    assert_eq!(
+        label(AngleUnit::DegreesMinutesSeconds.label_key()),
+        "Degrees, minutes, seconds"
+    );
+    assert_eq!(label(SlopeFormat::Percent.label_key()), "Percent");
+    assert_eq!(label(AreaUnit::SquareFoot.label_key()), "Square feet");
+    assert_eq!(label(VolumeUnit::CubicMeter.label_key()), "Cubic metres");
+    assert_eq!(label(IfcClass::Covering.label_key()), "IfcCovering");
+    assert_eq!(label(ReferenceLine::Custom(0.1).label_key()), "Custom offset");
+    assert_eq!(render(&ParseError::Empty.message()), "Enter a number.");
+    assert_eq!(
+        render(&ParseError::InvalidLength("3 furlongs".into()).message()),
+        "“3 furlongs” is not a valid length."
+    );
+    assert_eq!(
+        render(&ParseError::InvalidAngle("north".into()).message()),
+        "“north” is not a valid angle."
+    );
 }

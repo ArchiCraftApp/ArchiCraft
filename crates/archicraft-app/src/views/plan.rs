@@ -22,6 +22,7 @@ use crate::input::{
     SnapTargets, SurfaceFrame, ViewSurface,
 };
 use crate::tools::{ToolKind, ToolState};
+use crate::tr;
 use crate::workspace::{Pane, Request, Workspace};
 
 /// Per-view state of a plan view.
@@ -785,7 +786,7 @@ fn handle_keys(
                     // Cycle the reference-line location (WAL-007).
                     let mut defaults = ws.doc.project.tool_defaults.clone();
                     defaults.wall.reference_line = defaults.wall.reference_line.next();
-                    let label = defaults.wall.reference_line.label();
+                    let label = tr!(defaults.wall.reference_line.label_key());
                     if ws.execute(archicraft_model::Command::SetToolDefaults(defaults)) {
                         ws.info(format!("Wall reference line: {label}"));
                     }

@@ -39,12 +39,13 @@ impl ReferenceLine {
         (-from_exterior, thickness - from_exterior)
     }
 
-    pub fn label(self) -> &'static str {
+    /// Message key of the location's name (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
         match self {
-            ReferenceLine::Outside => "Exterior face",
-            ReferenceLine::Center => "Centre",
-            ReferenceLine::Inside => "Interior face",
-            ReferenceLine::Custom(_) => "Custom offset",
+            ReferenceLine::Outside => "model-reference-line-outside",
+            ReferenceLine::Center => "model-reference-line-center",
+            ReferenceLine::Inside => "model-reference-line-inside",
+            ReferenceLine::Custom(_) => "model-reference-line-custom",
         }
     }
 
