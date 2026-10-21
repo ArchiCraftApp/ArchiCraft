@@ -2,7 +2,8 @@
 # PreToolUse (Bash): the git and GitHub rules of the bead loop.
 # - stamps are written only by gate.sh, the review hook and pause.sh;
 # - the reviewer runs read-only commands;
-# - no force pushes, no pushes to main, no PR merges without --auto;
+# - no force pushes, no pushes to main, no PR merges without --auto: auto-merge puts a PR into the
+#   merge queue on green CI, which merges it once CI passes on main with the PRs ahead of it too;
 # - a code commit happens only on a bead branch whose tree passed the gate and is covered by a
 #   passing review (loop_review_valid);
 # - no auto-merge for a PR that changes the CI workflows or the hook wiring: it waits for the user.
@@ -121,7 +122,7 @@ while IFS= read -r rec; do
         fi
         case "$a" in
         --) flags="" ;;
-        --admin) hook_deny "PRs never merge with --admin; they merge when the required CI checks pass." ;;
+        --admin) hook_deny "PRs never merge with --admin, which skips the merge queue and the required CI checks; they merge through the queue when the checks pass." ;;
         --auto | --auto=*) auto=on ;;
         --disable-auto) [ -n "$auto" ] || auto=off ;;
         --repo) want=repo ;;
@@ -141,7 +142,7 @@ while IFS= read -r rec; do
         esac
     done
     [ -n "$auto" ] ||
-        hook_deny "PRs merge only through auto-merge on green CI: gh pr merge <pr> --auto --squash (scripts/loop/land.sh does this)."
+        hook_deny "PRs merge only through auto-merge, which puts them into the merge queue on green CI: gh pr merge <pr> --auto --squash (scripts/loop/land.sh does this)."
     # Auto-merge stays off for a PR that changes the CI gate or the hook wiring, whoever turns it
     # on (LOOP_USER_REVIEW_PATHS; an older lib.sh without it keeps the older rules).
     [ "$auto" = on ] && [ -n "${LOOP_USER_REVIEW_PATHS:-}" ] || continue

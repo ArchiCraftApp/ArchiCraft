@@ -88,10 +88,21 @@ So each user turn starts a whole batch at once:
    ```
 
    An epic ready for its demo stops the loop (see Demo checkpoint). Beads under "needs a
-   human", `ATTENTION <id>` lines (a PR closed without merging), `refused` lines (bd would not
+   human", `ATTENTION <id>: … was closed without merging` and `ATTENTION <id>: … is open
+   without auto-merge and not in the merge queue` lines, `refused` lines (bd would not
    close a bead) and `stale` lines (the main checkout could not fast-forward; the user pulls
    it by hand) do not stop it: they go into the `Needs you:` line. Never commit, stash or
-   discard the main checkout's local changes yourself.
+   discard the main checkout's local changes yourself. `queued` and `waiting` lines are PRs on
+   their way through the merge queue (`docs/loop.md`, "The merge queue"): nothing to do.
+
+   An `ATTENTION <id>: <url> left the merge queue (<reason>, …)` line needs no user either: the
+   PR failed or conflicted together with `main` and the PRs ahead of it, nothing merged and
+   `main` stayed green. Hand it back to its bead: send the line to the bead's session
+   (`SendMessage` to its `local_…` id from the linked sessions, title `<id>: …`) with "Your PR
+   left the merge queue: rebase onto origin/main, fix it, gate, review and land it again (/bead,
+   step 7)". When that session no longer exists, start the bead again in this batch, first after
+   a `red-main` bead, at its tier with prompt `/bead <id>` (`start-bead.sh` resumes the bead
+   branch); it takes a batch slot.
 2. **Red main first.** `main` is red when the sweep prints `ATTENTION windows`, or when the
    newest finished CI run on `main` failed:
 
@@ -140,21 +151,28 @@ would refuse it) and do not restate the reports. For each bead that reported:
 1. **Verify, do not trust the report.** `bd show <id>`: the bead has a PR in `external_ref`,
    the label `human`, or the label `escalated` with a higher `tier:` label and status open
    (`escalate.sh` moved it up a tier; its note says so). With a PR,
-   `gh pr view <url> --json state,autoMergeRequest,files` shows it open with auto-merge on, or
-   already merged, or open with auto-merge off because
-   it changes `.github/workflows/` or `.claude/settings.json`: such a PR waits for the user's
-   review (user decision of 2026-10-19), and `land.sh` named the files.
-2. **Count, never wait.** The bead counts once its PR is open with auto-merge on, merged, or
-   waiting for the user's review. Do not wait for a merge: the app's PR monitor wakes a bead
-   session on a CI failure, a conflict or a review comment, never on a merge, and the next
-   sweep closes merged beads. An escalated bead does not count yet: it starts again in the
-   next batch, and nobody needs to do anything for it. A bead without a PR, with auto-merge off
-   for any other reason, or with the label `human` does not count; it goes into the
-   `Needs you:` line with its session link. A `human` bead at tier `max` names Claude Fable 5.1
-   as the other way out: "decide, or pick Claude Fable 5.1 in its session's model menu and say
-   continue".
+   `git show origin/main:scripts/loop/pr-state.sh | bash -s <url>` says where it stands:
+   `queued <position>` (in the merge queue), `auto-merge` (it joins the queue once its CI
+   passes), `merged`, or `waits-for-user`: it changes `.github/workflows/` or
+   `.claude/settings.json` and waits for the user's review (user decision of 2026-10-19);
+   `gh pr view <url> --json files` and `land.sh` name the files. An `open` PR that changes one
+   of them waits for the user too: its status `User review` is not posted yet. `left-queue
+   <reason>`: the queue dropped it, and the next sweep hands it back to the bead (step 1 of a
+   user turn).
+2. **Count, never wait.** The bead counts once its PR is `queued`, `auto-merge`, `merged` or
+   `waits-for-user`. Do not wait for a merge: the app's PR monitor wakes a bead session on a CI
+   failure, a conflict or a review comment, never on a merge or on a merge group's failure, and
+   the next sweep closes merged beads and reports dropped PRs. An escalated bead does not count
+   yet: it starts again in the next batch, and nobody needs to do anything for it, nor for a
+   `left-queue` PR, which the next sweep hands back to its bead. A bead without a PR, with a PR
+   that is otherwise `open` (auto-merge off for any other reason), or with the label `human`
+   does not count; it goes into the `Needs you:` line with its session link. A `human` bead at
+   tier `max` names Claude Fable 5.1 as the other way out: "decide, or pick Claude Fable 5.1 in
+   its session's model menu and say continue".
 
 Then report, one line per bead and nothing else:
+
+`auto-merge` covers a PR in the merge queue and one whose CI runs before it joins it.
 
 ```
 <id> ✅ PR #<n> (auto-merge, <tier>): <one line: what changed>

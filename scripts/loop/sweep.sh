@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Start of every loop iteration (docs/loop.md): closes in-progress beads whose PR has merged,
-# closes loop-split parents whose children are all closed, and reports what still waits: open PRs,
-# PRs closed without merging, beads flagged for a human, epics ready for their demo, and a failed
-# newest Windows run on main (an ATTENTION line).
+# closes loop-split parents whose children are all closed, and reports what still waits: open PRs
+# (in the merge queue, waiting for CI, waiting for the user's review), PRs the merge queue dropped,
+# PRs that nothing moves on and PRs closed without merging (ATTENTION lines), beads flagged for a
+# human, epics ready for their demo, and a failed newest Windows run on main (an ATTENTION line).
 # A close that bd refuses (a blocked bead) is reported and the sweep carries on.
 # Last, it fast-forwards the main checkout to origin/main (fetched by the caller), since Claude
 # Code reads the hook wiring, the skills and the reviewer from there; when git cannot, it reports
@@ -23,14 +24,32 @@ close_bead() {
     fi
 }
 
+# The failed merge group run of PR <url>, when there is one: the queue names a group's branch
+# gh-readonly-queue/main/pr-<number>-<sha>.
+queue_run() {
+    gh run list --workflow ci.yml --event merge_group --limit 50 --json headBranch,conclusion,url 2>/dev/null |
+        jq -r --arg b "gh-readonly-queue/main/pr-${1##*/}-" \
+            '[.[] | select((.headBranch // "") | startswith($b)) | select(.conclusion == "failure")] | first // empty | .url' \
+            2>/dev/null || true
+}
+
+# A PR on its way into main is in the merge queue or waits for its CI with auto-merge on; one the
+# queue dropped did not merge, and main stays green without it: its bead fixes it (/bead, step 7).
 bd list --status in_progress --json --limit 0 |
     jq -r '.[] | select((.external_ref // "") | test("/pull/[0-9]+$")) | "\(.id) \(.external_ref)"' |
     while read -r id url; do
-        state="$(gh pr view "$url" --json state -q .state 2>/dev/null || echo UNKNOWN)"
+        state="$(bash "$(dirname "${BASH_SOURCE[0]}")/pr-state.sh" "$url")"
         case "$state" in
-            MERGED) close_bead "$id" "Merged in $url" "merged $url" ;;
-            OPEN) echo "waiting  $id ($url, CI or auto-merge pending)" ;;
-            CLOSED) echo "ATTENTION $id: $url was closed without merging" ;;
+            merged) close_bead "$id" "Merged in $url" "merged $url" ;;
+            "queued "*) echo "queued   $id ($url, merge queue position ${state#queued })" ;;
+            auto-merge) echo "waiting  $id ($url, CI pending, then the merge queue)" ;;
+            "left-queue "*)
+                run="$(queue_run "$url")"
+                echo "ATTENTION $id: $url left the merge queue (${state#left-queue }${run:+, $run}): rebase it onto origin/main, fix it and land it again"
+                ;;
+            waits-for-user) echo "waits    $id ($url, waits for the user's review)" ;;
+            open) echo "ATTENTION $id: $url is open without auto-merge and not in the merge queue" ;;
+            closed) echo "ATTENTION $id: $url was closed without merging" ;;
             *) echo "unknown  $id ($url)" ;;
         esac
     done

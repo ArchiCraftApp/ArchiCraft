@@ -6,17 +6,25 @@ name: User review
 # fetches the PR's commits as data: nothing from the PR runs, which is what makes
 # pull_request_target safe here. The required status "User review" (setup-github.sh) keeps
 # auto-merge from merging such a PR; the user merges it after the review.
+#
+# The merge queue (docs/loop.md, "The merge queue") needs the same status on the merge group's
+# commit, or it waits for it until its timeout and drops the PR. So the check runs on merge_group
+# too, over everything the group adds to main: main's script on a checkout of main, the group's
+# commits read as data. GitHub takes this file from the group's commit there, but every PR in the
+# queue passed this check on pull_request_target first, so none of them changed it.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
+  merge_group:
 
 permissions:
   contents: read
-  # The script posts the status "User review" on the PR's head commit.
+  # The script posts the status "User review" on the PR's head commit or the merge group's.
   statuses: write
 
 concurrency:
-  group: user-review-${{ github.event.pull_request.number }}
+  # One run per PR, and one per merge group: a merge group run has no PR number.
+  group: user-review-${{ github.event.pull_request.number || github.event.merge_group.head_ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,17 +33,19 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      # The base branch, not the PR: no ref here.
+      # The base, never the PR or the merge group: for pull_request_target the default ref is the
+      # base branch; for merge_group it would be the group's commit, so check out main instead.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.merge_group.base_ref }}
           fetch-depth: 0
-      - name: Fetch the PR's commits (read, never run)
+      - name: Fetch the commits to judge (read, never run)
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: git fetch --quiet --no-tags origin "$HEAD_SHA"
-      - name: Report whether the PR waits for the user's review
+      - name: Report whether the change waits for the user's review
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: scripts/loop/ci-user-review.sh
