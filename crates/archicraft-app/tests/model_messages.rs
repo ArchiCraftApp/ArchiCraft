@@ -67,7 +67,16 @@ fn label_representatives() -> Vec<Message> {
     keys.extend(SlopeFormat::ALL.map(SlopeFormat::label_key));
     keys.extend(AreaUnit::ALL.map(AreaUnit::label_key));
     keys.extend(VolumeUnit::ALL.map(VolumeUnit::label_key));
-    keys.extend([IfcClass::Wall, IfcClass::Slab, IfcClass::Footing, IfcClass::Covering].map(IfcClass::label_key));
+    keys.extend(
+        [
+            IfcClass::Wall,
+            IfcClass::Slab,
+            IfcClass::Footing,
+            IfcClass::Covering,
+            IfcClass::BuildingElementProxy,
+        ]
+        .map(IfcClass::label_key),
+    );
     keys.extend(
         [
             ReferenceLine::Outside,
@@ -403,6 +412,10 @@ fn unit_names_and_parse_errors_render_in_english() {
     assert_eq!(label(AreaUnit::SquareFoot.label_key()), "Square feet");
     assert_eq!(label(VolumeUnit::CubicMeter.label_key()), "Cubic metres");
     assert_eq!(label(IfcClass::Covering.label_key()), "IfcCovering");
+    assert_eq!(
+        label(IfcClass::BuildingElementProxy.label_key()),
+        "IfcBuildingElementProxy"
+    );
     assert_eq!(label(ReferenceLine::Custom(0.1).label_key()), "Custom offset");
     assert_eq!(render(&ParseError::Empty.message()), "Enter a number.");
     assert_eq!(

@@ -196,6 +196,7 @@ model-ifc-class-wall = IfcWall
 model-ifc-class-slab = IfcSlab
 model-ifc-class-footing = IfcFooting
 model-ifc-class-covering = IfcCovering
+model-ifc-class-proxy = IfcBuildingElementProxy
 model-reference-line-outside = Exterior face
 model-reference-line-center = Centre
 model-reference-line-inside = Interior face
