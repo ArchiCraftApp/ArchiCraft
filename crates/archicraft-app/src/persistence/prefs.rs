@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use archicraft_model::units::NumberFormat;
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::os_locale::{self, OsNumberLocale};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ThemeChoice {
     #[default]
@@ -123,56 +125,34 @@ impl Preferences {
         self.recent.truncate(MAX_RECENT);
     }
 
+    /// The number format of these preferences in the operating system's
+    /// number locale ([`os_locale::detected`]). Cheap enough to call every
+    /// frame, so a changed preference applies without a restart (STR-010).
     pub fn number_format(&self) -> NumberFormat {
-        let comma = match self.decimal_separator {
-            SeparatorChoice::Point => false,
-            SeparatorChoice::Comma => true,
-            SeparatorChoice::Automatic => locale_uses_decimal_comma(),
+        self.number_format_in(os_locale::detected())
+    }
+
+    /// The number format of these preferences in `locale` (STR-010,
+    /// NFR-L10N-004): "Automatic" takes the locale's decimal separator,
+    /// "Point" and "Comma" override it, and digit grouping uses the locale's
+    /// grouping character. A grouping character equal to the chosen separator
+    /// becomes a no-break space, and so does a narrow no-break space, which
+    /// egui's default fonts lack (input accepts both).
+    pub fn number_format_in(&self, locale: &OsNumberLocale) -> NumberFormat {
+        let decimal_separator = match self.decimal_separator {
+            SeparatorChoice::Point => '.',
+            SeparatorChoice::Comma => ',',
+            SeparatorChoice::Automatic => locale.decimal,
         };
-        let decimal_separator = if comma { ',' } else { '.' };
-        let grouping = self.digit_grouping.then_some(if comma { '.' } else { ',' });
+        let grouping = self.digit_grouping.then_some(match locale.grouping {
+            g if g == decimal_separator || g == '\u{202F}' => '\u{A0}',
+            g => g,
+        });
         NumberFormat {
             decimal_separator,
             grouping,
         }
     }
-}
-
-/// Whether the operating-system locale writes decimals with a comma, from
-/// the POSIX locale variables. Other platforms default to a point; the
-/// preference overrides it (STR-010).
-fn locale_uses_decimal_comma() -> bool {
-    let locale = ["LC_ALL", "LC_NUMERIC", "LANG"]
-        .iter()
-        .find_map(|v| std::env::var(v).ok().filter(|s| !s.is_empty()))
-        .unwrap_or_default();
-    let language = locale.split(['_', '.', '-']).next().unwrap_or_default();
-    matches!(
-        language,
-        "de" | "fr"
-            | "es"
-            | "it"
-            | "nl"
-            | "pt"
-            | "ru"
-            | "pl"
-            | "cs"
-            | "sk"
-            | "sv"
-            | "da"
-            | "fi"
-            | "nb"
-            | "nn"
-            | "tr"
-            | "hu"
-            | "ro"
-            | "sl"
-            | "hr"
-            | "el"
-            | "uk"
-            | "id"
-            | "vi"
-    )
 }
 
 #[cfg(test)]
@@ -223,5 +203,65 @@ mod tests {
         prefs.save(&path).unwrap();
         assert!(Preferences::load(&path).indented_ifcx);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn with(separator: SeparatorChoice, grouping: bool) -> Preferences {
+        Preferences {
+            decimal_separator: separator,
+            digit_grouping: grouping,
+            ..Preferences::default()
+        }
+    }
+
+    /// STR-010: "Automatic" takes the separator and the grouping character of
+    /// the detected locale.
+    #[test]
+    fn automatic_follows_the_detected_locale() {
+        let swiss = OsNumberLocale::from_tag("de-CH");
+        let nf = with(SeparatorChoice::Automatic, true).number_format_in(&swiss);
+        assert_eq!((nf.decimal_separator, nf.grouping), ('.', Some('’')));
+        let austrian = OsNumberLocale::from_tag("de-AT");
+        let nf = with(SeparatorChoice::Automatic, true).number_format_in(&austrian);
+        assert_eq!((nf.decimal_separator, nf.grouping), (',', Some('\u{A0}')));
+        let prefs = with(SeparatorChoice::Automatic, true);
+        assert_eq!(prefs.number_format(), prefs.number_format_in(os_locale::detected()));
+    }
+
+    /// STR-010: "Point" and "Comma" override the locale as soon as the
+    /// preference changes, without a restart.
+    #[test]
+    fn point_and_comma_override_the_locale_without_restart() {
+        let german = OsNumberLocale::from_tag("de-DE");
+        let mut prefs = with(SeparatorChoice::Automatic, false);
+        assert_eq!(prefs.number_format_in(&german).decimal_separator, ',');
+        prefs.decimal_separator = SeparatorChoice::Point;
+        assert_eq!(prefs.number_format_in(&german).decimal_separator, '.');
+        assert_eq!(prefs.number_format().decimal_separator, '.');
+        prefs.decimal_separator = SeparatorChoice::Comma;
+        assert_eq!(
+            prefs
+                .number_format_in(&OsNumberLocale::from_tag("en-US"))
+                .decimal_separator,
+            ','
+        );
+        assert_eq!(prefs.number_format().decimal_separator, ',');
+        assert_eq!(prefs.number_format_in(&german).grouping, None, "grouping is off");
+    }
+
+    /// NFR-L10N-004: a grouping character equal to the chosen separator, and
+    /// the narrow no-break space egui cannot draw, become a no-break space.
+    #[test]
+    fn grouping_equal_to_the_separator_becomes_a_no_break_space() {
+        let german = OsNumberLocale::from_tag("de-DE");
+        let nf = with(SeparatorChoice::Point, true).number_format_in(&german);
+        assert_eq!((nf.decimal_separator, nf.grouping), ('.', Some('\u{A0}')));
+        let american = OsNumberLocale::from_tag("en-US");
+        let nf = with(SeparatorChoice::Comma, true).number_format_in(&american);
+        assert_eq!((nf.decimal_separator, nf.grouping), (',', Some('\u{A0}')));
+        let nf = with(SeparatorChoice::Point, true).number_format_in(&american);
+        assert_eq!((nf.decimal_separator, nf.grouping), ('.', Some(',')));
+        let french = OsNumberLocale::from_tag("fr-FR");
+        let nf = with(SeparatorChoice::Automatic, true).number_format_in(&french);
+        assert_eq!((nf.decimal_separator, nf.grouping), (',', Some('\u{A0}')));
     }
 }

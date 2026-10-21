@@ -33,9 +33,16 @@ fluent-syntax.workspace = true
 rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sys-locale.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 unic-langid.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation.workspace = true
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe"] }

@@ -63,7 +63,9 @@
 //! [`tr!`](crate::tr).
 
 pub mod catalogue;
+mod cldr_numbers;
 pub mod model;
+pub mod os_locale;
 #[cfg(any(test, debug_assertions))]
 pub mod pseudo;
 

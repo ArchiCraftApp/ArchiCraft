@@ -74,6 +74,12 @@ fluent-bundle = "0.16.0"
 fluent-syntax = "0.12.0"
 unic-langid = "0.9.6"
 
+# Number locale of the operating system (STR-010, archicraft-app i18n::os_locale):
+# sys-locale everywhere as the fallback, the platform APIs where they exist.
+sys-locale = "0.3.2"
+windows-sys = { version = "0.61.2", features = ["Win32_Globalization", "Win32_System_SystemServices"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSLocale", "NSString"] }
+
 # Test-only: the literal-string lint parses the sources (NFR-L10N-001).
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "visit"] }
 proc-macro2 = { version = "1.0.107", default-features = false, features = ["span-locations"] }
