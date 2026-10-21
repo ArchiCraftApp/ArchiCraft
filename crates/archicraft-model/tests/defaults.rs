@@ -27,13 +27,32 @@ use archicraft_model::command::DEFAULT_UNDO_LIMIT;
 use archicraft_model::template::default_metric_project;
 use archicraft_model::units::{AngleUnit, LengthUnit, SlopeFormat};
 use archicraft_model::validate::{MIN_CORNER_ANGLE_DEG, MIN_EDGE_LENGTH};
-use archicraft_model::{MODEL_TOLERANCE, MaterialCategory, MaterialId, Project, ReferenceLine, SlabReference, TopLink};
+use archicraft_model::{
+    ElementKind, KindTag, MODEL_TOLERANCE, MaterialCategory, MaterialId, Project, ReferenceLine, Slab, SlabReference,
+    TopLink, Wall,
+};
 
 /// Floats are compared with this absolute tolerance: the defaults are exact
 /// decimal literals, so anything larger is a changed value.
 const FLOAT_TOLERANCE: f64 = 1e-12;
 
 type Check = fn(&Project) -> Result<(), String>;
+
+/// The wall tool's prototype parameters (ELM-001).
+fn wall_defaults(p: &Project) -> &Wall {
+    match p.tool_defaults.get(KindTag::Wall).map(|s| &s.kind) {
+        Some(ElementKind::Wall(w)) => w,
+        other => panic!("not a wall slot: {other:?}"),
+    }
+}
+
+/// The slab tool's prototype parameters (ELM-001).
+fn slab_defaults(p: &Project) -> &Slab {
+    match p.tool_defaults.get(KindTag::Slab).map(|s| &s.kind) {
+        Some(ElementKind::Slab(s)) => s,
+        other => panic!("not a slab slot: {other:?}"),
+    }
+}
 
 #[derive(Clone, Copy)]
 enum Status {
@@ -117,15 +136,15 @@ const ROWS: &[Row] = &[
     row!("D.1 Snapping: angle increment 45°", elsewhere APP),
     row!("D.1 Snapping: 15° selectable", elsewhere APP),
     // D.2 Element defaults
-    row!("D.2 Wall: 0.25 m thick", |p| close(p.tool_defaults.wall.thickness, 0.25)),
-    row!("D.2 Wall: masonry (Brick)", |p| material(p, p.tool_defaults.wall.material, "Brick", MaterialCategory::Masonry)),
-    row!("D.2 Wall: reference line on the exterior face", |p| equal(p.tool_defaults.wall.reference_line, ReferenceLine::Outside)),
-    row!("D.2 Wall: base offset 0", |p| close(p.tool_defaults.wall.base_offset, 0.0)),
-    row!("D.2 Wall: top linked to home storey + 1, offset 0", |p| equal(p.tool_defaults.wall.top, TopLink::Relative { storeys: 1, offset: 0.0 })),
-    row!("D.2 Slab: 0.20 m thick", |p| close(p.tool_defaults.slab.thickness, 0.20)),
-    row!("D.2 Slab: reinforced concrete", |p| material(p, p.tool_defaults.slab.material, "Reinforced concrete", MaterialCategory::Concrete)),
-    row!("D.2 Slab: top at the storey elevation (reference)", |p| equal(p.tool_defaults.slab.reference, SlabReference::Top)),
-    row!("D.2 Slab: top at the storey elevation (offset 0)", |p| close(p.tool_defaults.slab.offset, 0.0)),
+    row!("D.2 Wall: 0.25 m thick", |p| close(wall_defaults(p).thickness, 0.25)),
+    row!("D.2 Wall: masonry (Brick)", |p| material(p, wall_defaults(p).material, "Brick", MaterialCategory::Masonry)),
+    row!("D.2 Wall: reference line on the exterior face", |p| equal(wall_defaults(p).reference_line, ReferenceLine::Outside)),
+    row!("D.2 Wall: base offset 0", |p| close(wall_defaults(p).base_offset, 0.0)),
+    row!("D.2 Wall: top linked to home storey + 1, offset 0", |p| equal(wall_defaults(p).top, TopLink::Relative { storeys: 1, offset: 0.0 })),
+    row!("D.2 Slab: 0.20 m thick", |p| close(slab_defaults(p).thickness, 0.20)),
+    row!("D.2 Slab: reinforced concrete", |p| material(p, slab_defaults(p).material, "Reinforced concrete", MaterialCategory::Concrete)),
+    row!("D.2 Slab: top at the storey elevation (reference)", |p| equal(slab_defaults(p).reference, SlabReference::Top)),
+    row!("D.2 Slab: top at the storey elevation (offset 0)", |p| close(slab_defaults(p).offset, 0.0)),
     row!("D.2 Column: 0.30 × 0.30 m reinforced concrete; centre anchor; top linked to home storey + 1", pending PROFILES),
     row!("D.2 Beam: 0.25 × 0.50 m reinforced concrete; top-centre anchor; top at the home storey elevation + 2.80 m", pending PROFILES),
     row!("D.2 Door: 0.90 × 2.10 m wall opening; single-leaf hinged; sill at the storey elevation; centred in the wall", pending DOORS_WINDOWS),

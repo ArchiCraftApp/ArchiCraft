@@ -140,6 +140,9 @@ pub struct Element {
     pub position: Position,
     /// Locked elements reject edits (ELM-013).
     pub locked: bool,
+    /// Excluded elements are drawn but provide no snap targets (INP-017).
+    #[serde(default)]
+    pub snap_excluded: bool,
     pub kind: ElementKind,
 }
 

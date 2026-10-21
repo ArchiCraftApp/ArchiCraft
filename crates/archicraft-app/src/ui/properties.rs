@@ -7,8 +7,7 @@
 //! element. Locked elements are counted but not changed.
 
 use archicraft_model::command::relink_to_storey;
-use archicraft_model::glam::DVec2;
-use archicraft_model::project::{SlabDefaults, WallDefaults};
+use archicraft_model::project::DefaultsSlot;
 use archicraft_model::units::{NumberFormat, UnitSettings, format_area, format_length, format_volume};
 use archicraft_model::validate::signed_area;
 use archicraft_model::{
@@ -45,19 +44,6 @@ struct Editing {
     selected: usize,
 }
 
-/// An element built from a tool's defaults, for editing them; `None` for a
-/// kind without tool defaults.
-fn prototype(project: &Project, kind: KindTag) -> Option<Element> {
-    let storey = project.storeys.ground();
-    match kind {
-        KindTag::Wall => Some(project.new_wall(storey, DVec2::ZERO, DVec2::X, 0)),
-        KindTag::Slab => {
-            Some(project.new_slab(storey, vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::Y], Vec::new(), 0))
-        }
-        _ => None,
-    }
-}
-
 fn gather(ws: &Workspace) -> Option<Editing> {
     let project = &ws.doc.project;
     if ws.selection.is_empty() {
@@ -68,7 +54,7 @@ fn gather(ws: &Workspace) -> Option<Editing> {
         };
         return Some(Editing {
             subject: Subject::Defaults(kind),
-            targets: vec![prototype(project, kind)?],
+            targets: vec![project.new_element(kind, project.storeys.ground(), 0)?],
             selected: 0,
         });
     }
@@ -86,53 +72,26 @@ fn gather(ws: &Workspace) -> Option<Editing> {
     })
 }
 
-fn wall_defaults(e: &Element, old: &WallDefaults) -> WallDefaults {
-    match e.as_wall() {
-        Some(w) => WallDefaults {
-            thickness: w.thickness,
-            reference_line: w.reference_line,
-            base_offset: w.base_offset,
-            top: w.top,
-            material: w.material,
-            layer: e.layer,
-            position: e.position,
-            ifc_class: e.ifc_class,
-        },
-        None => old.clone(),
-    }
-}
-
-fn slab_defaults(e: &Element, old: &SlabDefaults) -> SlabDefaults {
-    match e.as_slab() {
-        Some(s) => SlabDefaults {
-            thickness: s.thickness,
-            reference: s.reference,
-            offset: s.offset,
-            material: s.material,
-            layer: e.layer,
-            position: e.position,
-            ifc_class: e.ifc_class,
-        },
-        None => old.clone(),
-    }
-}
-
 fn apply(ws: &mut Workspace, editing: Editing) {
     match editing.subject {
         Subject::Selection => {
             ws.execute(Command::UpdateElements(editing.targets));
         }
         Subject::Defaults(kind) => {
-            let Some(e) = editing.targets.first() else {
+            let Some(e) = editing.targets.into_iter().next() else {
                 return;
             };
-            let mut defaults = ws.doc.project.tool_defaults.clone();
-            match kind {
-                KindTag::Wall => defaults.wall = wall_defaults(e, &defaults.wall),
-                KindTag::Slab => defaults.slab = slab_defaults(e, &defaults.slab),
-                // A kind without a tool has no defaults to edit.
-                _ => return,
+            if e.tag() != kind {
+                return;
             }
+            // The edited prototype becomes the slot (ELM-001).
+            let mut defaults = ws.doc.project.tool_defaults.clone();
+            defaults.insert(DefaultsSlot {
+                layer: e.layer,
+                position: e.position,
+                ifc_class: e.ifc_class,
+                kind: e.kind,
+            });
             ws.execute(Command::SetToolDefaults(defaults));
         }
     }
@@ -647,6 +606,23 @@ fn lock_toggle(ui: &mut Ui, ws: &mut Workspace) {
             .iter()
             .filter(|e| e.locked != locked)
             .map(|e| Element { locked, ..(*e).clone() })
+            .collect();
+        ws.execute(Command::UpdateElements(changed));
+        return;
+    }
+    let mut snaps = selected.iter().all(|e| !e.snap_excluded);
+    if ui
+        .checkbox(&mut snaps, "Snap targets")
+        .on_hover_text("Cleared, the element stays visible but provides no snap targets (INP-017)")
+        .changed()
+    {
+        let changed: Vec<Element> = selected
+            .iter()
+            .filter(|e| e.snap_excluded == snaps)
+            .map(|e| Element {
+                snap_excluded: !snaps,
+                ..(*e).clone()
+            })
             .collect();
         ws.execute(Command::UpdateElements(changed));
     }

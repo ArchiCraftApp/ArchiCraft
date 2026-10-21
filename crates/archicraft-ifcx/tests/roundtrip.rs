@@ -204,7 +204,11 @@ fn golden_files_are_reproduced() {
         };
         let (bytes, _) = archicraft_ifcx::save(&loaded.project, &geometry, &options, false);
         if bless {
-            std::fs::write(&path, &bytes).unwrap();
+            // Catalogue samples are regenerated from the sample itself by
+            // `catalogue_samples_reproduce_the_golden_files`.
+            if catalogue_name(&path).is_none() {
+                std::fs::write(&path, &bytes).unwrap();
+            }
         } else {
             assert!(
                 bytes == original,
@@ -214,6 +218,116 @@ fn golden_files_are_reproduced() {
         }
     }
     assert!(count >= 2);
+}
+
+/// The catalogue sample a golden file belongs to, by file name.
+fn catalogue_name(path: &Path) -> Option<&'static str> {
+    let stem = path.file_stem()?.to_str()?;
+    samples::catalogue()
+        .iter()
+        .map(|(name, _)| *name)
+        .find(|name| *name == stem)
+}
+
+/// The header options of the reference models, for a golden file that does
+/// not exist yet (as in `examples/reference_models.rs`).
+fn reference_options() -> WriteOptions {
+    WriteOptions {
+        author: "ArchiCraft reference models".into(),
+        timestamp: "2026-10-16T00:00:00Z".into(),
+        data_version: 1,
+    }
+}
+
+#[test]
+fn catalogue_samples_reproduce_the_golden_files() {
+    // NFR-MNT-003, IFX-010, IFX-011: the golden file is the reference
+    // model's output. Every catalogue sample, built with seeded identities
+    // and saved with its golden file's header options, gives the golden
+    // file byte for byte. ARCHICRAFT_BLESS=1 regenerates the golden files
+    // from the samples.
+    let bless = std::env::var_os("ARCHICRAFT_BLESS").is_some();
+    for (name, build) in samples::catalogue() {
+        let path = golden_dir().join(format!("{name}.ifcx"));
+        let original = std::fs::read(&path).ok();
+        let options = match &original {
+            Some(bytes) => {
+                let header = validate::parse(bytes).unwrap().header;
+                WriteOptions {
+                    author: header.author,
+                    timestamp: header.timestamp,
+                    data_version: header.data_version.parse().unwrap(),
+                }
+            }
+            None => reference_options(),
+        };
+        let project = build();
+        let geometry = ModelGeometry::evaluate(&project);
+        let (bytes, warnings) = archicraft_ifcx::save(&project, &geometry, &options, false);
+        assert!(warnings.is_empty(), "{name}: {warnings:?}");
+        if bless {
+            std::fs::write(&path, &bytes).unwrap();
+        } else {
+            assert!(
+                original.as_deref() == Some(bytes.as_slice()),
+                "{} differs from the sample {name}; if intended, regenerate with ARCHICRAFT_BLESS=1",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn separate_builds_of_a_sample_save_the_same_bytes() {
+    // IFX-010, IFX-011: two builds of a catalogue sample, as two runs of
+    // `examples/reference_models.rs` make them, write identical files, compact
+    // and indented.
+    for (name, build) in samples::catalogue() {
+        for indented in [false, true] {
+            let write = || {
+                let project = build();
+                archicraft_ifcx::save(
+                    &project,
+                    &ModelGeometry::evaluate(&project),
+                    &reference_options(),
+                    indented,
+                )
+                .0
+            };
+            assert!(write() == write(), "{name}, indented {indented}");
+        }
+    }
+}
+
+/// Saves and reopens a stand-in and checks that it comes back equal to
+/// itself (IFX-064), returning how long that took.
+fn assert_stand_in_round_trips(n: usize) -> std::time::Duration {
+    let started = std::time::Instant::now();
+    let project = samples::stand_in(n);
+    let loaded = archicraft_ifcx::load(&save(&project)).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    let mut expected = project;
+    expected.revision = 0;
+    expected.data_version = 7;
+    assert!(loaded.project == expected, "stand_in({n}) round-trips equal to itself");
+    started.elapsed()
+}
+
+#[test]
+fn a_stand_in_of_1000_round_trips_equal_to_itself() {
+    // NFR-PERF-006, VIEW-001: the stand-ins are usable models.
+    let elapsed = assert_stand_in_round_trips(1_000);
+    eprintln!("stand_in(1_000) round trip: {elapsed:?}");
+}
+
+/// The RM-M-sized stand-in. Ignored to keep the normal suite lean: build,
+/// save and load take about 0.4 s in the dev profile on an M3 Max (2026-10-21);
+/// run it with `cargo test -p archicraft-ifcx --test roundtrip -- --ignored`.
+#[test]
+#[ignore = "RM-M size, about 0.4 s in the dev profile"]
+fn a_stand_in_of_5000_round_trips_equal_to_itself() {
+    let elapsed = assert_stand_in_round_trips(5_000);
+    eprintln!("stand_in(5_000) round trip: {elapsed:?}");
 }
 
 #[test]
@@ -517,4 +631,66 @@ fn a_class_outside_the_kinds_set_falls_back_to_the_kind_default() {
             loaded.problems
         );
     }
+}
+
+/// INP-017: an element and a layer excluded from producing snap targets
+/// keep both flags through a save and a load, and the file validates.
+#[test]
+fn snap_exclusion_flags_round_trip() {
+    let mut project = samples::storey_with_walls_and_slab();
+    let wall = project.elements.values().find(|e| e.name == "W-001").unwrap().id;
+    project.elements.get_mut(&wall).unwrap().snap_excluded = true;
+    let layer = project.layers.len() - 1;
+    project.layers[layer].snap_excluded = true;
+    let bytes = save(&project);
+    let problems = validate::validate(&validate::parse(&bytes).unwrap());
+    assert!(problems.is_empty(), "{problems:#?}");
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert!(loaded.project.element(wall).unwrap().snap_excluded);
+    assert!(loaded.project.layers[layer].snap_excluded);
+    let excluded = |p: &archicraft_model::Project| {
+        let elements = p.elements.values().filter(|e| e.snap_excluded).count();
+        let layers = p.layers.iter().filter(|l| l.snap_excluded).count();
+        (elements, layers)
+    };
+    assert_eq!(excluded(&loaded.project), (1, 1));
+}
+
+/// INP-017: the flag is written only when set, so files without it (all
+/// files written before it existed) read as not excluded without a problem.
+#[test]
+fn a_missing_snap_exclusion_flag_reads_as_false() {
+    for project in samples() {
+        assert!(project.elements.values().all(|e| !e.snap_excluded));
+        let bytes = save(&project);
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        assert!(!text.contains("snapExcluded"), "{}", project.info.name);
+        let loaded = archicraft_ifcx::load(&bytes).unwrap();
+        assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+        assert!(loaded.project.elements.values().all(|e| !e.snap_excluded));
+        assert!(loaded.project.layers.iter().all(|l| !l.snap_excluded));
+    }
+}
+
+/// INP-017: the flag is not declared in the embedded schemas, so the reader
+/// checks its type: a flag that is not true or false is reported and read
+/// as not excluded.
+#[test]
+fn an_invalid_snap_exclusion_flag_is_repaired_and_reported() {
+    let project = samples::storey_with_walls_and_slab();
+    let bytes = edit(&project, |v| {
+        let i = node_index(v, "W-001");
+        v["data"][i]["attributes"]["archicraft::element"]["snapExcluded"] = "yes".into();
+        v["data"][0]["attributes"]["archicraft::project"]["layers"][0]["snapExcluded"] = 1.into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.project.elements.values().all(|e| !e.snap_excluded));
+    assert!(loaded.project.layers.iter().all(|l| !l.snap_excluded));
+    let repaired = loaded
+        .problems
+        .iter()
+        .filter(|p| p.message.contains("“snapExcluded” is not true or false"))
+        .count();
+    assert_eq!(repaired, 2, "{:#?}", loaded.problems);
 }

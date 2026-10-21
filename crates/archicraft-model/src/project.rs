@@ -6,13 +6,13 @@ use glam::DVec2;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::element::{Element, IfcClass, KindTag, Position, TopLink};
+use crate::element::{Element, ElementKind, IfcClass, KindTag, Position};
 use crate::ids::{BuildingId, ElementId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
-use crate::kinds::{ReferenceLine, Slab, SlabReference, Wall};
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
 use crate::storey::StoreyList;
+use crate::template::TemplateContext;
 use crate::units::UnitSettings;
 
 /// Project information (PRJ-010).
@@ -190,35 +190,64 @@ pub struct View3d {
     pub projection: Projection,
 }
 
-/// Defaults of the wall tool (ELM-001, Appendix D.2).
+/// The defaults of one tool (ELM-001): the layer, position and IFC class a
+/// new element gets, and a prototype payload whose parameters it copies.
+/// The payload's geometry is a placeholder that the tool replaces (a wall
+/// from the origin to X, a slab over the unit square).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct WallDefaults {
-    pub thickness: f64,
-    pub reference_line: ReferenceLine,
-    pub base_offset: f64,
-    pub top: TopLink,
-    pub material: MaterialId,
+pub struct DefaultsSlot {
     pub layer: LayerId,
     pub position: Position,
+    /// One of the kind's selectable classes (ELM-011).
     pub ifc_class: IfcClass,
+    pub kind: ElementKind,
 }
 
-/// Defaults of the slab tool (ELM-001, Appendix D.2).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SlabDefaults {
-    pub thickness: f64,
-    pub reference: SlabReference,
-    pub offset: f64,
-    pub material: MaterialId,
-    pub layer: LayerId,
-    pub position: Position,
-    pub ifc_class: IfcClass,
+impl DefaultsSlot {
+    pub fn tag(&self) -> KindTag {
+        self.kind.tag()
+    }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ToolDefaults {
-    pub wall: WallDefaults,
-    pub slab: SlabDefaults,
+/// The tool defaults of a project, one [`DefaultsSlot`] per kind with a tool
+/// (ELM-001). Slots keep their insertion order, which is the registry order
+/// for projects from the template or a file.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+pub struct ToolDefaults(IndexMap<KindTag, DefaultsSlot>);
+
+impl ToolDefaults {
+    pub fn get(&self, kind: KindTag) -> Option<&DefaultsSlot> {
+        self.0.get(&kind)
+    }
+
+    pub fn get_mut(&mut self, kind: KindTag) -> Option<&mut DefaultsSlot> {
+        self.0.get_mut(&kind)
+    }
+
+    /// Sets the slot of the payload's kind, in place if the kind has one,
+    /// and returns the slot it replaces.
+    pub fn insert(&mut self, slot: DefaultsSlot) -> Option<DefaultsSlot> {
+        self.0.insert(slot.tag(), slot)
+    }
+
+    /// The slots with the kinds they are stored under, in order.
+    pub fn iter(&self) -> impl Iterator<Item = (KindTag, &DefaultsSlot)> {
+        self.0.iter().map(|(kind, slot)| (*kind, slot))
+    }
+
+    pub fn slots_mut(&mut self) -> impl Iterator<Item = &mut DefaultsSlot> {
+        self.0.values_mut()
+    }
+}
+
+impl FromIterator<DefaultsSlot> for ToolDefaults {
+    fn from_iter<I: IntoIterator<Item = DefaultsSlot>>(slots: I) -> Self {
+        let mut defaults = Self::default();
+        for slot in slots {
+            defaults.insert(slot);
+        }
+        defaults
+    }
 }
 
 /// Counters for automatic element names, one per kind (ELM-019).
@@ -316,6 +345,13 @@ impl Project {
         self.layer(element.layer).is_none_or(|l| l.visible)
     }
 
+    /// True if the element provides snap targets: it is visible and neither
+    /// it nor its layer is excluded from snapping. Locking does not matter
+    /// (INP-017).
+    pub fn provides_snaps(&self, element: &Element) -> bool {
+        !element.snap_excluded && self.layer(element.layer).is_none_or(|l| l.visible && !l.snap_excluded)
+    }
+
     /// Why an element cannot be edited, if it cannot (ELM-013, LAY-001), as
     /// a message key (NFR-L10N-001).
     pub fn edit_lock_reason(&self, element: &Element) -> Option<Message> {
@@ -363,52 +399,26 @@ impl Project {
         format!("{}-{n:03}", kind.name_prefix())
     }
 
-    /// A new wall on `storey` with the wall tool's defaults (ELM-001). `nth`
-    /// numbers walls created together.
-    pub fn new_wall(&self, storey: StoreyId, start: DVec2, end: DVec2, nth: u32) -> Element {
-        let d = &self.tool_defaults.wall;
-        Element {
+    /// The `nth` (0-based) next element of `kind` on `storey`, with the
+    /// tool's defaults (the template's if the slot is missing) and their
+    /// placeholder geometry: with `nth` 0, the prototype the properties panel
+    /// edits (ELM-001, ELM-019). `None` for a kind without a tool.
+    pub fn new_element(&self, kind: KindTag, storey: StoreyId, nth: u32) -> Option<Element> {
+        let slot = match self.tool_defaults.get(kind) {
+            Some(slot) if slot.tag() == kind => slot.clone(),
+            _ => (kind.descriptor().template_defaults?)(&TemplateContext::new(&self.materials, &self.layers)),
+        };
+        Some(Element {
             id: ElementId::new(),
-            name: self.next_element_name(KindTag::Wall, nth),
+            name: self.next_element_name(kind, nth),
             storey,
-            layer: d.layer,
-            ifc_class: d.ifc_class,
-            position: d.position,
+            layer: slot.layer,
+            ifc_class: slot.ifc_class,
+            position: slot.position,
             locked: false,
-            kind: Wall {
-                start,
-                end,
-                thickness: d.thickness,
-                reference_line: d.reference_line,
-                base_offset: d.base_offset,
-                top: d.top,
-                material: d.material,
-            }
-            .into(),
-        }
-    }
-
-    /// A new slab on `storey` with the slab tool's defaults (ELM-001).
-    pub fn new_slab(&self, storey: StoreyId, outline: Vec<DVec2>, holes: Vec<Vec<DVec2>>, nth: u32) -> Element {
-        let d = &self.tool_defaults.slab;
-        Element {
-            id: ElementId::new(),
-            name: self.next_element_name(KindTag::Slab, nth),
-            storey,
-            layer: d.layer,
-            ifc_class: d.ifc_class,
-            position: d.position,
-            locked: false,
-            kind: Slab {
-                outline,
-                holes,
-                thickness: d.thickness,
-                reference: d.reference,
-                offset: d.offset,
-                material: d.material,
-            }
-            .into(),
-        }
+            snap_excluded: false,
+            kind: slot.kind,
+        })
     }
 
     /// The storey, layer and material references that are dangling, as a

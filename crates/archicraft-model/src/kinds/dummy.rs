@@ -68,6 +68,7 @@ impl Dummy {
             ifc_class: Self::DESCRIPTOR.default_class,
             position: Position::Undefined,
             locked: false,
+            snap_excluded: false,
             kind: self.into(),
         }
     }
@@ -95,6 +96,7 @@ impl Kind for Dummy {
         default_class: IfcClass::BuildingElementProxy,
         ifc_classes: &[IfcClass::BuildingElementProxy, IfcClass::Footing],
         has_tool: false,
+        template_defaults: None,
     };
 
     fn material(&self) -> MaterialId {

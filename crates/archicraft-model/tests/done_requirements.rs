@@ -13,15 +13,25 @@ mod common;
 
 use archicraft_model::command::{DEFAULT_UNDO_LIMIT, JournalEntry, StoreyElements, replay};
 use archicraft_model::glam::DVec2;
-use archicraft_model::project::{Building, Location, ProjectInfo, Site, SlabDefaults, WallDefaults};
+use archicraft_model::project::{Building, DefaultsSlot, Location, ProjectInfo, Site};
 use archicraft_model::template::default_metric_project;
 use archicraft_model::units::{LengthUnit, NumberFormat, format_angle, format_length, parse_length};
 use archicraft_model::validate::validate_element;
 use archicraft_model::{
     Command, CommandError, Element, ElementKind, History, IfcClass, KindTag, Layer, LayerId, MaterialId, Message,
-    Position, Project, ReferenceLine, SlabReference, Storey, StoreyId, TopLink,
+    Position, Project, ReferenceLine, Slab, SlabReference, Storey, StoreyId, TopLink, Wall,
 };
 use common::{ground, wall};
+
+/// The element the tool of `kind` would create (ELM-001).
+fn prototype(p: &Project, kind: KindTag) -> Element {
+    p.new_element(kind, ground(p), 0).expect("a tool defaults slot")
+}
+
+/// The tool defaults slot of `kind` (ELM-001).
+fn slot(p: &Project, kind: KindTag) -> &DefaultsSlot {
+    p.tool_defaults.get(kind).expect("a tool defaults slot")
+}
 
 /// Asserts that `p` equals `expected` in everything but the cache revision,
 /// which every applied edit increments.
@@ -119,8 +129,8 @@ fn elm_010_every_element_is_on_exactly_one_existing_layer() {
     let mut h = History::default();
     let walls = layer_named(&p, "Exterior walls");
     let slabs = layer_named(&p, "Slabs");
-    assert_eq!(p.tool_defaults.wall.layer, walls);
-    assert_eq!(p.tool_defaults.slab.layer, slabs);
+    assert_eq!(slot(&p, KindTag::Wall).layer, walls);
+    assert_eq!(slot(&p, KindTag::Slab).layer, slabs);
 
     let w = wall(&p, (0.0, 0.0), (5.0, 0.0));
     let s = p.new_slab(ground(&p), rectangle(DVec2::ZERO, DVec2::splat(5.0)), Vec::new(), 0);
@@ -151,7 +161,7 @@ fn elm_010_every_element_is_on_exactly_one_existing_layer() {
     assert!(p.layer(walls).is_none());
     assert_eq!(p.element(wid).unwrap().layer, structure);
     assert_eq!(p.element(sid).unwrap().layer, slabs);
-    assert_eq!(p.tool_defaults.wall.layer, structure);
+    assert_eq!(slot(&p, KindTag::Wall).layer, structure);
     assert_eq!(p.new_wall(ground(&p), DVec2::ZERO, DVec2::X, 0).layer, structure);
     for e in p.elements.values() {
         assert_eq!(p.layers.iter().filter(|l| l.id == e.layer).count(), 1, "{}", e.name);
@@ -460,10 +470,13 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
 
     // The template supplies the defaults (Appendix D.2 pins every value).
     assert_eq!(
-        (p.tool_defaults.wall.thickness, p.tool_defaults.slab.thickness),
+        (
+            prototype(&p, KindTag::Wall).as_wall().unwrap().thickness,
+            prototype(&p, KindTag::Slab).as_slab().unwrap().thickness
+        ),
         (0.25, 0.20)
     );
-    assert_eq!(p.tool_defaults.wall.layer, layer_named(&p, "Exterior walls"));
+    assert_eq!(slot(&p, KindTag::Wall).layer, layer_named(&p, "Exterior walls"));
     assert_eq!(old.as_wall().unwrap().thickness, 0.25);
 
     let mut defaults = p.tool_defaults.clone();
@@ -472,27 +485,37 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
         .materials
         .iter()
         .map(|m| m.id)
-        .find(|&m| m != defaults.wall.material && m != defaults.slab.material)
+        .find(|&m| m != slot(&p, KindTag::Wall).kind.material() && m != slot(&p, KindTag::Slab).kind.material())
         .expect("the template has a third material");
-    defaults.wall = WallDefaults {
-        thickness: 0.365,
-        reference_line: ReferenceLine::Inside,
-        base_offset: -0.05,
-        top: TopLink::Fixed { height: 2.6 },
-        material,
+    defaults.insert(DefaultsSlot {
         layer: structure,
         position: Position::Interior,
         ifc_class: IfcClass::Footing,
-    };
-    defaults.slab = SlabDefaults {
-        thickness: 0.18,
-        reference: SlabReference::Bottom,
-        offset: 0.02,
-        material,
+        kind: Wall {
+            start: DVec2::ZERO,
+            end: DVec2::X,
+            thickness: 0.365,
+            reference_line: ReferenceLine::Inside,
+            base_offset: -0.05,
+            top: TopLink::Fixed { height: 2.6 },
+            material,
+        }
+        .into(),
+    });
+    defaults.insert(DefaultsSlot {
         layer: structure,
         position: Position::Exterior,
         ifc_class: IfcClass::Covering,
-    };
+        kind: Slab {
+            outline: rectangle(DVec2::ZERO, DVec2::ONE),
+            holes: Vec::new(),
+            thickness: 0.18,
+            reference: SlabReference::Bottom,
+            offset: 0.02,
+            material,
+        }
+        .into(),
+    });
     assert_ne!(defaults, p.tool_defaults);
     let template = p.tool_defaults.clone();
     assert_undo_redo_exact(&mut p, &mut h, Command::SetToolDefaults(defaults.clone()));
@@ -529,7 +552,7 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
 
     // Invalid defaults are rejected and leave the project's defaults alone.
     let mut bad = defaults.clone();
-    bad.wall.layer = LayerId::new();
+    bad.get_mut(KindTag::Wall).unwrap().layer = LayerId::new();
     assert!(matches!(
         h.execute(&mut p, Command::SetToolDefaults(bad)),
         Err(CommandError::Invalid(_))
@@ -568,11 +591,13 @@ fn und_001_every_change_category_undoes_and_redoes_exactly() {
         },
     );
     assert_undo_redo_exact(&mut p, &mut h, Command::AddLayer(Layer::new("Survey")));
-    let mut brick = p.material(p.tool_defaults.wall.material).unwrap().clone();
+    let mut brick = p.material(slot(&p, KindTag::Wall).kind.material()).unwrap().clone();
     brick.opacity = 0.5;
     assert_undo_redo_exact(&mut p, &mut h, Command::UpdateMaterial(brick));
     let mut defaults = p.tool_defaults.clone();
-    defaults.wall.thickness = 0.365;
+    if let Some(ElementKind::Wall(w)) = defaults.get_mut(KindTag::Wall).map(|s| &mut s.kind) {
+        w.thickness = 0.365;
+    }
     assert_undo_redo_exact(&mut p, &mut h, Command::SetToolDefaults(defaults));
     let mut settings = p.settings.clone();
     settings.units.length = LengthUnit::Millimeter;
@@ -773,7 +798,9 @@ fn scripted_session() -> Session {
         },
     );
     let mut defaults = p.tool_defaults.clone();
-    defaults.slab.thickness = 0.25;
+    if let Some(ElementKind::Slab(s)) = defaults.get_mut(KindTag::Slab).map(|s| &mut s.kind) {
+        s.thickness = 0.25;
+    }
     run(&mut p, Command::SetToolDefaults(defaults));
     let mut settings = p.settings.clone();
     settings.units.length_decimals = 2;

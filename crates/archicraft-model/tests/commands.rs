@@ -7,12 +7,13 @@ mod common;
 
 use archicraft_model::command::{StoreyElements, replay};
 use archicraft_model::glam::DVec2;
+use archicraft_model::project::{DefaultsSlot, ToolDefaults};
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::default_metric_project;
 use archicraft_model::validate::{MAX_GRID_SPACING, MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{
-    Arg, Command, CommandError, Element, ElementKind, History, KindTag, Layer, Material, Message, PlanGrid,
-    ProjectSettings, Storey, TopLink,
+    Arg, Command, CommandError, Element, ElementKind, History, IfcClass, KindTag, Layer, Material, Message, PlanGrid,
+    ProjectSettings, Slab, Storey, TopLink, Wall,
 };
 use common::{ground, wall};
 
@@ -98,6 +99,22 @@ fn invalid_commands_leave_the_project_unchanged() {
     assert!(h.execute(&mut p, Command::AddElements(vec![zero_length])).is_err());
     assert_eq!(p, before);
     assert!(!h.can_undo());
+}
+
+/// The wall parameters of a tool defaults slot.
+fn wall_of(slot: &mut DefaultsSlot) -> &mut Wall {
+    match &mut slot.kind {
+        ElementKind::Wall(w) => w,
+        other => panic!("not a wall slot: {other:?}"),
+    }
+}
+
+/// The slab parameters of a tool defaults slot.
+fn slab_of(slot: &mut DefaultsSlot) -> &mut Slab {
+    match &mut slot.kind {
+        ElementKind::Slab(s) => s,
+        other => panic!("not a slab slot: {other:?}"),
+    }
 }
 
 /// The message of a rejected command, with the variant it came in.
@@ -319,14 +336,20 @@ fn deleting_a_storey_can_keep_its_elements() {
     assert!(h.can_undo(), "storey operations keep the undo history (STR-005)");
 }
 
+/// DSP-003, LAY-002, ELM-001: deleting a material or layer needs a
+/// replacement, which the elements and exactly the tool defaults slots that
+/// used the deleted one get; undo restores the slots.
 #[test]
 fn deleting_resources_requires_a_replacement() {
     let mut p = default_metric_project();
     let mut h = History::default();
+    let template = p.tool_defaults.clone();
     let w = wall(&p, (0.0, 0.0), (5.0, 0.0));
     let id = w.id;
     let brick = w.kind.material();
     let concrete = p.materials[0].id;
+    assert_eq!(template.get(KindTag::Wall).unwrap().kind.material(), brick);
+    assert_ne!(template.get(KindTag::Slab).unwrap().kind.material(), brick);
     h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
     assert!(
         h.execute(
@@ -347,11 +370,15 @@ fn deleting_resources_requires_a_replacement() {
     )
     .unwrap();
     assert_eq!(p.element(id).unwrap().kind.material(), concrete);
-    assert_eq!(p.tool_defaults.wall.material, concrete);
+    let mut expected = template.clone();
+    expected.get_mut(KindTag::Wall).unwrap().kind.set_material(concrete);
+    assert_eq!(p.tool_defaults, expected, "only the wall slot used the brick");
     assert!(p.material(brick).is_none());
 
     let walls_layer = p.element(id).unwrap().layer;
     let other = p.layers[0].id;
+    assert_eq!(template.get(KindTag::Wall).unwrap().layer, walls_layer);
+    assert_ne!(template.get(KindTag::Slab).unwrap().layer, walls_layer);
     h.execute(
         &mut p,
         Command::DeleteLayer {
@@ -361,7 +388,158 @@ fn deleting_resources_requires_a_replacement() {
     )
     .unwrap();
     assert_eq!(p.element(id).unwrap().layer, other);
+    expected.get_mut(KindTag::Wall).unwrap().layer = other;
+    assert_eq!(p.tool_defaults, expected, "only the wall slot was on the layer");
     assert!(p.integrity_problems().is_empty());
+
+    h.undo(&mut p).unwrap();
+    h.undo(&mut p).unwrap();
+    assert_eq!(p.tool_defaults, template);
+}
+
+/// ELM-011, ELM-001: SetToolDefaults checks every slot as the prototype
+/// element it makes: a class outside the kind's descriptor set and a
+/// payload that fails validation are rejected with an explanatory message,
+/// a missing slot of a kind with a tool too, and an unchanged map changes
+/// nothing.
+#[test]
+fn tool_defaults_slots_are_validated_per_kind() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let before = p.clone();
+
+    let mut foreign_class = p.tool_defaults.clone();
+    foreign_class.get_mut(KindTag::Wall).unwrap().ifc_class = IfcClass::Covering;
+    assert!(!KindTag::Wall.ifc_classes().contains(&IfcClass::Covering));
+    let (variant, message) = rejection(h.execute(&mut p, Command::SetToolDefaults(foreign_class)));
+    assert_eq!((variant, message.key()), ("Invalid", "model-error-default-invalid"));
+    assert_eq!(message.arg("kind"), Some(&Arg::Kind(KindTag::Wall)));
+    match message.arg("reason") {
+        Some(Arg::Nested(reason)) => {
+            assert_eq!(reason.key(), "model-error-ifc-class-not-allowed");
+            assert_eq!(reason.arg("class"), Some(&Arg::Text("IfcCovering".into())));
+        }
+        other => panic!("expected a nested reason, got {other:?}"),
+    }
+
+    let mut zero_thickness = p.tool_defaults.clone();
+    slab_of(zero_thickness.get_mut(KindTag::Slab).unwrap()).thickness = 0.0;
+    let (variant, message) = rejection(h.execute(&mut p, Command::SetToolDefaults(zero_thickness)));
+    assert_eq!((variant, message.key()), ("Invalid", "model-error-default-invalid"));
+    assert_eq!(message.arg("kind"), Some(&Arg::Kind(KindTag::Slab)));
+    match message.arg("reason") {
+        Some(Arg::Nested(reason)) => assert_eq!(reason.key(), "model-error-thickness-range"),
+        other => panic!("expected a nested reason, got {other:?}"),
+    }
+
+    let without_slab: ToolDefaults = p
+        .tool_defaults
+        .iter()
+        .filter(|(kind, _)| *kind != KindTag::Slab)
+        .map(|(_, slot)| slot.clone())
+        .collect();
+    let (variant, message) = rejection(h.execute(&mut p, Command::SetToolDefaults(without_slab)));
+    assert_eq!((variant, message.key()), ("Invalid", "model-error-default-missing"));
+    assert_eq!(message.arg("kind"), Some(&Arg::Kind(KindTag::Slab)));
+
+    let unchanged = p.tool_defaults.clone();
+    assert_eq!(
+        h.execute(&mut p, Command::SetToolDefaults(unchanged)),
+        Err(CommandError::NoChange)
+    );
+    assert_eq!(p, before);
+}
+
+/// ELM-006, STR-004: a default top linked to a deleted storey that would
+/// become a height of zero gets the template defaults of its kind back, so
+/// the defaults stay valid and editable.
+#[test]
+fn deleting_a_storey_keeps_the_tool_defaults_valid() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let template = p.tool_defaults.clone();
+    let ground = p.storeys.ground();
+    let mut defaults = p.tool_defaults.clone();
+    let wall = defaults.get_mut(KindTag::Wall).unwrap();
+    wall_of(wall).top = TopLink::Storey {
+        storey: ground,
+        offset: 0.0,
+    };
+    wall_of(wall).thickness = 0.3;
+    h.execute(&mut p, Command::SetToolDefaults(defaults)).unwrap();
+
+    h.execute(
+        &mut p,
+        Command::DeleteStorey {
+            storey: ground,
+            elements: StoreyElements::Delete,
+        },
+    )
+    .unwrap();
+    assert_eq!(p.tool_defaults, template);
+    let mut thicker = p.tool_defaults.clone();
+    wall_of(thicker.get_mut(KindTag::Wall).unwrap()).thickness = 0.365;
+    h.execute(&mut p, Command::SetToolDefaults(thicker)).unwrap();
+    let w = p.new_wall(p.storeys.ground(), DVec2::ZERO, DVec2::X, 0);
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+}
+
+/// ELM-006, STR-004: deleting a storey rewrites every tools defaults slot
+/// whose top is linked to it, of every kind, to a fixed height; undo
+/// restores the links.
+#[cfg(feature = "test-kinds")]
+#[test]
+fn deleting_a_storey_unlinks_every_defaults_slot() {
+    use archicraft_model::kinds::{Dummy, VerticalLink};
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let upper = p.storeys.as_slice()[1].id;
+    let linked = TopLink::Storey {
+        storey: upper,
+        offset: 0.5,
+    };
+    let mut defaults = p.tool_defaults.clone();
+    wall_of(defaults.get_mut(KindTag::Wall).unwrap()).top = linked;
+    let mut dummy = Dummy::new(DVec2::ZERO, DVec2::ONE, p.materials[0].id);
+    dummy.link = VerticalLink {
+        base_offset: 0.0,
+        top: linked,
+    };
+    defaults.insert(DefaultsSlot {
+        layer: p.layers[0].id,
+        position: archicraft_model::Position::Undefined,
+        ifc_class: KindTag::Dummy.descriptor().default_class,
+        kind: dummy.into(),
+    });
+    h.execute(&mut p, Command::SetToolDefaults(defaults.clone())).unwrap();
+    assert_eq!(p.tool_defaults, defaults);
+
+    h.execute(
+        &mut p,
+        Command::DeleteStorey {
+            storey: upper,
+            elements: StoreyElements::Delete,
+        },
+    )
+    .unwrap();
+    // The upper storey was 3 m above the ground storey: the tops stay 3.5 m
+    // above the base.
+    let fixed = TopLink::Fixed { height: 3.5 };
+    let mut after = p.tool_defaults.clone();
+    assert_eq!(wall_of(after.get_mut(KindTag::Wall).unwrap()).top, fixed);
+    match &after.get(KindTag::Dummy).unwrap().kind {
+        ElementKind::Dummy(d) => assert_eq!(d.link.top, fixed),
+        other => panic!("not a dummy slot: {other:?}"),
+    }
+    assert_eq!(
+        p.tool_defaults.get(KindTag::Slab),
+        defaults.get(KindTag::Slab),
+        "the slab slot has no storey link"
+    );
+
+    h.undo(&mut p).unwrap();
+    assert_eq!(p.tool_defaults, defaults);
 }
 
 #[test]
@@ -608,4 +786,125 @@ fn a_test_kind_element_with_a_foreign_class_is_rejected() {
         other => panic!("expected CommandError::Invalid, got {other:?}"),
     }
     assert_eq!(p, before);
+}
+
+/// INP-017, UND-001: excluding an element and a layer from producing snap
+/// targets is one undoable command each, through UpdateElements and
+/// UpdateLayer.
+#[test]
+fn snap_exclusion_undoes_and_redoes_to_the_exact_project() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let w = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    let id = w.id;
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    let layer = p.layer(p.element(id).unwrap().layer).unwrap().clone();
+
+    let changes = [
+        Command::UpdateElements(vec![Element {
+            snap_excluded: true,
+            ..p.element(id).unwrap().clone()
+        }]),
+        Command::UpdateLayer(Layer {
+            snap_excluded: true,
+            ..layer
+        }),
+    ];
+    for command in changes {
+        let before = p.clone();
+        assert!(p.provides_snaps(p.element(id).unwrap()));
+        h.execute(&mut p, command).unwrap();
+        assert!(!p.provides_snaps(p.element(id).unwrap()));
+        let after = p.clone();
+
+        h.undo(&mut p).unwrap();
+        let mut expected = before;
+        expected.revision = p.revision;
+        assert_eq!(p, expected);
+
+        h.redo(&mut p).unwrap();
+        let mut expected = after;
+        expected.revision = p.revision;
+        assert_eq!(p, expected);
+        h.undo(&mut p).unwrap();
+    }
+}
+
+/// INP-017, LAY-001: locked elements and elements on locked layers provide
+/// snap targets; hidden ones do not; and the snap flag is independent of
+/// the visibility used for drawing and selection.
+#[test]
+fn locked_elements_provide_snaps_and_hidden_ones_do_not() {
+    let mut p = default_metric_project();
+    let mut w = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    w.locked = true;
+    assert!(p.provides_snaps(&w));
+
+    let at = p.layers.iter().position(|l| l.id == w.layer).unwrap();
+    let layer = p.layers[at].clone();
+    p.layers[at] = Layer {
+        locked: true,
+        ..layer.clone()
+    };
+    assert!(p.provides_snaps(&w));
+    p.layers[at] = Layer {
+        visible: false,
+        ..layer.clone()
+    };
+    assert!(!p.provides_snaps(&w));
+    assert!(!p.is_visible(&w));
+
+    p.layers[at] = Layer {
+        snap_excluded: true,
+        ..layer
+    };
+    assert!(!p.provides_snaps(&w));
+    assert!(p.is_visible(&w), "an excluded layer stays visible");
+    w.snap_excluded = true;
+    p.layers[at].snap_excluded = false;
+    assert!(!p.provides_snaps(&w));
+    assert!(p.is_visible(&w), "an excluded element stays visible");
+}
+
+/// INP-017, ELM-013: an element-locked wall accepts the snap flag like its
+/// lock flag; a wall on a locked layer rejects it with the lock reason.
+#[test]
+fn locked_walls_accept_the_snap_flag_unless_their_layer_is_locked() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let mut w = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    w.locked = true;
+    let id = w.id;
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    let excluded = Element {
+        snap_excluded: true,
+        ..p.element(id).unwrap().clone()
+    };
+    h.execute(&mut p, Command::UpdateElements(vec![excluded.clone()]))
+        .unwrap();
+    assert!(p.element(id).unwrap().snap_excluded);
+    let moved = Element {
+        snap_excluded: false,
+        name: "Renamed".into(),
+        ..p.element(id).unwrap().clone()
+    };
+    let (variant, message) = rejection(h.execute(&mut p, Command::UpdateElements(vec![moved])));
+    assert_eq!((variant, message.key()), ("Locked", "model-error-element-locked"));
+    h.undo(&mut p).unwrap();
+
+    let unlocked = Element {
+        locked: false,
+        ..p.element(id).unwrap().clone()
+    };
+    h.execute(&mut p, Command::UpdateElements(vec![unlocked])).unwrap();
+    let layer = p.layer(p.element(id).unwrap().layer).unwrap().clone();
+    h.execute(&mut p, Command::UpdateLayer(Layer { locked: true, ..layer }))
+        .unwrap();
+    let excluded = Element {
+        snap_excluded: true,
+        ..p.element(id).unwrap().clone()
+    };
+    let (variant, message) = rejection(h.execute(&mut p, Command::UpdateElements(vec![excluded])));
+    assert_eq!((variant, message.key()), ("Locked", "model-error-layer-locked"));
+    assert!(!p.element(id).unwrap().snap_excluded);
 }

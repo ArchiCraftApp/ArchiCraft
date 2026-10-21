@@ -5,6 +5,7 @@
 #![allow(clippy::unwrap_used)]
 
 use archicraft_model::fixtures::{self, D7, EXTRA, Fixture, REQUIRED_INCREMENT};
+use archicraft_model::template::default_metric_project;
 use archicraft_model::{BuildingId, ElementId, LayerId, Project, SiteId, samples};
 use uuid::Uuid;
 
@@ -60,11 +61,9 @@ fn registry_ids_are_unique_and_unambiguous() {
 fn s_shell_is_registered_at_increment_zero() {
     let shell = EXTRA.iter().find(|f| f.id == "S-shell").unwrap();
     assert_eq!(shell.increment, 0);
-    // Identities are random until seeded builders exist, so compare content.
-    let (built, sample) = (shell.build.unwrap()(), samples::two_storey_shell());
-    assert_eq!(built.info, sample.info);
-    let names = |p: &Project| p.elements.values().map(|e| e.name.clone()).collect::<Vec<_>>();
-    assert_eq!(names(&built), names(&sample));
+    // The shell is built by the seeded fixture builder, so builds are equal.
+    assert!(shell.seeded);
+    assert_eq!(shell.build.unwrap()(), samples::two_storey_shell());
 }
 
 /// NFR-PERF-001: the provisional bench model is an extra fixture, so it
@@ -182,12 +181,12 @@ fn check_names_a_duplicate_identity() {
 }
 
 /// `check` reports a fixture marked seeded whose two builds differ, naming
-/// the fixture; the shell's identities are random, so its builds differ.
+/// the fixture; the template's identities are random, so its builds differ.
 #[test]
 fn check_names_a_seeded_fixture_whose_builds_differ() {
     let seeded = Fixture {
         seeded: true,
-        ..entry("x-unseeded", 0, Some(shell))
+        ..entry("x-unseeded", 0, Some(default_metric_project))
     };
     let error = fixtures::check(&seeded).unwrap_err();
     assert!(error.starts_with("x-unseeded: "), "{error}");
@@ -195,7 +194,7 @@ fn check_names_a_seeded_fixture_whose_builds_differ() {
         error.contains("two builds differ although the fixture is seeded"),
         "{error}"
     );
-    let unseeded = entry("x-unseeded", 0, Some(shell));
+    let unseeded = entry("x-unseeded", 0, Some(default_metric_project));
     assert!(fixtures::check(&unseeded).is_ok());
 }
 

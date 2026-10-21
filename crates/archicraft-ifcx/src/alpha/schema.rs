@@ -252,6 +252,11 @@ pub fn declarations() -> IndexMap<String, Value> {
             ("cutPlaneHeight", optional(length())),
         ])}),
     );
+    // The `snapExcluded` flag of elements and layers (INP-017) is written
+    // only when set and is not declared, like the counters of other kinds:
+    // the schemas are embedded in every file, so declaring it would change
+    // every file written before it existed. Validation accepts undeclared
+    // keys, and the reader checks the flag's type.
     schemas.insert(
         ELEMENT.to_owned(),
         json!({"value": object(&[

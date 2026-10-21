@@ -15,13 +15,14 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::element::{Element, KindTag, TopLink};
+use crate::element::{Element, KindTag};
 use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
-use crate::project::{Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
+use crate::project::{DefaultsSlot, Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
 use crate::storey::{MAX_CUT_PLANE_HEIGHT, Storey, StoreyList};
+use crate::template::TemplateContext;
 use crate::transform::{PlanTransform, TransformError};
 use crate::validate;
 
@@ -367,11 +368,13 @@ fn plan_delete_elements(project: &Project, ids: &[ElementId]) -> Result<Vec<Edit
     Ok(edits)
 }
 
-/// True if `new` differs from `old` only in the element lock flag, which is
-/// the one change a locked element accepts.
-fn only_lock_changed(old: &Element, new: &Element) -> bool {
+/// True if `new` differs from `old` only in the element lock flag or the
+/// snap flag, the changes an element-locked element accepts (ELM-013,
+/// INP-017): the snap flag is an input aid, not an edit of the element.
+fn only_lock_or_snap_changed(old: &Element, new: &Element) -> bool {
     Element {
         locked: old.locked,
+        snap_excluded: old.snap_excluded,
         ..new.clone()
     } == *old
 }
@@ -388,7 +391,7 @@ fn plan_update_elements(project: &Project, elements: &[Element]) -> Result<Vec<E
         }
         if let Some(reason) = project.edit_lock_reason(old) {
             let layer_locked = project.layer(old.layer).is_some_and(|l| l.locked);
-            if layer_locked || !only_lock_changed(old, element) {
+            if layer_locked || !only_lock_or_snap_changed(old, element) {
                 return Err(CommandError::Locked(reason));
             }
         }
@@ -482,12 +485,23 @@ fn plan_delete_storey(project: &Project, storey: StoreyId, mode: StoreyElements)
             }
         }
     }
-    if matches!(project.tool_defaults.wall.top, TopLink::Storey { storey: s, .. } if s == storey) {
-        let mut defaults = project.tool_defaults.clone();
-        defaults.wall.top = TopLink::Relative {
-            storeys: 1,
-            offset: 0.0,
-        };
+    // ELM-006: default tops linked to the storey become fixed heights above
+    // the ground storey, like the elements' tops. A slot that this makes
+    // invalid (a height of zero or less) gets its kind's template defaults.
+    let ground = project.storeys.ground();
+    let defaults: ToolDefaults = project
+        .tool_defaults
+        .iter()
+        .filter_map(|(kind, slot)| {
+            let mut slot = slot.clone();
+            if !slot.kind.unlink_storey(ground, &project.storeys, storey) || check_slot(project, kind, &slot).is_ok() {
+                return Some(slot);
+            }
+            let template = kind.descriptor().template_defaults?;
+            Some(template(&TemplateContext::new(&project.materials, &project.layers)))
+        })
+        .collect();
+    if defaults != project.tool_defaults {
         edits.push(Edit::SetToolDefaults(defaults));
     }
     edits.push(Edit::SetStoreys(list));
@@ -520,10 +534,8 @@ fn plan_delete_layer(project: &Project, layer: LayerId, reassign_to: LayerId) ->
         })
         .collect();
     let mut defaults = project.tool_defaults.clone();
-    for slot in [&mut defaults.wall.layer, &mut defaults.slab.layer] {
-        if *slot == layer {
-            *slot = reassign_to;
-        }
+    for slot in defaults.slots_mut().filter(|s| s.layer == layer) {
+        slot.layer = reassign_to;
     }
     if defaults != project.tool_defaults {
         edits.push(Edit::SetToolDefaults(defaults));
@@ -555,10 +567,8 @@ fn plan_delete_material(
         })
         .collect();
     let mut defaults = project.tool_defaults.clone();
-    for slot in [&mut defaults.wall.material, &mut defaults.slab.material] {
-        if *slot == material {
-            *slot = replacement;
-        }
+    for slot in defaults.slots_mut().filter(|s| s.kind.material() == material) {
+        slot.kind.set_material(replacement);
     }
     if defaults != project.tool_defaults {
         edits.push(Edit::SetToolDefaults(defaults));
@@ -567,43 +577,51 @@ fn plan_delete_material(
     Ok(edits)
 }
 
+/// Checks every slot as the prototype element it makes on the ground
+/// storey: its layer, material, IFC class among the kind's (ELM-011),
+/// parameters and storey links (ELM-006), through
+/// [`validate::validate_prototype`]. Every kind with template defaults needs
+/// a slot (ELM-001).
 fn check_tool_defaults(project: &Project, defaults: &ToolDefaults) -> Result<(), CommandError> {
-    for (layer, material) in [
-        (defaults.wall.layer, defaults.wall.material),
-        (defaults.slab.layer, defaults.slab.material),
-    ] {
-        if project.layer(layer).is_none() {
-            return Err(invalid("model-error-default-layer-missing"));
-        }
-        if project.material(material).is_none() {
-            return Err(invalid("model-error-default-material-missing"));
-        }
-    }
-    for (kind, class) in [
-        (KindTag::Wall, defaults.wall.ifc_class),
-        (KindTag::Slab, defaults.slab.ifc_class),
-    ] {
-        if !kind.descriptor().ifc_classes.contains(&class) {
-            return Err(invalid("model-error-default-ifc-class"));
-        }
-    }
-    let probe_wall = crate::kinds::Wall {
-        start: DVec2::ZERO,
-        end: DVec2::X,
-        thickness: defaults.wall.thickness,
-        reference_line: defaults.wall.reference_line,
-        base_offset: defaults.wall.base_offset,
-        top: defaults.wall.top,
-        material: defaults.wall.material,
-    };
-    validate::validate_wall(&probe_wall).map_err(CommandError::Invalid)?;
-    if let TopLink::Storey { storey, .. } = defaults.wall.top
-        && project.storeys.get(storey).is_none()
+    if let Some(&kind) = KindTag::ALL
+        .iter()
+        .find(|k| k.descriptor().template_defaults.is_some() && defaults.get(**k).is_none())
     {
-        return Err(invalid("model-error-wall-top-storey-missing"));
+        return Err(CommandError::Invalid(
+            Message::new("model-error-default-missing").kind("kind", kind),
+        ));
     }
-    validate::check_thickness(defaults.slab.thickness).map_err(CommandError::Invalid)?;
-    validate::check_offset(defaults.slab.offset, "model-error-slab-offset-range").map_err(CommandError::Invalid)?;
+    for (kind, slot) in defaults.iter() {
+        check_slot(project, kind, slot)?;
+    }
+    Ok(())
+}
+
+/// Checks the slot stored under `kind` as the prototype element it makes on
+/// the ground storey (see [`check_tool_defaults`]).
+fn check_slot(project: &Project, kind: KindTag, slot: &DefaultsSlot) -> Result<(), CommandError> {
+    let invalid_slot = |reason| {
+        CommandError::Invalid(
+            Message::new("model-error-default-invalid")
+                .kind("kind", kind)
+                .nested("reason", reason),
+        )
+    };
+    if slot.tag() != kind {
+        return Err(invalid_slot(Message::new("model-error-kind-change")));
+    }
+    let prototype = Element {
+        id: ElementId::new(),
+        name: project.next_element_name(kind, 0),
+        storey: project.storeys.ground(),
+        layer: slot.layer,
+        ifc_class: slot.ifc_class,
+        position: slot.position,
+        locked: false,
+        snap_excluded: false,
+        kind: slot.kind.clone(),
+    };
+    validate::validate_prototype(project, &prototype).map_err(invalid_slot)?;
     Ok(())
 }
 

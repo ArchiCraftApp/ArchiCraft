@@ -2,18 +2,18 @@
 //! Appendix D.1, D.2 and D.4).
 //!
 //! Creating a project from the template gives every object a new identity
-//! (IFX-011).
+//! (IFX-011). Seeded fixtures pass their own identity source instead
+//! ([`default_metric_project_with`]).
 
 use indexmap::IndexMap;
+use uuid::Uuid;
 
-use crate::element::{IfcClass, Position, TopLink};
-use crate::ids::{BuildingId, MaterialId, ProjectId, SiteId, ViewId};
-use crate::kinds::{ReferenceLine, SlabReference};
+use crate::element::KindTag;
+use crate::ids::{BuildingId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
 use crate::layer::Layer;
 use crate::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use crate::project::{
-    Building, Location, NameCounters, Project, ProjectInfo, ProjectSettings, Projection, Site, SlabDefaults,
-    ToolDefaults, View3d, WallDefaults,
+    Building, Location, NameCounters, Project, ProjectInfo, ProjectSettings, Projection, Site, ToolDefaults, View3d,
 };
 use crate::storey::{Storey, StoreyList};
 
@@ -272,11 +272,11 @@ pub const LAYERS: [&str; 11] = [
     "References",
 ];
 
-fn material(entry: &MaterialEntry) -> Material {
+fn material(entry: &MaterialEntry, id: MaterialId) -> Material {
     let (name, code, category, [r, g, b], opacity, priority, pattern) = *entry;
     let color = Rgb::from_u8(r, g, b);
     Material {
-        id: MaterialId::new(),
+        id,
         name: name.to_owned(),
         code: code.to_owned(),
         description: String::new(),
@@ -292,72 +292,106 @@ fn material(entry: &MaterialEntry) -> Material {
     }
 }
 
-/// A new project from the default metric template.
-pub fn default_metric_project() -> Project {
-    let materials: Vec<Material> = MATERIALS.iter().map(material).collect();
-    let layers: Vec<Layer> = LAYERS.iter().map(|name| Layer::new(*name)).collect();
-    let find_material = |name: &str| {
-        materials
+/// The materials and layers that the template's tool defaults are resolved
+/// against (Appendix D.2): each is found by name, else the first one is
+/// used.
+#[derive(Clone, Copy, Debug)]
+pub struct TemplateContext<'a> {
+    materials: &'a [Material],
+    layers: &'a [Layer],
+}
+
+impl<'a> TemplateContext<'a> {
+    pub fn new(materials: &'a [Material], layers: &'a [Layer]) -> Self {
+        Self { materials, layers }
+    }
+
+    /// The material named `name`, else the first (else a new identity).
+    pub fn material(&self, name: &str) -> MaterialId {
+        self.materials
             .iter()
             .find(|m| m.name == name)
-            .map(|m| m.id)
-            .unwrap_or(materials[0].id)
-    };
-    let find_layer = |name: &str| {
-        layers
+            .or_else(|| self.materials.first())
+            .map_or_else(MaterialId::new, |m| m.id)
+    }
+
+    /// The layer named `name`, else the first (else a new identity).
+    pub fn layer(&self, name: &str) -> LayerId {
+        self.layers
             .iter()
             .find(|l| l.name == name)
-            .map(|l| l.id)
-            .unwrap_or(layers[0].id)
-    };
+            .or_else(|| self.layers.first())
+            .map_or_else(LayerId::new, |l| l.id)
+    }
+}
 
-    let ground = Storey::new("00 Ground floor", 0.0, 3.0);
-    let first = Storey::new("01 First floor", 3.0, 3.0);
+/// The template's tool defaults: one slot per kind with template defaults,
+/// in registry order (ELM-001, ELM-011, Appendix D.2).
+pub fn template_tool_defaults(context: &TemplateContext<'_>) -> ToolDefaults {
+    KindTag::ALL
+        .iter()
+        .filter_map(|kind| kind.descriptor().template_defaults)
+        .map(|template| template(context))
+        .collect()
+}
+
+/// A new project from the default metric template, with random (version 4)
+/// identities (IFX-011).
+pub fn default_metric_project() -> Project {
+    default_metric_project_with(&mut |_| Uuid::new_v4())
+}
+
+/// A new project from the default metric template whose identities come
+/// from `ids`, called once per object with its role: `project`, `site`,
+/// `building`, `storey`, `layer`, `material` and `view`, in a fixed order.
+/// The tool defaults refer to the materials and layers by these identities.
+/// [`crate::samples::FixtureBuilder`] passes name-based (version 5) UUIDs, so
+/// that its fixtures are reproducible.
+pub fn default_metric_project_with(ids: &mut dyn FnMut(&str) -> Uuid) -> Project {
+    let id = ids("project");
+    let site = ids("site");
+    let building = ids("building");
+    let materials: Vec<Material> = MATERIALS
+        .iter()
+        .map(|entry| material(entry, MaterialId::from_uuid(ids("material"))))
+        .collect();
+    let layers: Vec<Layer> = LAYERS
+        .iter()
+        .map(|name| Layer {
+            id: LayerId::from_uuid(ids("layer")),
+            ..Layer::new(*name)
+        })
+        .collect();
+    let tool_defaults = template_tool_defaults(&TemplateContext::new(&materials, &layers));
+
+    let ground = Storey {
+        id: StoreyId::from_uuid(ids("storey")),
+        ..Storey::new("00 Ground floor", 0.0, 3.0)
+    };
+    let first = Storey {
+        id: StoreyId::from_uuid(ids("storey")),
+        ..Storey::new("01 First floor", 3.0, 3.0)
+    };
     let ground_id = ground.id;
     let storeys = match StoreyList::new(vec![ground, first], ground_id) {
         Ok(list) => list,
         Err(e) => unreachable!("default storeys are valid: {e}"),
     };
 
-    let tool_defaults = ToolDefaults {
-        wall: WallDefaults {
-            thickness: 0.25,
-            reference_line: ReferenceLine::Outside,
-            base_offset: 0.0,
-            top: TopLink::Relative {
-                storeys: 1,
-                offset: 0.0,
-            },
-            material: find_material("Brick"),
-            layer: find_layer("Exterior walls"),
-            position: Position::Exterior,
-            ifc_class: IfcClass::Wall,
-        },
-        slab: SlabDefaults {
-            thickness: 0.20,
-            reference: SlabReference::Top,
-            offset: 0.0,
-            material: find_material("Reinforced concrete"),
-            layer: find_layer("Slabs"),
-            position: Position::Undefined,
-            ifc_class: IfcClass::Slab,
-        },
-    };
-
     Project {
-        id: ProjectId::new(),
+        id: ProjectId::from_uuid(id),
         info: ProjectInfo {
             name: "Untitled project".to_owned(),
             ..ProjectInfo::default()
         },
         settings: ProjectSettings::default(),
         site: Site {
-            id: SiteId::new(),
+            id: SiteId::from_uuid(site),
             name: "Site".to_owned(),
             location: Location::default(),
         },
         building: Building {
-            id: BuildingId::new(),
+            id: BuildingId::from_uuid(building),
             name: "Building".to_owned(),
         },
         storeys,
@@ -367,12 +401,12 @@ pub fn default_metric_project() -> Project {
         tool_defaults,
         views: vec![
             View3d {
-                id: ViewId::new(),
+                id: ViewId::from_uuid(ids("view")),
                 name: "3D perspective".to_owned(),
                 projection: Projection::Perspective,
             },
             View3d {
-                id: ViewId::new(),
+                id: ViewId::from_uuid(ids("view")),
                 name: "3D parallel".to_owned(),
                 projection: Projection::Parallel,
             },
@@ -398,8 +432,9 @@ mod tests {
         assert_eq!(p.storeys.len(), 2);
         assert_eq!(p.storeys.as_slice()[1].elevation, 3.0);
         assert_eq!(p.views.len(), 2);
-        assert!(p.material(p.tool_defaults.wall.material).is_some());
-        assert!(p.layer(p.tool_defaults.slab.layer).is_some());
+        let wall = p.tool_defaults.get(KindTag::Wall).unwrap();
+        assert!(p.material(wall.kind.material()).is_some());
+        assert!(p.layer(p.tool_defaults.get(KindTag::Slab).unwrap().layer).is_some());
     }
 
     #[test]

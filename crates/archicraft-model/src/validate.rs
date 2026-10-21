@@ -297,6 +297,17 @@ pub fn validate_slab(slab: &Slab) -> Result<Slab, Message> {
 /// storey, layer and material, its parameters, and its vertical extent. On
 /// success, returns the element with normalised geometry.
 pub fn validate_element(project: &Project, element: &Element) -> Result<Element, Message> {
+    let element = validate_prototype(project, element)?;
+    match project.vertical_extent(&element) {
+        Some((bottom, top)) if top - bottom < MIN_HEIGHT => Err(Message::new("model-error-top-below-base")),
+        _ => Ok(element),
+    }
+}
+
+/// [`validate_element`] for a tool's prototype (ELM-001): everything but the
+/// height, which depends on the storey the tool draws on. The extent must be
+/// determinable, so linked storeys must exist (ELM-006).
+pub fn validate_prototype(project: &Project, element: &Element) -> Result<Element, Message> {
     if element.name.trim().is_empty() {
         return Err(Message::new("model-error-element-name"));
     }
@@ -320,11 +331,8 @@ pub fn validate_element(project: &Project, element: &Element) -> Result<Element,
         kind: element.kind.validate(&project.storeys)?,
         ..element.clone()
     };
-    let (bottom, top) = project
-        .vertical_extent(&element)
-        .ok_or_else(|| Message::new("model-error-vertical-extent"))?;
-    if top - bottom < MIN_HEIGHT {
-        return Err(Message::new("model-error-top-below-base"));
+    if project.vertical_extent(&element).is_none() {
+        return Err(Message::new("model-error-vertical-extent"));
     }
     Ok(element)
 }
