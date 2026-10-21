@@ -155,10 +155,10 @@ instead of making it look fast.
 | `two_storey_shell` | 12 | yes | `samples::two_storey_shell` |
 | `tiled_shell` | 972 | yes | `samples::tiled_shell(9)`: the two-storey shell on a 9 x 9 grid, 20 m apart |
 
-`tiled_shell` is provisional. It stands in for the seeded 1,000, 5,000 and 20,000-element models
-of `element-kind-framework` and for RM-M and RM-L (SRS 7.3, `perf-tuning-rm-m-l`), which are
-appended to `bench_models()`; models too slow for CI set `ci: false`, and the CI gate runs only
-`ci` models. `tiled_shell` is also registered as the extra fixture `tiled-shell`
+`tiled_shell` is provisional. It stands in for the seeded 1,000, 5,000 and 20,000-element
+stand-ins (`samples::stand_in(n)` for `n` in `samples::STAND_IN_SIZES`, docs/testing.md) and
+for RM-M and RM-L (SRS 7.3, `perf-tuning-rm-m-l`), which are appended to `bench_models()`;
+models too slow for CI set `ci: false`, and the CI gate runs only `ci` models. `tiled_shell` is also registered as the extra fixture `tiled-shell`
 (`crates/archicraft-model/src/fixtures.rs`), so it passes the generic model, geometry and IFCX
 checks of docs/testing.md.
 

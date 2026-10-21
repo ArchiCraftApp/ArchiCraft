@@ -204,7 +204,11 @@ fn golden_files_are_reproduced() {
         };
         let (bytes, _) = archicraft_ifcx::save(&loaded.project, &geometry, &options, false);
         if bless {
-            std::fs::write(&path, &bytes).unwrap();
+            // Catalogue samples are regenerated from the sample itself by
+            // `catalogue_samples_reproduce_the_golden_files`.
+            if catalogue_name(&path).is_none() {
+                std::fs::write(&path, &bytes).unwrap();
+            }
         } else {
             assert!(
                 bytes == original,
@@ -214,6 +218,116 @@ fn golden_files_are_reproduced() {
         }
     }
     assert!(count >= 2);
+}
+
+/// The catalogue sample a golden file belongs to, by file name.
+fn catalogue_name(path: &Path) -> Option<&'static str> {
+    let stem = path.file_stem()?.to_str()?;
+    samples::catalogue()
+        .iter()
+        .map(|(name, _)| *name)
+        .find(|name| *name == stem)
+}
+
+/// The header options of the reference models, for a golden file that does
+/// not exist yet (as in `examples/reference_models.rs`).
+fn reference_options() -> WriteOptions {
+    WriteOptions {
+        author: "ArchiCraft reference models".into(),
+        timestamp: "2026-10-16T00:00:00Z".into(),
+        data_version: 1,
+    }
+}
+
+#[test]
+fn catalogue_samples_reproduce_the_golden_files() {
+    // NFR-MNT-003, IFX-010, IFX-011: the golden file is the reference
+    // model's output. Every catalogue sample, built with seeded identities
+    // and saved with its golden file's header options, gives the golden
+    // file byte for byte. ARCHICRAFT_BLESS=1 regenerates the golden files
+    // from the samples.
+    let bless = std::env::var_os("ARCHICRAFT_BLESS").is_some();
+    for (name, build) in samples::catalogue() {
+        let path = golden_dir().join(format!("{name}.ifcx"));
+        let original = std::fs::read(&path).ok();
+        let options = match &original {
+            Some(bytes) => {
+                let header = validate::parse(bytes).unwrap().header;
+                WriteOptions {
+                    author: header.author,
+                    timestamp: header.timestamp,
+                    data_version: header.data_version.parse().unwrap(),
+                }
+            }
+            None => reference_options(),
+        };
+        let project = build();
+        let geometry = ModelGeometry::evaluate(&project);
+        let (bytes, warnings) = archicraft_ifcx::save(&project, &geometry, &options, false);
+        assert!(warnings.is_empty(), "{name}: {warnings:?}");
+        if bless {
+            std::fs::write(&path, &bytes).unwrap();
+        } else {
+            assert!(
+                original.as_deref() == Some(bytes.as_slice()),
+                "{} differs from the sample {name}; if intended, regenerate with ARCHICRAFT_BLESS=1",
+                path.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn separate_builds_of_a_sample_save_the_same_bytes() {
+    // IFX-010, IFX-011: two builds of a catalogue sample, as two runs of
+    // `examples/reference_models.rs` make them, write identical files, compact
+    // and indented.
+    for (name, build) in samples::catalogue() {
+        for indented in [false, true] {
+            let write = || {
+                let project = build();
+                archicraft_ifcx::save(
+                    &project,
+                    &ModelGeometry::evaluate(&project),
+                    &reference_options(),
+                    indented,
+                )
+                .0
+            };
+            assert!(write() == write(), "{name}, indented {indented}");
+        }
+    }
+}
+
+/// Saves and reopens a stand-in and checks that it comes back equal to
+/// itself (IFX-064), returning how long that took.
+fn assert_stand_in_round_trips(n: usize) -> std::time::Duration {
+    let started = std::time::Instant::now();
+    let project = samples::stand_in(n);
+    let loaded = archicraft_ifcx::load(&save(&project)).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    let mut expected = project;
+    expected.revision = 0;
+    expected.data_version = 7;
+    assert!(loaded.project == expected, "stand_in({n}) round-trips equal to itself");
+    started.elapsed()
+}
+
+#[test]
+fn a_stand_in_of_1000_round_trips_equal_to_itself() {
+    // NFR-PERF-006, VIEW-001: the stand-ins are usable models.
+    let elapsed = assert_stand_in_round_trips(1_000);
+    eprintln!("stand_in(1_000) round trip: {elapsed:?}");
+}
+
+/// The RM-M-sized stand-in. Ignored to keep the normal suite lean: build,
+/// save and load take about 0.4 s in the dev profile on an M3 Max (2026-10-21);
+/// run it with `cargo test -p archicraft-ifcx --test roundtrip -- --ignored`.
+#[test]
+#[ignore = "RM-M size, about 0.4 s in the dev profile"]
+fn a_stand_in_of_5000_round_trips_equal_to_itself() {
+    let elapsed = assert_stand_in_round_trips(5_000);
+    eprintln!("stand_in(5_000) round trip: {elapsed:?}");
 }
 
 #[test]

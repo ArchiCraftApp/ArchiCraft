@@ -4,7 +4,7 @@ expression: review_view(&bytes)
 ---
 {
   "header": {
-    "id": "archicraft:project/4f77557c-41bf-4f89-80ee-92c3e82cbed9",
+    "id": "archicraft:project/3a3492c8-dd4d-541e-941e-56fa92ed0dd8",
     "ifcxVersion": "ifcx_alpha",
     "dataVersion": "1",
     "author": "ArchiCraft reference models",
@@ -702,9 +702,9 @@ expression: review_view(&bytes)
   },
   "data": [
     {
-      "path": "4f77557c-41bf-4f89-80ee-92c3e82cbed9",
+      "path": "3a3492c8-dd4d-541e-941e-56fa92ed0dd8",
       "children": {
-        "Site_8c346f69": "8c346f69-51d2-4556-8aed-86ad9aa16cde"
+        "Site_3557e4d9": "3557e4d9-5222-5774-acf7-0011757737f5"
       },
       "attributes": {
         "bsi::ifc::class": {
@@ -746,70 +746,70 @@ expression: review_view(&bytes)
             "surveyPoint": [0, 0],
             "trueNorth": 0
           },
-          "groundStorey": "cefbb80e-9fae-4613-9a81-8a86db32efac",
+          "groundStorey": "c35cbdfb-2afa-5fcc-9c67-9c1f55ee5ce1",
           "layers": [
             {
-              "id": "a61bef63-a315-4052-9b39-105f052dd6a0",
+              "id": "7d2e2fcf-385e-5952-ba6b-743fd7b93c56",
               "name": "Structure",
               "visible": true,
               "locked": false
             },
             {
-              "id": "7a537228-94aa-49b4-821a-5b0abd633e92",
+              "id": "3ef8019b-43c9-5979-8254-bfb7c7595538",
               "name": "Exterior walls",
               "visible": true,
               "locked": false
             },
             {
-              "id": "2b9e6b5c-6e91-44b2-adb1-42accdbe5049",
+              "id": "04b08416-8bbd-5a00-a739-b407c098119b",
               "name": "Interior walls",
               "visible": true,
               "locked": false
             },
             {
-              "id": "45422346-9c7b-4e8e-9a31-11b7967931f4",
+              "id": "15b3de24-1444-5be3-91cd-a743a7d3b894",
               "name": "Slabs",
               "visible": true,
               "locked": false
             },
             {
-              "id": "71361994-df4d-4aaf-a981-ddbbed14db8d",
+              "id": "289afcec-6d13-5a6b-a525-8b506cac9cdd",
               "name": "Roof",
               "visible": true,
               "locked": false
             },
             {
-              "id": "cb5375ed-7d80-4af1-98f6-5273983cbd13",
+              "id": "78060e09-9f16-520a-8a62-fea8187bd386",
               "name": "Openings",
               "visible": true,
               "locked": false
             },
             {
-              "id": "7d5ee194-3570-4407-bd1b-321dfd3d31a4",
+              "id": "fff8fb06-11a6-588f-8660-4225a0625801",
               "name": "Stairs and railings",
               "visible": true,
               "locked": false
             },
             {
-              "id": "2f4d7572-5b01-468a-a4c9-8f18831c354e",
+              "id": "43bd2736-234f-5460-a1ba-f8a6b23f0594",
               "name": "Terrain",
               "visible": true,
               "locked": false
             },
             {
-              "id": "b5a31c46-1d81-4f51-b8d1-09cb7bbfe99b",
+              "id": "f2ee5295-ddc9-562f-bef0-b1370c9dca5c",
               "name": "Furniture",
               "visible": true,
               "locked": false
             },
             {
-              "id": "9738caa6-cee4-490b-92d5-5cf7b29af24a",
+              "id": "c43b5690-bf86-51a6-8b84-e12f16a5d341",
               "name": "2D construction",
               "visible": true,
               "locked": false
             },
             {
-              "id": "880234ca-3a20-40ac-adf8-1ada4914a5ec",
+              "id": "e47d871a-9194-5ddf-95b8-bfea3db43d76",
               "name": "References",
               "visible": true,
               "locked": false
@@ -817,7 +817,7 @@ expression: review_view(&bytes)
           ],
           "materials": [
             {
-              "id": "340591a8-db38-4f01-a554-63067b5966f6",
+              "id": "9c48db78-9ac7-5f7f-9189-4d72b280d4f2",
               "name": "Reinforced concrete",
               "code": "RC",
               "description": "",
@@ -831,7 +831,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "2838d228-382f-4744-bde6-d1ed2c801967",
+              "id": "98abe6a0-a095-5bf6-9de2-9d6c56dd1711",
               "name": "Concrete",
               "code": "C",
               "description": "",
@@ -845,7 +845,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b",
+              "id": "4b803c98-6423-5702-884e-799a3debc58b",
               "name": "Brick",
               "code": "BRK",
               "description": "",
@@ -859,7 +859,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "3a30c4c0-e6cb-4421-ab19-1e4907fcb63d",
+              "id": "e78a794f-c613-5c79-9831-f55d4e762200",
               "name": "Sand-lime brick",
               "code": "SLB",
               "description": "",
@@ -873,7 +873,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "7a8e868e-e870-410b-bca0-c4c392a80362",
+              "id": "fbfdcc01-d9b2-5c92-9ee7-1254372f21c5",
               "name": "Aerated concrete",
               "code": "AAC",
               "description": "",
@@ -887,7 +887,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "3819874b-7901-4b71-b473-0749b19dd4b8",
+              "id": "5399afd4-d601-5de0-9d82-2f54769b151d",
               "name": "Clay block",
               "code": "CB",
               "description": "",
@@ -901,7 +901,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "74fc56ac-4044-4344-a85e-8fada3a0337c",
+              "id": "f68ddfba-15ed-5046-95cb-246d97b666a4",
               "name": "Softwood",
               "code": "SW",
               "description": "",
@@ -915,7 +915,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "16984855-36d5-454b-ae4e-b6766ab6774c",
+              "id": "db5ebf64-1faf-531b-b323-2613411653ff",
               "name": "Glulam",
               "code": "GL",
               "description": "",
@@ -929,7 +929,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "2f0ac163-69f8-44cb-9f56-e0cdcaf2b21b",
+              "id": "6561fac8-2194-5ba2-857b-972975217bee",
               "name": "Cross-laminated timber",
               "code": "CLT",
               "description": "",
@@ -943,7 +943,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "31836f39-37b9-4fba-825b-33d0d9258005",
+              "id": "50f90309-a99f-5734-a5fd-7c238bfaac20",
               "name": "Steel",
               "code": "S",
               "description": "",
@@ -957,7 +957,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "5a1ab0df-09bf-48e2-8c11-cf2e7c3d542a",
+              "id": "9346d157-173a-57ae-9ffc-517b7888ea19",
               "name": "Aluminium",
               "code": "AL",
               "description": "",
@@ -971,7 +971,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "f5c8b9c9-7905-4ac7-a892-c543a510cbf1",
+              "id": "433e2e99-c7e0-581f-853e-2e793509c170",
               "name": "Glass",
               "code": "GLS",
               "description": "",
@@ -985,7 +985,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "c7b763df-1e82-4358-809f-849c4c78d909",
+              "id": "71e100d2-26f8-5bac-a0b4-817e38a9548e",
               "name": "Mineral wool",
               "code": "MW",
               "description": "",
@@ -999,7 +999,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "5d3ccd78-d743-4c92-8b74-c4b92c7c7603",
+              "id": "d06abdff-be31-57c7-b46c-2d2552d33251",
               "name": "EPS/XPS",
               "code": "EPS",
               "description": "",
@@ -1013,7 +1013,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "16931574-e306-4260-a088-5f23bafa1022",
+              "id": "663b7e1b-404e-54ba-b5a3-bce0b3631637",
               "name": "Wood fibre insulation",
               "code": "WF",
               "description": "",
@@ -1027,7 +1027,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "7cdc95d7-bb7c-414d-bfa3-ab52cb32ac68",
+              "id": "5ffa0e83-51fd-5a93-bf14-db6ee17530e4",
               "name": "Plaster",
               "code": "PL",
               "description": "",
@@ -1041,7 +1041,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "fc20d720-5706-471a-89c6-8c6a173cb93e",
+              "id": "f3118bdd-9876-5cc6-9286-7df2ef5f5579",
               "name": "Render",
               "code": "RE",
               "description": "",
@@ -1055,7 +1055,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "4546e559-1337-4c89-ac76-75c77e1b24a4",
+              "id": "82634a3a-ce28-5073-9301-7f6bbd83679c",
               "name": "Gypsum board",
               "code": "GB",
               "description": "",
@@ -1069,7 +1069,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "dc35c949-9b72-4cc7-91cd-925f154e94bf",
+              "id": "77631710-f4bb-50b0-a07a-f4181c833660",
               "name": "Screed",
               "code": "SCR",
               "description": "",
@@ -1083,7 +1083,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "13537f53-30c2-4cb0-9ad1-795643958eb1",
+              "id": "9cb76279-f7eb-50f2-8dfd-3f67876e4df6",
               "name": "Natural stone",
               "code": "NS",
               "description": "",
@@ -1097,7 +1097,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "d01d6f1b-f5b9-4efd-9fa6-c3c9f1f90897",
+              "id": "b127ee1b-d3b7-557a-bf1b-9d132007c731",
               "name": "Tiles",
               "code": "TI",
               "description": "",
@@ -1111,7 +1111,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "c5cc8f21-688c-403f-8663-831187670fdf",
+              "id": "da00a174-8477-5299-a48f-6f4a67bac171",
               "name": "Soil",
               "code": "SO",
               "description": "",
@@ -1125,7 +1125,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "533c27c1-f73f-49d2-9341-f31167cc933b",
+              "id": "39ad5706-64be-5da2-a3e0-55d4363be7fc",
               "name": "Gravel",
               "code": "GR",
               "description": "",
@@ -1139,7 +1139,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "ac405747-bae3-443b-91fd-eeb727bca8a6",
+              "id": "c62a3712-7e3d-52b7-bf1b-73a231993938",
               "name": "Membrane",
               "code": "MB",
               "description": "",
@@ -1153,7 +1153,7 @@ expression: review_view(&bytes)
               }
             },
             {
-              "id": "454966aa-b568-4e75-a70b-1ccd234eed31",
+              "id": "d6ca861d-13c0-5c2d-9b1c-b46ff11d1b22",
               "name": "Air gap",
               "code": "AIR",
               "description": "",
@@ -1177,8 +1177,8 @@ expression: review_view(&bytes)
                 "value": 0,
                 "relative": 1
               },
-              "material": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b",
-              "layer": "7a537228-94aa-49b4-821a-5b0abd633e92",
+              "material": "4b803c98-6423-5702-884e-799a3debc58b",
+              "layer": "3ef8019b-43c9-5979-8254-bfb7c7595538",
               "position": "exterior",
               "ifcClass": "IfcWall"
             },
@@ -1186,20 +1186,20 @@ expression: review_view(&bytes)
               "thickness": 0.2,
               "reference": "top",
               "offset": 0,
-              "material": "340591a8-db38-4f01-a554-63067b5966f6",
-              "layer": "45422346-9c7b-4e8e-9a31-11b7967931f4",
+              "material": "9c48db78-9ac7-5f7f-9189-4d72b280d4f2",
+              "layer": "15b3de24-1444-5be3-91cd-a743a7d3b894",
               "position": "undefined",
               "ifcClass": "IfcSlab"
             }
           },
           "views": [
             {
-              "id": "408fc859-8ed5-4f2e-b18b-43eaf0b01ed8",
+              "id": "d77e6df0-51d3-5c42-b74e-a7bd62e4b39c",
               "name": "3D perspective",
               "projection": "perspective"
             },
             {
-              "id": "056ad4bd-a59d-45ea-a8f8-d269fca81de0",
+              "id": "bef5369d-7141-5d08-a64e-f8aedb3e94a7",
               "name": "3D parallel",
               "projection": "parallel"
             }
@@ -1212,9 +1212,9 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "8c346f69-51d2-4556-8aed-86ad9aa16cde",
+      "path": "3557e4d9-5222-5774-acf7-0011757737f5",
       "children": {
-        "Building_21d3ea56": "21d3ea56-8401-490d-91e9-106a47427c5a"
+        "Building_25040cca": "25040cca-30b5-5943-b2b8-67d69c50b8a2"
       },
       "attributes": {
         "bsi::ifc::class": {
@@ -1226,10 +1226,10 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "21d3ea56-8401-490d-91e9-106a47427c5a",
+      "path": "25040cca-30b5-5943-b2b8-67d69c50b8a2",
       "children": {
-        "Storey_cefbb80e": "cefbb80e-9fae-4613-9a81-8a86db32efac",
-        "Storey_9a617ab5": "9a617ab5-f32c-463f-a0dc-ba4c17179986"
+        "Storey_c35cbdfb": "c35cbdfb-2afa-5fcc-9c67-9c1f55ee5ce1",
+        "Storey_304e7703": "304e7703-d748-52f8-a346-7824be38b40b"
       },
       "attributes": {
         "bsi::ifc::class": {
@@ -1240,13 +1240,13 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "cefbb80e-9fae-4613-9a81-8a86db32efac",
+      "path": "c35cbdfb-2afa-5fcc-9c67-9c1f55ee5ce1",
       "children": {
-        "Wall_38df8c90": "38df8c90-b97f-4c2e-8425-3a08ca139ffd",
-        "Wall_5a763ca4": "5a763ca4-2325-41c4-a355-c5f762c01546",
-        "Wall_e2059609": "e2059609-9ad3-40dc-9d8c-160822ce328e",
-        "Wall_869ec476": "869ec476-4370-47e1-a797-3813fddf4824",
-        "Slab_e4de2a2e": "e4de2a2e-e639-476e-816e-373d52e39f09"
+        "Wall_e41682be": "e41682be-6393-5c99-a4c8-b289c476aeca",
+        "Wall_48fc04fe": "48fc04fe-b6b8-501a-9136-ea34f5f46b91",
+        "Wall_bfbad297": "bfbad297-26fa-5a95-9b4e-cc77626a4fc2",
+        "Wall_1d4af961": "1d4af961-1987-5bf5-8294-1a4f8804b592",
+        "Slab_7a4a7aeb": "7a4a7aeb-2631-580a-a68c-f35d097f6173"
       },
       "attributes": {
         "bsi::ifc::class": {
@@ -1269,10 +1269,10 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "38df8c90-b97f-4c2e-8425-3a08ca139ffd",
+      "path": "e41682be-6393-5c99-a4c8-b289c476aeca",
       "children": {
-        "Body": "5aec7711-3e8b-5ba3-b66d-84df9c8707cf",
-        "Axis": "033b18a0-8f57-5d07-8d43-f22d7ff344fc"
+        "Body": "dc18e00d-f18e-5e2f-905b-6fd75432e0be",
+        "Axis": "55787350-ce58-5db2-a2d2-555ef0810ead"
       },
       "attributes": {
         "bsi::ifc::class": {
@@ -1283,7 +1283,7 @@ expression: review_view(&bytes)
         "bsi::ifc::prop::IsExternal": true,
         "archicraft::element": {
           "kind": "wall",
-          "layer": "7a537228-94aa-49b4-821a-5b0abd633e92",
+          "layer": "3ef8019b-43c9-5979-8254-bfb7c7595538",
           "locked": false,
           "position": "exterior"
         },
@@ -1298,14 +1298,14 @@ expression: review_view(&bytes)
             "value": 0,
             "relative": 1
           },
-          "material": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b"
+          "material": "4b803c98-6423-5702-884e-799a3debc58b"
         }
       }
     },
     {
-      "path": "5aec7711-3e8b-5ba3-b66d-84df9c8707cf",
+      "path": "dc18e00d-f18e-5e2f-905b-6fd75432e0be",
       "inherits": {
-        "material": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b"
+        "material": "4b803c98-6423-5702-884e-799a3debc58b"
       },
       "attributes": {
         "usd::usdgeom::mesh": {
@@ -1321,7 +1321,7 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "033b18a0-8f57-5d07-8d43-f22d7ff344fc",
+      "path": "55787350-ce58-5db2-a2d2-555ef0810ead",
       "attributes": {
         "usd::usdgeom::basiscurves": {
           "points": {
@@ -1332,10 +1332,10 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "5a763ca4-2325-41c4-a355-c5f762c01546",
+      "path": "48fc04fe-b6b8-501a-9136-ea34f5f46b91",
       "children": {
-        "Body": "fee02e7e-9e56-5a04-a2a7-db1af5b9a0ee",
-        "Axis": "febec057-1a49-552e-bcdf-0c725273d548"
+        "Body": "c5696717-5e5b-5a44-9073-c9bf3e0f6c61",
+        "Axis": "ab33d5d1-e601-55a1-ab38-dc063dc3db94"
       },
       "attributes": {
         "bsi::ifc::class": {
@@ -1346,7 +1346,7 @@ expression: review_view(&bytes)
         "bsi::ifc::prop::IsExternal": true,
         "archicraft::element": {
           "kind": "wall",
-          "layer": "7a537228-94aa-49b4-821a-5b0abd633e92",
+          "layer": "3ef8019b-43c9-5979-8254-bfb7c7595538",
           "locked": false,
           "position": "exterior"
         },
@@ -1361,14 +1361,14 @@ expression: review_view(&bytes)
             "value": 0,
             "relative": 1
           },
-          "material": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b"
+          "material": "4b803c98-6423-5702-884e-799a3debc58b"
         }
       }
     },
     {
-      "path": "fee02e7e-9e56-5a04-a2a7-db1af5b9a0ee",
+      "path": "c5696717-5e5b-5a44-9073-c9bf3e0f6c61",
       "inherits": {
-        "material": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b"
+        "material": "4b803c98-6423-5702-884e-799a3debc58b"
       },
       "attributes": {
         "usd::usdgeom::mesh": {
@@ -1384,7 +1384,7 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "febec057-1a49-552e-bcdf-0c725273d548",
+      "path": "ab33d5d1-e601-55a1-ab38-dc063dc3db94",
       "attributes": {
         "usd::usdgeom::basiscurves": {
           "points": {
@@ -1395,10 +1395,10 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "e2059609-9ad3-40dc-9d8c-160822ce328e",
+      "path": "bfbad297-26fa-5a95-9b4e-cc77626a4fc2",
       "children": {
-        "Body": "c0361f4f-c99d-5ccc-81e1-03369b71d6d6",
-        "Axis": "ca5fed8b-a728-59b3-b113-32917db7ffa3"
+        "Body": "466d967b-7765-5b62-898f-312bd7448352",
+        "Axis": "48f0c2c8-8482-5b18-a537-15353fbaf6a1"
       },
       "attributes": {
         "bsi::ifc::class": {
@@ -1409,7 +1409,7 @@ expression: review_view(&bytes)
         "bsi::ifc::prop::IsExternal": true,
         "archicraft::element": {
           "kind": "wall",
-          "layer": "7a537228-94aa-49b4-821a-5b0abd633e92",
+          "layer": "3ef8019b-43c9-5979-8254-bfb7c7595538",
           "locked": false,
           "position": "exterior"
         },
@@ -1424,14 +1424,14 @@ expression: review_view(&bytes)
             "value": 0,
             "relative": 1
           },
-          "material": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b"
+          "material": "4b803c98-6423-5702-884e-799a3debc58b"
         }
       }
     },
     {
-      "path": "c0361f4f-c99d-5ccc-81e1-03369b71d6d6",
+      "path": "466d967b-7765-5b62-898f-312bd7448352",
       "inherits": {
-        "material": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b"
+        "material": "4b803c98-6423-5702-884e-799a3debc58b"
       },
       "attributes": {
         "usd::usdgeom::mesh": {
@@ -1447,7 +1447,7 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "ca5fed8b-a728-59b3-b113-32917db7ffa3",
+      "path": "48f0c2c8-8482-5b18-a537-15353fbaf6a1",
       "attributes": {
         "usd::usdgeom::basiscurves": {
           "points": {
@@ -1458,10 +1458,10 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "869ec476-4370-47e1-a797-3813fddf4824",
+      "path": "1d4af961-1987-5bf5-8294-1a4f8804b592",
       "children": {
-        "Body": "507bae09-bcb3-56bb-942f-9e3f8ebd6027",
-        "Axis": "aa19f6c2-7556-535a-821a-4832d1d5b329"
+        "Body": "01726a26-144f-5b07-92ba-2d3e80a6a94b",
+        "Axis": "9a9ff16c-3b6c-5fc3-8394-4148f8b3694d"
       },
       "attributes": {
         "bsi::ifc::class": {
@@ -1472,7 +1472,7 @@ expression: review_view(&bytes)
         "bsi::ifc::prop::IsExternal": true,
         "archicraft::element": {
           "kind": "wall",
-          "layer": "7a537228-94aa-49b4-821a-5b0abd633e92",
+          "layer": "3ef8019b-43c9-5979-8254-bfb7c7595538",
           "locked": false,
           "position": "exterior"
         },
@@ -1487,14 +1487,14 @@ expression: review_view(&bytes)
             "value": 0,
             "relative": 1
           },
-          "material": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b"
+          "material": "4b803c98-6423-5702-884e-799a3debc58b"
         }
       }
     },
     {
-      "path": "507bae09-bcb3-56bb-942f-9e3f8ebd6027",
+      "path": "01726a26-144f-5b07-92ba-2d3e80a6a94b",
       "inherits": {
-        "material": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b"
+        "material": "4b803c98-6423-5702-884e-799a3debc58b"
       },
       "attributes": {
         "usd::usdgeom::mesh": {
@@ -1510,7 +1510,7 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "aa19f6c2-7556-535a-821a-4832d1d5b329",
+      "path": "9a9ff16c-3b6c-5fc3-8394-4148f8b3694d",
       "attributes": {
         "usd::usdgeom::basiscurves": {
           "points": {
@@ -1521,9 +1521,9 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "e4de2a2e-e639-476e-816e-373d52e39f09",
+      "path": "7a4a7aeb-2631-580a-a68c-f35d097f6173",
       "children": {
-        "Body": "cafa6deb-142d-53b4-a59e-828b435e918f"
+        "Body": "f5f3a05a-f169-51e1-82d8-63798d29ab5c"
       },
       "attributes": {
         "bsi::ifc::class": {
@@ -1533,7 +1533,7 @@ expression: review_view(&bytes)
         "bsi::ifc::prop::Name": "SL-001",
         "archicraft::element": {
           "kind": "slab",
-          "layer": "45422346-9c7b-4e8e-9a31-11b7967931f4",
+          "layer": "15b3de24-1444-5be3-91cd-a743a7d3b894",
           "locked": false,
           "position": "undefined"
         },
@@ -1548,14 +1548,14 @@ expression: review_view(&bytes)
           "thickness": 0.2,
           "reference": "top",
           "offset": 0,
-          "material": "340591a8-db38-4f01-a554-63067b5966f6"
+          "material": "9c48db78-9ac7-5f7f-9189-4d72b280d4f2"
         }
       }
     },
     {
-      "path": "cafa6deb-142d-53b4-a59e-828b435e918f",
+      "path": "f5f3a05a-f169-51e1-82d8-63798d29ab5c",
       "inherits": {
-        "material": "340591a8-db38-4f01-a554-63067b5966f6"
+        "material": "9c48db78-9ac7-5f7f-9189-4d72b280d4f2"
       },
       "attributes": {
         "usd::usdgeom::mesh": {
@@ -1571,7 +1571,7 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "9a617ab5-f32c-463f-a0dc-ba4c17179986",
+      "path": "304e7703-d748-52f8-a346-7824be38b40b",
       "attributes": {
         "bsi::ifc::class": {
           "code": "IfcBuildingStorey",
@@ -1593,7 +1593,7 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "340591a8-db38-4f01-a554-63067b5966f6",
+      "path": "9c48db78-9ac7-5f7f-9189-4d72b280d4f2",
       "attributes": {
         "bsi::ifc::prop::Name": "Reinforced concrete",
         "bsi::ifc::presentation::diffuseColor": [0.6196078431372549, 0.6196078431372549, 0.6],
@@ -1601,7 +1601,7 @@ expression: review_view(&bytes)
       }
     },
     {
-      "path": "e569b6cb-5f82-4b2c-ad2a-6c179c1bf25b",
+      "path": "4b803c98-6423-5702-884e-799a3debc58b",
       "attributes": {
         "bsi::ifc::prop::Name": "Brick",
         "bsi::ifc::presentation::diffuseColor": [0.7215686274509804, 0.4196078431372549, 0.3215686274509804],

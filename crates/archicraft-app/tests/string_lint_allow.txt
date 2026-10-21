@@ -12,17 +12,17 @@
 
 # Project data: the default template and the reference models create names
 # that are saved in the project file and edited by the user.
-crates/archicraft-model/src/template.rs::default_metric_project | "00 Ground floor" | default storey name of the metric template (project data)
-crates/archicraft-model/src/template.rs::default_metric_project | "01 First floor" | default storey name of the metric template (project data)
-crates/archicraft-model/src/template.rs::default_metric_project | "Untitled project" | default project name of the metric template (project data)
-crates/archicraft-model/src/template.rs::default_metric_project | "Site" | default site name of the metric template (project data)
-crates/archicraft-model/src/template.rs::default_metric_project | "Building" | default building name of the metric template (project data)
-crates/archicraft-model/src/template.rs::default_metric_project | "3D perspective" | default 3D view name of the metric template (project data)
-crates/archicraft-model/src/template.rs::default_metric_project | "3D parallel" | default 3D view name of the metric template (project data)
-crates/archicraft-model/src/template.rs::default_metric_project | "Brick" | looks up a material of MATERIALS by name for the wall tool defaults
-crates/archicraft-model/src/template.rs::default_metric_project | "Reinforced concrete" | looks up a material of MATERIALS by name for the slab tool defaults
-crates/archicraft-model/src/template.rs::default_metric_project | "Exterior walls" | looks up a layer of LAYERS by name for the wall tool defaults
-crates/archicraft-model/src/template.rs::default_metric_project | "Slabs" | looks up a layer of LAYERS by name for the slab tool defaults
+crates/archicraft-model/src/template.rs::default_metric_project_with | "00 Ground floor" | default storey name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project_with | "01 First floor" | default storey name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project_with | "Untitled project" | default project name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project_with | "Site" | default site name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project_with | "Building" | default building name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project_with | "3D perspective" | default 3D view name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project_with | "3D parallel" | default 3D view name of the metric template (project data)
+crates/archicraft-model/src/template.rs::default_metric_project_with | "Brick" | looks up a material of MATERIALS by name for the wall tool defaults
+crates/archicraft-model/src/template.rs::default_metric_project_with | "Reinforced concrete" | looks up a material of MATERIALS by name for the slab tool defaults
+crates/archicraft-model/src/template.rs::default_metric_project_with | "Exterior walls" | looks up a layer of LAYERS by name for the wall tool defaults
+crates/archicraft-model/src/template.rs::default_metric_project_with | "Slabs" | looks up a layer of LAYERS by name for the slab tool defaults
 crates/archicraft-model/src/template.rs::LAYERS | * | data table: default layer names of the metric template (project data)
 crates/archicraft-model/src/template.rs::MATERIALS | * | data table: default material names and codes of the metric template (project data)
 crates/archicraft-model/src/fixtures.rs | * | test fixture registry (SRS Appendix D.7): fixture titles, sources and check messages read by tests and docs, not shown in the UI
