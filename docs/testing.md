@@ -543,12 +543,13 @@ reader enforces the limits of SRS Appendix D.9, each tested at its boundary in
 - `children`/`inherits` chains at most 64 deep, reported with the node path;
 - at most 32 imports.
 
-Beyond D.9, three bounds keep a small crafted file from stalling the reader or exhausting memory
-(found by the first fuzz campaign, Fuzzing): a slab has at most 1,000 points in its outline
-and holes together (`MAX_SLAB_POINTS` in `crates/archicraft-model/src/validate.rs`, because
-the self-intersection checks grow with the square of the points), and a storey that the
-building lists more than once is read once, the further listings reported, and so is an
-element listed more than once in one storey or several.
+D.9 also limits a slab to 10,000 points in its outline and holes together. The code still
+caps it at 1,000 (`MAX_SLAB_POINTS` in `crates/archicraft-model/src/validate.rs`, because the
+self-intersection checks grow with the square of the points) until archicraft-91jj raises it
+with a sweep-line check. Beyond D.9, two bounds keep a small crafted file from stalling the
+reader (found by the first fuzz campaign, Fuzzing): a storey that the building lists more than
+once is read once, the further listings reported, and so is an element listed more than once in
+one storey or several.
 
 **No execution.** File content only ever becomes data: the reader has no `eval`, loads no
 plugins or libraries and spawns no processes, and nothing in a file selects code to run.

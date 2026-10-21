@@ -2177,7 +2177,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Since archicraft-lnow a slab has at most 1,000 points in its outline and holes together (MAX_SLAB_POINTS, NFR-SEC-003), which also bounds arcs once they are divided into points. No arc edges (outline is Vec<DVec2>; validate_ring, extrude, triangulate, the snap sources, IFCX schema outline=array(point2) all assume polylines). No circle mode (SlabMode has only Polygon/Rectangle/RotatedRectangle). No snapping to…",
+      "gap": "The SRS limit is 10,000 points per slab in outline and holes together, arcs counted by the points they become (SLB-003, D.9); the code still caps at 1,000 (MAX_SLAB_POINTS, archicraft-lnow, NFR-SEC-003) until archicraft-91jj raises it with a sweep-line self-intersection check. No arc edges (outline is Vec<DVec2>; validate_ring, extrude, triangulate, the snap sources, IFCX schema outline=array(point2) all assume polylines). No circle mode (SlabMode has only Polygon/Rectangle/RotatedRectangle). No snapping to…",
       "depends_on": []
     },
     {
@@ -2207,7 +2207,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "\"Any number of holes\" is bounded since archicraft-lnow: a slab has at most 1,000 points in its outline and holes together (MAX_SLAB_POINTS, NFR-SEC-003), so at most 249 holes. No UI path creates a hole: every tool completion passes Vec::new() for holes (tools/mod.rs:273, 276, 290). Holes are not editable (no polygon editing commands at all, no node/edge handles in plan.rs) and cannot be traced (INP-018 abs…",
+      "gap": "The SRS bounds the holes at 10,000 points per slab in outline and holes together (D.9); the code still caps at 1,000 (MAX_SLAB_POINTS, archicraft-lnow, NFR-SEC-003), so at most 249 holes, until archicraft-91jj raises it with a sweep-line self-intersection check. No UI path creates a hole: every tool completion passes Vec::new() for holes (tools/mod.rs:273, 276, 290). Holes are not editable (no polygon editing commands at all, no node/edge handles in plan.rs) and cannot be traced (INP-018 abs…",
       "depends_on": []
     },
     {

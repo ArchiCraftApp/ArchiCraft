@@ -743,10 +743,10 @@ Walls are line-based elements drawn by their **reference line**. Junctions are d
 
 *(KB 303407, 669891, 303418, 364093, 303549, 303722)*
 
-- **SLB-001** · M — Slabs shall be created from a closed outline of straight and arc edges. The outline is drawn (polygon, rectangle, rotated rectangle, circle) by snapping to existing wall faces, wall reference lines, wall core faces, 2D shapes or other elements' outlines, or, with contour detection (INP-018, S), traced from them in one pick. *(KB 303407, 669891, 364093, 303549)*
+- **SLB-001** · M — Slabs shall be created from a closed outline of straight and arc edges, within the point limit of SLB-003. The outline is drawn (polygon, rectangle, rotated rectangle, circle) by snapping to existing wall faces, wall reference lines, wall core faces, 2D shapes or other elements' outlines, or, with contour detection (INP-018, S), traced from them in one pick. *(KB 303407, 669891, 364093, 303549)*
 - **SLB-002** · M — A slab shall have a thickness or a layer structure, and a reference plane (top or bottom of the slab) at an offset from the home storey. The default is the top of the slab at the storey elevation. *(KB 303418, 303722)*
 - **SLB-009** · S — The slab reference plane shall also be selectable as the top or bottom of the core. *(KB 303722, 669891)*
-- **SLB-003** · M — A slab shall be able to contain any number of holes, which are editable like the outline and can be drawn or traced. *(KB 303407)*
+- **SLB-003** · M — A slab shall be able to contain any number of holes, up to a limit of 10,000 points in its outline and holes together (arc edges count with the points they are divided into); the limit applies to drawn and imported slabs alike (Appendix D.9). Holes are editable like the outline and can be drawn or traced. *(KB 303407)*
 - **SLB-004** · M — A slab edge traced from or snapped to a curved wall's reference line or face shall coincide with it exactly, and coincident curves shall be tessellated identically for display and export. *(KB 669891)*
 - **SLB-005** · S — Slab edges shall have an edge angle, vertical by default and settable per edge. *(KB 303892)*
 - **SLB-006** · S — Slabs shall support an inclined top and optionally an inclined bottom: sloped slabs of constant thickness, and tapered slabs such as flat roofs with falls. No roof, terrain or boolean workaround shall be needed. *(KB 303418)*
@@ -2043,11 +2043,12 @@ The concrete key bindings are a UI design deliverable.
 
 ### D.9 Parser robustness limits and fuzzing (NFR-REL-007, NFR-SEC-003)
 
-Proposed values; the nesting limit is that of the JSON parser in the technology choices (R8):
+Proposed values; the nesting limit is that of the JSON parser in the technology choices (R8), and the slab point limit was decided by the product owner on 2026-10-21:
 - **file size:** at most 2 GB;
 - **JSON nesting depth:** fewer than 128 levels;
 - **IFCX composition depth** (`children`/`inherits` chains): at most 64;
-- **imports:** at most 32 per file.
+- **imports:** at most 32 per file;
+- **slab points:** at most 10,000 per slab in its outline and holes together, arc edges counted with the points they are divided into (SLB-003); the same limit applies to slabs drawn in the application.
 
 Every parser of external files (the IFCX reader, and the preference import of SET-004) is fuzzed for at least 1 hour per release with a coverage-guided fuzzer, seeded with the R2 examples and with ArchiCraft-generated files.
 
