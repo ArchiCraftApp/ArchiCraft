@@ -15,7 +15,7 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 | missing | 138 | 158 | 48 | 344 |
 | **total** | 314 | 199 | 54 | 567 |
 
-Remaining effort of the 501 open requirements: S 120, M 220, L 136, XL 25.
+Remaining effort of the 501 open requirements: S 121, M 219, L 136, XL 25.
 
 ## Per-section status (done/partial/missing)
 
@@ -324,7 +324,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | INP-023 | S | missing | S | No lock key, no temporary guide line drawn for the locked angle, no release. |
 | INP-008 | M | partial | L | 2D only: no snapping in 3D views. Missing targets: division points beyond the midpoint (INP-010), tangent points, arc/circle centres (no curved geometry exists), axis points of columns and beams (no such elements). Missing glyphs… |
 | INP-024 | S | missing | S | Polygon centroid snapping (slab outlines, cut polygons) absent. |
-| INP-009 | M | partial | M | Guide intersection and guide kinds are absent (no guides yet); only the single best candidate is computed, there is no candidate list and no key to cycle through candidates in range (Tab is already taken by the field toggle while… |
+| INP-009 | M | partial | S | The seven levels, their ranks and the candidate list are in place (input/snap.rs) and Tab cycles the candidates in range while nothing is typed (provisional binding until D.8). The guide intersection and guide levels have no producers yet: there are no guides (INP-011, INP-012). |
 | INP-010 | M | missing | M | Only the 'half' mode, hard-coded. Missing: N equal parts (2-100), percentage, repeated fixed distance, best equal division near a target distance; selection of exactly one active mode; scope option (between nodes / between inters… |
 | INP-011 | M | missing | L | Whole requirement: marking points/edges by dwell (default 1.0 s) or key, temporary guides (horizontal, vertical, angle increments, parallel, perpendicular, tangent, bisector, line through two centres), snappable guide intersectio… |
 | INP-012 | S | missing | L | Whole requirement: persistent guide lines/segments/circles/arcs per view, snappable with division points, drag-from-border creation aligned to an edge, numeric offset move/copy, delete individually/by sweep/all, global hide, excl… |
