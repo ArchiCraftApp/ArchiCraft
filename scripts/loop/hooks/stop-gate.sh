@@ -2,7 +2,7 @@
 # Stop: a bead session does not end with uncommitted code that has not passed the gate and the
 # review. Runs the gate when the tree has no result yet (a failure is remembered per tree, so
 # stopping again without edits does not rerun it). After three blocks on the same tree it lets
-# the session stop and asks for the bead to be flagged. scripts/loop/pause.sh stops on purpose.
+# the session stop and asks for the stop rule (escalate.sh). scripts/loop/pause.sh stops on purpose.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
@@ -18,7 +18,7 @@ count=0
 [ -f "$dir/stop-blocks" ] && read -r last_tree last_count <"$dir/stop-blocks"
 [ "${last_tree:-}" = "$tree" ] && count="${last_count:-0}"
 if [ "$count" -ge 3 ]; then
-    jq -n --arg m "Bead $bead stops with uncommitted code that has not passed the gate and the review (blocked 3 times). Flag it: bd update $bead --add-label human --append-notes \"<what blocks>\"" \
+    jq -n --arg m "Bead $bead stops with uncommitted code that has not passed the gate and the review (blocked 3 times). Apply the stop rule: scripts/loop/escalate.sh \"<what blocks, what you tried>\"" \
         '{systemMessage: $m}'
     exit 0
 fi

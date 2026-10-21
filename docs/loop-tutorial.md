@@ -28,12 +28,17 @@ else runs without you.
 | label `human` | On a bead: Claude is stuck and needs your decision. |
 | label `loop` | On a bead or pull request: it changes the loop's own rules. It merges by itself like any other, unless it changes CI or the hook wiring; then you review it. |
 | label `loop-split` | A bead that was split into smaller ones; it closes when they are done. |
+| label `tier:<x>` | The model and effort a bead runs at: `medium`, `high`, `xhigh` or `max` on Claude Opus 5.5, or `fable` on Claude Fable 5.1. The coordinator picks it when a bead has none. |
+| label `escalated` | A bead whose first run got stuck; it moved one tier up and runs again in the next batch. |
 
 ## 1. Start a run
 
 1. In the Claude desktop app, start a new Code session for the ArchiCraft project. The app
    gives it its own worktree.
-2. Type one of these:
+2. For `/bead-loop`, pick Claude Opus 5.5 and effort `max` in the model menu: the coordinator
+   can start bead sessions only at its own effort or below, and each bead runs at the effort of
+   its tier (small ones at `medium`, the default at `high`).
+3. Type one of these:
 
 | Command | What it does |
 |---|---|
@@ -77,7 +82,7 @@ You do not need to watch. If you want to:
   `continue` later; there is no need to watch for the merge. This happens often when you
   restrict a run to one epic, because the beads of an epic usually build on each other.
 - *Count reached*: start the next run when you like.
-- One of the three cases in the next section.
+- One of the cases in the next section.
 
 To stop a run, tell the coordinator "stop after the current bead", or use the stop button.
 A bead that was cut off keeps its branch; open its session again and type `/bead` to resume.
@@ -98,11 +103,20 @@ delivered and gives you a short script of things to try.
 This is your main quality check. Tests prove behaviour; only you can tell whether the CAD
 tool feels right.
 
+### A bead waits for Claude Fable 5.1
+
+A bead labelled `tier:fable` (a memory or architecture redesign, or your choice after a bead
+got stuck at `max`) runs on Claude Fable 5.1, which costs 2.5 times as much per token as Opus
+5.5. The coordinator never starts it: it names it in its `Needs you:` line. To run it, start a
+new Code session, pick Claude Fable 5.1 (effort `high`) in the model menu and type
+`/bead <id>`. To run it on Opus instead:
+`bd update <id> --remove-label tier:fable --add-label tier:max`.
+
 ### A bead is flagged `human`
 
 Claude stopped because it cannot continue on its own: an unclear or contradicting
-requirement, or a gate or review that keeps failing. The coordinator names the bead; the
-details are in its notes:
+requirement, or a gate or review that kept failing after the bead moved one tier up (label
+`escalated`) or at tier `max`. The coordinator names the bead; the details are in its notes:
 
 ```bash
 bd show archicraft-xxxx
@@ -116,7 +130,8 @@ continue:
 bd update archicraft-xxxx --remove-label human
 ```
 
-To put the bead aside instead: `bd defer archicraft-xxxx`.
+To put the bead aside instead: `bd defer archicraft-xxxx`. A bead stuck at tier `max` can
+also try Claude Fable 5.1: pick it in that session's model menu and type `continue`.
 
 ### A pull request that waits for your review
 

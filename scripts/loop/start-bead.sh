@@ -83,5 +83,11 @@ if [ -n "$wip" ]; then
     echo "A stopped run left partial work on $wip (unbuilt, unreviewed). Use it as a reference:"
     echo "  git diff $(loop_base)...$wip --stat"
 fi
+patch="$(loop_escalation_patch "$id")"
+if [ -f "$patch" ]; then
+    echo "The run on the lower tier left its unreviewed work (it failed the gate or the review). Apply it"
+    echo "as the starting point or read it as a reference:"
+    echo "  git apply --index $patch"
+fi
 echo
 bd show "$id"

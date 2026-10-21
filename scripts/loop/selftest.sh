@@ -20,9 +20,11 @@ cat >"$work/bin/bd" <<'EOF'
 #!/usr/bin/env bash
 # Stub: bd show <id> --json answers from FAKE_BD_STATUS and FAKE_BD_LABELS; list, children
 # and close work on the JSON array in FAKE_BD_DB (closed ids go to FAKE_BD_DB.closed; close
-# refuses the ids listed in FAKE_BD_REFUSE, as bd does for a blocked bead).
+# refuses the ids listed in FAKE_BD_REFUSE, as bd does for a blocked bead); update and unclaim
+# go to FAKE_BD_LOG.
 db="${FAKE_BD_DB:-}"
 case "$1" in
+    update | unclaim) [ -z "${FAKE_BD_LOG:-}" ] || echo "$*" >>"$FAKE_BD_LOG" ;;
     show)
         jq -n --arg id "$2" --arg s "${FAKE_BD_STATUS:-in_progress}" --arg l "${FAKE_BD_LABELS:-}" \
             '[{id: $id, status: $s, issue_type: "task", labels: ($l | split(",") | map(select(. != "")))}]'
@@ -473,6 +475,53 @@ check "stop after three blocks" allow "$(hook stop-gate "$stop_input")"
 rm -f "$(loop_dir)/stop-blocks"
 stamp pause
 check "stop when paused" allow "$(hook stop-gate "$stop_input")"
+
+# --- escalate.sh: one tier up on the first stop, then human ------------------------------------
+reset_state
+git switch -q -c bead/archicraft-es01-escalate main
+export FAKE_BD_LOG="$work/bd.log"
+escalate() { # escalate <labels>: escalate.sh's label changes and unclaim for a bead with these labels
+    : >"$FAKE_BD_LOG"
+    FAKE_BD_LABELS="$1" bash scripts/loop/escalate.sh "the review failed twice" >"$work/escalate.out" 2>&1 ||
+        echo "escalate.sh exited $?: $(cat "$work/escalate.out")" >>"$FAKE_BD_LOG"
+    grep -Eo -- '--(add|remove)-label [^ ]+|^unclaim [^ ]+|exited .*' "$FAKE_BD_LOG" | paste -sd '|' -
+}
+echo 'pub fn demo() { let _e = 5; }' >crates/demo/src/lib.rs
+echo 'pub fn added() {}' >crates/demo/src/added.rs
+work_tree="$(loop_tree_hash)"
+expect "escalate.sh moves a bead from tier medium to high" \
+    "--add-label tier:high|--add-label escalated|--remove-label tier:medium|unclaim archicraft-es01" "$(escalate loop,tier:medium)"
+expect "escalate.sh lets go of the bead branch" "" "$(loop_branch)"
+expect "escalate.sh keeps the work in its worktree" "$work_tree" "$(loop_tree_hash)"
+patch="$(loop_escalation_patch archicraft-es01)"
+# The next batch's session: a new worktree, where start-bead.sh resumes the branch.
+git worktree add -q --detach "$work/es-wt" main
+out="$(cd "$work/es-wt" && FAKE_BD_STATUS=in_progress bash scripts/loop/start-bead.sh archicraft-es01 2>&1)"
+expect "start-bead.sh resumes the escalated bead's branch in another worktree" bead/archicraft-es01-escalate \
+    "$(git -C "$work/es-wt" branch --show-current)"
+expect "start-bead.sh points the next session at the escalation patch" 1 "$(grep -c "^  git apply --index $patch\$" <<<"$out")"
+git -C "$work/es-wt" apply --index "$patch"
+expect "the escalation patch carries the changed and the new files" "$work_tree" "$(cd "$work/es-wt" && loop_tree_hash)"
+git worktree remove --force "$work/es-wt"
+git switch -q bead/archicraft-es01-escalate
+expect "escalate.sh moves a bead from tier high to xhigh" \
+    "--add-label tier:xhigh|--add-label escalated|--remove-label tier:high|unclaim archicraft-es01" "$(escalate tier:high)"
+git switch -q bead/archicraft-es01-escalate
+expect "escalate.sh moves a bead from tier xhigh to max" \
+    "--add-label tier:max|--add-label escalated|--remove-label tier:xhigh|unclaim archicraft-es01" "$(escalate tier:xhigh)"
+git switch -q bead/archicraft-es01-escalate
+expect "escalate.sh takes a bead without a tier label as high" \
+    "--add-label tier:xhigh|--add-label escalated|unclaim archicraft-es01" "$(escalate loop)"
+git switch -q bead/archicraft-es01-escalate
+expect "escalate.sh flags a bead at tier max for a human" "--add-label human" "$(escalate tier:max)"
+expect "escalate.sh flags a bead at tier fable for a human" "--add-label human" "$(escalate tier:fable)"
+expect "escalate.sh flags a bead escalated before for a human" "--add-label human" "$(escalate tier:xhigh,escalated)"
+expect "a bead flagged for a human keeps its branch" bead/archicraft-es01-escalate "$(loop_branch)"
+check "stop after escalate.sh flagged the bead for a human" allow "$(hook stop-gate "$stop_input")"
+unset FAKE_BD_LOG
+rm -rf "$(dirname "$patch")"
+git reset -q --hard && git clean -qfd crates
+git switch -q bead/archicraft-ab12.1-demo
 
 # --- review-verdict ----------------------------------------------------------------------------
 reset_state

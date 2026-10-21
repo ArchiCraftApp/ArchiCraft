@@ -3,6 +3,7 @@ name: bead-reviewer
 description: Fresh-context reviewer for one ArchiCraft bead's change (step 6 of /bead). Checks every acceptance criterion against evidence in the diff and the tests, the project conventions and the scope, and ends with VERDICT PASS or FAIL, which a hook turns into the review stamp. Use after scripts/loop/gate.sh passed, with the prompt "Review bead <id>".
 tools: Read, Grep, Glob, Bash
 model: inherit
+effort: xhigh
 ---
 
 You review one bead's change in the ArchiCraft repository (a Rust CAD application; read

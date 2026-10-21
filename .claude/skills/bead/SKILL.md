@@ -19,8 +19,8 @@ them:
   to `docs/` and top-level Markdown files other than `CLAUDE.md`, `AGENTS.md` and
   `docs/SRS.md` (step 6).
 - Pushing to `main`, force pushes and merging a PR without `--auto` are refused.
-- Stopping with uncommitted code runs the gate and blocks while it fails (`pause.sh` below
-  is the explicit way out).
+- Stopping with uncommitted code runs the gate and blocks while it fails (`escalate.sh` and
+  `pause.sh` in the stop rules below are the explicit ways out).
 
 **Git authority.** On `bead/*` branches the user has authorised (2026-10-19) committing,
 pushing the branch, opening the PR and enabling auto-merge on green CI as part of this loop,
@@ -66,7 +66,14 @@ is on `origin/main`: when this worktree's `scripts/loop` differs, it re-executes
 lease only matters when two sessions might claim the same bead. Then read, in full:
 
 - `bd show <id>`: description (why and what), acceptance criteria, design, notes. The notes
-  line `SRS: …` lists the requirement IDs.
+  line `SRS: …` lists the requirement IDs. The label `tier:<x>` is the model and effort
+  `/bead-loop` started this session at (Tiers in `.claude/skills/bead-loop/SKILL.md`); the
+  report, the close note and an escalation start from it. A bead started by hand may have
+  none: then label it with this session's own tier (`mcp__ccd_session_mgmt__get_session` with
+  `self`: its effort on Claude Opus 5.5, `fable` on Claude Fable 5.1).
+- When `start-bead.sh` names an escalation patch, an earlier run on a lower tier hit the stop
+  rule and left its unreviewed work there; the notes say what blocked it. Apply it as the
+  starting point (`git apply --index <patch>`) or read it as a reference.
 - The text of every cited requirement in `docs/SRS.md` (`grep -n '<ID>' docs/SRS.md`) and its
   row in `docs/implementation-status.md`.
 - Every file and line the description names. If the notes name a `wip/…` branch from the
@@ -87,7 +94,11 @@ Split the bead first when any of these holds:
 To split: create child beads with
 `bd create --parent <id> --type task --no-inherit-labels --labels <labels>`, each with its own
 `--description`, `--acceptance` (a subset of the parent's criteria, together covering all of
-them), `--estimate` and a notes line `SRS: …` for the IDs it serves. A child takes only the
+them), `--estimate`, a notes line `SRS: …` for the IDs it serves and a `tier:<x>` label from
+the rubric in `.claude/skills/bead-loop/SKILL.md` (`medium` up to 30 minutes, `high` by
+default, `xhigh` for a geometry algorithm, an IFCX format, reader or writer change or a loop
+change). Slicing may also mark a child `max` (an estimate of 360 minutes or more) or `fable` (a
+memory or architecture redesign that later beads build on). A child takes only the
 crate labels (`archicraft-model`, `archicraft-geometry`, `archicraft-ifcx`, `archicraft-app`)
 of the crates it touches, because `/bead-loop` runs beads at once only when they share no
 crate label; it keeps the parent's other labels where they apply (`format-change` only on the
@@ -105,6 +116,9 @@ git branch -D bead/<id>-<slug>   # the parent's branch, still without commits
 
 The parent stays in progress and `sweep.sh` closes it once all children are closed. Use
 exactly the label `loop-split`: plain `split` is the area label of the split tool's beads.
+When the first child's tier is above this session's (the order is `medium`, `high`, `xhigh`,
+`max`, `fable`), do not start it here: end after the split and report it, and `/bead-loop`
+starts each child at its tier.
 
 ## 3. Tests first
 
@@ -145,8 +159,9 @@ Launch the `bead-reviewer` agent in the foreground (`run_in_background: false`) 
 prompt `Review bead <id>`, and do not edit anything while it runs. It starts from a fresh
 context, checks every acceptance criterion against evidence, the conventions and the scope,
 and ends with `VERDICT: PASS` or `VERDICT: FAIL`; a hook stamps the tree on a PASS
-(`scripts/loop/status.sh` shows it). On `FAIL`, fix the findings, run the gate again and
-ask for a new review.
+(`scripts/loop/status.sh` shows it). It runs at effort `xhigh` whatever this session's tier
+(`effort` in its frontmatter), so a cheaper implementer still gets a strong review. On
+`FAIL`, fix the findings, run the gate again and ask for a new review.
 
 A `PASS` can come with minor findings. Do not re-review for them:
 
@@ -190,31 +205,54 @@ iteration. Before you end the session:
   (a bug, a broken requirement or a convention the code violated, not a style or wording
   point), file a bead with label `loop` at priority 3 that adds the check to the gate. Record
   anything less with `bd remember`. Loop beads cost the user reviews, so they stay rare.
+- Write the close note, so the rubric can be calibrated later: the tier, the review rounds
+  (bead-reviewer runs in this session) and the gate failures (failed gate runs, the Stop
+  hook's included), and how the session ended (`PR #N`, or `stopped` and `paused` from the
+  stop rules):
+
+  ```bash
+  bd update <id> --append-notes "Close: tier <x>, <n> review rounds, <m> gate failures, <PR #N|stopped|paused>"
+  ```
+
 - Report in at most 4 lines, nothing else (details only when the user asks):
 
   ```
-  <id> ✅ PR #<n> (auto-merge): <one line: what changed>
+  <id> ✅ PR #<n> (auto-merge, <tier>): <one line: what changed>
   Needs you: -
   ```
 
-  The status is ✅ (PR open or merged), ⏸ (paused, label `human`) or ❌ (no PR); the
-  bracket says `auto-merge`, `waits for you` (`land.sh` left auto-merge off) or `blocked`.
+  The status is ✅ (PR open or merged), ⏫ (escalated one tier up, see Stop rules),
+  ⏸ (paused, label `human`) or ❌ (no PR); the bracket says `auto-merge`, `waits for you`
+  (`land.sh` left auto-merge off) or `blocked`, then the tier.
   `Needs you:` names the one thing the user has to do, or `-`. Two more lines at most, only
   for what the user must know: a `refused` or `stale` sweep line, a skipped criterion, a
   follow-up bead.
 
 ## Stop rules
 
-- The gate fails three times on the same problem, or the review fails twice: stop. Flag the
-  bead and pause:
+- The gate fails three times on the same problem, or the review fails twice: stop. Write the
+  close note (step 8, `stopped`), then:
 
   ```bash
-  bd update <id> --add-label human --append-notes "<what blocks, what you tried>"
-  scripts/loop/pause.sh "<one-line reason>"
+  scripts/loop/escalate.sh "<what blocks, what you tried>"
   ```
 
-- A decision belongs to the user (ambiguous requirement, conflicting criteria): pause the
-  same way and ask.
+  The first time, a bead below tier `max` moves one tier up: `escalate.sh` swaps its `tier:`
+  label, adds the label `escalated` and a note, saves this run's uncommitted work as a patch,
+  releases the claim and detaches this worktree from the branch. The next `/bead-loop` batch
+  resumes the branch in a fresh session on the stronger tier. Report `<id> ⏫ escalated to
+  <tier>: <reason>` with `Needs you: -`. A bead at `max` or `fable`, or one escalated before,
+  gets the label `human` instead and stays paused here; report it as ⏸. When the user
+  switches this session to Claude Fable 5.1 and says continue, relabel the bead
+  (`bd update <id> --remove-label human --remove-label tier:<x> --add-label tier:fable`) and
+  carry on.
+- A decision belongs to the user (ambiguous requirement, conflicting criteria): a stronger
+  model does not settle it. Write the close note (`paused`), flag the bead, pause and ask:
+
+  ```bash
+  bd update <id> --add-label human --append-notes "<the question, what you tried>"
+  scripts/loop/pause.sh "<one-line reason>"
+  ```
 - Do not start a second bead in the same session; the next bead gets a fresh context.
 - Changes to the loop itself (scripts, hooks, skills, the reviewer) are their own bead with
   label `loop`, never part of a feature bead.
