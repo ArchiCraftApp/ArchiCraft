@@ -14,12 +14,13 @@ mod common;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use archicraft_app::ArchiCraftApp;
 use archicraft_app::app::{IFCX_EXTENSIONS, with_ifcx_extension};
 use archicraft_app::input::{InputConsumer, Outcome};
-use archicraft_app::persistence::autosave::{RecoveryInfo, Session, write_autosave};
+use archicraft_app::persistence::autosave::{ManualClock, RecoveryInfo, Session, write_autosave};
 use archicraft_app::persistence::prefs::{Preferences, SeparatorChoice};
 use archicraft_app::persistence::{DataDirs, backup_path};
 use archicraft_app::tools::{ToolKind, WallMode};
@@ -31,7 +32,7 @@ use archicraft_ifcx::container::Header;
 use archicraft_model::glam::DVec2;
 use archicraft_model::project::Projection;
 use archicraft_model::{Command, ElementId, ElementKind, StoreyId, ViewId};
-use common::{assert_present, data_dir, harness, harness_at, harness_in};
+use common::{assert_present, data_dir, harness, harness_at, harness_in, harness_with_clock};
 use egui::accesskit::Role;
 use egui::{Event, Id, Key, Modifiers, MouseWheelUnit, PointerButton, Pos2, Rect, TouchPhase, Vec2};
 use egui_kittest::Harness;
@@ -807,6 +808,75 @@ fn prj_004_nfr_rel_002_autosaves_follow_the_preference_interval() {
     let saved = archicraft_ifcx::load(&model).expect("a readable autosave");
     assert_eq!(saved.project.elements.len(), 1);
     assert_eq!(h.state_mut().workspace().doc.path, None, "no project file was written");
+}
+
+/// How long a test waits for the autosave thread.
+const AUTOSAVE_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn start_with_clock(name: &str, prefs: Preferences) -> (App, ManualClock, PathBuf) {
+    let dir = data_dir(name);
+    let clock = ManualClock::new();
+    let h = harness_with_clock(&dir, prefs, 1.0, Arc::new(clock.clone()));
+    (h, clock, dir)
+}
+
+/// Moves the clock by `by` and lets the application run a few frames, then
+/// returns the number of autosaves written so far.
+fn advance_clock(h: &mut App, clock: &ManualClock, by: Duration) -> usize {
+    clock.advance(by);
+    h.run_steps(2);
+    h.state()
+        .autosaves_written(AUTOSAVE_TIMEOUT)
+        .expect("the queued autosaves are written in time")
+}
+
+/// PRJ-004 and NFR-REL-002: after an edit at 0:00 nothing is autosaved at
+/// 4:59, one autosave is written at 5:00 and none follows while nothing
+/// changes.
+#[test]
+fn prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before() {
+    let (mut h, clock, dir) = start_with_clock("autosave-clock-default", Preferences::default());
+    assert_eq!(h.state_mut().workspace().prefs.autosave_minutes, 5);
+    add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
+
+    let written = advance_clock(&mut h, &clock, Duration::from_secs(4 * 60 + 59));
+    assert_eq!(written, 0, "autosaved at 4:59");
+    let written = advance_clock(&mut h, &clock, Duration::from_secs(1));
+    assert_eq!(written, 1, "no autosave at 5:00");
+    let written = advance_clock(&mut h, &clock, Duration::from_secs(5 * 60));
+    assert_eq!(written, 1, "autosaved again at 10:00 without a change");
+    let written = advance_clock(&mut h, &clock, Duration::from_secs(60 * 60));
+    assert_eq!(written, 1, "autosaved again at 70:00 without a change");
+
+    drop(h);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// PRJ-004: the interval comes from the preferences; with 2 minutes the
+/// autosave is written at 2:00, not at 1:59.
+#[test]
+fn prj_004_autosave_interval_follows_the_preferences() {
+    let prefs = Preferences {
+        autosave_minutes: 2,
+        ..Preferences::default()
+    };
+    let (mut h, clock, dir) = start_with_clock("autosave-clock-two", prefs);
+    add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
+
+    let written = advance_clock(&mut h, &clock, Duration::from_secs(60 + 59));
+    assert_eq!(written, 0, "autosaved at 1:59");
+    let written = advance_clock(&mut h, &clock, Duration::from_secs(1));
+    assert_eq!(written, 1, "no autosave at 2:00");
+
+    // A later change is autosaved two minutes after the previous autosave.
+    add_wall(&mut h, DVec2::new(0.0, 3.0), DVec2::new(4.0, 3.0));
+    let written = advance_clock(&mut h, &clock, Duration::from_secs(60));
+    assert_eq!(written, 1, "autosaved one minute after the last autosave");
+    let written = advance_clock(&mut h, &clock, Duration::from_secs(60));
+    assert_eq!(written, 2, "the change is not autosaved at 4:00");
+
+    drop(h);
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// PRJ-005, NFR-REL-001 and NFR-REL-003: every save replaces the file

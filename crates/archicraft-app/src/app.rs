@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use archicraft_ifcx::Problem;
 use archicraft_model::template::default_metric_project;
@@ -13,7 +13,7 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 
 use crate::document::Document;
 use crate::i18n::{self, Localizer};
-use crate::persistence::autosave::{Abandoned, Autosaver, Session, find_abandoned};
+use crate::persistence::autosave::{Abandoned, Autosaver, Clock, Session, SystemClock, find_abandoned};
 use crate::persistence::crash::{RecentLog, reports_since};
 use crate::persistence::prefs::{Preferences, ThemeChoice};
 use crate::persistence::{DataDirs, save_atomically};
@@ -84,7 +84,10 @@ pub struct ArchiCraftApp {
     dialogs: Dialogs,
     session: Option<Session>,
     autosaver: Autosaver,
-    last_autosave: Instant,
+    /// The time the autosave interval is measured with (PRJ-004).
+    clock: Arc<dyn Clock>,
+    /// When the last autosave was queued, by `clock`.
+    last_autosave: Duration,
     load_problems: Vec<Problem>,
     prompt: Option<Prompt>,
     recovery: Vec<Abandoned>,
@@ -131,6 +134,18 @@ impl ArchiCraftApp {
     /// Creates the application. `open` is a project given on the command
     /// line.
     pub fn new(dirs: DataDirs, prefs: Preferences, log: Arc<RecentLog>, open: Option<PathBuf>) -> Self {
+        Self::with_clock(dirs, prefs, log, open, Arc::new(SystemClock::new()))
+    }
+
+    /// Creates the application with the autosave interval measured by
+    /// `clock` (PRJ-004), so that tests can step through it (AS-05).
+    pub fn with_clock(
+        dirs: DataDirs,
+        prefs: Preferences,
+        log: Arc<RecentLog>,
+        open: Option<PathBuf>,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
         let undo_steps = prefs.undo_steps;
         let ws = Workspace::new(Document::new(default_metric_project(), undo_steps), prefs);
         let tree = default_tree(&ws);
@@ -150,7 +165,8 @@ impl ArchiCraftApp {
             dialogs: Dialogs::default(),
             session,
             autosaver: Autosaver::new(),
-            last_autosave: Instant::now(),
+            last_autosave: clock.now(),
+            clock,
             load_problems: Vec::new(),
             prompt: None,
             recovery,
@@ -173,6 +189,13 @@ impl ArchiCraftApp {
     /// The workspace, for tests.
     pub fn workspace(&mut self) -> &mut Workspace {
         &mut self.ws
+    }
+
+    /// The autosaves written so far, after waiting up to `timeout` for the
+    /// queued ones; `None` if some are still pending. For tests (AS-05).
+    #[doc(hidden)]
+    pub fn autosaves_written(&self, timeout: Duration) -> Option<usize> {
+        self.autosaver.wait_idle(timeout).then(|| self.autosaver.written())
     }
 
     /// The layout of the views, for tests that build a split (UI-007).
@@ -576,10 +599,10 @@ impl ArchiCraftApp {
         let interval = Duration::from_secs(u64::from(self.ws.prefs.autosave_minutes) * 60);
         if let Some(session) = &self.session
             && self.ws.doc.needs_autosave()
-            && self.last_autosave.elapsed() >= interval
+            && self.clock.now().saturating_sub(self.last_autosave) >= interval
         {
             #[cfg(feature = "perf")]
-            let started = Instant::now();
+            let started = std::time::Instant::now();
             let geometry = self.ws.doc.geometry();
             self.autosaver.request(
                 session,
@@ -589,7 +612,7 @@ impl ArchiCraftApp {
                 &self.ws.prefs.author,
             );
             self.ws.doc.mark_autosaved();
-            self.last_autosave = Instant::now();
+            self.last_autosave = self.clock.now();
             #[cfg(feature = "perf")]
             self.ws
                 .perf
