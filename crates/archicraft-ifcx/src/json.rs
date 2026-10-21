@@ -9,17 +9,142 @@
 //! Rounding is not done here: the writer rounds standard-namespace
 //! coordinates with [`round_coordinate`] and leaves `archicraft::`
 //! parameters at full precision (NFR-ACC-002), see [`crate::alpha::writer`].
+//!
+//! [`Writer`] writes a document piece by piece with the same formatting, so
+//! that a large document never has to exist as one [`Value`] (NFR-SEC-003).
 
 use serde_json::{Number, Value};
 
 /// Writes `value` as compact JSON, or indented with two spaces.
 pub fn to_string(value: &Value, pretty: bool) -> String {
-    let mut out = String::with_capacity(1 << 16);
-    write_value(value, pretty, 0, &mut out);
-    if pretty {
-        out.push('\n');
+    let mut writer = Writer::new(pretty);
+    writer.value(value);
+    writer.finish()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Container {
+    Object,
+    Array,
+}
+
+/// Writes one JSON document member by member and item by item, formatted
+/// exactly as [`to_string`] formats the whole document (IFX-007, IFX-008).
+/// The writer of IFCX files streams its data nodes through it, holding one
+/// node at a time instead of a tree of the whole file (NFR-SEC-003).
+///
+/// In an object, [`key`](Self::key) comes before each member's value; in an
+/// array, each value is an item. An array opened with
+/// [`begin_array`](Self::begin_array) is written one item per line when
+/// indenting, as [`to_string`] writes an array that holds anything but
+/// numbers, so its items must not be numbers; a list of numbers goes in
+/// whole through [`value`](Self::value).
+#[derive(Debug)]
+pub struct Writer {
+    out: String,
+    pretty: bool,
+    /// The open objects and arrays, innermost last, each with the number of
+    /// members or items written so far.
+    open: Vec<(Container, usize)>,
+}
+
+impl Writer {
+    pub fn new(pretty: bool) -> Self {
+        Self {
+            out: String::with_capacity(1 << 16),
+            pretty,
+            open: Vec::new(),
+        }
     }
-    out
+
+    /// Before a value: in an array, the separator and indentation of a new
+    /// item; after a key, nothing.
+    fn item(&mut self) {
+        if let Some((Container::Array, items)) = self.open.last_mut() {
+            if *items > 0 {
+                self.out.push(',');
+            }
+            *items += 1;
+            if self.pretty {
+                indent(&mut self.out, self.open.len());
+            }
+        }
+    }
+
+    /// Starts the member `key` of the innermost object; its value follows.
+    pub fn key(&mut self, key: &str) {
+        debug_assert!(
+            matches!(self.open.last(), Some((Container::Object, _))),
+            "a key outside an object"
+        );
+        if let Some((_, members)) = self.open.last_mut() {
+            if *members > 0 {
+                self.out.push(',');
+            }
+            *members += 1;
+        }
+        if self.pretty {
+            indent(&mut self.out, self.open.len());
+        }
+        write_string(key, &mut self.out);
+        self.out.push(':');
+        if self.pretty {
+            self.out.push(' ');
+        }
+    }
+
+    /// Writes a whole value: a member's value after [`key`](Self::key), an
+    /// item in an array, or the document.
+    pub fn value(&mut self, value: &Value) {
+        debug_assert!(
+            !(value.is_number() && matches!(self.open.last(), Some((Container::Array, _)))),
+            "a number item in a streamed array"
+        );
+        self.item();
+        write_value(value, self.pretty, self.open.len(), &mut self.out);
+    }
+
+    /// Opens an object, written member by member until [`end`](Self::end).
+    pub fn begin_object(&mut self) {
+        self.item();
+        self.out.push('{');
+        self.open.push((Container::Object, 0));
+    }
+
+    /// Opens an array of items that are not numbers, written item by item
+    /// until [`end`](Self::end).
+    pub fn begin_array(&mut self) {
+        self.item();
+        self.out.push('[');
+        self.open.push((Container::Array, 0));
+    }
+
+    /// Closes the innermost object or array.
+    pub fn end(&mut self) {
+        let Some((container, count)) = self.open.pop() else {
+            debug_assert!(false, "nothing to end");
+            return;
+        };
+        if self.pretty && count > 0 {
+            indent(&mut self.out, self.open.len());
+        }
+        self.out.push(match container {
+            Container::Object => '}',
+            Container::Array => ']',
+        });
+    }
+
+    /// The document, with the final newline of the indented form. Objects
+    /// and arrays still open are closed first.
+    pub fn finish(mut self) -> String {
+        while !self.open.is_empty() {
+            self.end();
+        }
+        if self.pretty {
+            self.out.push('\n');
+        }
+        self.out
+    }
 }
 
 fn indent(out: &mut String, level: usize) {
@@ -208,5 +333,60 @@ mod tests {
         assert!(pretty.contains("\"a\": [1, 2.5]"));
         let back: Value = serde_json::from_str(&pretty).unwrap();
         assert_eq!(back["d"][0][1], serde_json::json!(0.000001));
+    }
+
+    /// Streams `value` as deeply as the writer allows: every object member by
+    /// member and every array that holds no number item by item.
+    fn stream(value: &Value, writer: &mut Writer) {
+        match value {
+            Value::Object(map) => {
+                writer.begin_object();
+                for (key, item) in map {
+                    writer.key(key);
+                    stream(item, writer);
+                }
+                writer.end();
+            }
+            Value::Array(items) if !items.iter().any(Value::is_number) => {
+                writer.begin_array();
+                for item in items {
+                    stream(item, writer);
+                }
+                writer.end();
+            }
+            other => writer.value(other),
+        }
+    }
+
+    /// NFR-SEC-003 with IFX-007, IFX-008: a document written piece by piece
+    /// has the bytes of the whole document, compact and indented, also with
+    /// empty objects and arrays and with whole values among streamed ones.
+    #[test]
+    fn streaming_writes_the_bytes_of_the_whole_document() {
+        let document = serde_json::json!({
+            "header": {"id": "x", "n": 2.5},
+            "empty": {},
+            "none": [],
+            "data": [
+                {"path": "a", "attributes": {"points": [[0.0, 1e-6], [2, 3]], "name": "A"}},
+                {"path": "b"},
+                ["text", null, true, {"deep": [[], {}]}],
+            ],
+            "numbers": [1, 2, 3],
+        });
+        for pretty in [false, true] {
+            let mut writer = Writer::new(pretty);
+            stream(&document, &mut writer);
+            assert_eq!(writer.finish(), to_string(&document, pretty), "indented: {pretty}");
+        }
+        let mut writer = Writer::new(true);
+        writer.begin_object();
+        writer.key("data");
+        writer.begin_array();
+        writer.value(&serde_json::json!({"path": "a"}));
+        assert_eq!(
+            writer.finish(),
+            to_string(&serde_json::json!({"data": [{"path": "a"}]}), true)
+        );
     }
 }

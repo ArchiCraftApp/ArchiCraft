@@ -506,7 +506,8 @@ found four problems:
 4. *Out of memory, not fixed here:* 400 valid slabs of 999 points each (3.3 MB) open with about
    300 MB, but saving them writes 52 MB of meshes and needs 2.7 GB, and reading that file
    back needs 2.8 GB. The IFCX reader and writer hold the whole file as a JSON tree; that is a
-   design change, filed as archicraft-4rrc with the recipe for the input.
+   design change, filed as archicraft-4rrc with the recipe for the input. The writer streams
+   since archicraft-4rrc.1; the reader is archicraft-4rrc.2 (**Memory** below).
 
 The final runs above used `scripts/fuzz-run.sh` on the corpus grown by the exploratory round
 and earlier runs, with the regression files added, one process per target, all at once. The
@@ -516,6 +517,35 @@ messages, archicraft-9w3.1) changed only how the slab limit is reported, so each
 another 10 minutes on the rebased commit. The hand-crafted inputs were not added to the
 seeded corpus, and coverage was not checked with `cargo fuzz coverage`; both are
 archicraft-4ehi.
+
+**Memory.** A valid file can need far more memory to save or open than its size suggests, and
+exhausting memory is a denial of service (NFR-SEC-003), so saving and opening are measured on
+the input of finding 4. `crates/archicraft-ifcx/examples/memory.rs` builds that input
+(`memory repro <file> 400`: `walls-and-slab.ifcx` with 400 more slabs, by
+`crates/archicraft-ifcx/tests/memory_probe/mod.rs`), opens, evaluates and saves it
+(`memory save <in> <out> [--indented]`) and opens the saved file (`memory load <file>`). It
+prints each step's peak heap, counted by a global allocator, with the heap held before the step;
+the peak resident memory of each command comes from `/usr/bin/time -l` (macOS) or
+`/usr/bin/time -v` (Linux). Build it with
+`cargo build --release -p archicraft-ifcx --example memory`. `crates/archicraft-ifcx/tests/memory.rs`
+saves the input with 30 slabs (4 MB) and fails when a save needs a peak heap of more than four
+times the file it writes: the streaming writer needs 2.2 times for the compact file, the
+writer that built the whole file as a JSON tree needed 44 times.
+
+| Date | Code | Command | File written or read | Peak heap of the step (held before) | Peak RSS |
+|---|---|---|---|---|---|
+| 2026-10-21 | `86ea49b` (main) | `save` | 52.6 MB | 2,458 MB (110 MB) | 2,692 MB |
+| 2026-10-21 | same | `save --indented` | 99.2 MB | 2,559 MB (110 MB) | 2,746 MB |
+| 2026-10-21 | `86ea49b` with archicraft-4rrc.1 | `save` | 52.6 MB | 213 MB (110 MB) | 384 MB |
+| 2026-10-21 | same | `save --indented` | 99.2 MB | 314 MB (110 MB) | 423 MB |
+| 2026-10-21 | same (the reader of main) | `load` | 52.6 MB | 2,729 MB (0 MB) | 2,836 MB |
+
+All on macOS 27 on Apple silicon (16 cores), release builds. Both `save` commands open the
+3.3 MB input first (peak heap 244 MB) and evaluate it (110 MB, held through the save), which
+is part of their peak RSS. The streaming save also takes 0.71 s instead of 1.08 s, and writes
+the same bytes, compact and indented. The `ifcx_load` fuzz target, built with
+AddressSanitizer, still stops the input at its 2,048 MB limit, now in its second `load` (of
+the saved 52.6 MB) instead of in `save`; archicraft-4rrc.2 changes the reader.
 
 **Licences.** The fuzz crate is outside the workspace, so `cargo deny` does not list it;
 this paragraph is its entry in the licence inventory (NFR-LEG-001). Beyond the ArchiCraft
