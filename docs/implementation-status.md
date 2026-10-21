@@ -13,12 +13,12 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
-| done | 61 | 7 | 1 | 69 |
-| partial | 115 | 34 | 6 | 155 |
+| done | 63 | 7 | 1 | 71 |
+| partial | 113 | 34 | 6 | 153 |
 | missing | 138 | 158 | 47 | 343 |
 | **total** | 314 | 199 | 54 | 567 |
 
-Remaining effort of the 498 open requirements: S 118, M 219, L 136, XL 25.
+Remaining effort of the 496 open requirements: S 116, M 219, L 136, XL 25.
 
 <!-- status:end counts -->
 
@@ -30,7 +30,7 @@ Remaining effort of the 498 open requirements: S 118, M 219, L 136, XL 25.
 | Section | Title | Must | Should | Could | Total |
 |---|---|---|---|---|---:|
 | 4.1 | Project and file management | 3/3/0 | 1/1/4 | 0/1/0 | 13 |
-| 4.2 | Project structure, location and units | 8/4/0 | 0/0/2 | 0/0/1 | 15 |
+| 4.2 | Project structure, location and units | 9/3/0 | 0/0/2 | 0/0/1 | 15 |
 | 4.3 | Workspace and user interface | 1/7/0 | 1/6/1 | 0/0/1 | 17 |
 | 4.4 | Views and navigation | 2/8/8 | 0/2/15 | 0/0/3 | 38 |
 | 4.5 | Plan display and graphic attributes | 0/7/1 | 0/2/7 | 0/1/2 | 20 |
@@ -80,7 +80,7 @@ Remaining effort of the 498 open requirements: S 118, M 219, L 136, XL 25.
 | 6.5 | Portability and compatibility | 2/4/0 | 0/0/0 | 0/0/0 | 6 |
 | 6.6 | Maintainability and testability | 3/2/0 | 0/0/0 | 0/0/0 | 5 |
 | 6.7 | Security and privacy | 2/2/0 | 0/0/0 | 0/0/0 | 4 |
-| 6.8 | Localization and units | 1/2/0 | 0/0/1 | 0/0/0 | 4 |
+| 6.8 | Localization and units | 2/1/0 | 0/0/1 | 0/0/0 | 4 |
 | 6.9 | Accessibility | 0/0/0 | 0/3/0 | 0/0/0 | 3 |
 | 6.10 | Legal | 1/1/0 | 0/1/0 | 0/0/0 | 3 |
 
@@ -224,7 +224,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | STR-006 | M | done | none | Done for the current element kinds (walls, slabs): storey-relative data is resolved through the kind hooks at evaluation time; new kinds must implement the same hooks |
 | STR-007 | S | missing | M | No named reference levels (project zero, sea level, user-defined), no selection of the display/entry datum, no conversion in elevation fields (storey dialog, properties panel) or readouts; storage must stay relative to project ze… |
 | STR-008 | M | done | none | Done. observation: a per-storey override cannot be cleared back to the project default from the UI |
-| STR-009 | M | partial | S | Slope format, area unit and volume unit are not editable from the UI (only via the file); the slope format is not used anywhere yet (no slopes/roofs). Angle precision applies to decimal degrees/gradians only (DMS ignores decimals… |
+| STR-009 | M | done | none | Done: the Project settings dialog edits every unit setting through widgets::unit_settings_editor (crates/archicraft-app/src/ui/widgets.rs): length unit and decimals, angle unit and decimals, slope format with a live sample of a 30° pitch, area unit and volume unit; OK stores them with SetSettings, which changes no element and undoes in one step. Degrees-minutes-seconds show the seconds with the angle decimals (crates/archicraft-model/src/units.rs format_dms). IFCX keeps all of them (crates/archicraft-ifcx/src/alpha/writer.rs, reader.rs). Pinned by str_009_slope_area_and_volume_units_are_edited_in_project_settings and str_009_the_length_and_angle_rows_change_the_displayed_values (crates/archicraft-app/tests/done_requirements.rs) and non_default_slope_area_and_volume_units_round_trip (crates/archicraft-ifcx/tests/roundtrip.rs). |
 | STR-010 | M | done | none | Done: 'Automatic' follows the operating-system number locale (crates/archicraft-app/src/i18n/os_locale.rs: GetLocaleInfoEx on Windows, NSLocale on macOS, LC_ALL/LC_NUMERIC/LANG or sys-locale through a CLDR table on Linux), including its grouping character; Point and Comma override it without a restart, down to the dialogs' number fields (ui/widgets.rs integer, decimal and slider). Pinned by str_010_the_comma_setting_reaches_the_browser_in_the_next_frame (crates/archicraft-app/tests/done_requirements.rs) and the os_locale tests. |
 | STR-011 | M | partial | S | No elevation readout uses the datum (no sea-level-relative display; needs STR-007), and there is no import yet that could consume it. The single-datum rule itself holds in the model. |
 | STR-012 | M | partial | M | 'IFCX export writes it (IFX-070)' is not met: no `SurveyPoint` child node on the site with usd::xformop and epsg<code> eastings/northings/height attributes, no second +Y reference point for true north, no in-file epsg schema decl… |
@@ -1012,7 +1012,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 |---|---|---|---|---|
 | NFR-L10N-001 | M | partial | L | Mechanism in place: Fluent catalogue under crates/archicraft-app/locales/en, the tr! macro and an en-XA pseudo-locale (crates/archicraft-app/src/i18n), with a key-usage test; the About window, the Help menu title, the unit choices of the project settings, the reference-line and IFC class choices and the model messages use it. archicraft-model returns a Message (key and typed arguments, crates/archicraft-model/src/message.rs, rendered by i18n::render in project units) for command labels, the journal, element kind names, command errors, validation (elements, storeys, materials, plan grid), edit-lock reasons, integrity problems, the length and angle parse errors and the names of units, IFC classes and wall reference lines; the status line renders command errors (with their limits in the project units) and parse errors; the project settings show the unit names from the catalogue. archicraft-model is done: it has no user-visible literal left (unit symbols are allowlisted). Still literal: about 300 strings in the app crate; archicraft-ifcx load problems show model errors in their key form. The literal-string lint (crates/archicraft-app/tests/string_lint.rs, syn) fails on new user-visible literals; the files still to migrate are on its PENDING list, which only shrinks. |
 | NFR-L10N-002 | S | missing | M | No German translation; impossible before strings are externalized (NFR-L10N-001). |
-| NFR-L10N-003 | M | partial | S | Slope formats (degrees, percent, ratio) exist only as an unused enum: no format/parse functions, no UI, no consumer (no roof pitch yet). Area and volume units are not selectable in the project-settings dialog (STR-009). parse_ang… |
+| NFR-L10N-003 | M | done | none | Done: crates/archicraft-model/src/units.rs formats and parses the six length units, the four angle units (parse_angle accepts °, gon, grad, rad and d°m's" whatever the display unit) and the three slope formats (format_slope, parse_slope: degrees, percent and rise-to-run ratios typed as a:b, a∶b or a/b; vertical slopes only as angles); widgets::slope (crates/archicraft-app/src/ui/widgets.rs) is the slope edit widget. Pinned by the units.rs tests slopes_round_trip_in_every_format_within_display_precision, parse_angle_accepts_the_suffix_of_every_unit and every_length_and_angle_unit_formats_and_parses, and the_slope_widget_shows_the_slope_format_and_commits_typed_slopes (crates/archicraft-app/tests/ui.rs). |
 | NFR-L10N-004 | M | done | none | Done: display and typed input use the selected separator and the locale's grouping character (prefs.rs number_format, units.rs normalize_number_text and NumberFormat::parse_decimal); the dialogs' number fields go through ui/widgets.rs integer, decimal and slider, and point input filters typed keys through units::input_alphabet (input/mod.rs). Pinned by the nfr_l10n_004_* tests in crates/archicraft-app/tests/done_requirements.rs, typed_keys_follow_the_number_format (input/mod.rs) and parse_decimal_follows_number_format (units.rs). |
 
 ### 6.9 Accessibility

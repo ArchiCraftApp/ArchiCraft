@@ -694,3 +694,25 @@ fn an_invalid_snap_exclusion_flag_is_repaired_and_reported() {
         .count();
     assert_eq!(repaired, 2, "{:#?}", loaded.problems);
 }
+
+/// STR-009, PRJ-007: non-default slope, area and volume units are project
+/// settings kept in the file.
+#[test]
+fn non_default_slope_area_and_volume_units_round_trip() {
+    use archicraft_model::units::{AreaUnit, SlopeFormat, VolumeUnit};
+    for (slope, area, volume) in [
+        (SlopeFormat::Percent, AreaUnit::SquareFoot, VolumeUnit::CubicFoot),
+        (SlopeFormat::Ratio, AreaUnit::SquareMeter, VolumeUnit::CubicFoot),
+    ] {
+        let mut project = samples::storey_with_walls_and_slab();
+        project.settings.units.slope = slope;
+        project.settings.units.area = area;
+        project.settings.units.volume = volume;
+        let bytes = save(&project);
+        let problems = validate::validate(&validate::parse(&bytes).unwrap());
+        assert!(problems.is_empty(), "{problems:#?}");
+        let loaded = archicraft_ifcx::load(&bytes).unwrap();
+        assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+        assert_eq!(loaded.project.settings.units, project.settings.units);
+    }
+}

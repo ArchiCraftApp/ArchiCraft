@@ -92,6 +92,7 @@ fn label_representatives() -> Vec<Message> {
             ParseError::Empty,
             ParseError::InvalidLength("3 furlongs".into()),
             ParseError::InvalidAngle("north".into()),
+            ParseError::InvalidSlope("steep".into()),
         ]
         .iter()
         .map(ParseError::message),
@@ -426,5 +427,9 @@ fn unit_names_and_parse_errors_render_in_english() {
     assert_eq!(
         render(&ParseError::InvalidAngle("north".into()).message()),
         "“north” is not a valid angle."
+    );
+    assert_eq!(
+        render(&ParseError::InvalidSlope("1:0".into()).message()),
+        "“1:0” is not a valid slope."
     );
 }

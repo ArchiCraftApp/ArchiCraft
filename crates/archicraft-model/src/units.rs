@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::message::Message;
+use crate::tolerance::ANGLE_TOLERANCE;
 
 pub const METERS_PER_INCH: f64 = 0.0254;
 pub const METERS_PER_FOOT: f64 = 0.3048;
@@ -390,13 +391,106 @@ pub fn format_angle(radians: f64, units: &UnitSettings, nf: &NumberFormat, with_
             let text = nf.format_decimal(radians, decimals.max(3));
             if with_unit { format!("{text} rad") } else { text }
         }
-        AngleUnit::DegreesMinutesSeconds => {
-            let total_seconds = (radians.to_degrees() * 3600.0).round() as i64;
-            let sign = if total_seconds < 0 { "-" } else { "" };
-            let s = total_seconds.abs();
-            format!("{sign}{}°{:02}'{:02}\"", s / 3600, (s / 60) % 60, s % 60)
+        AngleUnit::DegreesMinutesSeconds => format_dms(radians, decimals.min(6), nf),
+    }
+}
+
+/// Degrees, minutes and seconds with `decimals` decimals of a second
+/// (STR-009), for example `30°15'07.3"`. The marks are always shown, because
+/// they are the notation.
+fn format_dms(radians: f64, decimals: usize, nf: &NumberFormat) -> String {
+    let per_second = 10_i64.pow(decimals as u32);
+    let total = (radians.to_degrees() * 3600.0 * per_second as f64).round() as i64;
+    let sign = if total < 0 { "-" } else { "" };
+    let total = total.abs();
+    let fraction = total % per_second;
+    let seconds = total / per_second;
+    let (degrees, minutes, seconds) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
+    if decimals == 0 {
+        format!("{sign}{degrees}°{minutes:02}'{seconds:02}\"")
+    } else {
+        let separator = nf.decimal_separator;
+        format!("{sign}{degrees}°{minutes:02}'{seconds:02}{separator}{fraction:0decimals$}\"")
+    }
+}
+
+/// Formats a slope, given as a pitch angle in radians, in the project's slope
+/// format (STR-009, NFR-L10N-003): degrees (`30.00°`) and percent (`57.74 %`,
+/// `100 · tan(pitch)`) with the angle decimals, and a ratio of rise to run
+/// (`1 : 1.732`) with the run in the length decimals; zero is `0 : 1`.
+/// `with_unit` only drops the `°` and `%` of the first two, so the text
+/// still reads back in its format: a ratio keeps its colon, and a slope that
+/// has no percent or ratio (vertical, or a run that rounds to zero) is shown
+/// in degrees with the degree sign. A pitch within [`ANGLE_TOLERANCE`] of a
+/// right angle is vertical.
+pub fn format_slope(pitch: f64, units: &UnitSettings, nf: &NumberFormat, with_unit: bool) -> String {
+    let decimals = usize::from(units.angle_decimals);
+    let degrees = |with_unit: bool| {
+        let text = nf.format_decimal(pitch.to_degrees(), decimals);
+        if with_unit { format!("{text}°") } else { text }
+    };
+    let vertical = pitch.abs() >= std::f64::consts::FRAC_PI_2 - ANGLE_TOLERANCE;
+    match units.slope {
+        SlopeFormat::Degrees => degrees(with_unit),
+        _ if vertical => degrees(true),
+        SlopeFormat::Percent => {
+            let text = nf.format_decimal(100.0 * pitch.tan(), decimals);
+            if with_unit { format!("{text} %") } else { text }
+        }
+        SlopeFormat::Ratio => {
+            if pitch == 0.0 {
+                return "0 : 1".to_owned();
+            }
+            let run = 1.0 / pitch.tan().abs();
+            let run_text = nf.format_decimal(run, usize::from(units.length_decimals));
+            if run_text.chars().all(|c| c == '0' || c == nf.decimal_separator) {
+                return degrees(true);
+            }
+            let sign = if pitch < 0.0 { "-" } else { "" };
+            format!("{sign}1 : {run_text}")
         }
     }
+}
+
+/// Parses a typed slope and returns the pitch angle in radians (STR-009,
+/// NFR-L10N-003). An explicit notation wins over the display format: a ratio
+/// of rise to run with `:`, `∶` or `/` (`6:12`, `1 : 1.732`), a percentage
+/// with `%`, an angle with the degree sign, a degrees-minutes-seconds mark or
+/// a `gon`, `grad` or `rad` suffix ([`parse_angle`]). A bare number is read
+/// in `format`; in the ratio format it is the run of `1 : n`. Vertical slopes
+/// can only be typed as angles, and pitches beyond a right angle are
+/// rejected.
+pub fn parse_slope(text: &str, format: SlopeFormat, nf: &NumberFormat) -> Result<f64, ParseError> {
+    let trimmed = text.trim();
+    let invalid = || ParseError::InvalidSlope(trimmed.to_owned());
+    if trimmed.is_empty() {
+        return Err(ParseError::Empty);
+    }
+    let number = |s: &str| nf.parse_decimal(s).ok_or_else(invalid);
+    let from_ratio = |rise: f64, run: f64| {
+        if run == 0.0 {
+            Err(invalid())
+        } else {
+            Ok((rise / run).atan())
+        }
+    };
+    let from_percent = |percent: f64| Ok((percent / 100.0).atan());
+    if let Some((rise, run)) = trimmed.split_once([':', '∶', '/']) {
+        return from_ratio(number(rise)?, number(run)?);
+    }
+    if let Some(percent) = trimmed.strip_suffix('%') {
+        return from_percent(number(percent)?);
+    }
+    let bare = nf.parse_decimal(trimmed);
+    let pitch = match (format, bare) {
+        (SlopeFormat::Percent, Some(percent)) => return from_percent(percent),
+        (SlopeFormat::Ratio, Some(run)) => return from_ratio(run.signum(), run.abs()),
+        _ => parse_angle(trimmed, AngleUnit::DecimalDegrees, nf).map_err(|_| invalid())?,
+    };
+    if pitch.abs() > std::f64::consts::FRAC_PI_2 + ANGLE_TOLERANCE {
+        return Err(invalid());
+    }
+    Ok(pitch.clamp(-std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2))
 }
 
 /// Formats an area given in square metres.
@@ -418,7 +512,7 @@ pub fn format_volume(cubic_meters: f64, units: &UnitSettings, nf: &NumberFormat)
     }
 }
 
-/// Why a typed length or angle was not accepted. `Display` is the key form,
+/// Why a typed length, angle or slope was not accepted. `Display` is the key form,
 /// for logs only; the user interface renders [`ParseError::message`]
 /// (NFR-L10N-001).
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
@@ -429,6 +523,8 @@ pub enum ParseError {
     InvalidLength(String),
     #[error("{}", self.message())]
     InvalidAngle(String),
+    #[error("{}", self.message())]
+    InvalidSlope(String),
 }
 
 impl ParseError {
@@ -439,6 +535,7 @@ impl ParseError {
             ParseError::Empty => Message::new("model-error-parse-empty"),
             ParseError::InvalidLength(text) => Message::new("model-error-parse-length").text("text", text.as_str()),
             ParseError::InvalidAngle(text) => Message::new("model-error-parse-angle").text("text", text.as_str()),
+            ParseError::InvalidSlope(text) => Message::new("model-error-parse-slope").text("text", text.as_str()),
         }
     }
 }
@@ -482,8 +579,11 @@ pub fn parse_length(text: &str, default_unit: LengthUnit, nf: &NumberFormat) -> 
     Ok(if negative { -meters } else { meters })
 }
 
-/// Parses a typed angle in the project's angle unit and returns radians.
-/// A trailing `°` is accepted. Degrees-minutes-seconds accept `d°m's"`.
+/// Parses a typed angle and returns radians (INP-005, NFR-L10N-003). Accepts
+/// the notation of every angle unit whatever the display unit, as
+/// [`parse_length`] accepts every length suffix: a trailing `°` (degrees),
+/// `gon` or `grad` (gradians), `rad` (radians) and degrees-minutes-seconds
+/// `d°m's"`. A bare number is read in `unit`.
 pub fn parse_angle(text: &str, unit: AngleUnit, nf: &NumberFormat) -> Result<f64, ParseError> {
     let invalid = || ParseError::InvalidAngle(text.trim().to_owned());
     let normalized = normalize_number_text(text, nf).ok_or_else(invalid)?;
@@ -495,29 +595,34 @@ pub fn parse_angle(text: &str, unit: AngleUnit, nf: &NumberFormat) -> Result<f64
         Some(rest) => (true, rest.trim()),
         None => (false, s),
     };
-    let value = if body.contains('\'') || body.contains('"') || unit == AngleUnit::DegreesMinutesSeconds {
-        let mut degrees = 0.0;
-        let mut rest = body;
-        for (mark, factor) in [('°', 1.0), ('\'', 1.0 / 60.0), ('"', 1.0 / 3600.0)] {
-            if let Some((number, tail)) = rest.split_once(mark) {
-                let n: f64 = number.trim().parse().map_err(|_| invalid())?;
-                degrees += n * factor;
-                rest = tail;
+    let (value_text, suffix) = split_unit_suffix(body);
+    let number = |s: &str| s.trim().parse::<f64>().map_err(|_| invalid());
+    let value = match suffix.trim() {
+        "gon" | "grad" => number(value_text)? * std::f64::consts::PI / 200.0,
+        "rad" => number(value_text)?,
+        "" if body.contains(['°', '\'', '"']) || unit == AngleUnit::DegreesMinutesSeconds => {
+            let mut degrees = 0.0;
+            let mut rest = body;
+            for (mark, factor) in [('°', 1.0), ('\'', 1.0 / 60.0), ('"', 1.0 / 3600.0)] {
+                if let Some((n, tail)) = rest.split_once(mark) {
+                    degrees += number(n)? * factor;
+                    rest = tail;
+                }
+            }
+            if !rest.trim().is_empty() {
+                degrees += number(rest)?;
+            }
+            degrees.to_radians()
+        }
+        "" => {
+            let n = number(body)?;
+            match unit {
+                AngleUnit::DecimalDegrees | AngleUnit::DegreesMinutesSeconds => n.to_radians(),
+                AngleUnit::Gradians => n * std::f64::consts::PI / 200.0,
+                AngleUnit::Radians => n,
             }
         }
-        if !rest.trim().is_empty() {
-            let n: f64 = rest.trim().parse().map_err(|_| invalid())?;
-            degrees += n;
-        }
-        degrees.to_radians()
-    } else {
-        let number = body.trim_end_matches('°').trim();
-        let n: f64 = number.parse().map_err(|_| invalid())?;
-        match unit {
-            AngleUnit::DecimalDegrees | AngleUnit::DegreesMinutesSeconds => n.to_radians(),
-            AngleUnit::Gradians => n * std::f64::consts::PI / 200.0,
-            AngleUnit::Radians => n,
-        }
+        _ => return Err(invalid()),
     };
     if !value.is_finite() {
         return Err(invalid());
@@ -602,14 +707,15 @@ impl InputAlphabet {
 
 /// Returns the characters [`parse_length`] and [`parse_angle`] accept under
 /// `nf`: digits, signs, the decimal separator, the grouping characters,
-/// mixed-number spaces and fraction slashes, the length unit suffixes and the
-/// feet, inch, degree, minute and second marks. The unit settings do not
+/// mixed-number spaces and fraction slashes, the length and angle unit
+/// suffixes (`gon`, `grad`, `rad`) and the feet, inch, degree, minute and
+/// second marks. The unit settings do not
 /// narrow it, because the parsers accept every suffix and mark in any unit.
 pub fn input_alphabet(nf: &NumberFormat) -> InputAlphabet {
     let mut chars: Vec<char> = vec!['+', '-', '−', ' ', '/', nf.decimal_separator];
     chars.extend(nf.grouping);
     chars.extend(LOCALE_GROUPINGS);
-    chars.extend("mcfitn".chars());
+    chars.extend("mcfitngorad".chars());
     chars.extend(['\'', '"', '′', '″', '’', '”', '°']);
     chars.sort_unstable();
     chars.dedup();
@@ -904,7 +1010,7 @@ mod tests {
             grouping: Some('.'),
         };
         let alphabet = input_alphabet(&comma);
-        for c in "0123456789,.-+/ \u{A0}\u{202F}'’\"°mcfitn".chars() {
+        for c in "0123456789,.-+/ \u{A0}\u{202F}'’\"°mcfitngorad".chars() {
             assert!(alphabet.contains(c), "{c:?} should be accepted");
         }
         for c in "xyzqbe%;".chars() {
@@ -945,5 +1051,254 @@ mod tests {
         };
         assert_eq!(french.parse_decimal("1\u{A0}234,5"), Some(1234.5));
         assert_eq!(french.parse_decimal("1 234,5"), Some(1234.5));
+    }
+
+    fn with_slope(slope: SlopeFormat) -> UnitSettings {
+        UnitSettings {
+            slope,
+            ..UnitSettings::default()
+        }
+    }
+
+    /// STR-009, NFR-L10N-003: a slope shown in any format and typed back
+    /// gives the same display, and the pitch differs from the original by
+    /// less than the display precision allows.
+    #[test]
+    fn slopes_round_trip_in_every_format_within_display_precision() {
+        for format in SlopeFormat::ALL {
+            let units = with_slope(format);
+            for degrees in [0.0, 15.0, 30.0, 45.0, 60.0, 89.99] {
+                let pitch = f64::to_radians(degrees);
+                let shown = format_slope(pitch, &units, &nf(), true);
+                let parsed = parse_slope(&shown, format, &nf()).unwrap_or_else(|e| panic!("{shown}: {e:?}"));
+                assert_eq!(
+                    format_slope(parsed, &units, &nf(), true),
+                    shown,
+                    "{format:?} {degrees}°"
+                );
+                assert!(
+                    (parsed - pitch).abs().to_degrees() < 0.05,
+                    "{format:?} {degrees}° shown as {shown} reads back as {}°",
+                    parsed.to_degrees()
+                );
+                let bare = format_slope(pitch, &units, &nf(), false);
+                let parsed_bare = parse_slope(&bare, format, &nf()).unwrap_or_else(|e| panic!("{bare}: {e:?}"));
+                assert_eq!(format_slope(parsed_bare, &units, &nf(), true), shown, "{bare}");
+            }
+        }
+    }
+
+    /// NFR-L10N-003: 45° in the three formats, and zero as a ratio.
+    #[test]
+    fn formats_slopes_in_degrees_percent_and_ratio() {
+        let pitch = std::f64::consts::FRAC_PI_4;
+        assert_eq!(
+            format_slope(pitch, &with_slope(SlopeFormat::Degrees), &nf(), true),
+            "45.00°"
+        );
+        assert_eq!(
+            format_slope(pitch, &with_slope(SlopeFormat::Percent), &nf(), true),
+            "100.00 %"
+        );
+        assert_eq!(
+            format_slope(pitch, &with_slope(SlopeFormat::Ratio), &nf(), true),
+            "1 : 1.000"
+        );
+        let thirty = 30f64.to_radians();
+        assert_eq!(
+            format_slope(thirty, &with_slope(SlopeFormat::Percent), &nf(), true),
+            "57.74 %"
+        );
+        assert_eq!(
+            format_slope(thirty, &with_slope(SlopeFormat::Ratio), &nf(), true),
+            "1 : 1.732"
+        );
+        assert_eq!(format_slope(0.0, &with_slope(SlopeFormat::Ratio), &nf(), true), "0 : 1");
+        let comma = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('.'),
+        };
+        assert_eq!(
+            format_slope(thirty, &with_slope(SlopeFormat::Percent), &comma, true),
+            "57,74 %"
+        );
+    }
+
+    /// NFR-L10N-003: ratios are rise to run, typed with a colon, the ratio
+    /// sign or a slash; an explicit suffix wins over the display format.
+    #[test]
+    fn parses_slopes_by_suffix_whatever_the_display_format() {
+        let half = 0.5f64.atan();
+        for format in SlopeFormat::ALL {
+            for text in ["6:12", "6 : 12", "6∶12", "6/12", "1 : 2"] {
+                let v = parse_slope(text, format, &nf()).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+                assert!((v - half).abs() < 1e-12, "{text} in {format:?}");
+            }
+            let v = parse_slope("100 %", format, &nf()).unwrap();
+            assert!((v - std::f64::consts::FRAC_PI_4).abs() < 1e-12);
+            let v = parse_slope("30°", format, &nf()).unwrap();
+            assert!((v - 30f64.to_radians()).abs() < 1e-12);
+        }
+        let v = parse_slope("30", SlopeFormat::Degrees, &nf()).unwrap();
+        assert!((v - 30f64.to_radians()).abs() < 1e-12);
+        let v = parse_slope("100", SlopeFormat::Percent, &nf()).unwrap();
+        assert!((v - std::f64::consts::FRAC_PI_4).abs() < 1e-12);
+        // A bare number in the ratio format is the run of `1 : n`.
+        let v = parse_slope("2", SlopeFormat::Ratio, &nf()).unwrap();
+        assert!((v - half).abs() < 1e-12);
+        let comma = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('.'),
+        };
+        let v = parse_slope("57,74 %", SlopeFormat::Degrees, &comma).unwrap();
+        assert!((v - 0.5774f64.atan()).abs() < 1e-12);
+    }
+
+    /// NFR-L10N-003: negative slopes keep their sign in every format.
+    #[test]
+    fn negative_slopes_keep_their_sign() {
+        let pitch = -30f64.to_radians();
+        for format in SlopeFormat::ALL {
+            let shown = format_slope(pitch, &with_slope(format), &nf(), true);
+            assert!(shown.starts_with('-'), "{shown}");
+            let v = parse_slope(&shown, format, &nf()).unwrap();
+            assert!(v < 0.0 && (v - pitch).abs().to_degrees() < 0.05, "{shown}");
+        }
+        let v = parse_slope("-6:12", SlopeFormat::Degrees, &nf()).unwrap();
+        assert!((v + 0.5f64.atan()).abs() < 1e-12);
+        let v = parse_slope("-50 %", SlopeFormat::Degrees, &nf()).unwrap();
+        assert!((v + 0.5f64.atan()).abs() < 1e-12);
+    }
+
+    /// NFR-L10N-003: a vertical slope has no percent or ratio, so it cannot
+    /// be typed that way and is shown in degrees in those formats.
+    #[test]
+    fn vertical_slopes_are_degrees_only() {
+        let vertical = std::f64::consts::FRAC_PI_2;
+        for format in [SlopeFormat::Percent, SlopeFormat::Ratio] {
+            let units = with_slope(format);
+            assert_eq!(format_slope(vertical, &units, &nf(), true), "90.00°");
+            assert_eq!(format_slope(-vertical, &units, &nf(), true), "-90.00°");
+            let v = parse_slope("90.00°", format, &nf()).unwrap();
+            assert!((v - vertical).abs() < 1e-12);
+        }
+        for text in ["1:0", "1 : 0.000", "0", "0/0"] {
+            let e = parse_slope(text, SlopeFormat::Ratio, &nf()).unwrap_err();
+            assert_eq!(e, ParseError::InvalidSlope(text.to_owned()), "{text}");
+        }
+        for text in ["inf %", "1e99 %", "abc %", "%"] {
+            assert!(parse_slope(text, SlopeFormat::Percent, &nf()).is_err(), "{text}");
+        }
+        assert!(parse_slope("91°", SlopeFormat::Degrees, &nf()).is_err());
+        assert_eq!(parse_slope(" ", SlopeFormat::Degrees, &nf()), Err(ParseError::Empty));
+        let e = parse_slope("steep", SlopeFormat::Degrees, &nf()).unwrap_err();
+        assert_eq!(e.message().key(), "model-error-parse-slope");
+    }
+
+    /// NFR-L10N-003: typed angles accept the suffix of every angle unit,
+    /// whatever the display unit, as lengths accept every length suffix.
+    #[test]
+    fn parse_angle_accepts_the_suffix_of_every_unit() {
+        use std::f64::consts::FRAC_PI_2;
+        for unit in AngleUnit::ALL {
+            for text in [
+                "100gon",
+                "100 gon",
+                "100grad",
+                "90°",
+                "1.5707963267948966 rad",
+                "90°0'0\"",
+            ] {
+                let v = parse_angle(text, unit, &nf()).unwrap_or_else(|e| panic!("{text} in {unit:?}: {e:?}"));
+                assert!((v - FRAC_PI_2).abs() < 1e-12, "{text} in {unit:?}");
+            }
+        }
+        // 1.5708 as an exact quotient, which clippy does not take for π/2.
+        assert_eq!(
+            parse_angle("1.5708rad", AngleUnit::DecimalDegrees, &nf()),
+            Ok(15_708.0 / 10_000.0)
+        );
+        let v = parse_angle("100gon", AngleUnit::DecimalDegrees, &nf()).unwrap();
+        assert!((v - FRAC_PI_2).abs() < 1e-12);
+        let v = parse_angle("-50 gon", AngleUnit::Radians, &nf()).unwrap();
+        assert!((v + FRAC_PI_2 / 2.0).abs() < 1e-12);
+        let comma = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('.'),
+        };
+        assert_eq!(parse_angle("1,5 rad", AngleUnit::DecimalDegrees, &comma), Ok(1.5));
+        for text in ["100 gons", "rad", "1 rad 2", "5 m"] {
+            assert!(parse_angle(text, AngleUnit::DecimalDegrees, &nf()).is_err(), "{text}");
+        }
+    }
+
+    /// STR-009: degrees-minutes-seconds show the seconds with the angle
+    /// decimals.
+    #[test]
+    fn dms_shows_seconds_with_the_angle_decimals() {
+        let mut units = UnitSettings {
+            angle: AngleUnit::DegreesMinutesSeconds,
+            angle_decimals: 1,
+            ..UnitSettings::default()
+        };
+        let angle = (30.0 + 15.0 / 60.0 + 7.26 / 3600.0f64).to_radians();
+        assert_eq!(format_angle(angle, &units, &nf(), true), "30°15'07.3\"");
+        let comma = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('.'),
+        };
+        assert_eq!(format_angle(angle, &units, &comma, true), "30°15'07,3\"");
+        let v = parse_angle("30°15'07,3\"", AngleUnit::DegreesMinutesSeconds, &comma).unwrap();
+        assert!((v.to_degrees() - (30.0 + 15.0 / 60.0 + 7.3 / 3600.0)).abs() < 1e-9);
+        units.angle_decimals = 0;
+        assert_eq!(format_angle(angle, &units, &nf(), true), "30°15'07\"");
+        assert_eq!(format_angle(-angle, &units, &nf(), true), "-30°15'07\"");
+        units.angle_decimals = 2;
+        let almost = (59.0 + 59.0 / 60.0 + 59.999 / 3600.0f64).to_radians();
+        assert_eq!(format_angle(almost, &units, &nf(), true), "60°00'00.00\"");
+    }
+
+    /// NFR-L10N-003: a value in each of the six length units and the four
+    /// angle units is shown and typed back unchanged.
+    #[test]
+    fn every_length_and_angle_unit_formats_and_parses() {
+        let expected = [
+            (LengthUnit::Meter, "2.540 m"),
+            (LengthUnit::Centimeter, "254.000 cm"),
+            (LengthUnit::Millimeter, "2540.000 mm"),
+            (LengthUnit::FeetInches, "8'-4\""),
+            (LengthUnit::Feet, "8.333 ft"),
+            (LengthUnit::Inches, "100.000 in"),
+        ];
+        for (unit, text) in expected {
+            let units = UnitSettings {
+                length: unit,
+                ..UnitSettings::default()
+            };
+            assert_eq!(format_length(2.54, &units, &nf(), true), text, "{unit:?}");
+            let v = parse_length(text, unit, &nf()).unwrap();
+            assert!((v - 2.54).abs() < 0.001, "{text} reads back as {v}");
+            let bare = format_length(2.54, &units, &nf(), false);
+            let v = parse_length(&bare, unit, &nf()).unwrap();
+            assert!((v - 2.54).abs() < 0.001, "{bare} in {unit:?} reads back as {v}");
+        }
+        let angle = 30f64.to_radians();
+        let expected = [
+            (AngleUnit::DecimalDegrees, "30.00°"),
+            (AngleUnit::DegreesMinutesSeconds, "30°00'00.00\""),
+            (AngleUnit::Gradians, "33.33 gon"),
+            (AngleUnit::Radians, "0.524 rad"),
+        ];
+        for (unit, text) in expected {
+            let units = UnitSettings {
+                angle: unit,
+                ..UnitSettings::default()
+            };
+            assert_eq!(format_angle(angle, &units, &nf(), true), text, "{unit:?}");
+            for shown in [text.to_owned(), format_angle(angle, &units, &nf(), false)] {
+                let v = parse_angle(&shown, unit, &nf()).unwrap_or_else(|e| panic!("{shown}: {e:?}"));
+                assert!((v - angle).abs() < 0.001, "{shown} reads back as {v}");
+            }
+        }
     }
 }
