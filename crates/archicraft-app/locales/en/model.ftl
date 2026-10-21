@@ -162,11 +162,12 @@ model-problem-home-storey-missing = { $name }: the home storey is missing.
 model-problem-layer-missing = { $name }: the layer is missing.
 model-problem-material-missing = { $name }: the material is missing.
 
-## Typed lengths and angles (INP-005). $text is what the user typed.
+## Typed lengths, angles and slopes (INP-005, NFR-L10N-003). $text is what the user typed.
 
 model-error-parse-empty = Enter a number.
 model-error-parse-length = “{ $text }” is not a valid length.
 model-error-parse-angle = “{ $text }” is not a valid angle.
+model-error-parse-slope = “{ $text }” is not a valid slope.
 
 ## Unit names in the project settings (STR-009).
 

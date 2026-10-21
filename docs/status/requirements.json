@@ -214,10 +214,10 @@
       "id": "STR-009",
       "priority": "M",
       "section": "4.2",
-      "status": "partial",
-      "remaining_effort": "S",
-      "evidence": "",
-      "gap": "Slope format, area unit and volume unit are not editable from the UI (only via the file); the slope format is not used anywhere yet (no slopes/roofs). Angle precision applies to decimal degrees/gradians only (DMS ignores decimals…",
+      "status": "done",
+      "remaining_effort": "none",
+      "evidence": "Done: the Project settings dialog edits every unit setting through widgets::unit_settings_editor (crates/archicraft-app/src/ui/widgets.rs): length unit and decimals, angle unit and decimals, slope format with a live sample of a 30° pitch, area unit and volume unit; OK stores them with SetSettings, which changes no element and undoes in one step. Degrees-minutes-seconds show the seconds with the angle decimals (crates/archicraft-model/src/units.rs format_dms). IFCX keeps all of them (crates/archicraft-ifcx/src/alpha/writer.rs, reader.rs). Pinned by str_009_slope_area_and_volume_units_are_edited_in_project_settings and str_009_the_length_and_angle_rows_change_the_displayed_values (crates/archicraft-app/tests/done_requirements.rs) and non_default_slope_area_and_volume_units_round_trip (crates/archicraft-ifcx/tests/roundtrip.rs).",
+      "gap": "",
       "depends_on": []
     },
     {
@@ -5594,10 +5594,10 @@
       "id": "NFR-L10N-003",
       "priority": "M",
       "section": "6.8",
-      "status": "partial",
-      "remaining_effort": "S",
-      "evidence": "",
-      "gap": "Slope formats (degrees, percent, ratio) exist only as an unused enum: no format/parse functions, no UI, no consumer (no roof pitch yet). Area and volume units are not selectable in the project-settings dialog (STR-009). parse_ang…",
+      "status": "done",
+      "remaining_effort": "none",
+      "evidence": "Done: crates/archicraft-model/src/units.rs formats and parses the six length units, the four angle units (parse_angle accepts °, gon, grad, rad and d°m's\" whatever the display unit) and the three slope formats (format_slope, parse_slope: degrees, percent and rise-to-run ratios typed as a:b, a∶b or a/b; vertical slopes only as angles); widgets::slope (crates/archicraft-app/src/ui/widgets.rs) is the slope edit widget. Pinned by the units.rs tests slopes_round_trip_in_every_format_within_display_precision, parse_angle_accepts_the_suffix_of_every_unit and every_length_and_angle_unit_formats_and_parses, and the_slope_widget_shows_the_slope_format_and_commits_typed_slopes (crates/archicraft-app/tests/ui.rs).",
+      "gap": "",
       "depends_on": []
     },
     {

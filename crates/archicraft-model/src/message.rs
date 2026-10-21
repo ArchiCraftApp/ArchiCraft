@@ -138,10 +138,11 @@ pub const ALL_KEYS: &[&str] = &[
     "model-problem-home-storey-missing",
     "model-problem-layer-missing",
     "model-problem-material-missing",
-    // Typed lengths and angles (units.rs, ParseError::message).
+    // Typed lengths, angles and slopes (units.rs, ParseError::message).
     "model-error-parse-empty",
     "model-error-parse-length",
     "model-error-parse-angle",
+    "model-error-parse-slope",
     // Unit names (units.rs, label_key).
     "model-unit-length-m",
     "model-unit-length-cm",

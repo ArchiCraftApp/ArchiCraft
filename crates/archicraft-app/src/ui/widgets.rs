@@ -1,9 +1,14 @@
 //! Input widgets that edit model values with units (INP-005, ELM-017).
 
-use archicraft_model::units::{NumberFormat, UnitSettings, format_angle, format_length, parse_angle, parse_length};
+use archicraft_model::units::{
+    AngleUnit, AreaUnit, LengthUnit, NumberFormat, SlopeFormat, UnitSettings, VolumeUnit, format_angle, format_length,
+    format_slope, parse_angle, parse_length, parse_slope,
+};
 use egui::emath::Numeric;
 use egui::{DragValue, Id, Response, Slider, TextEdit, Ui};
 use std::ops::RangeInclusive;
+
+use crate::tr;
 
 /// The result of an edit widget.
 #[derive(Clone, Debug, PartialEq)]
@@ -92,6 +97,103 @@ pub fn angle(
         parse_angle(text, units.angle, nf).map_err(|e| crate::i18n::render(&e.message(), units, nf))
     });
     result
+}
+
+/// Edits a slope, a pitch angle in radians, in the project's slope format
+/// (STR-009, NFR-L10N-003). The value is shown with its unit, so that it reads
+/// back in the format; any slope notation can be typed ([`parse_slope`]).
+pub fn slope(
+    ui: &mut Ui,
+    id: Id,
+    value: Option<f64>,
+    units: &UnitSettings,
+    nf: &NumberFormat,
+    width: f32,
+) -> Edited<f64> {
+    let shown = value.map(|v| format_slope(v, units, nf, true));
+    let (_, result) = committed_text(ui, id, shown, width, |text| {
+        parse_slope(text, units.slope, nf).map_err(|e| crate::i18n::render(&e.message(), units, nf))
+    });
+    result
+}
+
+/// The pitch of the live sample next to the slope format (STR-009).
+const SAMPLE_PITCH_DEGREES: f64 = 30.0;
+
+/// The unit rows of a unit settings editor (STR-009): length unit and
+/// decimals, angle unit and decimals, slope format with a live sample of a
+/// 30° pitch, area unit and volume unit. Adds label and value rows to the
+/// caller's two-column [`egui::Grid`], so that the Project settings and the
+/// default units of new projects share it.
+pub fn unit_settings_editor(ui: &mut Ui, units: &mut UnitSettings, nf: &NumberFormat) {
+    fn options<T: Copy>(all: &[T], key: impl Fn(T) -> &'static str) -> Vec<(T, String)> {
+        all.iter().map(|u| (*u, tr!(key(*u)))).collect()
+    }
+    ui.label(tr!("dlg-units-length-unit"));
+    if let Some(u) = choice(
+        ui,
+        Id::new("length-unit"),
+        Some(&units.length),
+        &options(&LengthUnit::ALL, LengthUnit::label_key),
+        160.0,
+    ) {
+        units.length = u;
+    }
+    ui.end_row();
+    ui.label(tr!("dlg-units-length-decimals"));
+    integer(ui, &mut units.length_decimals, 0..=6, nf);
+    ui.end_row();
+    ui.label(tr!("dlg-units-angle-unit"));
+    if let Some(u) = choice(
+        ui,
+        Id::new("angle-unit"),
+        Some(&units.angle),
+        &options(&AngleUnit::ALL, AngleUnit::label_key),
+        160.0,
+    ) {
+        units.angle = u;
+    }
+    ui.end_row();
+    ui.label(tr!("dlg-units-angle-decimals"));
+    integer(ui, &mut units.angle_decimals, 0..=6, nf);
+    ui.end_row();
+    ui.label(tr!("dlg-units-slope-format"));
+    ui.horizontal(|ui| {
+        if let Some(f) = choice(
+            ui,
+            Id::new("slope-format"),
+            Some(&units.slope),
+            &options(&SlopeFormat::ALL, SlopeFormat::label_key),
+            160.0,
+        ) {
+            units.slope = f;
+        }
+        let sample = format_slope(SAMPLE_PITCH_DEGREES.to_radians(), units, nf, true);
+        ui.weak(tr!("dlg-units-slope-sample", sample = sample));
+    });
+    ui.end_row();
+    ui.label(tr!("dlg-units-area-unit"));
+    if let Some(u) = choice(
+        ui,
+        Id::new("area-unit"),
+        Some(&units.area),
+        &options(&AreaUnit::ALL, AreaUnit::label_key),
+        160.0,
+    ) {
+        units.area = u;
+    }
+    ui.end_row();
+    ui.label(tr!("dlg-units-volume-unit"));
+    if let Some(u) = choice(
+        ui,
+        Id::new("volume-unit"),
+        Some(&units.volume),
+        &options(&VolumeUnit::ALL, VolumeUnit::label_key),
+        160.0,
+    ) {
+        units.volume = u;
+    }
+    ui.end_row();
 }
 
 /// A draggable whole number in `range`, shown and typed with `nf`

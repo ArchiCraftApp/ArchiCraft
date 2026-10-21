@@ -4,7 +4,7 @@
 use archicraft_model::command::StoreyElements;
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use archicraft_model::project::Location;
-use archicraft_model::units::{AngleUnit, LengthUnit, NumberFormat, format_length};
+use archicraft_model::units::{NumberFormat, format_length};
 use archicraft_model::{Command, Layer, LayerId, MaterialId, ProjectInfo, ProjectSettings, StoreyId};
 use egui::{Context, Id, RichText, Ui};
 
@@ -518,38 +518,7 @@ impl Dialogs {
                         text_row(ui, "Site", &mut draft.site);
                         text_row(ui, "Building", &mut draft.building);
 
-                        ui.label("Length unit");
-                        let options: Vec<(LengthUnit, String)> =
-                            LengthUnit::ALL.iter().map(|u| (*u, tr!(u.label_key()))).collect();
-                        if let Some(u) = widgets::choice(
-                            ui,
-                            Id::new("length-unit"),
-                            Some(&draft.settings.units.length),
-                            &options,
-                            160.0,
-                        ) {
-                            draft.settings.units.length = u;
-                        }
-                        ui.end_row();
-                        ui.label("Length decimals");
-                        widgets::integer(ui, &mut draft.settings.units.length_decimals, 0..=6, &nf);
-                        ui.end_row();
-                        ui.label("Angle unit");
-                        let options: Vec<(AngleUnit, String)> =
-                            AngleUnit::ALL.iter().map(|u| (*u, tr!(u.label_key()))).collect();
-                        if let Some(u) = widgets::choice(
-                            ui,
-                            Id::new("angle-unit"),
-                            Some(&draft.settings.units.angle),
-                            &options,
-                            160.0,
-                        ) {
-                            draft.settings.units.angle = u;
-                        }
-                        ui.end_row();
-                        ui.label("Angle decimals");
-                        widgets::integer(ui, &mut draft.settings.units.angle_decimals, 0..=6, &nf);
-                        ui.end_row();
+                        widgets::unit_settings_editor(ui, &mut draft.settings.units, &nf);
                         ui.label("Plan cut plane");
                         if let Edited::Changed(v) = widgets::length(
                             ui,

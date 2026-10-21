@@ -816,3 +816,33 @@ fn press_drag_release_draws_a_wall_in_the_plan_view() {
         "a click takes one point"
     );
 }
+
+/// STR-009, NFR-L10N-003: the slope widget shows a pitch in the project's
+/// slope format and commits any typed slope notation as a pitch angle.
+#[test]
+fn the_slope_widget_shows_the_slope_format_and_commits_typed_slopes() {
+    use archicraft_app::ui::widgets::{self, Edited};
+    use archicraft_model::units::{NumberFormat, SlopeFormat, UnitSettings};
+    let units = UnitSettings {
+        slope: SlopeFormat::Percent,
+        ..UnitSettings::default()
+    };
+    let nf = NumberFormat::default();
+    let mut h = Harness::new_ui_state(
+        move |ui, pitch: &mut f64| {
+            if let Edited::Changed(v) = widgets::slope(ui, egui::Id::new("slope"), Some(*pitch), &units, &nf, 120.0) {
+                *pitch = v;
+            }
+        },
+        30f64.to_radians(),
+    );
+    h.run();
+    let field = |value: &'static str| By::new().role(Role::TextInput).value(value);
+    h.get(field("57.74 %")).click();
+    h.run();
+    h.get(field("57.74 %")).type_text("6:12");
+    h.key_press(Key::Enter);
+    h.run();
+    assert!((h.state() - 0.5f64.atan()).abs() < 1e-12, "{}", h.state());
+    h.get(field("50.00 %"));
+}

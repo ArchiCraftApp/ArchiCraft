@@ -2,7 +2,7 @@
 //! STR-003, STR-004, NFR-USE-004, VIEW-002, VIEW-014, WAL-001,
 //! NFR-PORT-005, PRJ-004, NFR-REL-002, PRJ-005, NFR-REL-001, NFR-REL-003,
 //! IFX-001, IFX-002, UND-001, ELM-004, NFR-ACC-005, XCH-008, HW-001, UND-005,
-//! STR-010, NFR-L10N-004).
+//! STR-010, NFR-L10N-004, STR-009).
 //!
 //! Every test is named after the requirement it pins, so the traceability
 //! table in docs/testing.md and the status script can find it. The tests run
@@ -33,7 +33,7 @@ use archicraft_ifcx::IfcxFile;
 use archicraft_ifcx::container::Header;
 use archicraft_model::glam::DVec2;
 use archicraft_model::project::Projection;
-use archicraft_model::units::format_length;
+use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit, format_length};
 use archicraft_model::{Command, ElementId, ElementKind, StoreyId, ViewId};
 use common::{assert_present, data_dir, harness, harness_at, harness_in, harness_with_clock};
 use egui::accesskit::Role;
@@ -1529,4 +1529,92 @@ fn nfr_l10n_004_point_input_has_no_literal_character_list() {
     }
     let mod_rs = fs::read_to_string(src.join("input/mod.rs")).unwrap();
     assert!(mod_rs.contains("input_alphabet(ctx.number_format)"));
+}
+
+/// Picks `option` in the combo box that shows `current`.
+fn choose(h: &mut App, current: &str, option: &str) {
+    h.get(By::new().role(Role::ComboBox).value(current)).click();
+    h.run_steps(2);
+    h.get_by_label(option).click();
+    h.run_steps(2);
+}
+
+/// STR-009, NFR-L10N-003: Project settings shows Slope format (with a live
+/// sample of a 30° pitch), Area unit and Volume unit; choosing Percent and
+/// square feet and pressing OK stores them as one undoable settings change
+/// that leaves every element unchanged, and Undo restores the previous
+/// settings.
+#[test]
+fn str_009_slope_area_and_volume_units_are_edited_in_project_settings() {
+    let mut h = harness_in(&data_dir("str-009-units"), prefs_with(SeparatorChoice::Point), 1.0);
+    add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
+    let elements = |h: &mut App| h.state_mut().workspace().doc.project.elements.clone();
+    let units = |h: &mut App| h.state_mut().workspace().doc.project.settings.units.clone();
+    let (before, previous) = (elements(&mut h), units(&mut h));
+    assert_eq!(previous, UnitSettings::default());
+
+    open_from_menu(&mut h, "Project", "Project settings…");
+    for label in ["Slope format", "Area unit", "Volume unit"] {
+        assert_present(&h, label);
+    }
+    assert_present(&h, "30° pitch: 30.00°");
+    choose(&mut h, "Degrees", "Percent");
+    assert_present(&h, "30° pitch: 57.74 %");
+    choose(&mut h, "Square metres", "Square feet");
+    choose(&mut h, "Cubic metres", "Cubic feet");
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+
+    let after = units(&mut h);
+    assert_eq!(after.slope, SlopeFormat::Percent);
+    assert_eq!(after.area, AreaUnit::SquareFoot);
+    assert_eq!(after.volume, VolumeUnit::CubicFoot);
+    assert_eq!(elements(&mut h), before, "a unit change changed the stored geometry");
+    h.state_mut().workspace().undo();
+    h.run_steps(1);
+    assert_eq!(units(&mut h), previous);
+    assert_eq!(elements(&mut h), before);
+}
+
+/// STR-009, NFR-ACC-005: the length unit, length decimals, angle unit and
+/// angle decimals rows still change the displayed wall length (the
+/// properties strip) and rotation (project north to true north), and only
+/// the display.
+#[test]
+fn str_009_the_length_and_angle_rows_change_the_displayed_values() {
+    let mut h = harness_in(&data_dir("str-009-regression"), prefs_with(SeparatorChoice::Point), 1.0);
+    let wall = add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
+    let ends = wall_ends(&mut h, wall);
+    {
+        let ws = h.state_mut().workspace();
+        let mut location = ws.doc.project.site.location;
+        location.true_north = 30f64.to_radians();
+        assert!(ws.execute(Command::SetLocation(location)));
+        ws.selection.insert(wall);
+    }
+    h.run_steps(2);
+    assert_present(&h, "4.000 m");
+
+    open_from_menu(&mut h, "Project", "Project settings…");
+    h.get(strip_field("30.00"));
+    choose(&mut h, "Metre", "Millimetre");
+    type_into_number_field(&mut h, "3", "1");
+    choose(&mut h, "Decimal degrees", "Gradians");
+    type_into_number_field(&mut h, "2", "1");
+    // The draft shows the angle in the new unit before OK.
+    h.get(strip_field("33.3"));
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+
+    let units = h.state_mut().workspace().doc.project.settings.units.clone();
+    assert_eq!(
+        (units.length, units.length_decimals, units.angle, units.angle_decimals),
+        (LengthUnit::Millimeter, 1, AngleUnit::Gradians, 1)
+    );
+    assert_present(&h, "4000.0 mm");
+    open_from_menu(&mut h, "Project", "Project settings…");
+    h.get(strip_field("33.3"));
+    assert_eq!(wall_ends(&mut h, wall), ends);
+    let north = h.state_mut().workspace().doc.project.site.location.true_north;
+    assert_eq!(north.to_bits(), 30f64.to_radians().to_bits());
 }
