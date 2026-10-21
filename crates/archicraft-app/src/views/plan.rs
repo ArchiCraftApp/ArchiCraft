@@ -20,8 +20,8 @@ use egui::{
 
 use super::camera::{Camera2d, ZoomHistory};
 use crate::input::{
-    Effect, Expect, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput, Resolved, SnapIndex,
-    SnapKind, SurfaceFrame, ViewSurface,
+    Effect, Expect, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput, PointerEvent, Resolved,
+    SnapIndex, SnapKind, SurfaceFrame, ViewSurface,
 };
 use crate::tools::{ToolKind, ToolState};
 use crate::tr;
@@ -138,6 +138,7 @@ struct PlanInput {
     targets: Arc<SnapIndex>,
     pending: Vec<DVec2>,
     radius: f64,
+    drag_threshold: f64,
     units: UnitSettings,
     number_format: NumberFormat,
     angle_increment_deg: f64,
@@ -145,7 +146,9 @@ struct PlanInput {
 }
 
 impl PlanInput {
-    fn new(ws: &mut Workspace, storey: StoreyId, surface: &PlanSurface) -> Self {
+    /// `click_distance` is how far in points the pointer moves before a
+    /// press becomes a drag.
+    fn new(ws: &mut Workspace, storey: StoreyId, surface: &PlanSurface, click_distance: f32) -> Self {
         let pending = if on_storey(&ws.tool, storey) {
             ws.tool.points.clone()
         } else {
@@ -157,6 +160,7 @@ impl PlanInput {
             targets: ws.snap_index(storey),
             pending,
             radius: f64::from(ws.prefs.snap_radius) * surface.model_per_pixel(),
+            drag_threshold: f64::from(click_distance) * surface.model_per_pixel(),
             units: ws.doc.project.settings.units.clone(),
             number_format: ws.prefs.number_format(),
             angle_increment_deg: ws.prefs.angle_increment_deg,
@@ -176,6 +180,7 @@ impl PlanInput {
             previous: tool.reference_point().filter(|_| here),
             expects: tool.step().filter(|_| here).map_or(Expect::Point, |s| s.expects),
             radius: self.radius,
+            drag_threshold: self.drag_threshold,
             units: &self.units,
             number_format: &self.number_format,
             angle_increment_deg: self.angle_increment_deg,
@@ -560,7 +565,10 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     let selecting = !drawing_tool || ui.input(|i| i.modifiers.command);
     let mods = ui.input(|i| modifiers(i.modifiers));
     // Only the view under the cursor or taking the keys needs snap targets.
-    let input = (drawing_tool && (cursor_world.is_some() || active)).then(|| PlanInput::new(ws, storey, &surface));
+    let input = (drawing_tool && (cursor_world.is_some() || active)).then(|| {
+        let click_distance = ui.ctx().options(|o| o.input_options.max_click_dist);
+        PlanInput::new(ws, storey, &surface, click_distance)
+    });
 
     // Hover: preselection for the selection tool (SEL-001).
     if let Some(world) = cursor_world {
@@ -582,44 +590,68 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         handle_keys(ui, ws, &mut state, input.as_ref(), cursor_world);
     }
 
-    // Clicks.
+    // Clicks of the selection tool.
     if response.clicked_by(PointerButton::Primary)
+        && selecting
         && let Some(world) = cursor_world
     {
-        if selecting {
-            let shift = ui.input(|i| i.modifiers.shift);
-            let candidates = plan.pick(world, pick_tolerance);
-            let index = match state.pick {
-                Some((p, i)) if p.distance(world) <= pick_tolerance => i,
-                _ => 0,
-            };
-            state.pick = Some((world, index));
-            match candidates.get(index % candidates.len().max(1)) {
-                Some(id) if shift => {
-                    if !ws.selection.remove(id) {
-                        ws.selection.insert(*id);
-                    }
-                }
-                Some(id) => {
-                    ws.selection.clear();
+        let shift = ui.input(|i| i.modifiers.shift);
+        let candidates = plan.pick(world, pick_tolerance);
+        let index = match state.pick {
+            Some((p, i)) if p.distance(world) <= pick_tolerance => i,
+            _ => 0,
+        };
+        state.pick = Some((world, index));
+        match candidates.get(index % candidates.len().max(1)) {
+            Some(id) if shift => {
+                if !ws.selection.remove(id) {
                     ws.selection.insert(*id);
                 }
-                None if !shift => ws.selection.clear(),
-                None => {}
             }
-        } else if let Some(input) = &input {
-            let ctx = input.ctx(&ws.doc.project, &ws.tool);
-            let effect = ws.input.click(world, mods, &mut ws.tool, &ctx);
-            apply(ws, effect);
+            Some(id) => {
+                ws.selection.clear();
+                ws.selection.insert(*id);
+            }
+            None if !shift => ws.selection.clear(),
+            None => {}
         }
     }
-    if response.double_clicked_by(PointerButton::Primary)
-        && !selecting
-        && let Some(input) = &input
-    {
-        let ctx = input.ctx(&ws.doc.project, &ws.tool);
-        let effect = ws.input.double_click(&mut ws.tool, &ctx);
-        apply(ws, effect);
+    // Points from the primary button in the chosen input mode (INP-020): a
+    // press that becomes a drag takes its point where the button went down.
+    if !selecting && let Some(input) = &input {
+        let at = |p: Option<Pos2>| p.and_then(|p| surface.to_plane(screen(p)));
+        let (press_origin, latest) = ui.input(|i| (i.pointer.press_origin(), i.pointer.latest_pos()));
+        let events = [
+            (
+                response.drag_started_by(PointerButton::Primary),
+                PointerEvent::Pressed,
+                at(press_origin),
+            ),
+            (
+                response.clicked_by(PointerButton::Primary),
+                PointerEvent::Clicked,
+                cursor_world,
+            ),
+            (
+                response.drag_stopped_by(PointerButton::Primary),
+                PointerEvent::Released,
+                at(latest).or(cursor_world),
+            ),
+            // A double-click needs no position.
+            (
+                response.double_clicked_by(PointerButton::Primary),
+                PointerEvent::DoubleClicked,
+                Some(cursor_world.unwrap_or_default()),
+            ),
+        ];
+        for (_, event, world) in events.into_iter().filter(|(happened, ..)| *happened) {
+            let Some(world) = world else { continue };
+            let ctx = input.ctx(&ws.doc.project, &ws.tool);
+            let effect = ws
+                .input
+                .pointer(event, ws.prefs.input_mode, world, mods, &mut ws.tool, &ctx);
+            apply(ws, effect);
+        }
     }
 
     // Point input: the resolved point and its tracker after this frame's

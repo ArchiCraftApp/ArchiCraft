@@ -8,14 +8,15 @@ mod common;
 use std::rc::Rc;
 
 use archicraft_app::i18n::{self, Localizer};
-use archicraft_app::input::InputConsumer;
+use archicraft_app::input::{InputConsumer, InputMode};
+use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::{ToolKind, WallMode};
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_length};
 use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{Command, ProjectSettings};
-use common::{assert_present, harness};
+use common::{assert_present, data_dir, harness, harness_in};
 use egui::accesskit::Role;
 use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;
@@ -546,4 +547,95 @@ fn preferences_offer_indented_ifcx_output() {
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.starts_with("{\n  \"header\": {\n"), "{}", &text[..40]);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// SET-001, INP-020: the Preferences window gathers snap radius, angle
+/// increment and the input mode in its "Input" group; choosing
+/// press-drag-release with OK applies it, and the status line names it.
+#[test]
+fn preferences_offer_the_input_mode_in_the_input_group() {
+    let mut harness = harness("input-mode");
+    assert_eq!(harness.state_mut().workspace().prefs.input_mode, InputMode::ClickClick);
+    harness.get_by_label("File").click();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Preferences").click();
+    harness.run_steps(4);
+    for label in [
+        "Input",
+        "Snap radius (points)",
+        "Angle increment (°)",
+        "Input mode",
+        "Click-click",
+        "Press-drag-release",
+    ] {
+        assert_present(&harness, label);
+    }
+    harness.get_by_label("Press-drag-release").click();
+    harness.run_steps(2);
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().prefs.input_mode, InputMode::DragRelease);
+
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    assert_present(
+        &harness,
+        "Wall: click the start point of the reference line · R cycles the reference line \
+         · Press-drag-release: press at a point, drag and release at the next",
+    );
+}
+
+/// INP-020: with press-drag-release chosen, pressing in the plan view,
+/// dragging 120 px and releasing draws a wall from the press to the release;
+/// a plain click still takes one point.
+#[test]
+fn press_drag_release_draws_a_wall_in_the_plan_view() {
+    let prefs = Preferences {
+        input_mode: InputMode::DragRelease,
+        ..Preferences::default()
+    };
+    let mut harness = harness_in(&data_dir("drag-release"), prefs, 1.0);
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let (start, scale) = {
+        let ws = harness.state_mut().workspace();
+        ws.tool.wall_mode = WallMode::Single;
+        let state = &ws.plan_views[&ws.active_storey];
+        (state.last_rect.center(), state.camera.scale)
+    };
+    let end = start + egui::vec2(120.0, 0.0);
+    harness.hover_at(start);
+    harness.run_steps(1);
+    let button = |pos, pressed| Event::PointerButton {
+        pos,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    harness.event(button(start, true));
+    harness.run_steps(1);
+    for step in 1..=6 {
+        harness.hover_at(start + egui::vec2(20.0 * step as f32, 0.0));
+        harness.run_steps(1);
+    }
+    let ws = harness.state_mut().workspace();
+    assert_eq!(ws.tool.points.len(), 1, "the press took the start point");
+    assert!(ws.doc.project.elements.is_empty());
+    harness.event(button(end, false));
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let walls: Vec<_> = ws.doc.project.elements.values().filter_map(|e| e.as_wall()).collect();
+    assert_eq!(walls.len(), 1, "the release took the end point");
+    let length = walls[0].start.distance(walls[0].end);
+    // Both ends snap to the invisible grid (INP-013).
+    let grid = ws.prefs.snap_step;
+    assert!((length - 120.0 / scale).abs() <= grid, "{length} vs {}", 120.0 / scale);
+    assert!(ws.tool.points.is_empty());
+
+    click_at(&mut harness, start + egui::vec2(0.0, 80.0));
+    assert_eq!(
+        harness.state_mut().workspace().tool.points.len(),
+        1,
+        "a click takes one point"
+    );
 }

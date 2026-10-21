@@ -8,7 +8,7 @@ use archicraft_model::project::Projection;
 use egui::{Button, RichText, Ui};
 
 use super::actions::Action;
-use crate::input::InputConsumer;
+use crate::input::{InputConsumer, InputMode};
 use crate::tools::ToolKind;
 use crate::tr;
 use crate::views::camera::ViewPreset;
@@ -180,7 +180,15 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Opti
                  · Tab cycles overlapping elements"
                     .to_owned()
             },
-            |step| step.status_line(),
+            |step| {
+                let mut line = step.status_line();
+                // INP-020: the prompts name clicks, which take points in both
+                // modes; press-drag-release adds the drag.
+                if ws.prefs.input_mode == InputMode::DragRelease {
+                    line.push_str(" · Press-drag-release: press at a point, drag and release at the next");
+                }
+                line
+            },
         );
         ui.label(RichText::new(prompt).small());
         if let Some(status) = &ws.status

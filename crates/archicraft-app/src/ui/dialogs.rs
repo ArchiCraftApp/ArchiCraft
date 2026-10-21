@@ -10,6 +10,7 @@ use egui::{Context, Id, RichText, Ui};
 
 use super::actions::Action;
 use super::widgets::{self, Edited};
+use crate::input::InputMode;
 use crate::persistence::prefs::{Preferences, SeparatorChoice, ThemeChoice};
 use crate::tr;
 use crate::workspace::{Request, Workspace};
@@ -736,19 +737,6 @@ impl Dialogs {
                     ui.label("Digit grouping");
                     ui.checkbox(&mut draft.digit_grouping, "");
                     ui.end_row();
-                    ui.label("Snap radius (points)");
-                    ui.add(egui::DragValue::new(&mut draft.snap_radius).range(2.0..=40.0));
-                    ui.end_row();
-                    ui.label("Snap grid step (m)");
-                    ui.add(
-                        egui::DragValue::new(&mut draft.snap_step)
-                            .range(0.001..=10.0)
-                            .speed(0.01),
-                    );
-                    ui.end_row();
-                    ui.label("Angle increment (°)");
-                    ui.add(egui::DragValue::new(&mut draft.angle_increment_deg).range(1.0..=90.0));
-                    ui.end_row();
                     ui.label("Show wall reference lines");
                     ui.checkbox(&mut draft.show_reference_lines, "");
                     ui.end_row();
@@ -760,6 +748,39 @@ impl Dialogs {
                         );
                     ui.end_row();
                 });
+            // How points are entered (SET-001, Appendix D.1).
+            ui.add_space(6.0);
+            ui.strong("Input");
+            ui.group(|ui| {
+                egui::Grid::new("preferences-input")
+                    .num_columns(2)
+                    .spacing([12.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label("Snap radius (points)");
+                        ui.add(egui::DragValue::new(&mut draft.snap_radius).range(2.0..=40.0));
+                        ui.end_row();
+                        ui.label("Snap grid step (m)");
+                        ui.add(
+                            egui::DragValue::new(&mut draft.snap_step)
+                                .range(0.001..=10.0)
+                                .speed(0.01),
+                        );
+                        ui.end_row();
+                        ui.label("Angle increment (°)");
+                        ui.add(egui::DragValue::new(&mut draft.angle_increment_deg).range(1.0..=90.0));
+                        ui.end_row();
+                        // INP-020: click-click by default.
+                        ui.label("Input mode");
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut draft.input_mode, InputMode::ClickClick, "Click-click");
+                            ui.radio_value(&mut draft.input_mode, InputMode::DragRelease, "Press-drag-release")
+                                .on_hover_text(
+                                    "Press at a point, drag and release at the next. A click still takes a point.",
+                                );
+                        });
+                        ui.end_row();
+                    });
+            });
             ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("OK").clicked() {

@@ -10,12 +10,12 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
-| done | 59 | 5 | 1 | 65 |
-| partial | 117 | 36 | 5 | 158 |
+| done | 59 | 6 | 1 | 66 |
+| partial | 117 | 35 | 5 | 157 |
 | missing | 138 | 158 | 48 | 344 |
 | **total** | 314 | 199 | 54 | 567 |
 
-Remaining effort of the 502 open requirements: S 121, M 220, L 136, XL 25.
+Remaining effort of the 501 open requirements: S 120, M 220, L 136, XL 25.
 
 ## Per-section status (done/partial/missing)
 
@@ -26,7 +26,7 @@ Remaining effort of the 502 open requirements: S 121, M 220, L 136, XL 25.
 | 4.3 | Workspace and user interface | 1/7/0 | 1/6/1 | 0/0/1 | 17 |
 | 4.4 | Views and navigation | 2/8/8 | 0/2/15 | 0/0/3 | 38 |
 | 4.5 | Plan display and graphic attributes | 0/7/1 | 0/2/7 | 0/1/2 | 20 |
-| 4.6 | Drawing input and precision | 1/8/6 | 0/2/6 | 0/0/1 | 24 |
+| 4.6 | Drawing input and precision | 1/8/6 | 1/1/6 | 0/0/1 | 24 |
 | 4.7 | Selection | 0/5/1 | 0/0/3 | 0/0/1 | 10 |
 | 4.8 | Editing and transformation | 0/4/11 | 0/0/9 | 0/0/1 | 25 |
 | 4.9 | Common element behaviour | 3/5/4 | 0/2/5 | 0/0/1 | 20 |
@@ -81,7 +81,7 @@ Remaining effort of the 502 open requirements: S 121, M 220, L 136, XL 25.
 | Increment | Content (SRS Appendix F) | Exit criterion | Scope status (in scope: done/partial/missing) | What blocks the exit criterion |
 |---|---|---|---|---|
 | 0 — Walking skeleton | Command/undo core, project, storeys, layers, materials, straight walls and slabs, plan and 3D view, IFCX writer/reader, save/autosave/recovery | A storey with walls and a slab round-trips through IFCX and passes IFX-006 in CI | Delivered (samples::storey_with_walls_and_slab, roundtrip.rs, CI conformance job) | Nothing blocks it. Residual partials inside its scope: STR-002 default inverted, NFR-REL-005 storey commands do not validate linked elements, PRJ-003 title shows the file name, LAY-001 no hidden/locked-layer warning. |
-| 1 — Core modeller | INP, SEL, EDT, ANN-001, PRF + WAL-020…027, COL, BEA, OPN, DW (basic catalogue), DSP, properties panel and settings dialogs, browser, tabs, saved views | Fixtures F2, F6, F7 pass; a ground floor with openings can be drawn precisely | 156 in scope: 2/37/117 | F2 needs PRF-001 layer structures (missing, L) and multi-skin bodies; F6 needs the multi-wall junction rule (WAL-020/026, partial: 3+ walls at a node stay square); F7 needs the material-priority engine (WAL-023 partial: priority stored but unused). EDT has no user-facing command (all 25 EDT rows missing/partial, MoveElements unreachable). OPN/DW (36 rows) and COL/BEA (16 rows) are entirely missing and need a host relation (ELM-016) and extensible element kinds. 'Drawn precisely' is close: INP-001…009 exist in plan; absolute/Cartesian input (INP-004), locks (INP-007), guides (INP-011) are missing. |
+| 1 — Core modeller | INP, SEL, EDT, ANN-001, PRF + WAL-020…027, COL, BEA, OPN, DW (basic catalogue), DSP, properties panel and settings dialogs, browser, tabs, saved views | Fixtures F2, F6, F7 pass; a ground floor with openings can be drawn precisely | 156 in scope: 3/36/117 | F2 needs PRF-001 layer structures (missing, L) and multi-skin bodies; F6 needs the multi-wall junction rule (WAL-020/026, partial: 3+ walls at a node stay square); F7 needs the material-priority engine (WAL-023 partial: priority stored but unused). EDT has no user-facing command (all 25 EDT rows missing/partial, MoveElements unreachable). OPN/DW (36 rows) and COL/BEA (16 rows) are entirely missing and need a host relation (ELM-016) and extensible element kinds. 'Drawn precisely' is close: INP-001…009 exist in plan; absolute/Cartesian input (INP-004), locks (INP-007), guides (INP-011) are missing. |
 | 2 — Envelope and site | Roofs, trim and solid operations, free-form solids, terrain, grids, stairs | AS-01 without railings and AS-02 pass | 92 in scope: 0/0/92 | Nothing in scope exists. Gating decisions: a 3D Boolean engine (Manifold or alternative, SOL-020) with its C++ toolchain, a relation store in Project (SOL-022, TER-006), a straight-skeleton roof generator (ROF-003), a general polyhedron/sweep builder beyond extrude.rs (STA-040), site-level elements under IfcSite (TER-012), IfcClass extension to the D.5 list. AS-02 additionally needs GRD-001…006 and the grid-alignment check (NFR-ACC-003). |
 | 3 — Should scope | Railings, curtain walls, sections and elevations, display styles, sun and shadows, presets, parameter transfer, component library, third-party IFCX import | AS-01…AS-06 pass in full | 50 in scope: 0/1/49 | Sections/elevations need arbitrary-plane slicing and a new Pane kind (VIEW-030/059, XL); display styles and sun need per-view resources and a shadow pass (VIEW-051/052); railings need profiles and sweeps (RAI-003, XL); third-party import needs the ImportedElement kind and inherits expansion (IFX-081/082, partial/missing); AS-06 also needs foreign-attribute preservation (IFX-066). |
 | 4 — Could scope and polish | C requirements by user feedback, performance tuning against RM-L, usability testing (NFR-USE-001) | AS-07 and AS-08 pass; release candidate | 64 in scope (all C rows + NFR-PERF + NFR-USE-001): 1/14/49 | No reference models RM-M/RM-L, no measurements on reference hardware (AS-07); full-model re-evaluation per edit, non-indexed GPU buffers and egui-painted plans are the known performance limits; NFR-USE-001 needs doors, windows and a gable roof plus a test protocol (AS-08); hardware classes recorded but the minimum and reference machines not bought, and no release process. |
@@ -335,7 +335,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | INP-017 | S | partial | S | Locked elements keep providing snap targets (asserted in crates/archicraft-app/src/input/targets.rs). No way to exclude an element, layer or reference from producing snap targets without hiding it: Layer has only visible/locked (crates/archicraft-model/src/layer.rs:8-15), Element has only locked (element.rs:276-287). |
 | INP-018 | S | missing | L | Whole requirement: contour-detection key, preview and creation from a clicked edge, edge chain or smallest closed region, in plan and 3D, preserving arcs. |
 | INP-019 | C | missing | M | Whole requirement: gravity option taking the elevation of the highest slab/roof/terrain under the pointer for columns, walls, objects, stairs. |
-| INP-020 | S | partial | S | Press-drag-release input is not selectable: no preference field (prefs.rs:28-50) and no drag-based point commit. |
+| INP-020 | S | done | none | Done: click-click is the default `InputMode` and press-drag-release is the `input_mode` preference (persistence/prefs.rs, read leniently), chosen in the Preferences window's Input group (ui/dialogs.rs preferences_window); `PointInput::pointer` (input/mod.rs) takes a point on the press and the next on the release beyond the drag threshold, a press and release without movement as a click; the plan view maps the primary button to `PointerEvent`s (views/plan.rs) and the status line names the mode (ui/shell.rs). |
 | INP-021 | S | missing | L | Whole requirement: live distances from the placed/moved element to nearest grid axes, walls, columns, beams; choosing the reference edge; typing a distance to place. |
 
 ### 4.7 Selection
