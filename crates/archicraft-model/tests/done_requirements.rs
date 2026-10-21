@@ -1,6 +1,6 @@
-//! Regression net for the done model requirements (ELM-004, ELM-010, STR-001,
+//! Regression net for the done model requirements (ELM-001, ELM-004, ELM-010, STR-001,
 //! STR-004, STR-005, STR-008, STR-013, UND-001, UND-002, NFR-MNT-001,
-//! NFR-ACC-002, NFR-ACC-005).
+//! NFR-ACC-002, NFR-ACC-005, INP-005).
 //!
 //! Every test is named after the requirement it pins, so the traceability
 //! table in docs/testing.md and the status script can find it. Projects are
@@ -13,13 +13,13 @@ mod common;
 
 use archicraft_model::command::{DEFAULT_UNDO_LIMIT, JournalEntry, StoreyElements, replay};
 use archicraft_model::glam::DVec2;
-use archicraft_model::project::{Building, Location, ProjectInfo, Site};
+use archicraft_model::project::{Building, Location, ProjectInfo, Site, SlabDefaults, WallDefaults};
 use archicraft_model::template::default_metric_project;
 use archicraft_model::units::{LengthUnit, NumberFormat, format_angle, format_length, parse_length};
 use archicraft_model::validate::validate_element;
 use archicraft_model::{
-    Command, CommandError, Element, ElementKind, History, KindTag, Layer, LayerId, MaterialId, Message, Project,
-    Storey, StoreyId, TopLink,
+    Command, CommandError, Element, ElementKind, History, IfcClass, KindTag, Layer, LayerId, MaterialId, Message,
+    Position, Project, ReferenceLine, SlabReference, Storey, StoreyId, TopLink,
 };
 use common::{ground, wall};
 
@@ -444,6 +444,101 @@ fn str_013_one_site_and_one_building_with_editable_names() {
     }
 }
 
+/// ELM-001: the wall and slab tool defaults are part of the project (the
+/// template supplies them), SetToolDefaults changes them as one undoable
+/// step, and new walls and slabs take every default while elements that
+/// already exist keep their values. Writing them to the file is pinned by
+/// IFX-067.
+#[test]
+fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let old = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    let old_id = old.id;
+    h.execute(&mut p, Command::AddElements(vec![old.clone()])).unwrap();
+
+    // The template supplies the defaults (Appendix D.2 pins every value).
+    assert_eq!(
+        (p.tool_defaults.wall.thickness, p.tool_defaults.slab.thickness),
+        (0.25, 0.20)
+    );
+    assert_eq!(p.tool_defaults.wall.layer, layer_named(&p, "Exterior walls"));
+    assert_eq!(old.as_wall().unwrap().thickness, 0.25);
+
+    let mut defaults = p.tool_defaults.clone();
+    let structure = layer_named(&p, "Structure");
+    let material = p
+        .materials
+        .iter()
+        .map(|m| m.id)
+        .find(|&m| m != defaults.wall.material && m != defaults.slab.material)
+        .expect("the template has a third material");
+    defaults.wall = WallDefaults {
+        thickness: 0.365,
+        reference_line: ReferenceLine::Inside,
+        base_offset: -0.05,
+        top: TopLink::Fixed { height: 2.6 },
+        material,
+        layer: structure,
+        position: Position::Interior,
+        ifc_class: IfcClass::Footing,
+    };
+    defaults.slab = SlabDefaults {
+        thickness: 0.18,
+        reference: SlabReference::Bottom,
+        offset: 0.02,
+        material,
+        layer: structure,
+        position: Position::Exterior,
+        ifc_class: IfcClass::Covering,
+    };
+    assert_ne!(defaults, p.tool_defaults);
+    let template = p.tool_defaults.clone();
+    assert_undo_redo_exact(&mut p, &mut h, Command::SetToolDefaults(defaults.clone()));
+    assert_eq!(p.tool_defaults, defaults);
+
+    let w = p.new_wall(ground(&p), DVec2::ZERO, DVec2::Y, 0);
+    let ww = w.as_wall().unwrap();
+    assert_eq!(
+        (ww.thickness, ww.reference_line, ww.base_offset, ww.top, ww.material),
+        (
+            0.365,
+            ReferenceLine::Inside,
+            -0.05,
+            TopLink::Fixed { height: 2.6 },
+            material
+        )
+    );
+    assert_eq!(
+        (w.layer, w.position, w.ifc_class),
+        (structure, Position::Interior, IfcClass::Footing)
+    );
+    let s = p.new_slab(ground(&p), rectangle(DVec2::ZERO, DVec2::splat(4.0)), Vec::new(), 0);
+    let ss = s.as_slab().unwrap();
+    assert_eq!(
+        (ss.thickness, ss.reference, ss.offset, ss.material),
+        (0.18, SlabReference::Bottom, 0.02, material)
+    );
+    assert_eq!(
+        (s.layer, s.position, s.ifc_class),
+        (structure, Position::Exterior, IfcClass::Covering)
+    );
+    h.execute(&mut p, Command::AddElements(vec![w, s])).unwrap();
+    assert_eq!(p.element(old_id).unwrap(), &old, "existing elements keep their values");
+
+    // Invalid defaults are rejected and leave the project's defaults alone.
+    let mut bad = defaults.clone();
+    bad.wall.layer = LayerId::new();
+    assert!(matches!(
+        h.execute(&mut p, Command::SetToolDefaults(bad)),
+        Err(CommandError::Invalid(_))
+    ));
+    assert_eq!(p.tool_defaults, defaults);
+
+    while h.undo(&mut p).is_some() {}
+    assert_eq!(p.tool_defaults, template);
+}
+
 /// UND-001: one command of each category (element edit, storey operation,
 /// layer and material resource change, tool defaults, settings, project
 /// information, location) undoes and redoes to the exact state.
@@ -778,6 +873,36 @@ fn nfr_mnt_001_the_journal_lists_executed_undone_and_redone_commands() {
             JournalEntry::Redone(Message::new("model-label-rename-storey")),
         ]
     );
+}
+
+/// INP-005: typed lengths accept the suffixes mm, cm, m, ft, in, ′ and ″
+/// (and the ASCII ' and ") and imperial fractions such as 3'-4 1/2" in every
+/// project length unit, and give the same length whatever the unit setting.
+#[test]
+fn inp_005_typed_lengths_accept_unit_suffixes_and_imperial_fractions_in_any_unit() {
+    let nf = NumberFormat::default();
+    let cases = [
+        ("365mm", 0.365),
+        ("365 mm", 0.365),
+        ("30cm", 0.3),
+        ("2.5m", 2.5),
+        ("2.5 m", 2.5),
+        ("10ft", 3.048),
+        ("6in", 0.1524),
+        ("12'", 12.0 * 0.3048),
+        ("12′", 12.0 * 0.3048),
+        ("4\"", 4.0 * 0.0254),
+        ("4″", 4.0 * 0.0254),
+        ("3'-4 1/2\"", 3.0 * 0.3048 + 4.5 * 0.0254),
+        ("3′-4 1/2″", 3.0 * 0.3048 + 4.5 * 0.0254),
+        ("1/2\"", 0.0127),
+    ];
+    for unit in LengthUnit::ALL {
+        for (text, metres) in cases {
+            let v = parse_length(text, unit, &nf).unwrap_or_else(|e| panic!("{text} in {unit:?}: {e:?}"));
+            assert!((v - metres).abs() < 1e-12, "{text} in {unit:?} parses to {v}");
+        }
+    }
 }
 
 /// NFR-ACC-002: input resolution of at least 0.1 mm and 1/64 inch, stored at

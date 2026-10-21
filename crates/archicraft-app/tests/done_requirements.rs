@@ -1,7 +1,7 @@
 //! Regression net for the done application requirements (UI-006, UI-007,
 //! STR-003, STR-004, NFR-USE-004, VIEW-002, VIEW-014, WAL-001,
 //! NFR-PORT-005, PRJ-004, NFR-REL-002, PRJ-005, NFR-REL-001, NFR-REL-003,
-//! IFX-001, IFX-002, UND-001, ELM-004, NFR-ACC-005, XCH-008).
+//! IFX-001, IFX-002, UND-001, ELM-004, NFR-ACC-005, XCH-008, HW-001, UND-005).
 //!
 //! Every test is named after the requirement it pins, so the traceability
 //! table in docs/testing.md and the status script can find it. The tests run
@@ -23,7 +23,7 @@ use archicraft_app::persistence::autosave::{RecoveryInfo, Session, write_autosav
 use archicraft_app::persistence::prefs::{Preferences, SeparatorChoice};
 use archicraft_app::persistence::{DataDirs, backup_path};
 use archicraft_app::tools::{ToolKind, WallMode};
-use archicraft_app::views::camera::Camera2d;
+use archicraft_app::views::camera::{Camera2d, Camera3d};
 use archicraft_app::workspace::{Pane, SceneKey};
 use archicraft_geometry::ModelGeometry;
 use archicraft_ifcx::IfcxFile;
@@ -588,6 +588,204 @@ fn view_014_plan_navigation_pans_zooms_and_fits() {
         !rect.contains(zoomed.to_screen(rect, c)),
         "the view shows more than the selection"
     );
+}
+
+/// Drags with `button` from `from` to `to` in four steps, holding
+/// `modifiers`.
+fn drag(h: &mut App, from: Pos2, to: Pos2, button: PointerButton, modifiers: Modifiers) {
+    h.event(Event::ModifiersChanged(modifiers));
+    h.hover_at(from);
+    h.run_steps(1);
+    h.event(Event::PointerButton {
+        pos: from,
+        button,
+        pressed: true,
+        modifiers,
+    });
+    h.run_steps(1);
+    for i in 1..=4 {
+        h.hover_at(from + (to - from) * (i as f32 / 4.0));
+        h.run_steps(1);
+    }
+    h.event(Event::PointerButton {
+        pos: to,
+        button,
+        pressed: false,
+        modifiers,
+    });
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(1);
+}
+
+/// One notch of a mouse wheel (line units, no modifier) at `pos`.
+fn wheel_notch(h: &mut App, pos: Pos2) {
+    h.hover_at(pos);
+    h.run_steps(1);
+    h.event(Event::MouseWheel {
+        unit: MouseWheelUnit::Line,
+        delta: Vec2::new(0.0, 1.0),
+        phase: TouchPhase::Move,
+        modifiers: Modifiers::NONE,
+    });
+    h.run_steps(1);
+}
+
+/// Clicks the secondary button at `pos`.
+fn secondary_click(h: &mut App, pos: Pos2) {
+    h.hover_at(pos);
+    h.run_steps(1);
+    pointer_button(h, pos, PointerButton::Secondary, true);
+    pointer_button(h, pos, PointerButton::Secondary, false);
+    h.run_steps(2);
+}
+
+/// A plan of the ground floor left of the perspective view, with one wall,
+/// both drawn once; returns the storey and the view.
+fn plan_beside_3d(name: &str) -> (App, StoreyId, ViewId) {
+    let mut h = harness(name);
+    let storey = ground(&mut h);
+    let perspective = view(&mut h, Projection::Perspective);
+    add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
+    *h.state_mut().tree_mut() = Tree::new_horizontal(
+        Id::new("archicraft-views"),
+        vec![Pane::Plan(storey), Pane::View3d(perspective)],
+    );
+    h.run_steps(3);
+    (h, storey, perspective)
+}
+
+fn camera_3d(h: &mut App, view: ViewId) -> (Rect, Camera3d) {
+    let state = &h.state_mut().workspace().views_3d[&view];
+    (state.last_rect(), state.camera)
+}
+
+/// HW-001: the mouse navigates as VIEW-014 and VIEW-021 ask and opens context
+/// menus with the secondary button. In the plan the middle button pans and
+/// the scroll wheel zooms; in the 3D view the middle button pans, Shift and
+/// the middle button orbit and the wheel zooms; a secondary click opens the
+/// context menu of either view.
+#[test]
+fn hw_001_middle_button_and_wheel_navigate_and_the_secondary_button_opens_context_menus() {
+    let (mut h, storey, perspective) = plan_beside_3d("hw-001");
+
+    let (rect, start) = plan_camera(&mut h, storey);
+    drag(
+        &mut h,
+        rect.center(),
+        rect.center() + Vec2::new(40.0, 30.0),
+        PointerButton::Middle,
+        Modifiers::NONE,
+    );
+    let (_, panned) = plan_camera(&mut h, storey);
+    assert_ne!(panned.center, start.center, "the middle button pans the plan");
+    wheel_notch(&mut h, rect.center());
+    let (_, zoomed) = plan_camera(&mut h, storey);
+    assert_ne!(zoomed.scale, panned.scale, "the wheel zooms the plan");
+
+    assert!(h.query_by_label("Select all").is_none());
+    secondary_click(&mut h, rect.center() + Vec2::new(-50.0, 60.0));
+    assert_present(&h, "Select all");
+    assert_present(&h, "Fit to window");
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    assert!(h.query_by_label("Select all").is_none(), "Escape closes the menu");
+
+    let (view_rect, start) = camera_3d(&mut h, perspective);
+    let center = view_rect.center();
+    drag(
+        &mut h,
+        center,
+        center + Vec2::new(40.0, 30.0),
+        PointerButton::Middle,
+        Modifiers::NONE,
+    );
+    let (_, panned) = camera_3d(&mut h, perspective);
+    assert_ne!(panned.target, start.target, "the middle button pans the 3D view");
+    assert_eq!((panned.yaw, panned.pitch), (start.yaw, start.pitch));
+    drag(
+        &mut h,
+        center,
+        center + Vec2::new(40.0, 30.0),
+        PointerButton::Middle,
+        Modifiers::SHIFT,
+    );
+    let (_, orbited) = camera_3d(&mut h, perspective);
+    assert_ne!(orbited.yaw, panned.yaw, "Shift and the middle button orbit");
+    assert_eq!(orbited.target, panned.target);
+    wheel_notch(&mut h, center);
+    let (_, zoomed) = camera_3d(&mut h, perspective);
+    assert_ne!(zoomed.distance, orbited.distance, "the wheel zooms the 3D view");
+
+    assert!(h.query_by_label("Orbit mode").is_none());
+    secondary_click(&mut h, center);
+    assert_present(&h, "Orbit mode");
+}
+
+/// UND-005: panning, zooming, fitting, previous and next zoom in the plan and
+/// panning, orbiting and zooming in the 3D view leave the project and the
+/// undo stack unchanged, so Ctrl+Z still undoes the last edit.
+#[test]
+fn und_005_navigation_creates_no_undo_steps() {
+    let (mut h, storey, perspective) = plan_beside_3d("und-005");
+    let (undo_len, project) = {
+        let ws = h.state_mut().workspace();
+        (ws.doc.history.undo_len(), ws.doc.project.clone())
+    };
+    assert_eq!(undo_len, 1, "adding the wall is the only step");
+
+    let (rect, start) = plan_camera(&mut h, storey);
+    drag(
+        &mut h,
+        rect.center(),
+        rect.center() + Vec2::new(40.0, 30.0),
+        PointerButton::Middle,
+        Modifiers::NONE,
+    );
+    wheel_notch(&mut h, rect.center());
+    h.event_modifiers(Event::Zoom(0.5), CTRL);
+    h.run_steps(1);
+    let (_, before_fit) = plan_camera(&mut h, storey);
+    h.remove_cursor();
+    h.key_press(Key::F);
+    h.run_steps(2);
+    let (_, fitted) = plan_camera(&mut h, storey);
+    assert_ne!(fitted, before_fit, "F fits the plan");
+    hover_plan(&mut h, rect.center());
+    h.key_press_modifiers(CTRL, Key::OpenBracket);
+    h.run_steps(2);
+    let (_, previous) = plan_camera(&mut h, storey);
+    assert_eq!(previous, before_fit, "previous zoom returns to the view before the fit");
+    h.key_press_modifiers(CTRL, Key::CloseBracket);
+    h.run_steps(2);
+    let (_, moved) = plan_camera(&mut h, storey);
+    assert_eq!(moved, fitted, "next zoom returns to the fitted view");
+    assert_ne!(moved, start, "the plan was navigated");
+
+    let (view_rect, start) = camera_3d(&mut h, perspective);
+    let center = view_rect.center();
+    for modifiers in [Modifiers::NONE, Modifiers::SHIFT] {
+        drag(
+            &mut h,
+            center,
+            center + Vec2::new(40.0, 30.0),
+            PointerButton::Middle,
+            modifiers,
+        );
+    }
+    wheel_notch(&mut h, center);
+    let (_, moved) = camera_3d(&mut h, perspective);
+    assert_ne!(moved, start, "the 3D view was navigated");
+
+    let ws = h.state_mut().workspace();
+    assert_eq!(ws.doc.history.undo_len(), undo_len, "navigation added no undo step");
+    assert_eq!(ws.doc.project, project, "navigation changed nothing in the project");
+
+    h.remove_cursor();
+    h.key_press_modifiers(CTRL, Key::Z);
+    h.run_steps(2);
+    let ws = h.state_mut().workspace();
+    assert_eq!(ws.doc.history.undo_len(), 0);
+    assert!(ws.doc.project.elements.is_empty(), "Ctrl+Z undid the wall");
 }
 
 /// Runs the tool's outcome on the workspace.

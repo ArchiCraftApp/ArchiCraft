@@ -4,7 +4,7 @@
 //! IFX-061, IFX-090, NFR-PORT-004), and about geometry, precision, round-trip
 //! fidelity, editability, layers and project information (IFX-030, IFX-031,
 //! IFX-043, IFX-063, IFX-064, IFX-067, IFX-080, XCH-008, LAY-005, PRJ-010,
-//! NFR-ACC-001, NFR-ACC-002).
+//! NFR-ACC-001, NFR-ACC-002), and about reporting problems (IFX-083).
 //!
 //! Every test is named after the requirement it pins, so the traceability
 //! table in docs/testing.md and the status script can find it. Projects are
@@ -1615,4 +1615,55 @@ fn nfr_acc_002_parameters_keep_round_trip_precision_and_only_coordinates_are_rou
         rounded += usize::from(w != m);
     }
     assert!(rounded > 0, "some coordinates were rounded");
+}
+
+/// IFX-083: a composition cycle, a reference to an unknown node and an
+/// attribute that violates its schema are each reported with the affected
+/// node path, an unresolved import with its URI, and the file still opens
+/// with every element.
+#[test]
+fn ifx_083_composition_and_validation_problems_name_the_node_and_the_file_still_opens() {
+    let project = samples::storey_with_walls_and_slab();
+    let missing_import = "https://example.com/not-bundled.ifcx.json";
+    let mut wall_path = String::new();
+    let bytes = common::edit(&project, |v| {
+        let i = common::node_index(v, "W-001");
+        wall_path = v["data"][i]["path"].as_str().unwrap().to_owned();
+        v["data"][i]["children"]["Ghost"] = "no-such-node".into();
+        v["data"][i]["attributes"]["bsi::ifc::prop::IsExternal"] = "yes".into();
+        let data = v["data"].as_array_mut().unwrap();
+        data.push(json!({"path": "cycle-a", "inherits": {"next": "cycle-b"}}));
+        data.push(json!({"path": "cycle-b", "inherits": {"next": "cycle-a"}}));
+        v["imports"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"uri": missing_import}));
+    });
+
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let problems = &loaded.problems;
+    let at = |path: &str, part: &str| {
+        problems
+            .iter()
+            .any(|p| p.path.as_deref() == Some(path) && p.message.contains(part))
+    };
+    assert!(
+        ["cycle-a", "cycle-b"].iter().any(|p| at(p, "composition cycle")),
+        "{problems:#?}"
+    );
+    assert!(at(&wall_path, "unknown node “no-such-node”"), "{problems:#?}");
+    assert!(
+        at(&wall_path, "“bsi::ifc::prop::IsExternal”: expected a boolean"),
+        "{problems:#?}"
+    );
+    assert!(
+        problems.iter().any(|p| p.message.contains(missing_import)),
+        "{problems:#?}"
+    );
+
+    // Lenient reading: everything that can be read is loaded.
+    assert_eq!(loaded.project.elements.len(), project.elements.len());
+    for (id, element) in &project.elements {
+        assert_eq!(loaded.project.elements[id].name, element.name);
+    }
 }
