@@ -54,9 +54,9 @@ SRS R2 is still the right one).
 
 ### 3. AS-05 crash recovery on Windows, macOS and Linux
 
-- [ ] _Placeholder: archicraft-ddhu replaces this item with a link to docs/test-plan/as-05.md,
-      the manual procedure for the three operating systems._ Until then: run SRS AS-05 by hand
-      on each operating system and record the outcome below.
+- [ ] [AS-05 manual procedure](as-05.md) passed with the windowed release binary on Windows,
+      macOS and Linux; column "3 AS-05" below records the outcome per operating system. CI runs
+      the same scenario headless on all three (`as05_crash_recovery`).
 
 ### 4. Minimum and reference hardware (NFR-PERF-001, NFR-PORT-006)
 
