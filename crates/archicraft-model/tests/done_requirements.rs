@@ -441,6 +441,7 @@ fn str_013_one_site_and_one_building_with_editable_names() {
     h.undo(&mut p).unwrap();
     assert_eq!((p.site.name.as_str(), p.building.name.as_str()), ("Site", "Building"));
 
+    let before = p.clone();
     for (site, building) in [("", "House A"), ("Parcel 12", " ")] {
         assert!(matches!(
             h.execute(
@@ -453,6 +454,7 @@ fn str_013_one_site_and_one_building_with_editable_names() {
             Err(CommandError::Invalid(_))
         ));
     }
+    assert_eq!(p, before);
 }
 
 /// ELM-001: the wall and slab tool defaults are part of the project (the
