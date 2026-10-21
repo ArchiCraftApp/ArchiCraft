@@ -510,7 +510,7 @@ impl Dialogs {
 
                         ui.label("Length unit");
                         let options: Vec<(LengthUnit, String)> =
-                            LengthUnit::ALL.iter().map(|u| (*u, u.label().to_owned())).collect();
+                            LengthUnit::ALL.iter().map(|u| (*u, tr!(u.label_key()))).collect();
                         if let Some(u) = widgets::choice(
                             ui,
                             Id::new("length-unit"),
@@ -526,7 +526,7 @@ impl Dialogs {
                         ui.end_row();
                         ui.label("Angle unit");
                         let options: Vec<(AngleUnit, String)> =
-                            AngleUnit::ALL.iter().map(|u| (*u, u.label().to_owned())).collect();
+                            AngleUnit::ALL.iter().map(|u| (*u, tr!(u.label_key()))).collect();
                         if let Some(u) = widgets::choice(
                             ui,
                             Id::new("angle-unit"),

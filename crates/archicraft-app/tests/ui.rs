@@ -12,7 +12,7 @@ use archicraft_app::input::InputConsumer;
 use archicraft_app::tools::{ToolKind, WallMode};
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
-use archicraft_model::units::{LengthUnit, format_length};
+use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_length};
 use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{Command, ProjectSettings};
 use common::{assert_present, harness};
@@ -267,6 +267,93 @@ fn a_rejected_thickness_shows_its_limits_in_the_project_unit() {
     assert!(min.ends_with("cm") && max.ends_with("cm"), "{min} {max}");
     assert!(!status.contains("model-error"), "{status}");
     harness.get_by_label_contains(&max);
+}
+
+/// Opens the menu `title` of the menu bar (the browser has headers with the
+/// same names).
+fn open_menu(harness: &mut Harness<'static, ArchiCraftApp>, title: &str) {
+    let menu = harness
+        .query_all_by_label(title)
+        .map(|n| n.rect())
+        .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
+        .unwrap_or_else(|| panic!("no menu “{title}”"));
+    click_at(harness, menu.center());
+    harness.run_steps(1);
+}
+
+/// NFR-L10N-001: the unit choices of the project settings come from the
+/// catalogue: with the en-XA pseudo-locale they show the pseudo texts of the
+/// unit label keys.
+#[cfg(debug_assertions)]
+#[test]
+fn project_settings_unit_choices_come_from_the_catalogue() {
+    let mut harness = harness("unit-choices");
+    let pseudo = Rc::new(Localizer::pseudo());
+    harness.state_mut().set_localizer(Rc::clone(&pseudo));
+    harness.run_steps(2);
+    let label = |key: &str| i18n::with(Rc::clone(&pseudo), || tr!(key));
+    // Menu titles and command labels are migrated with archicraft-e19 and
+    // archicraft-5eu.
+    open_menu(&mut harness, "Project");
+    harness.get_by_label("Project settings…").click();
+    harness.run_steps(4);
+    let metre = label(LengthUnit::Meter.label_key());
+    assert!(metre.starts_with(i18n::pseudo::OPEN), "{metre}");
+    harness
+        .get(By::new().role(Role::ComboBox).value(metre.as_str()))
+        .click();
+    harness.run_steps(2);
+    for unit in LengthUnit::ALL {
+        assert_present(&harness, &label(unit.label_key()));
+    }
+    assert!(harness.query_all_by_label("Millimetre").next().is_none());
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    let degrees = label(AngleUnit::DecimalDegrees.label_key());
+    harness
+        .get(By::new().role(Role::ComboBox).value(degrees.as_str()))
+        .click();
+    harness.run_steps(2);
+    for unit in AngleUnit::ALL {
+        assert_present(&harness, &label(unit.label_key()));
+    }
+    assert!(harness.query_all_by_label("Gradians").next().is_none());
+}
+
+/// NFR-L10N-001, INP-005: a length the properties strip cannot parse
+/// reports the localized parse error in the status line.
+#[cfg(debug_assertions)]
+#[test]
+fn an_unparsable_length_reports_the_localized_parse_error() {
+    let mut harness = harness("unparsable-length");
+    let pseudo = Rc::new(Localizer::pseudo());
+    harness.state_mut().set_localizer(Rc::clone(&pseudo));
+    let shown = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+        let id = wall.id;
+        let thickness = wall.as_wall().unwrap().thickness;
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+        ws.selection.insert(id);
+        let units = ws.doc.project.settings.units.clone();
+        format_length(thickness, &units, &ws.prefs.number_format(), false)
+    };
+    harness.run_steps(2);
+    let field = || By::new().role(Role::TextInput).value(shown.as_str());
+    harness.get(field()).click();
+    harness.run_steps(1);
+    harness.get(field()).type_text("1/0");
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    let status = harness.state_mut().workspace().status.as_ref().unwrap().text.clone();
+    let expected = {
+        let ws = harness.state_mut().workspace();
+        let message = ParseError::InvalidLength("1/0".into()).message();
+        i18n::with(Rc::clone(&pseudo), || ws.render(&message))
+    };
+    assert!(expected.starts_with(i18n::pseudo::OPEN), "{expected}");
+    assert_eq!(status, expected);
 }
 
 /// Opens Help ▸ About, finding the Help menu by the title `localizer`

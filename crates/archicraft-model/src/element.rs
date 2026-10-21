@@ -30,6 +30,16 @@ impl IfcClass {
         }
     }
 
+    /// Message key of the class's name in choices (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
+        match self {
+            IfcClass::Wall => "model-ifc-class-wall",
+            IfcClass::Slab => "model-ifc-class-slab",
+            IfcClass::Footing => "model-ifc-class-footing",
+            IfcClass::Covering => "model-ifc-class-covering",
+        }
+    }
+
     pub fn from_code(code: &str) -> Option<Self> {
         [IfcClass::Wall, IfcClass::Slab, IfcClass::Footing, IfcClass::Covering]
             .into_iter()

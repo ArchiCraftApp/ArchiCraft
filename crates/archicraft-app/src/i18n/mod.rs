@@ -32,7 +32,7 @@
 //! | `cmd-<command-id>-label`, `cmd-<command-id>-desc` | command labels and descriptions | `commands.ftl` |
 //! | `dlg-<dialog>-` | dialogs, for example `dlg-about-title` | `dialogs.ftl` |
 //! | `tool-`, `prompt-` | drawing tools and their input prompts | `tools.ftl` |
-//! | `model-` | keys produced by archicraft-model (command labels, errors), rendered with [`render`] | `model.ftl` |
+//! | `model-` | keys produced by archicraft-model (command labels, errors, unit and class names), rendered with [`render`] | `model.ftl` |
 //!
 //! Keys built at runtime must start with one of [`DYNAMIC_PREFIXES`], so the
 //! key-usage test (`crates/archicraft-app/tests/i18n_keys.rs`) knows that a

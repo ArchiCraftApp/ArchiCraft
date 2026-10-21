@@ -135,13 +135,45 @@ pub const ALL_KEYS: &[&str] = &[
     "model-problem-home-storey-missing",
     "model-problem-layer-missing",
     "model-problem-material-missing",
+    // Typed lengths and angles (units.rs, ParseError::message).
+    "model-error-parse-empty",
+    "model-error-parse-length",
+    "model-error-parse-angle",
+    // Unit names (units.rs, label_key).
+    "model-unit-length-m",
+    "model-unit-length-cm",
+    "model-unit-length-mm",
+    "model-unit-length-ft-in",
+    "model-unit-length-ft",
+    "model-unit-length-in",
+    "model-unit-angle-deg",
+    "model-unit-angle-dms",
+    "model-unit-angle-grad",
+    "model-unit-angle-rad",
+    "model-unit-slope-deg",
+    "model-unit-slope-percent",
+    "model-unit-slope-ratio",
+    "model-unit-area-m2",
+    "model-unit-area-ft2",
+    "model-unit-volume-m3",
+    "model-unit-volume-ft3",
+    // IFC classes (IfcClass::label_key) and wall reference lines
+    // (ReferenceLine::label_key).
+    "model-ifc-class-wall",
+    "model-ifc-class-slab",
+    "model-ifc-class-footing",
+    "model-ifc-class-covering",
+    "model-reference-line-outside",
+    "model-reference-line-center",
+    "model-reference-line-inside",
+    "model-reference-line-custom",
 ];
 
 /// Every argument name a [`Message`] of this crate uses. Names are
 /// `&'static str`, so reading a message back (from a journal, for example)
 /// maps the name onto this list.
 pub const ARG_NAMES: &[&str] = &[
-    "count", "kind", "min", "max", "name", "reason", "class", "lower", "upper", "layer",
+    "count", "kind", "min", "max", "name", "reason", "class", "lower", "upper", "layer", "text",
 ];
 
 /// A typed argument of a [`Message`].
