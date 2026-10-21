@@ -108,10 +108,35 @@ OPEN_FIELDS = ("number,title,state,isDraft,headRefName,url,createdAt,updatedAt,l
 ALL_FIELDS = "number,title,state,headRefName,headRefOid,url,createdAt,mergedAt,closedAt"
 
 
+# What `gh pr list` cannot say: where an open PR stands in the merge queue. The fields are those
+# scripts/loop/pr-state.sh reads for one PR; pr_queue_state() decides with the same rules.
+QUEUE_QUERY = """query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, first: 50, orderBy: {field: CREATED_AT, direction: DESC}) {
+      nodes {
+        number
+        mergeQueueEntry { position }
+        timelineItems(last: 1, itemTypes: [ADDED_TO_MERGE_QUEUE_EVENT, REMOVED_FROM_MERGE_QUEUE_EVENT,
+            AUTO_MERGE_ENABLED_EVENT]) {
+          nodes { __typename ... on RemovedFromMergeQueueEvent { reason } }
+        }
+        commits(last: 1) { nodes { commit { status { context(name: "User review") { state } } } } }
+      }
+    }
+  }
+}"""
+
+
 def collect_prs():
+    open_prs = run_json(["gh", "pr", "list", "--state", "open", "--limit", "50",
+                         "--json", OPEN_FIELDS], cwd=ROOT)
+    answer = run_json(["gh", "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}",
+                       "-f", f"query={QUEUE_QUERY}"], cwd=ROOT)
+    queue = {n["number"]: n for n in answer["data"]["repository"]["pullRequests"]["nodes"]}
+    for p in open_prs:
+        p["queue"] = queue.get(p["number"])
     return {
-        "open": run_json(["gh", "pr", "list", "--state", "open", "--limit", "50",
-                          "--json", OPEN_FIELDS], cwd=ROOT),
+        "open": open_prs,
         "all": run_json(["gh", "pr", "list", "--state", "all", "--limit", "300",
                          "--json", ALL_FIELDS], cwd=ROOT),
     }
@@ -149,17 +174,78 @@ def summarize_checks(rollup):
     return summary
 
 
+def pr_queue_state(p):
+    """Where an open PR stands on its way through the merge queue, by the rules of
+    scripts/loop/pr-state.sh: GitHub clears autoMergeRequest when the queue takes a PR in and when
+    it drops one, so only the queue entry, the newest queue event and the status "User review"
+    tell a queued, a dropped and a waiting PR apart. States: queued, waits-for-user, auto-merge,
+    left-queue, open."""
+    q = p.get("queue") or {}
+    event = ((q.get("timelineItems") or {}).get("nodes") or [None])[-1] or {}
+    commit = ((q.get("commits") or {}).get("nodes") or [None])[-1] or {}
+    review = ((((commit.get("commit") or {}).get("status") or {}).get("context")) or {}).get("state")
+    state = {"state": "open", "position": None, "reason": None}
+    if q.get("mergeQueueEntry"):
+        state.update(state="queued", position=q["mergeQueueEntry"].get("position"))
+    elif review in ("FAILURE", "ERROR"):
+        state["state"] = "waits-for-user"
+    elif p.get("autoMergeRequest"):
+        state["state"] = "auto-merge"
+    elif event.get("__typename") == "RemovedFromMergeQueueEvent" and event.get("reason") != "merged":
+        state.update(state="left-queue", reason=event.get("reason") or "unknown")
+    return state
+
+
+def pr_status(view):
+    """The PR's state on the page: a dot class and a short text."""
+    c, q = view["checks"], view["queue"]
+    if view["draft"]:
+        return "bg-mute", "draft"
+    if q["state"] == "queued":
+        return "bg-ok", f"in the merge queue, position {q['position']}"
+    if q["state"] == "left-queue":
+        return "bg-bad", f"dropped from the merge queue: {q['reason']}"
+    if q["state"] == "waits-for-user":
+        return "bg-warn", "waiting for your review"
+    if c["fail"]:
+        return "bg-bad", "checks failing"
+    if view["merge_state"] == "DIRTY" or view["mergeable"] == "CONFLICTING":
+        return "bg-bad", "merge conflict"
+    if c["pending"]:
+        return "bg-run pulse", "checks running"
+    if view["merge_state"] == "BEHIND":
+        return "bg-warn", "behind main"
+    if q["state"] == "open":
+        return "bg-warn", "open, auto-merge off"
+    return "bg-ok", "green, merging"
+
+
+def pr_needs_you(view):
+    """Why the PR is in the overview's "Needs you" list, or None: only a failed User review waits
+    for the user's review; a PR the queue dropped needs a fix and land.sh again."""
+    if view["draft"]:
+        return None
+    if view["queue"]["state"] == "waits-for-user":
+        return "PR waits for your review and merge"
+    if view["queue"]["state"] == "left-queue":
+        return f"the merge queue dropped it: {view['queue']['reason']}"
+    return None
+
+
 def open_pr_view(p):
-    return {
+    view = {
         "number": p["number"], "title": p["title"], "draft": p["isDraft"],
         "branch": p["headRefName"], "url": p["url"], "bead": pr_bead(p),
         "updated": p.get("updatedAt"), "labels": [l["name"] for l in p.get("labels") or []],
-        "auto_merge": bool(p.get("autoMergeRequest")),
+        "auto_merge": bool(p.get("autoMergeRequest")), "queue": pr_queue_state(p),
         "merge_state": p.get("mergeStateStatus"), "mergeable": p.get("mergeable"),
         "review": p.get("reviewDecision") or "",
         "checks": summarize_checks(p.get("statusCheckRollup")),
         "size": f"+{p.get('additions', 0)} −{p.get('deletions', 0)} · {p.get('changedFiles', 0)} files",
     }
+    dot, text = pr_status(view)
+    view.update(status={"dot": dot, "text": text}, needs_you=pr_needs_you(view))
+    return view
 
 
 # --- sessions: worktrees, processes, transcripts -----------------------------------------
@@ -1505,14 +1591,7 @@ function agentBlock(a) {
 
 // --- pull requests ------------------------------------------------------------------------
 function prState(p) {
-  const c = p.checks;
-  if (p.draft) return `<span class="dot bg-mute"></span>draft`;
-  if (c.fail) return `<span class="dot bg-bad"></span>checks failing`;
-  if (p.merge_state === "DIRTY" || p.mergeable === "CONFLICTING") return `<span class="dot bg-bad"></span>merge conflict`;
-  if (c.pending) return `<span class="dot bg-run pulse"></span>checks running`;
-  if (p.merge_state === "BEHIND") return `<span class="dot bg-warn"></span>behind main`;
-  if (!p.auto_merge) return `<span class="dot bg-warn"></span>waiting for your review`;
-  return `<span class="dot bg-ok"></span>green, merging`;
+  return `<span class="dot ${esc(p.status.dot)}"></span>${esc(p.status.text)}`;
 }
 function prRow(p) {
   const c = p.checks;
@@ -1521,7 +1600,7 @@ function prRow(p) {
                   c.running.length ? `<span class="mute">running: ${esc(c.running.join(", "))}</span>` : ""].filter(Boolean).join("<br>");
   return `<tr><td class="id"><a href="${esc(p.url)}" target="_blank">#${p.number}</a></td>
     <td>${esc(p.title)}<div class="small mute">${esc(p.branch)} · ${esc(p.size)} · updated ${ago(p.updated)}</div>
-      <div>${chips(p.labels)}${p.auto_merge?'<span class="chip ok">auto-merge on</span>':'<span class="chip warn">auto-merge off</span>'}${p.review?`<span class="chip">${esc(p.review.toLowerCase())}</span>`:''}</div>
+      <div>${chips(p.labels)}${p.queue.state === "queued" || p.queue.state === "left-queue" ? "" : p.auto_merge?'<span class="chip ok">auto-merge on</span>':'<span class="chip warn">auto-merge off</span>'}${p.review?`<span class="chip">${esc(p.review.toLowerCase())}</span>`:''}</div>
       ${detail?`<div class="small">${detail}</div>`:""}</td>
     <td class="nowrap">${prState(p)}<div class="small">${checks}</div></td></tr>`;
 }
@@ -1687,7 +1766,7 @@ function render(s) {
 
   const needs = [];
   (s.human || []).forEach(b => needs.push(`<tr>${beadCells(b)}</td><td class="small mute">labelled human</td></tr>`));
-  (s.prs_open || []).filter(p => !p.auto_merge && !p.draft).forEach(p => needs.push(`<tr><td class="id"><a href="${esc(p.url)}" target="_blank">#${p.number}</a></td><td></td><td>${esc(p.title)}</td><td class="small mute">PR waits for your review and merge</td></tr>`));
+  (s.prs_open || []).filter(p => p.needs_you).forEach(p => needs.push(`<tr><td class="id"><a href="${esc(p.url)}" target="_blank">#${p.number}</a></td><td></td><td>${esc(p.title)}</td><td class="small mute">${esc(p.needs_you)}</td></tr>`));
   (s.prs_open || []).filter(p => p.checks.fail).forEach(p => needs.push(`<tr><td class="id"><a href="${esc(p.url)}" target="_blank">#${p.number}</a></td><td></td><td>${esc(p.title)}</td><td class="small bad">checks failing</td></tr>`));
   agents.filter(a => a.loop && a.loop.paused === "yes").forEach(a => needs.push(`<tr><td class="id">${esc(a.bead)}</td><td></td><td>Bead session paused in ${esc(a.worktree)}</td><td class="small mute">paused by the loop</td></tr>`));
   agents.filter(a => a.state === "stale").forEach(a => needs.push(`<tr><td class="id">${esc(a.bead || "")}</td><td></td><td>${esc(a.title || a.worktree)}</td><td class="small mute">session stale for ${ago(a.last).replace(" ago","")}</td></tr>`));
