@@ -3,7 +3,7 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor, StoreyLinkRef, VerticalLink};
+use super::{Kind, KindDescriptor, StoreyLinkRef, VerticalLink, plan_bounds_of};
 use crate::element::{IfcClass, TopLink};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
@@ -165,5 +165,16 @@ impl Kind for Wall {
 
     fn unlink_storey(&mut self, home: StoreyId, storeys: &StoreyList, storey: StoreyId) -> bool {
         self.change_link(|link| link.unlink_storey(home, storeys, storey))
+    }
+
+    /// The corners of the unjoined footprint: both faces at both ends.
+    fn plan_bounds(&self) -> Option<(DVec2, DVec2)> {
+        let normal = self.direction().perp();
+        let (exterior, interior) = self.reference_line.face_offsets(self.thickness);
+        plan_bounds_of(
+            [self.start, self.end]
+                .into_iter()
+                .flat_map(|p| [p + normal * exterior, p + normal * interior]),
+        )
     }
 }

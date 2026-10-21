@@ -130,7 +130,7 @@ fn local_extent(project: &Project, element: &Element) -> Result<(f64, f64), Geom
     match &element.kind {
         // Keep the stored offsets exact rather than subtracting elevations.
         ElementKind::Wall(wall) => Ok((wall.base_offset, wall.base_offset + (top - bottom))),
-        ElementKind::Slab(_) => Ok((bottom - home, top - home)),
+        _ => Ok((bottom - home, top - home)),
     }
 }
 
@@ -188,5 +188,8 @@ pub fn evaluate_element(
                 axis: Vec::new(),
             })
         }
+        // Until kinds register their own generators, other kinds are listed
+        // as problems (NFR-REL-006).
+        _ => Err(GeometryError::UnsupportedKind(element.tag().code())),
     }
 }

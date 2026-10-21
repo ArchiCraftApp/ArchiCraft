@@ -55,6 +55,12 @@ model-kind-slab-noun = { $count ->
         [one] slab
        *[other] slabs
     }
+# The test kind of the model's test builds; never shown in a release.
+model-kind-test = Test element
+model-kind-test-noun = { $count ->
+        [one] test element
+       *[other] test elements
+    }
 
 ## Command errors (CommandError::message), shown in the status line after
 ## the command label. Lengths ($min, $max) are formatted in the project

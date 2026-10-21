@@ -7,7 +7,7 @@
 use glam::DVec2;
 
 use crate::element::{Element, TopLink};
-use crate::kinds::{ReferenceLine, Slab, Wall};
+use crate::kinds::{ReferenceLine, Slab, VerticalLink, Wall};
 use crate::message::Message;
 use crate::project::Project;
 
@@ -253,8 +253,16 @@ pub fn validate_wall(wall: &Wall) -> Result<(), Message> {
     {
         return Err(Message::new("model-error-reference-line-range").length("max", MAX_THICKNESS));
     }
-    check_offset(wall.base_offset, "model-error-base-offset-range")?;
-    match wall.top {
+    check_vertical_link(&wall.link())
+}
+
+/// Range checks for the base offset and top of a vertical element (ELM-006).
+/// A storey the top is linked to is checked by the kind, and the resulting
+/// extent by [`validate_element`]. The fixed-height message names walls, the
+/// only vertical kind with a tool so far.
+pub fn check_vertical_link(link: &VerticalLink) -> Result<(), Message> {
+    check_offset(link.base_offset, "model-error-base-offset-range")?;
+    match link.top {
         TopLink::Fixed { height } => {
             if !height.is_finite() || !(MIN_HEIGHT..=MAX_HEIGHT).contains(&height) {
                 return Err(Message::new("model-error-wall-height-range")

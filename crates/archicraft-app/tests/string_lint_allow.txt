@@ -29,10 +29,12 @@ crates/archicraft-model/src/fixtures.rs | * | test fixture registry (SRS Appendi
 crates/archicraft-model/src/samples.rs | * | reference models for the golden files and conformance tests (project data)
 crates/archicraft-model/src/kinds/wall.rs::Wall | "W" | KindDescriptor::name_prefix: prefix of generated wall names such as W-1 (project data)
 crates/archicraft-model/src/kinds/slab.rs::Slab | "SL" | KindDescriptor::name_prefix: prefix of generated slab names such as SL-1 (project data)
+crates/archicraft-model/src/kinds/dummy.rs::Dummy | "X" | KindDescriptor::name_prefix: prefix of generated test-kind names such as X-1 (project data, test builds only)
 
 # File-format keywords.
 crates/archicraft-model/src/kinds/wall.rs::Wall | "Wall" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Wall_1a2b3c4d (file format)
 crates/archicraft-model/src/kinds/slab.rs::Slab | "Slab" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Slab_1a2b3c4d (file format)
+crates/archicraft-model/src/kinds/dummy.rs::Dummy | "Dummy" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Dummy_1a2b3c4d (file format, test builds only)
 crates/archicraft-model/src/element.rs::IfcClass::code | * | keyword table: IFC class names written to IFCX (bsi::ifc::class)
 crates/archicraft-model/src/material.rs::MaterialCategory::code | * | keyword table: IFC material category codes written to IFCX
 

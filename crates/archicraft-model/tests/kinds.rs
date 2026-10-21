@@ -15,12 +15,16 @@ use archicraft_model::template::default_metric_project;
 use archicraft_model::{Arg, Command, CommandError, History, IfcClass, KindTag};
 use common::{ground, wall};
 
-/// The registry lists wall and slab, in the order of `KindTag::ALL`, and each
-/// tag's descriptor is its registry entry.
+/// The registry lists wall and slab, plus the test kind in builds with the
+/// feature `test-kinds`, in the order of `KindTag::ALL`, and each tag's
+/// descriptor is its registry entry.
 #[test]
 fn the_registry_has_wall_and_slab() {
     let codes: Vec<&str> = KINDS.iter().map(|d| d.code).collect();
-    assert!(codes.starts_with(&["wall", "slab"]), "{codes:?}");
+    #[cfg(not(feature = "test-kinds"))]
+    assert_eq!(codes, ["wall", "slab"]);
+    #[cfg(feature = "test-kinds")]
+    assert_eq!(codes, ["wall", "slab", "dummy"]);
     assert_eq!(KINDS.len(), KindTag::ALL.len());
     for (tag, descriptor) in KindTag::ALL.iter().zip(KINDS) {
         assert_eq!(tag.descriptor(), *descriptor, "{tag:?}");
@@ -137,4 +141,16 @@ fn a_class_outside_the_kinds_set_is_rejected() {
         other => panic!("expected CommandError::Invalid, got {other:?}"),
     }
     assert_eq!(p, before);
+}
+
+/// ELM-011: the test kind is an `IfcBuildingElementProxy` by default, has no
+/// drawing tool and names its elements `X-001`, `X-002`, … (ELM-019).
+#[cfg(feature = "test-kinds")]
+#[test]
+fn the_test_kind_has_its_own_descriptor() {
+    let d = KindTag::Dummy.descriptor();
+    assert_eq!((d.code, d.name_prefix, d.has_tool), ("dummy", "X", false));
+    assert_eq!(d.default_class, IfcClass::BuildingElementProxy);
+    assert_eq!(IfcClass::from_code("IfcBuildingElementProxy"), Some(d.default_class));
+    assert_eq!(KindTag::from_code("dummy"), Some(KindTag::Dummy));
 }

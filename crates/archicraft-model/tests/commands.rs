@@ -523,3 +523,89 @@ fn invalid_plan_grids_are_rejected() {
     )
     .unwrap();
 }
+
+/// The project without its revision, which counts every change including
+/// undo and redo.
+#[cfg(feature = "test-kinds")]
+fn content(p: &archicraft_model::Project) -> archicraft_model::Project {
+    archicraft_model::Project {
+        revision: 0,
+        ..p.clone()
+    }
+}
+
+/// SRS 3.2, ELM-019, UND-001, UND-002: the test kind goes through the
+/// generic command paths like any kind. AddElements names it X-001 and bumps
+/// only its counter; UpdateElements, MoveElements and DeleteElements apply,
+/// and undo and redo restore the exact project after every step.
+#[cfg(feature = "test-kinds")]
+#[test]
+fn the_test_kind_goes_through_the_command_paths() {
+    use archicraft_model::kinds::Dummy;
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let start = content(&p);
+    let d = Dummy::new(DVec2::new(1.0, 2.0), DVec2::new(0.5, 0.4), p.materials[0].id).into_element(&p, ground(&p), 0);
+    let id = d.id;
+    assert_eq!(d.name, "X-001");
+    h.execute(&mut p, Command::AddElements(vec![d])).unwrap();
+    assert_eq!(p.counters.get(KindTag::Dummy), 1);
+    for &kind in KindTag::ALL.iter().filter(|k| **k != KindTag::Dummy) {
+        assert_eq!(p.counters.get(kind), 0, "{kind:?}");
+    }
+    assert_eq!(p.next_element_name(KindTag::Dummy, 0), "X-002");
+
+    let mut states = vec![start, content(&p)];
+    let mut edited = p.element(id).unwrap().clone();
+    edited.as_dummy_mut().unwrap().size = DVec2::new(2.0, 3.0);
+    let delta = DVec2::new(0.25, -1.5);
+    for command in [
+        Command::UpdateElements(vec![edited]),
+        Command::MoveElements { ids: vec![id], delta },
+        Command::DeleteElements(vec![id]),
+    ] {
+        h.execute(&mut p, command).unwrap();
+        states.push(content(&p));
+    }
+    assert_eq!(
+        states[2].element(id).unwrap().as_dummy().unwrap().size,
+        DVec2::new(2.0, 3.0)
+    );
+    let moved = states[3].element(id).unwrap().as_dummy().unwrap();
+    assert_eq!(moved.origin, DVec2::new(1.0, 2.0) + delta);
+    assert!(p.element(id).is_none());
+
+    for expected in states.iter().rev().skip(1) {
+        h.undo(&mut p).unwrap();
+        assert_eq!(&content(&p), expected);
+    }
+    for expected in states.iter().skip(1) {
+        h.redo(&mut p).unwrap();
+        assert_eq!(&content(&p), expected);
+    }
+}
+
+/// ELM-011: an IFC class outside the test kind's descriptor set is rejected
+/// with `CommandError::Invalid`, and the project stays unchanged.
+#[cfg(feature = "test-kinds")]
+#[test]
+fn a_test_kind_element_with_a_foreign_class_is_rejected() {
+    use archicraft_model::IfcClass;
+    use archicraft_model::kinds::Dummy;
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let before = p.clone();
+    let mut d = Dummy::new(DVec2::ZERO, DVec2::ONE, p.materials[0].id).into_element(&p, ground(&p), 0);
+    d.ifc_class = IfcClass::Wall;
+    assert!(!KindTag::Dummy.ifc_classes().contains(&IfcClass::Wall));
+    match h.execute(&mut p, Command::AddElements(vec![d])) {
+        Err(CommandError::Invalid(message)) => {
+            assert_eq!(message.key(), "model-error-ifc-class-not-allowed");
+            assert_eq!(message.arg("kind"), Some(&Arg::Kind(KindTag::Dummy)));
+        }
+        other => panic!("expected CommandError::Invalid, got {other:?}"),
+    }
+    assert_eq!(p, before);
+}
