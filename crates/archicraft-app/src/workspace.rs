@@ -2,12 +2,13 @@
 //! tool, the selection, and per-view state.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
 use archicraft_model::{Command, CommandError, ElementId, Message, StoreyId, ViewId};
 
 use crate::document::Document;
-use crate::input::PointInput;
+use crate::input::{PointInput, SnapIndex};
 use crate::persistence::prefs::Preferences;
 use crate::tools::{ToolKind, ToolState};
 use crate::views::plan::PlanViewState;
@@ -71,6 +72,9 @@ pub struct Workspace {
     pub selection: HashSet<ElementId>,
     pub hover: Option<ElementId>,
     pub plan_views: HashMap<StoreyId, PlanViewState>,
+    /// The snap targets of each storey, following the model's revisions
+    /// (NFR-PERF-005).
+    snap_indexes: HashMap<StoreyId, Arc<SnapIndex>>,
     pub views_3d: HashMap<ViewId, View3dState>,
     pub renderer: Option<Renderer3d>,
     pub scene: Option<(SceneKey, GpuScene)>,
@@ -96,6 +100,7 @@ impl Workspace {
             selection: HashSet::new(),
             hover: None,
             plan_views: HashMap::new(),
+            snap_indexes: HashMap::new(),
             views_3d: HashMap::new(),
             renderer: None,
             scene: None,
@@ -116,11 +121,30 @@ impl Workspace {
         self.selection.clear();
         self.hover = None;
         self.plan_views.clear();
+        self.snap_indexes.clear();
         self.views_3d.clear();
         self.scene = None;
         self.active_storey = self.doc.project.storeys.ground();
         self.active_pane = Some(Pane::Plan(self.active_storey));
         self.requests.clear();
+    }
+
+    /// The snap targets of `storey` at the current revision (INP-008). The
+    /// index is built once and then updated per revision, only for the
+    /// elements whose targets changed (NFR-PERF-005).
+    pub fn snap_index(&mut self, storey: StoreyId) -> Arc<SnapIndex> {
+        let revision = self.doc.project.revision;
+        if let Some(index) = self.snap_indexes.get(&storey)
+            && index.revision() == Some(revision)
+        {
+            return index.clone();
+        }
+        let plan = self.doc.plan(storey);
+        let project = &self.doc.project;
+        self.snap_indexes.retain(|s, _| project.storeys.get(*s).is_some());
+        let index = self.snap_indexes.entry(storey).or_default();
+        Arc::make_mut(index).update(project, storey, &plan);
+        index.clone()
     }
 
     /// Switches to the tool `kind`, discarding the input in progress. An open

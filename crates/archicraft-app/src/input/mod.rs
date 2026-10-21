@@ -11,6 +11,7 @@ mod consumer;
 mod keys;
 mod snap;
 mod surface;
+mod targets;
 mod typed;
 
 use archicraft_model::glam::DVec2;
@@ -21,8 +22,9 @@ use archicraft_model::{Command, Project, StoreyId};
 pub use constrain::constrain;
 pub use consumer::{CursorState, Expect, InputConsumer, KeyHint, Outcome, Preview, StepSpec, TrackerMode};
 pub use keys::{KeyInput, Modifiers};
-pub use snap::{Snap, SnapKind, SnapTargets, snap};
+pub use snap::{Snap, SnapKind, snap};
 pub use surface::{SurfaceFrame, ViewSurface};
+pub use targets::{IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
 pub use typed::{Field, TypedInput, is_numeric_input};
 
 /// A guide line shown while resolving a point; inference guides (INP-011)
@@ -51,7 +53,11 @@ pub struct Resolved {
 pub struct InputContext<'a> {
     pub project: &'a Project,
     pub storey: StoreyId,
-    pub targets: &'a SnapTargets,
+    /// The snap targets of the storey (INP-008).
+    pub targets: &'a SnapIndex,
+    /// The consumer's points entered so far, snap targets kept out of the
+    /// index.
+    pub pending: &'a [DVec2],
     /// The consumer's reference point on this storey.
     pub previous: Option<DVec2>,
     /// What the consumer's current step expects.
@@ -153,9 +159,16 @@ impl PointInput {
                 kind: SnapKind::Constrained,
             })
         };
-        let s = typed
-            .or_else(constrained)
-            .unwrap_or_else(|| snap(ctx.targets, cursor, ctx.radius, ctx.snap_step, ctx.previous));
+        let s = typed.or_else(constrained).unwrap_or_else(|| {
+            snap(
+                ctx.targets,
+                ctx.pending,
+                cursor,
+                ctx.radius,
+                ctx.snap_step,
+                ctx.previous,
+            )
+        });
         let candidates = if s.kind == SnapKind::Free { Vec::new() } else { vec![s] };
         let resolved = Resolved {
             point: s.point,
@@ -289,6 +302,7 @@ mod tests {
     use archicraft_model::{Element, ElementId, History};
 
     use super::*;
+    use crate::input::targets::tests::index_of;
     use crate::tools::{SlabMode, ToolKind, ToolState, WallMode};
 
     /// How a [`TransformStub`] places the result.
@@ -489,7 +503,8 @@ mod tests {
     struct Env {
         project: Project,
         storey: StoreyId,
-        targets: SnapTargets,
+        targets: SnapIndex,
+        pending: Vec<DVec2>,
         units: UnitSettings,
         nf: NumberFormat,
     }
@@ -501,7 +516,8 @@ mod tests {
             Self {
                 project,
                 storey,
-                targets: SnapTargets::default(),
+                targets: SnapIndex::default(),
+                pending: Vec::new(),
                 units: UnitSettings::default(),
                 nf: NumberFormat::default(),
             }
@@ -513,6 +529,7 @@ mod tests {
                 project: &self.project,
                 storey: self.storey,
                 targets: &self.targets,
+                pending: &self.pending,
                 previous: consumer.reference_point(),
                 expects: consumer.step().map_or(Expect::Point, |s| s.expects),
                 radius: 0.1,
@@ -667,8 +684,7 @@ mod tests {
     #[test]
     fn every_consumer_resolves_identically() {
         let mut env = Env::new();
-        env.targets.nodes.push(DVec2::new(3.0, 3.0));
-        env.targets.edges.push([DVec2::new(0.0, 5.0), DVec2::new(6.0, 5.0)]);
+        env.targets = index_of(&[DVec2::new(3.0, 3.0)], &[[DVec2::new(0.0, 5.0), DVec2::new(6.0, 5.0)]]);
         let mut input = PointInput::default();
         let mut wall = wall_tool(WallMode::Chain);
         let mut stub = TransformStub::new(&env.project, Vec::new(), Transform::Move);

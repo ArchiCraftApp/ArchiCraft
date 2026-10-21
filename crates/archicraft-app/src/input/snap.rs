@@ -4,10 +4,10 @@
 //! coincident nodes are one target, and coincident candidates are one
 //! candidate before precedence decides.
 
-use archicraft_geometry::plan::{PlanDrawing, polygon_rings};
 use archicraft_model::glam::DVec2;
-use archicraft_model::tolerance::{Welder, coincident, is_parallel};
-use archicraft_model::{Project, StoreyId};
+use archicraft_model::tolerance::{coincident, is_parallel};
+
+use super::targets::SnapIndex;
 
 /// Kinds of snap, in order of precedence (INP-009).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -45,55 +45,7 @@ pub struct Snap {
     pub kind: SnapKind,
 }
 
-/// Snap targets of one storey's plan (INP-008).
-///
-/// [`SnapTargets::from_plan`] merges nodes within the model tolerance
-/// (NFR-ACC-003); [`snap`] also treats coincident nodes added later as one.
-#[derive(Clone, Debug, Default)]
-pub struct SnapTargets {
-    pub nodes: Vec<DVec2>,
-    pub edges: Vec<[DVec2; 2]>,
-}
-
-impl SnapTargets {
-    /// The nodes and edges of the plan and the visible walls' reference
-    /// lines. Nodes within the model tolerance are one target (NFR-ACC-003),
-    /// represented by the first one: the stored reference-line points come
-    /// before the computed plan points.
-    pub fn from_plan(plan: &PlanDrawing, project: &Project, storey: StoreyId) -> Self {
-        let mut nodes = Welder::new();
-        let mut edges = Vec::new();
-        for element in project.elements_on(storey).filter(|e| project.is_visible(e)) {
-            if let Some(wall) = element.as_wall() {
-                nodes.weld(wall.start);
-                nodes.weld(wall.end);
-                edges.push([wall.start, wall.end]);
-            }
-        }
-        for element in &plan.elements {
-            for polygon in &element.cut {
-                for ring in polygon_rings(polygon) {
-                    for i in 0..ring.len() {
-                        nodes.weld(ring[i]);
-                        edges.push([ring[i], ring[(i + 1) % ring.len()]]);
-                    }
-                }
-            }
-            for segment in element.projected.iter().chain(&element.overhead) {
-                for &p in segment {
-                    nodes.weld(p);
-                }
-                edges.push(*segment);
-            }
-        }
-        SnapTargets {
-            nodes: nodes.into_points(),
-            edges,
-        }
-    }
-}
-
-fn closest_on_segment(p: DVec2, [a, b]: [DVec2; 2]) -> DVec2 {
+pub(crate) fn closest_on_segment(p: DVec2, [a, b]: [DVec2; 2]) -> DVec2 {
     let ab = b - a;
     let len2 = ab.length_squared();
     let t = if len2 > 0.0 {
@@ -104,7 +56,7 @@ fn closest_on_segment(p: DVec2, [a, b]: [DVec2; 2]) -> DVec2 {
     a + ab * t
 }
 
-fn segment_intersection([a, b]: [DVec2; 2], [c, d]: [DVec2; 2]) -> Option<DVec2> {
+pub(super) fn segment_intersection([a, b]: [DVec2; 2], [c, d]: [DVec2; 2]) -> Option<DVec2> {
     let r = b - a;
     let s = d - c;
     let denom = r.perp_dot(s);
@@ -119,12 +71,37 @@ fn segment_intersection([a, b]: [DVec2; 2], [c, d]: [DVec2; 2]) -> Option<DVec2>
 /// Finds the snap point for `cursor` within `radius` (model units), with the
 /// fixed precedence of INP-009: nodes, intersections, midpoints,
 /// perpendicular feet from the previous point, edges, then the snap grid.
+/// The targets are those of `index` near the cursor and the consumer's
+/// `pending` points, which are not in the index (NFR-PERF-005).
 ///
 /// Candidates within the model tolerance are one point (NFR-ACC-003): a
 /// candidate coincident with the best so far only raises its precedence and
 /// keeps its point, so the target found first wins, however near the cursor
 /// the other one lies.
-pub fn snap(targets: &SnapTargets, cursor: DVec2, radius: f64, grid_step: f64, previous: Option<DVec2>) -> Snap {
+pub fn snap(
+    index: &SnapIndex,
+    pending: &[DVec2],
+    cursor: DVec2,
+    radius: f64,
+    grid_step: f64,
+    previous: Option<DVec2>,
+) -> Snap {
+    let mut nodes = index.nodes_near(cursor, radius);
+    nodes.extend_from_slice(pending);
+    let near = index.edges_near(cursor, radius);
+    choose(&nodes, &near, cursor, radius, grid_step, previous)
+}
+
+/// The snap among `nodes` and the `near` edges, which lie within `radius`
+/// of the cursor, in the order of precedence of [`snap`].
+pub(super) fn choose(
+    nodes: &[DVec2],
+    near: &[[DVec2; 2]],
+    cursor: DVec2,
+    radius: f64,
+    grid_step: f64,
+    previous: Option<DVec2>,
+) -> Snap {
     let mut best: Option<(SnapKind, f64, DVec2)> = None;
     let mut consider = |kind: SnapKind, p: DVec2| {
         let d = p.distance(cursor);
@@ -137,15 +114,9 @@ pub fn snap(targets: &SnapTargets, cursor: DVec2, radius: f64, grid_step: f64, p
             _ => Some((kind, d, p)),
         };
     };
-    for &n in &targets.nodes {
+    for &n in nodes {
         consider(SnapKind::Node, n);
     }
-    let near: Vec<[DVec2; 2]> = targets
-        .edges
-        .iter()
-        .copied()
-        .filter(|e| closest_on_segment(cursor, *e).distance(cursor) <= radius)
-        .collect();
     for (i, a) in near.iter().enumerate() {
         for b in &near[i + 1..] {
             if let Some(p) = segment_intersection(*a, *b) {
@@ -153,7 +124,7 @@ pub fn snap(targets: &SnapTargets, cursor: DVec2, radius: f64, grid_step: f64, p
             }
         }
     }
-    for e in &near {
+    for e in near {
         consider(SnapKind::Midpoint, (e[0] + e[1]) / 2.0);
         if let Some(prev) = previous {
             let dir = (e[1] - e[0]).normalize_or_zero();
@@ -184,27 +155,29 @@ pub fn snap(targets: &SnapTargets, cursor: DVec2, radius: f64, grid_step: f64, p
 
 #[cfg(test)]
 mod tests {
+    use archicraft_geometry::plan::PlanDrawing;
     use archicraft_model::template::default_metric_project;
     use archicraft_model::{Command, History};
 
     use super::*;
+    use crate::input::targets::tests::index_of;
 
     #[test]
     fn snapping_precedence() {
-        let targets = SnapTargets {
-            nodes: vec![DVec2::new(1.0, 1.0)],
-            edges: vec![
+        let targets = index_of(
+            &[DVec2::new(1.0, 1.0)],
+            &[
                 [DVec2::new(0.0, 0.0), DVec2::new(4.0, 0.0)],
                 [DVec2::new(2.0, -2.0), DVec2::new(2.0, 2.0)],
             ],
-        };
-        let s = snap(&targets, DVec2::new(1.05, 0.98), 0.2, 0.05, None);
+        );
+        let s = snap(&targets, &[], DVec2::new(1.05, 0.98), 0.2, 0.05, None);
         assert_eq!(s.kind, SnapKind::Node);
-        let s = snap(&targets, DVec2::new(2.1, 0.1), 0.2, 0.05, None);
+        let s = snap(&targets, &[], DVec2::new(2.1, 0.1), 0.2, 0.05, None);
         assert_eq!((s.kind, s.point), (SnapKind::Intersection, DVec2::new(2.0, 0.0)));
-        let s = snap(&targets, DVec2::new(3.0, 0.05), 0.2, 0.0, None);
+        let s = snap(&targets, &[], DVec2::new(3.0, 0.05), 0.2, 0.0, None);
         assert_eq!(s.kind, SnapKind::Edge);
-        let s = snap(&targets, DVec2::new(10.02, 10.01), 0.2, 0.05, None);
+        let s = snap(&targets, &[], DVec2::new(10.02, 10.01), 0.2, 0.05, None);
         assert_eq!(s.kind, SnapKind::Grid);
         assert!(s.point.distance(DVec2::new(10.0, 10.0)) < 1e-12);
     }
@@ -226,17 +199,12 @@ mod tests {
         History::default()
             .execute(&mut project, Command::AddElements(walls))
             .unwrap();
-        let targets = SnapTargets::from_plan(&PlanDrawing::default(), &project, storey);
-        let at_corner: Vec<DVec2> = targets
-            .nodes
-            .iter()
-            .copied()
-            .filter(|n| n.distance(corner) < 1e-3)
-            .collect();
-        assert_eq!(at_corner, [corner], "5 µm apart: one target");
-        assert_eq!(targets.nodes.len(), 3);
+        let mut targets = SnapIndex::default();
+        targets.update(&project, storey, &PlanDrawing::default());
+        assert_eq!(targets.nodes_near(corner, 1e-3), [corner], "5 µm apart: one target");
+        assert_eq!(targets.nodes_near(corner, 100.0).len(), 3);
         for cursor in [corner + DVec2::new(0.05, 0.0), near + DVec2::new(0.0, 0.05)] {
-            let s = snap(&targets, cursor, 0.2, 0.0, None);
+            let s = snap(&targets, &[], cursor, 0.2, 0.0, None);
             assert_eq!((s.kind, s.point), (SnapKind::Node, corner));
         }
     }
@@ -248,19 +216,13 @@ mod tests {
     fn coincident_candidates_are_one_point() {
         let first = DVec2::new(1.0, 1.0);
         let second = first + DVec2::new(5.0 * MICROMETRE, 0.0);
-        let targets = SnapTargets {
-            nodes: vec![first, second],
-            edges: vec![[second, second + DVec2::new(2.0, 0.0)]],
-        };
-        let s = snap(&targets, second + DVec2::new(0.01, 0.0), 0.2, 0.0, None);
+        let targets = index_of(&[first, second], &[[second, second + DVec2::new(2.0, 0.0)]]);
+        let s = snap(&targets, &[], second + DVec2::new(0.01, 0.0), 0.2, 0.0, None);
         assert_eq!((s.kind, s.point), (SnapKind::Node, first));
         // 20 µm apart: two points, the nearer node wins.
         let apart = first + DVec2::new(20.0 * MICROMETRE, 0.0);
-        let targets = SnapTargets {
-            nodes: vec![first, apart],
-            edges: Vec::new(),
-        };
-        let s = snap(&targets, apart + DVec2::new(0.01, 0.0), 0.2, 0.0, None);
+        let targets = index_of(&[first, apart], &[]);
+        let s = snap(&targets, &[], apart + DVec2::new(0.01, 0.0), 0.2, 0.0, None);
         assert_eq!((s.kind, s.point), (SnapKind::Node, apart));
     }
 
@@ -292,15 +254,12 @@ mod tests {
     /// it lies on the edge within the tolerance.
     #[test]
     fn perpendicular_foot_on_the_edge() {
-        let targets = SnapTargets {
-            nodes: Vec::new(),
-            edges: vec![[DVec2::ZERO, DVec2::new(4.0, 0.0)]],
-        };
+        let targets = index_of(&[], &[[DVec2::ZERO, DVec2::new(4.0, 0.0)]]);
         let previous = Some(DVec2::new(4.0 + 5.0 * MICROMETRE, 3.0));
-        let s = snap(&targets, DVec2::new(3.95, 0.1), 0.2, 0.0, previous);
+        let s = snap(&targets, &[], DVec2::new(3.95, 0.1), 0.2, 0.0, previous);
         assert_eq!(s.kind, SnapKind::Perpendicular);
         let previous = Some(DVec2::new(4.0 + 20.0 * MICROMETRE, 3.0));
-        let s = snap(&targets, DVec2::new(3.95, 0.1), 0.2, 0.0, previous);
+        let s = snap(&targets, &[], DVec2::new(3.95, 0.1), 0.2, 0.0, previous);
         assert_eq!(s.kind, SnapKind::Edge, "the foot lies beyond the edge");
     }
 }
