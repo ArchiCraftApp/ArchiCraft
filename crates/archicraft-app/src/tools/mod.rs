@@ -123,18 +123,62 @@ impl ToolState {
         }
     }
 
+    fn is_chain(&self) -> bool {
+        self.kind == ToolKind::Wall && self.wall_mode == WallMode::Chain
+    }
+
+    /// Ends an open wall chain of two or more points: the command creating
+    /// all its walls as one undo step (UND-003). A chain with fewer points
+    /// ends without walls.
+    pub fn end_chain(&mut self, project: &Project) -> Option<Command> {
+        if !self.is_chain() {
+            return None;
+        }
+        let command = self.chain_walls(project, false).map(Command::AddElements);
+        self.reset();
+        command
+    }
+
+    /// The walls along the pending chain points, closed back to the first
+    /// point if `closed`; consecutive walls share their ends (WAL-001).
+    fn chain_walls(&self, project: &Project, closed: bool) -> Option<Vec<Element>> {
+        let storey = self.storey?;
+        let p = &self.points;
+        if p.len() < 2 {
+            return None;
+        }
+        let mut ends: Vec<(DVec2, DVec2)> = p.windows(2).map(|w| (w[0], w[1])).collect();
+        if closed {
+            ends.push((p[p.len() - 1], p[0]));
+        }
+        Some(
+            ends.into_iter()
+                .enumerate()
+                .map(|(i, (a, b))| project.new_wall(storey, a, b, i as u32))
+                .collect(),
+        )
+    }
+
     /// Adds a point. Returns the command to run once an operation completes.
     ///
     /// Points within the model tolerance are one point (NFR-ACC-003): a
     /// click that coincides with the previous point is ignored, and one that
     /// coincides with the first point closes a wall chain at that point or a
-    /// slab outline.
+    /// slab outline. Wall chain points stay pending until the chain ends, so
+    /// Backspace and Esc remove them without touching the project (UND-003);
+    /// a click on another storey ends the open chain and starts a new one.
     fn add_point(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
         if self.kind == ToolKind::Select {
             return Outcome::Continue;
         }
         if self.storey.is_some_and(|s| s != storey) {
+            let ended = self.end_chain(project);
             self.reset();
+            if let Some(command) = ended {
+                self.storey = Some(storey);
+                self.points.push(point);
+                return Outcome::Execute(command);
+            }
         }
         self.storey = Some(storey);
         if self.points.last().is_some_and(|&p| coincident(p, point)) {
@@ -142,19 +186,13 @@ impl ToolState {
         }
         match self.kind {
             ToolKind::Wall if self.wall_mode == WallMode::Chain => {
-                let closes = self.points.len() >= 2 && coincident(self.points[0], point);
-                let Some(&last) = self.points.last() else {
-                    self.points.push(point);
-                    return Outcome::Continue;
-                };
-                let end = if closes { self.points[0] } else { point };
-                let wall = project.new_wall(storey, last, end, 0);
-                if closes {
+                if self.points.len() >= 2 && coincident(self.points[0], point) {
+                    let walls = self.chain_walls(project, true);
                     self.reset();
-                } else {
-                    self.points.push(point);
+                    return walls.map_or(Outcome::Continue, |w| Outcome::Execute(Command::AddElements(w)));
                 }
-                Outcome::Execute(Command::AddElements(vec![wall]))
+                self.points.push(point);
+                Outcome::Continue
             }
             ToolKind::Slab if self.slab_mode == SlabMode::Polygon => {
                 if self.points.len() >= 3 && coincident(self.points[0], point) {
@@ -200,6 +238,9 @@ impl ToolState {
 
     /// Ends a chain or closes a polygon (Enter or double-click).
     fn close(&mut self, project: &Project) -> Outcome {
+        if self.is_chain() {
+            return self.end_chain(project).map_or(Outcome::Continue, Outcome::Execute);
+        }
         let outcome = match (self.kind, self.storey) {
             (ToolKind::Slab, Some(storey)) if self.slab_mode == SlabMode::Polygon && self.points.len() >= 3 => {
                 Outcome::Execute(Command::AddElements(vec![project.new_slab(
@@ -225,15 +266,35 @@ impl ToolState {
     }
 
     /// Outlines previewing the operation for a cursor position: walls as
-    /// their reference lines, rectangles and polygons as closed rings.
-    pub fn outlines(&self, cursor: DVec2) -> Vec<(Vec<DVec2>, bool)> {
+    /// their reference lines, rectangles and polygons as closed rings. A
+    /// wall chain also shows the outline of every wall it will create, from
+    /// the tool defaults' thickness and reference-line location (WAL-007).
+    pub fn outlines(&self, project: &Project, cursor: DVec2) -> Vec<(Vec<DVec2>, bool)> {
         let p = &self.points;
         if p.is_empty() {
             return Vec::new();
         }
         match (self.kind, self.wall_mode, self.slab_mode, p.len()) {
-            (ToolKind::Wall, WallMode::Single | WallMode::Chain, _, _) => {
-                vec![(vec![p[p.len() - 1], cursor], false)]
+            (ToolKind::Wall, WallMode::Single, _, _) => vec![(vec![p[p.len() - 1], cursor], false)],
+            (ToolKind::Wall, WallMode::Chain, _, _) => {
+                let mut line = p.clone();
+                line.push(cursor);
+                let defaults = &project.tool_defaults.wall;
+                let (exterior, interior) = defaults.reference_line.face_offsets(defaults.thickness);
+                let faces = line.windows(2).filter_map(|w| {
+                    let normal = (w[1] - w[0]).try_normalize()?.perp();
+                    Some((
+                        vec![
+                            w[0] + normal * exterior,
+                            w[1] + normal * exterior,
+                            w[1] + normal * interior,
+                            w[0] + normal * interior,
+                        ],
+                        true,
+                    ))
+                });
+                let faces: Vec<_> = faces.collect();
+                std::iter::once((line, false)).chain(faces).collect()
             }
             (ToolKind::Wall, WallMode::Rectangle, _, _) | (ToolKind::Slab, _, SlabMode::Rectangle, _) => {
                 vec![(rectangle(p[0], cursor), true)]
@@ -326,9 +387,9 @@ impl InputConsumer for ToolState {
         self.points.last().copied()
     }
 
-    fn preview(&self, resolved: &Resolved) -> Preview {
+    fn preview(&self, project: &Project, resolved: &Resolved) -> Preview {
         Preview {
-            outlines: self.outlines(resolved.point),
+            outlines: self.outlines(project, resolved.point),
             ..Preview::default()
         }
     }
@@ -337,13 +398,9 @@ impl InputConsumer for ToolState {
         self.add_point(project, storey, point)
     }
 
-    /// A chain ends, keeping its walls; any other operation returns to its
-    /// previous point (INP-003).
+    /// Every operation, a wall chain too, returns to its previous point
+    /// (INP-003).
     fn cancel_step(&mut self) -> bool {
-        if self.kind == ToolKind::Wall && self.wall_mode == WallMode::Chain && self.points.len() >= 2 {
-            self.reset();
-            return true;
-        }
         self.pop_point()
     }
 
@@ -383,6 +440,120 @@ mod tests {
         assert!(!tool.is_drawing(), "clicking the first point closes the chain");
         let names: Vec<&str> = project.elements.values().map(|e| e.name.as_str()).collect();
         assert_eq!(names, ["W-001", "W-002", "W-003", "W-004"]);
+    }
+
+    /// UND-003, WAL-001: chain points stay pending until the chain ends.
+    /// Backspace removes the last of four points without touching the
+    /// project; Enter then creates the two joined walls as one undo step,
+    /// and one undo removes both.
+    #[test]
+    fn a_wall_chain_is_one_undo_step_and_backspace_creates_no_wall() {
+        let mut project = default_metric_project();
+        let storey = project.storeys.ground();
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Wall);
+        for p in [(0.0, 0.0), (5.0, 0.0), (5.0, 4.0), (0.0, 4.0)] {
+            let outcome = tool.commit(&project, storey, DVec2::new(p.0, p.1));
+            assert_eq!(outcome, Outcome::Continue, "a chain point executes nothing");
+        }
+        assert!(tool.backspace());
+        assert_eq!(tool.points.len(), 3);
+        assert!(project.elements.is_empty(), "no wall exists before the chain ends");
+
+        let Outcome::Execute(command) = tool.finish(&project) else {
+            panic!("Enter ends the chain")
+        };
+        let mut history = History::default();
+        history.execute(&mut project, command).unwrap();
+        assert!(!tool.is_drawing());
+        let walls: Vec<(DVec2, DVec2)> = project
+            .elements
+            .values()
+            .map(|e| e.as_wall().map(|w| (w.start, w.end)).unwrap())
+            .collect();
+        assert_eq!(
+            walls,
+            [
+                (DVec2::ZERO, DVec2::new(5.0, 0.0)),
+                (DVec2::new(5.0, 0.0), DVec2::new(5.0, 4.0))
+            ],
+            "consecutive walls share their end"
+        );
+        assert_eq!(history.undo_len(), 1, "the chain is one undo step");
+        history.undo(&mut project);
+        assert!(project.elements.is_empty(), "one undo removes both walls");
+    }
+
+    /// INP-003: Esc during a chain cancels one step, the last point, and
+    /// creates no wall; with one point left it removes that one too.
+    #[test]
+    fn esc_removes_the_last_chain_point() {
+        let project = default_metric_project();
+        let storey = project.storeys.ground();
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Wall);
+        for p in [(0.0, 0.0), (5.0, 0.0), (5.0, 4.0)] {
+            tool.commit(&project, storey, DVec2::new(p.0, p.1));
+        }
+        assert!(tool.cancel_step());
+        assert_eq!(tool.points, [DVec2::ZERO, DVec2::new(5.0, 0.0)]);
+        assert!(tool.cancel_step());
+        assert!(tool.cancel_step());
+        assert!(!tool.is_drawing());
+        assert!(!tool.cancel_step(), "nothing left to cancel");
+    }
+
+    /// UND-003: a click on another storey ends the open chain there, keeping
+    /// its walls, and starts a new chain at the click.
+    #[test]
+    fn a_click_on_another_storey_commits_the_open_chain() {
+        let project = default_metric_project();
+        let ground = project.storeys.ground();
+        let other = StoreyId::new();
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Wall);
+        for p in [(0.0, 0.0), (5.0, 0.0), (5.0, 4.0)] {
+            tool.commit(&project, ground, DVec2::new(p.0, p.1));
+        }
+        let Outcome::Execute(Command::AddElements(walls)) = tool.commit(&project, other, DVec2::new(9.0, 9.0)) else {
+            panic!("the open chain is committed")
+        };
+        assert_eq!(walls.len(), 2);
+        assert!(walls.iter().all(|w| w.storey == ground));
+        assert_eq!(tool.points, [DVec2::new(9.0, 9.0)]);
+        assert_eq!(tool.storey, Some(other));
+    }
+
+    /// UND-003, WAL-007: the chain preview draws the pending reference-line
+    /// polyline to the cursor and the outline of every wall it will create,
+    /// from the tool defaults' thickness and reference-line location.
+    #[test]
+    fn wall_chain_previews_the_pending_walls() {
+        let mut project = default_metric_project();
+        project.tool_defaults.wall.thickness = 0.2;
+        project.tool_defaults.wall.reference_line = archicraft_model::ReferenceLine::Outside;
+        let storey = project.storeys.ground();
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Wall);
+        for p in [(0.0, 0.0), (4.0, 0.0)] {
+            tool.commit(&project, storey, DVec2::new(p.0, p.1));
+        }
+        let cursor = DVec2::new(4.0, 3.0);
+        let outlines = tool.outlines(&project, cursor);
+        assert_eq!(
+            outlines[0],
+            (vec![DVec2::ZERO, DVec2::new(4.0, 0.0), cursor], false),
+            "the reference line"
+        );
+        assert_eq!(outlines.len(), 3, "the line and two wall outlines");
+        // Exterior face on the reference line, the interior face 0.2 to the
+        // left of it.
+        let (ring, closed) = &outlines[1];
+        assert!(closed);
+        let expected = [(0.0, 0.0), (4.0, 0.0), (4.0, 0.2), (0.0, 0.2)];
+        for (q, e) in ring.iter().zip(expected) {
+            assert!(q.distance(DVec2::new(e.0, e.1)) < 1e-12, "{ring:?}");
+        }
     }
 
     const MICROMETRE: f64 = 1e-6;

@@ -639,7 +639,15 @@ fn wal_001_wall_modes_single_chained_rectangle_and_rotated_rectangle() {
 
     h.state_mut().workspace().tool.wall_mode = WallMode::Chain;
     run_tool(&mut h, storey, &[(0.0, 10.0), (5.0, 10.0), (5.0, 14.0), (2.0, 16.0)]);
-    h.state_mut().workspace().tool.reset();
+    assert_eq!(
+        new_walls(&mut h, 1),
+        [],
+        "a chain creates its walls when it ends (UND-003)"
+    );
+    let ws = h.state_mut().workspace();
+    if let Outcome::Execute(command) = ws.tool.finish(&ws.doc.project) {
+        assert!(ws.execute(command));
+    }
     let chain = new_walls(&mut h, 1);
     assert_eq!(chain.len(), 3, "one wall per segment");
     for pair in chain.windows(2) {
