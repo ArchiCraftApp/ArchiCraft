@@ -130,11 +130,16 @@ QUEUE_QUERY = """query($owner: String!, $name: String!) {
 def collect_prs():
     open_prs = run_json(["gh", "pr", "list", "--state", "open", "--limit", "50",
                          "--json", OPEN_FIELDS], cwd=ROOT)
-    answer = run_json(["gh", "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}",
-                       "-f", f"query={QUEUE_QUERY}"], cwd=ROOT)
-    queue = {n["number"]: n for n in answer["data"]["repository"]["pullRequests"]["nodes"]}
+    # Without the queue's answer the PRs still show; their queue state is then "unknown".
+    try:
+        answer = run_json(["gh", "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}",
+                           "-f", f"query={QUEUE_QUERY}"], cwd=ROOT)
+        queue = {n["number"]: n for n in answer["data"]["repository"]["pullRequests"]["nodes"]}
+    except (RuntimeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+        queue = None
     for p in open_prs:
-        p["queue"] = queue.get(p["number"])
+        if queue is not None:
+            p["queue"] = queue.get(p["number"])
     return {
         "open": open_prs,
         "all": run_json(["gh", "pr", "list", "--state", "all", "--limit", "300",
@@ -147,11 +152,18 @@ def pr_bead(p):
     return m.group(1) if m else None
 
 
+# The status land.sh posts on a PR that waits for the user's review: not a check of the code.
+USER_REVIEW = "User review"
+
+
 def summarize_checks(rollup):
-    """Latest run per check name, reduced to pass/fail/pending counts."""
+    """Latest run per check name, reduced to pass/fail/pending counts. The "User review" status is
+    left out: pr_queue_state() reads it as waiting for the user, not as a failing check."""
     latest = {}
     for c in rollup or []:
         name = c.get("name") or c.get("context") or "?"
+        if name == USER_REVIEW:
+            continue
         started = c.get("startedAt") or c.get("createdAt") or ""
         if name not in latest or started > latest[name][0]:
             latest[name] = (started, c)
@@ -179,7 +191,10 @@ def pr_queue_state(p):
     scripts/loop/pr-state.sh: GitHub clears autoMergeRequest when the queue takes a PR in and when
     it drops one, so only the queue entry, the newest queue event and the status "User review"
     tell a queued, a dropped and a waiting PR apart. States: queued, waits-for-user, auto-merge,
-    left-queue, open."""
+    left-queue, open, and unknown when the queue query failed (no "queue" key)."""
+    if "queue" not in p:
+        return {"state": "auto-merge" if p.get("autoMergeRequest") else "unknown",
+                "position": None, "reason": None}
     q = p.get("queue") or {}
     event = ((q.get("timelineItems") or {}).get("nodes") or [None])[-1] or {}
     commit = ((q.get("commits") or {}).get("nodes") or [None])[-1] or {}
@@ -217,18 +232,24 @@ def pr_status(view):
         return "bg-warn", "behind main"
     if q["state"] == "open":
         return "bg-warn", "open, auto-merge off"
+    if q["state"] == "unknown":
+        return "bg-warn", "auto-merge off, merge queue unknown"
     return "bg-ok", "green, merging"
 
 
 def pr_needs_you(view):
     """Why the PR is in the overview's "Needs you" list, or None: only a failed User review waits
-    for the user's review; a PR the queue dropped needs a fix and land.sh again."""
+    for the user's review; a PR the queue dropped needs a fix and land.sh again; and one that
+    nothing moves on, open without auto-merge, outside the queue and not waiting for the user, is
+    stuck (docs/loop.md, the merge queue)."""
     if view["draft"]:
         return None
     if view["queue"]["state"] == "waits-for-user":
         return "PR waits for your review and merge"
     if view["queue"]["state"] == "left-queue":
         return f"the merge queue dropped it: {view['queue']['reason']}"
+    if view["queue"]["state"] == "open":
+        return "open without auto-merge and not in the merge queue"
     return None
 
 

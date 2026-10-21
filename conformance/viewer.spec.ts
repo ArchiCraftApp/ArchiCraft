@@ -10,6 +10,10 @@
 // imports from crates/archicraft-ifcx/schemas. Any other request is aborted and fails the
 // test before the other checks, so the step runs offline and says so when it does not. A
 // request for a localhost path the harness does not serve fails the test the same way.
+//
+// One case is not step (b2): "broken copy: a copy that does not parse" runs check.ts, steps (a)
+// and (b1), on a cut-off copy of a golden file, since a file that does not parse never reaches
+// the viewer. It checks that both steps fail on that file with its JSON parse error.
 
 import { expect, test, type Page } from "@playwright/test";
 import { spawnSync } from "child_process";
@@ -308,8 +312,11 @@ test.describe("broken copy", () => {
         const run = spawnSync(process.execPath, [path.join(here, ".build", "check.mjs"), schemaDir, file], { cwd: here, encoding: "utf8" });
         const lines = run.stdout.split("\n");
         expect(run.status, run.stdout + run.stderr).toBe(1);
+        // Each step names the cut-off file and the parse error, so a missing file or another
+        // failure does not pass for it.
+        const failLine = (step: string) => new RegExp(`^FAIL ${step.replace(/[()]/g, "\\$&")} \\S*/does-not-parse\\.ifcx: .*JSON`);
         for (const step of ["(a) ifcx-core", "(b1) compose3"]) {
-            expect(lines.some((l) => l.startsWith(`FAIL ${step} `)), `no FAIL ${step} line in:\n${run.stdout}`).toBe(true);
+            expect(lines.some((l) => failLine(step).test(l)), `no FAIL ${step} line for does-not-parse.ifcx with a JSON parse error in:\n${run.stdout}`).toBe(true);
         }
         expect(lines.some((l) => l.startsWith("PASS ")), run.stdout).toBe(false);
         testInfo.annotations.push({ type: "summary", description: "rejected: FAIL (a) and FAIL (b1), exit status 1" });

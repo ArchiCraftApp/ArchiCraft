@@ -47,6 +47,7 @@ def open_pr(number=7, auto_merge=False, draft=False, checks=GREEN, **queue):
 
 REMOVED = {"__typename": "RemovedFromMergeQueueEvent", "reason": "failed checks"}
 WAITS = "PR waits for your review and merge"
+STUCK = "open without auto-merge and not in the merge queue"
 
 
 class OpenPullRequests(unittest.TestCase):
@@ -76,25 +77,76 @@ class OpenPullRequests(unittest.TestCase):
         self.assertEqual(view["needs_you"], WAITS)
 
     def test_other_open_prs_do_not_wait_for_the_user(self):
-        """Without auto-merge, a queue entry or a failed User review, nothing marks a PR as the user's."""
-        cases = {
-            "auto-merge": open_pr(auto_merge=True),
-            "open": open_pr(),
-            "open ": open_pr(review=None),
-        }
-        for state, pr in cases.items():
-            with self.subTest(state=state):
+        """Without auto-merge, a queue entry or a failed User review, nothing marks a PR as waiting
+        for the user's review."""
+        cases = [
+            ("auto-merge", open_pr(auto_merge=True)),
+            ("open", open_pr()),
+            ("open", open_pr(review=None)),
+        ]
+        for state, pr in cases:
+            with self.subTest(state=state, review=pr["queue"]["commits"]):
                 view = dashboard.open_pr_view(pr)
-                self.assertEqual(view["queue"]["state"], state.strip())
-                self.assertIsNone(view["needs_you"])
+                self.assertEqual(view["queue"]["state"], state)
+                self.assertNotEqual(view["needs_you"], WAITS)
         # A merged-from-the-queue removal event is not a drop, and a draft never needs the user.
         merged = {"__typename": "RemovedFromMergeQueueEvent", "reason": "merged"}
         self.assertEqual(dashboard.open_pr_view(open_pr(event=merged))["queue"]["state"], "open")
         self.assertIsNone(dashboard.open_pr_view(open_pr(draft=True, review="FAILURE"))["needs_you"])
+        self.assertIsNone(dashboard.open_pr_view(open_pr(draft=True))["needs_you"])
         # Turning auto-merge on again after a drop (land.sh after a fix) starts over.
         view = dashboard.open_pr_view(open_pr(auto_merge=True, event=REMOVED))
         self.assertEqual(view["queue"]["state"], "auto-merge")
         self.assertEqual(view["status"]["text"], "green, merging")
+        self.assertIsNone(view["needs_you"])
+
+    def test_a_stuck_open_pr_needs_the_user_with_its_own_reason(self):
+        """docs/loop.md, the merge queue: a PR open without auto-merge, outside the queue and not
+        waiting for the user goes into the Needs you line, as stuck rather than as a review."""
+        for pr in (open_pr(), open_pr(review=None)):
+            with self.subTest(review=pr["queue"]["commits"]):
+                view = dashboard.open_pr_view(pr)
+                self.assertEqual(view["needs_you"], STUCK)
+                self.assertNotIn("review", view["needs_you"])
+
+    def test_the_failed_user_review_status_is_not_a_failing_check(self):
+        """land.sh's failed "User review" status shows as waiting for the review, not as failing CI."""
+        rollup = GREEN + [{"__typename": "StatusContext", "context": "User review", "state": "FAILURE",
+                           "createdAt": "2026-10-21T10:01:00Z"}]
+        view = dashboard.open_pr_view(open_pr(review="FAILURE", checks=rollup))
+        checks = view["checks"]
+        self.assertEqual((checks["fail"], checks["failing"]), (0, []))
+        self.assertNotEqual(view["status"]["text"], "checks failing")
+        # Another failed check still counts.
+        red = rollup + [{"name": "Clippy", "status": "COMPLETED", "conclusion": "FAILURE",
+                         "startedAt": "2026-10-21T10:00:00Z"}]
+        self.assertEqual(dashboard.summarize_checks(red)["failing"], ["Clippy"])
+
+    def test_a_failed_queue_query_leaves_the_pr_list_working(self):
+        """Without the merge-queue answer the PRs still show, and none is reported as stuck."""
+        listed = [{k: v for k, v in open_pr(7).items() if k != "queue"},
+                  {k: v for k, v in open_pr(9, auto_merge=True).items() if k != "queue"}]
+        merged = [{"number": 5, "title": "x", "state": "MERGED"}]
+
+        def fake(cmd, cwd=None, timeout=60):
+            if cmd[:3] == ["gh", "api", "graphql"]:
+                raise RuntimeError("gh api graphql: HTTP 502")
+            return listed if "open" in cmd else merged
+
+        with mock.patch.object(dashboard, "run_json", fake):
+            prs = dashboard.collect_prs()
+        self.assertEqual([p["number"] for p in prs["open"]], [7, 9])
+        self.assertEqual(prs["all"], merged)
+        views = {p["number"]: dashboard.open_pr_view(p) for p in prs["open"]}
+        self.assertEqual(views[7]["queue"]["state"], "unknown")
+        self.assertIsNone(views[7]["needs_you"])
+        self.assertEqual(views[9]["queue"]["state"], "auto-merge")
+        # A GraphQL answer with errors and no data counts as failed as well.
+        with mock.patch.object(dashboard, "run_json", lambda cmd, cwd=None, timeout=60:
+                               {"data": None, "errors": [{"message": "x"}]}
+                               if cmd[:3] == ["gh", "api", "graphql"] else listed):
+            prs = dashboard.collect_prs()
+        self.assertEqual(dashboard.open_pr_view(prs["open"][0])["queue"]["state"], "unknown")
 
     def test_collect_prs_joins_the_merge_queue_fields_by_pr_number(self):
         listed = [{k: v for k, v in open_pr(7).items() if k != "queue"},
