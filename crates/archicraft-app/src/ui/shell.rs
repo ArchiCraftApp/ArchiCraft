@@ -259,7 +259,9 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Opti
                         action = Some(Action::PreviousZoom);
                     }
                     if let Some(state) = ws.plan_views.get(&storey) {
-                        ui.label(RichText::new(format!("{:.0} pt/m", state.camera.scale)).small().weak());
+                        // NFR-L10N-004: digit grouping applies to the zoom too.
+                        let scale = ws.prefs.number_format().format_decimal(state.camera.scale, 0);
+                        ui.label(RichText::new(format!("{scale} pt/m")).small().weak());
                     }
                     ui.label(RichText::new("Scale 1:100").small().weak());
                     let name = ws

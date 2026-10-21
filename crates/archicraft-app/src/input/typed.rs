@@ -33,9 +33,3 @@ impl TypedInput {
         *self = TypedInput::default();
     }
 }
-
-/// Characters that point input takes as typed values (INP-003): digits,
-/// separators, signs and unit marks.
-pub fn is_numeric_input(c: char) -> bool {
-    c.is_ascii_digit() || " .,+-/'\"′″°mcfitn".contains(c)
-}

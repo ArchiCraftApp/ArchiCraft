@@ -17,7 +17,9 @@ mod typed;
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::tolerance::coincident;
-use archicraft_model::units::{NumberFormat, UnitSettings, format_angle, format_length, parse_angle, parse_length};
+use archicraft_model::units::{
+    NumberFormat, UnitSettings, format_angle, format_length, input_alphabet, parse_angle, parse_length,
+};
 use archicraft_model::{Command, Project, StoreyId};
 
 pub use constrain::constrain;
@@ -27,7 +29,7 @@ pub use pointer::{InputMode, PointerEvent};
 pub use snap::{Snap, SnapKind, SnapLevel, candidates, snap};
 pub use surface::{SurfaceFrame, ViewSurface};
 pub use targets::{IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
-pub use typed::{Field, TypedInput, is_numeric_input};
+pub use typed::{Field, TypedInput};
 
 /// A guide line shown while resolving a point; inference guides (INP-011)
 /// fill these.
@@ -258,9 +260,12 @@ impl PointInput {
                 if self.typed == TypedInput::default() && matches!(ctx.expects, Expect::Angle { .. }) {
                     self.typed.field = Field::Angle;
                 }
+                // NFR-L10N-004: the characters the parsers accept under the
+                // active number format, not a fixed list.
+                let alphabet = input_alphabet(ctx.number_format);
                 self.typed
                     .active_text()
-                    .extend(text.chars().filter(|c| is_numeric_input(*c)));
+                    .extend(text.chars().filter(|c| alphabet.contains(*c)));
                 Effect::None
             }
             KeyInput::Tab if self.cycles() => {
@@ -1176,5 +1181,33 @@ mod tests {
         assert_eq!(input.typed.field, Field::Distance, "the other field holds text");
         let typed = resolve_at(&env, &mut input, &tool, cursor);
         assert_eq!((typed.snap.kind, typed.candidates.len()), (SnapKind::Typed, 1));
+    }
+
+    /// NFR-L10N-004, INP-003: typed keys pass through the input alphabet of
+    /// the active number format: under a decimal comma "2,5" is typed and
+    /// draws a 2.5 m wall, while under a point without grouping a comma is
+    /// dropped; letters outside the unit suffixes are dropped in both.
+    #[test]
+    fn typed_keys_follow_the_number_format() {
+        let mut env = Env::new();
+        env.nf = NumberFormat {
+            decimal_separator: ',',
+            grouping: None,
+        };
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        env.key(&mut input, &mut tool, text("2,5xq"));
+        assert_eq!(input.typed.distance, "2,5");
+        input.cursor = Some((DVec2::X, Modifiers::default()));
+        assert_eq!(env.key(&mut input, &mut tool, KeyInput::Enter), Effect::None);
+        assert_eq!(env.walls(), [(DVec2::ZERO, DVec2::new(2.5, 0.0))]);
+
+        env.nf = NumberFormat::default();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        env.key(&mut input, &mut tool, text("1,5.5 mz"));
+        assert_eq!(input.typed.distance, "15.5 m");
     }
 }
