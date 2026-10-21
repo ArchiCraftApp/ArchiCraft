@@ -1,0 +1,186 @@
+name: Preview release
+
+# An in-between release ("preview") of a pushed commit for testers: a macOS DMG (Apple silicon),
+# a Linux tarball (x86_64) and a Windows zip (x86_64), published as a GitHub pre-release that is
+# never marked as the latest release. Its tag is preview-<version>-<yyyymmdd>-<sha7>: it does not
+# match v*, so it starts none of the workflows of a real release (ci.yml, macos.yml), and a tag
+# created with the workflow's token starts no workflow anyway. Every package takes its app icon
+# from the logo in the repository root (ArchiCraft_Logo.png). The commit must have passed CI
+# unless allow_untested is set. Start it with /preview-release (.claude/skills/preview-release)
+# or by hand: gh workflow run preview-release.yml --ref main -f notes="What to try"
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: What testers should look at (Markdown, shown above the generated notes)
+        required: false
+        default: ""
+      allow_untested:
+        description: Publish even though CI has not passed on the commit
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One preview at a time; a second one waits instead of cancelling the first.
+concurrency:
+  group: preview-release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Name and CI status
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      id: ${{ steps.name.outputs.id }}
+      tag: ${{ steps.name.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Name the preview and check CI on the commit
+        id: name
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ALLOW_UNTESTED: ${{ inputs.allow_untested }}
+        run: |
+          sha="$(git rev-parse HEAD)"
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          id="$version-$(date -u +%Y%m%d)-${sha:0:7}"
+          tag="preview-$id"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::Release $tag exists already: this commit has a preview from today."
+            exit 1
+          fi
+          ci="$(gh run list --workflow ci.yml --commit "$sha" --limit 1 --json status,conclusion \
+            --jq '.[0] | "\(.status) \(.conclusion)"')"
+          if [ "$ci" != "completed success" ]; then
+            if [ "$ALLOW_UNTESTED" = true ]; then
+              echo "::warning::CI has not passed on $sha (${ci:-no run}); publishing anyway (allow_untested)."
+            else
+              echo "::error::CI has not passed on $sha (${ci:-no run}). Wait for it, or start with -f allow_untested=true."
+              exit 1
+            fi
+          fi
+          echo "id=$id" >>"$GITHUB_OUTPUT"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "Preview $tag of $sha" >>"$GITHUB_STEP_SUMMARY"
+
+  package:
+    name: Package (${{ matrix.name }})
+    needs: prepare
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # NFR-PORT-002: Apple silicon only.
+          - name: macOS
+            os: macos-15
+            script: scripts/package-macos.sh
+            asset: macos-arm64.dmg
+          # The oldest supported runner image, so the binary runs on glibc 2.35 and newer.
+          - name: Linux
+            os: ubuntu-22.04
+            script: scripts/package-linux.sh
+            asset: linux-x86_64.tar.gz
+          - name: Windows
+            os: windows-latest
+            script: scripts/package-windows.sh
+            asset: windows-x86_64.zip
+    runs-on: ${{ matrix.os }}
+    # A cold release build with thin LTO, plus waiting for a macOS runner.
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: preview-release
+      - name: Install Pillow for the Windows icon
+        if: runner.os == 'Windows'
+        run: python -m pip install --disable-pip-version-check pillow==11.3.0
+      - name: Build and package
+        env:
+          SCRIPT: ${{ matrix.script }}
+          NAME: ArchiCraft-${{ needs.prepare.outputs.id }}-${{ matrix.asset }}
+        run: |
+          # Each script prints the package's path on its last line.
+          path="$("$SCRIPT" | tail -n 1)"
+          mkdir -p dist
+          mv "$path" "dist/$NAME"
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preview-${{ matrix.asset }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish the pre-release
+    needs: [prepare, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: preview-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum ArchiCraft-* | tee SHA256SUMS.txt
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ID: ${{ needs.prepare.outputs.id }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref_name }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          {
+            echo "An in-between build of \`${SHA:0:7}\` on \`$REF\` for testing, not a release."
+            echo
+            if [ -n "$NOTES" ]; then
+              printf '%s\n\n' "$NOTES"
+            fi
+            cat <<'EOF'
+          ### Install
+
+          - **macOS** (Apple silicon, macOS 11 or later): open the DMG and drag ArchiCraft to Applications. The app is signed ad hoc, so macOS blocks its first start: allow it under System Settings → Privacy & Security → Open Anyway.
+          - **Windows** (x86_64): unzip and start `ArchiCraft\archicraft.exe`. The executable is not signed: on the SmartScreen warning choose More info → Run anyway.
+          - **Linux** (x86_64, glibc 2.35 or later): unpack and start `ArchiCraft/archicraft`; it needs a Vulkan driver and, for file dialogs, an XDG desktop portal. For a menu entry, put `archicraft` on your `PATH`, `archicraft.desktop` into `~/.local/share/applications` and `archicraft.png` into `~/.local/share/icons`.
+
+          `SHA256SUMS.txt` lists the checksums of the packages.
+          EOF
+          } >notes.md
+          # The generated notes list the pull requests since the previous preview.
+          start=()
+          prev="$(gh release list --limit 100 --json tagName \
+            --jq '[.[].tagName | select(startswith("preview-"))][0] // empty')"
+          if [ -n "$prev" ]; then
+            start=(--notes-start-tag "$prev")
+          fi
+          gh release create "$TAG" dist/* \
+            --target "$SHA" \
+            --prerelease \
+            --latest=false \
+            --title "ArchiCraft $ID (preview)" \
+            --notes-file notes.md \
+            --generate-notes "${start[@]}"
+          gh release view "$TAG" --json url --jq .url | tee -a "$GITHUB_STEP_SUMMARY"
