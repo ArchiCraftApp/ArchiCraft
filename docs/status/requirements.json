@@ -76,7 +76,7 @@
       "section": "4.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: the reader loads every valid part and reports each skipped or repaired record as “<record> skipped: …” or “<record> repaired: …” at the project, storey or element node (crates/archicraft-ifcx/src/alpha/reader.rs Report::skipped/repaired; module docs list the optional fields whose absence is no problem). Pinned by crates/archicraft-ifcx/tests/corrupt.rs (ten committed fixtures under tests/corrupt/, no_record_disappears_silently) and a_damaged_file_opens_with_the_load_report (crates/archicraft-app/tests/ui.rs). Referential-integrity repairs beyond the reader stay with NFR-REL-004.",
+      "evidence": "Done: the reader loads every valid part and reports each skipped or repaired record as “<record> skipped: …” or “<record> repaired: …” at the project, site, building, storey or element node (crates/archicraft-ifcx/src/alpha/reader.rs Report::skipped/repaired; module docs list the optional fields whose absence is no problem). Pinned by crates/archicraft-ifcx/tests/corrupt.rs (seventeen committed fixtures under tests/corrupt/ with a test each, no_record_disappears_silently) and a_damaged_file_opens_with_the_load_report (crates/archicraft-app/tests/ui.rs). Referential-integrity repairs beyond the reader stay with NFR-REL-004.",
       "gap": "",
       "depends_on": []
     },
@@ -1667,7 +1667,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Prefix is fixed per kind in its KindDescriptor (name_prefix); not configurable in the project or template.",
+      "gap": "Names count up per kind from the project's name counters, which the file stores; the reader repairs an invalid, missing or out-of-range counter to the number of elements of its kind (crates/archicraft-ifcx/src/alpha/reader.rs read_counters, test out_of_range_counters_are_repaired_to_the_element_count). Missing: the prefix is fixed per kind in its KindDescriptor (name_prefix); not configurable in the project or template.",
       "depends_on": []
     },
     {

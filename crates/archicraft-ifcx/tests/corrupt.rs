@@ -17,8 +17,9 @@ use std::path::{Path, PathBuf};
 use archicraft_ifcx::ReadOutcome;
 use archicraft_ifcx::validate::{Problem, Severity};
 use archicraft_model::material::Rgb;
+use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::{TemplateContext, template_tool_defaults};
-use archicraft_model::{KindTag, Position, Project};
+use archicraft_model::{Command, History, KindTag, Position, Project};
 use serde_json::{Value, json};
 
 use common::{edit, node_index};
@@ -90,6 +91,43 @@ const FIXTURES: &[Fixture] = &[
             v["data"][i]["attributes"]["archicraft::wall"]["thickness"] = json!(-1.0);
         },
     },
+    Fixture {
+        name: "out-of-range-counters",
+        // One past the largest u32, and the largest u32, which leaves no
+        // number for the next element.
+        damage: |v| project_attr(v)["counters"] = json!({"wall": 4_294_967_296_u64, "slab": u32::MAX}),
+    },
+    Fixture {
+        name: "out-of-range-decimals",
+        damage: |v| {
+            let settings = &mut project_attr(v)["settings"];
+            settings["lengthDecimals"] = json!(12);
+            settings["angleDecimals"] = json!(-1);
+        },
+    },
+    Fixture {
+        name: "bad-survey-point",
+        damage: |v| project_attr(v)["location"]["surveyPoint"] = json!(["east", 2]),
+    },
+    Fixture {
+        name: "storey-below-minimum-height",
+        damage: |v| storey_attr(v, "01 First floor")["height"] = json!(0.0),
+    },
+    Fixture {
+        name: "non-uuid-site-and-building",
+        damage: |v| {
+            rename_node(v, "Site", "site");
+            rename_node(v, "Building", "building");
+        },
+    },
+    Fixture {
+        name: "bad-cut-fill-background",
+        damage: |v| project_attr(v)["materials"][0]["cutFill"]["background"] = json!("white"),
+    },
+    Fixture {
+        name: "bad-storey-cut-plane-height",
+        damage: |v| storey_attr(v, "00 Ground floor")["cutPlaneHeight"] = json!("high"),
+    },
 ];
 
 fn manifest_dir() -> &'static Path {
@@ -119,6 +157,25 @@ fn project_attr(value: &mut Value) -> &mut Value {
     &mut project_node(value)["attributes"]["archicraft::project"]
 }
 
+fn storey_attr<'v>(value: &'v mut Value, name: &str) -> &'v mut Value {
+    let i = node_index(value, name);
+    &mut value["data"][i]["attributes"]["archicraft::storey"]
+}
+
+/// Moves the node named `name` to `path`, also where its parent lists it.
+fn rename_node(value: &mut Value, name: &str, path: &str) {
+    let i = node_index(value, name);
+    let old = std::mem::replace(&mut value["data"][i]["path"], json!(path));
+    for node in value["data"].as_array_mut().unwrap() {
+        let children = node.get_mut("children").and_then(Value::as_object_mut);
+        for child in children.into_iter().flat_map(|c| c.values_mut()) {
+            if *child == old {
+                *child = json!(path);
+            }
+        }
+    }
+}
+
 /// A committed fixture, as bytes and as JSON.
 fn fixture(name: &str) -> (Vec<u8>, Value) {
     let path = fixture_path(name);
@@ -139,7 +196,8 @@ fn root_path(value: &Value) -> String {
     project_node(&mut value)["path"].as_str().unwrap().to_owned()
 }
 
-fn element_path(value: &Value, name: &str) -> String {
+/// The path of the node named `name`.
+fn node_path(value: &Value, name: &str) -> String {
     value["data"][node_index(value, name)]["path"]
         .as_str()
         .unwrap()
@@ -357,7 +415,7 @@ fn invalid_element_flags_are_repaired_and_reported() {
     let wall = outcome.project.elements.values().find(|e| e.name == "W-001").unwrap();
     assert!(!wall.locked);
     assert_eq!(wall.position, Position::default());
-    let path = element_path(&value, "W-001");
+    let path = node_path(&value, "W-001");
     problem(&outcome, &path, &["element W-001 repaired", "“locked”"]);
     problem(&outcome, &path, &["element W-001 repaired", "“position”"]);
 }
@@ -378,10 +436,10 @@ fn a_non_numeric_colour_component_is_repaired_and_reported() {
     );
 }
 
-/// PRJ-008: an invalid ground storey reference is reported, and the ground
-/// storey is chosen from the elevations.
+/// PRJ-008: an invalid ground storey reference is reported once, at the
+/// project, and the ground storey is chosen from the elevations.
 #[test]
-fn an_invalid_ground_storey_is_repaired_and_reported() {
+fn an_invalid_ground_storey_is_repaired_and_reported_once() {
     let (outcome, value) = load("bad-ground-storey");
     let storeys = &outcome.project.storeys;
     assert_eq!(storeys.get(storeys.ground()).unwrap().name, "00 Ground floor");
@@ -390,6 +448,7 @@ fn an_invalid_ground_storey_is_repaired_and_reported() {
         &root_path(&value),
         &["project repaired", "“groundStorey” is not a UUID"],
     );
+    assert_eq!(outcome.problems.len(), 1, "{:#?}", outcome.problems);
 }
 
 /// PRJ-008: an element that fails validation is skipped and reported against
@@ -398,8 +457,161 @@ fn an_invalid_ground_storey_is_repaired_and_reported() {
 fn an_invalid_element_is_skipped_and_reported() {
     let (outcome, value) = load("invalid-wall");
     assert_eq!(outcome.project.elements.len(), reference_model().elements.len() - 1);
-    let p = problem(&outcome, &element_path(&value, "W-002"), &["element W-002 skipped"]);
+    let p = problem(&outcome, &node_path(&value, "W-002"), &["element W-002 skipped"]);
     assert_eq!(p.severity, Severity::Error);
+}
+
+/// PRJ-008, ELM-019: a counter that does not fit, or leaves no number for the
+/// next element, is repaired to the number of elements of its kind and
+/// reported; the next element then gets the next name and advances the
+/// counter.
+#[test]
+fn out_of_range_counters_are_repaired_to_the_element_count() {
+    let (outcome, value) = load("out-of-range-counters");
+    let root = root_path(&value);
+    problem(
+        &outcome,
+        &root,
+        &["counters repaired", "“wall” is out of range", "4 is used"],
+    );
+    problem(
+        &outcome,
+        &root,
+        &["counters repaired", "“slab” is out of range", "1 is used"],
+    );
+
+    let mut project = outcome.project;
+    assert_eq!(
+        (project.counters.get(KindTag::Wall), project.counters.get(KindTag::Slab)),
+        (4, 1)
+    );
+    let ground = project.storeys.ground();
+    let wall = project.new_element(KindTag::Wall, ground, 0).unwrap();
+    let slab = project.new_element(KindTag::Slab, ground, 0).unwrap();
+    assert_eq!((wall.name.as_str(), slab.name.as_str()), ("W-005", "SL-002"));
+    History::default()
+        .execute(&mut project, Command::AddElements(vec![wall, slab]))
+        .unwrap();
+    assert_eq!(
+        (project.counters.get(KindTag::Wall), project.counters.get(KindTag::Slab)),
+        (5, 2)
+    );
+}
+
+/// PRJ-008: display decimals outside 0 to 8 are clamped to that range and
+/// reported.
+#[test]
+fn out_of_range_decimals_are_clamped_and_reported() {
+    let (outcome, value) = load("out-of-range-decimals");
+    let units = &outcome.project.settings.units;
+    assert_eq!((units.length_decimals, units.angle_decimals), (8, 0));
+    let root = root_path(&value);
+    problem(
+        &outcome,
+        &root,
+        &[
+            "project settings repaired",
+            "“lengthDecimals” is out of range",
+            "8 is used",
+        ],
+    );
+    problem(
+        &outcome,
+        &root,
+        &[
+            "project settings repaired",
+            "“angleDecimals” is out of range",
+            "0 is used",
+        ],
+    );
+}
+
+/// PRJ-008: a survey point that is not a point is repaired to the origin and
+/// reported; the rest of the location is kept.
+#[test]
+fn an_invalid_survey_point_is_repaired_and_reported() {
+    let (outcome, value) = load("bad-survey-point");
+    let location = &outcome.project.site.location;
+    assert_eq!(location.survey_point, [0.0, 0.0]);
+    assert_eq!(*location, reference_model().site.location);
+    let p = problem(
+        &outcome,
+        &root_path(&value),
+        &["project location repaired", "“surveyPoint”", "non-numeric coordinates"],
+    );
+    assert_eq!(p.severity, Severity::Warning);
+}
+
+/// PRJ-008: a storey height below the minimum is raised to the minimum and
+/// reported against the storey.
+#[test]
+fn a_storey_height_below_the_minimum_is_repaired_and_reported() {
+    let (outcome, value) = load("storey-below-minimum-height");
+    let storeys = outcome.project.storeys.as_slice();
+    let first = storeys.iter().find(|s| s.name == "01 First floor").unwrap();
+    assert_eq!(first.height, MIN_STOREY_HEIGHT);
+    let p = problem(
+        &outcome,
+        &node_path(&value, "01 First floor"),
+        &["storey 01 First floor repaired", "“height” is below the minimum"],
+    );
+    assert_eq!(p.severity, Severity::Warning);
+}
+
+/// PRJ-008: a site or building whose path is not a UUID gets a new identity
+/// and is reported against its node; everything below it loads.
+#[test]
+fn a_site_or_building_path_that_is_not_a_uuid_is_repaired_and_reported() {
+    let (outcome, _) = load("non-uuid-site-and-building");
+    let (project, reference) = (&outcome.project, reference_model());
+    assert_ne!(project.site.id, reference.site.id);
+    assert_ne!(project.building.id, reference.building.id);
+    assert_eq!(
+        (project.site.name.as_str(), project.building.name.as_str()),
+        (reference.site.name.as_str(), reference.building.name.as_str())
+    );
+    assert_eq!(project.storeys, reference.storeys);
+    assert_eq!(project.elements.len(), reference.elements.len());
+    for (path, record) in [("site", "site repaired"), ("building", "building repaired")] {
+        let p = problem(&outcome, path, &[record, "the path is not a UUID", "new identity"]);
+        assert_eq!(p.severity, Severity::Warning);
+    }
+}
+
+/// PRJ-008: an invalid cut-fill background, an optional field, is reported
+/// and left out; the rest of the material loads.
+#[test]
+fn an_invalid_cut_fill_background_is_left_out_and_reported() {
+    let (outcome, value) = load("bad-cut-fill-background");
+    let material = &outcome.project.materials[0];
+    assert_eq!(material.cut_fill.background, None);
+    assert_eq!(*material, reference_model().materials[0]);
+    problem(
+        &outcome,
+        &root_path(&value),
+        &["material record 0 repaired", "“background” is not a list", "left out"],
+    );
+}
+
+/// PRJ-008: an invalid storey cut-plane height, an optional field, is
+/// reported against the storey and left out, so the project's cut plane
+/// applies.
+#[test]
+fn an_invalid_storey_cut_plane_height_is_left_out_and_reported() {
+    let (outcome, value) = load("bad-storey-cut-plane-height");
+    let storeys = outcome.project.storeys.as_slice();
+    let ground = storeys.iter().find(|s| s.name == "00 Ground floor").unwrap();
+    assert_eq!(ground.cut_plane_height, None);
+    assert_eq!(outcome.project.storeys, reference_model().storeys);
+    problem(
+        &outcome,
+        &node_path(&value, "00 Ground floor"),
+        &[
+            "storey 00 Ground floor repaired",
+            "“cutPlaneHeight” is not a number",
+            "left out",
+        ],
+    );
 }
 
 /// The number of records of each collection in a file, and how many the

@@ -20,6 +20,10 @@
 //! elements and layers, written only when set (INP-017). Their absence is
 //! no problem.
 
+use std::borrow::Cow;
+use std::collections::HashSet;
+use std::fmt::Display;
+
 use archicraft_model::glam::DVec2;
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use archicraft_model::project::{
@@ -35,11 +39,6 @@ use archicraft_model::{
     Project, ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab, SlabReference, Storey, StoreyId,
     StoreyList, TopLink, ViewId, Wall,
 };
-use std::fmt::Display;
-
-use std::borrow::Cow;
-use std::collections::HashSet;
-
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use uuid::Uuid;
@@ -414,7 +413,11 @@ struct ProjectData {
     settings: ProjectSettings,
     location: Location,
     info: ProjectInfo,
+    /// The storey `groundStorey` names, if it is a valid identity.
     ground: Option<StoreyId>,
+    /// An invalid `groundStorey` was reported with the project data, so the
+    /// storey list does not report the fallback ground storey again.
+    ground_repaired: bool,
     layers: Vec<Layer>,
     materials: Vec<Material>,
     tool_defaults: Option<Object>,
@@ -424,21 +427,29 @@ struct ProjectData {
     newer_format: bool,
 }
 
-/// Display decimals: an integer from 0 to 8.
-fn decimals(map: &Object, key: &str) -> Result<u8, String> {
-    u8::try_from(integer(map, key)?)
-        .ok()
-        .filter(|v| *v <= 8)
-        .ok_or_else(|| format!("“{key}” is out of range"))
+/// The largest number of display decimals, as the model's settings check
+/// allows.
+const MAX_DECIMALS: i64 = 8;
+
+/// Display decimals: an integer from 0 to [`MAX_DECIMALS`]. An integer out of
+/// that range is clamped to it and reported (PRJ-008); anything else is
+/// reported and `default` is used.
+fn decimals(map: &Object, key: &str, default: u8, report: &mut Report<'_>) -> u8 {
+    let value = report.or(integer(map, key), i64::from(default));
+    let clamped = value.clamp(0, MAX_DECIMALS);
+    if clamped != value {
+        report.repaired(format!("“{key}” is out of range; {clamped} is used"));
+    }
+    u8::try_from(clamped).unwrap_or(default)
 }
 
 fn read_settings(map: &Object, report: &mut Report<'_>) -> ProjectSettings {
     let defaults = ProjectSettings::default();
     let units = UnitSettings {
         length: report.or(code(map, "lengthUnit", LengthUnit::from_code), LengthUnit::Meter),
-        length_decimals: report.or(decimals(map, "lengthDecimals"), defaults.units.length_decimals),
+        length_decimals: decimals(map, "lengthDecimals", defaults.units.length_decimals, report),
         angle: report.or(code(map, "angleUnit", AngleUnit::from_code), AngleUnit::DecimalDegrees),
-        angle_decimals: report.or(decimals(map, "angleDecimals"), defaults.units.angle_decimals),
+        angle_decimals: decimals(map, "angleDecimals", defaults.units.angle_decimals, report),
         slope: report.or(code(map, "slopeFormat", SlopeFormat::from_code), SlopeFormat::Degrees),
         area: report.or(code(map, "areaUnit", AreaUnit::from_code), AreaUnit::SquareMeter),
         volume: report.or(code(map, "volumeUnit", VolumeUnit::from_code), VolumeUnit::CubicMeter),
@@ -471,16 +482,18 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
     let settings_map = report.or(object(attr, "settings").cloned(), Object::new());
     let location_map = report.or(object(attr, "location").cloned(), Object::new());
     let info_map = report.or(object(attr, "info").cloned().map(Some), None);
-    // A missing ground storey is reported when the storeys are known.
-    let ground = attr.get("groundStorey").and_then(|_| match uuid(attr, "groundStorey") {
-        Ok(id) => Some(StoreyId::from_uuid(id)),
-        Err(e) => {
+    // A missing ground storey, or one that names no storey, is reported when
+    // the storeys are known; an invalid one only here.
+    let (ground, ground_repaired) = match attr.get("groundStorey").map(|_| uuid(attr, "groundStorey")) {
+        None => (None, false),
+        Some(Ok(id)) => (Some(StoreyId::from_uuid(id)), false),
+        Some(Err(e)) => {
             report.repaired(format!(
                 "{e}; the lowest storey at or above project zero is the ground storey"
             ));
-            None
+            (None, true)
         }
-    });
+    };
     let material_records = report.or(array(attr, "materials").cloned(), Vec::new());
     let layer_records = report.or(array(attr, "layers").cloned(), Vec::new());
     let view_records = report.or(array(attr, "views").cloned(), Vec::new());
@@ -537,6 +550,7 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
         location,
         info,
         ground,
+        ground_repaired,
         layers,
         materials,
         tool_defaults,
@@ -546,12 +560,13 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
     }
 }
 
-/// The name counters (ELM-019), keyed by kind code. An invalid, negative or
-/// missing counter is repaired to the number of elements of its kind, so that
-/// automatic names do not repeat; a counter above the largest value is
-/// clamped to it. A kind without a tool has no counter until it has named
-/// elements. Counters of kinds this build does not know are ignored: their
-/// elements are skipped and reported on their own.
+/// The name counters (ELM-019), keyed by kind code. An invalid, negative,
+/// out-of-range or missing counter is repaired to the number of elements of
+/// its kind, so that automatic names do not repeat. Out of range is above the
+/// largest `u32` or equal to it, which leaves no number for the next element.
+/// A kind without a tool has no counter until it has named elements. Counters
+/// of kinds this build does not know are ignored: their elements are skipped
+/// and reported on their own.
 fn read_counters(
     map: Result<&Object, String>,
     project: &Project,
@@ -588,10 +603,13 @@ fn read_counters(
                 report.repaired(format!("“{key}” is negative; {existing} is used"));
                 existing
             }
-            Ok(v) => u32::try_from(v).unwrap_or_else(|_| {
-                report.repaired(format!("“{key}” is out of range; {} is used", u32::MAX));
-                u32::MAX
-            }),
+            Ok(v) => match u32::try_from(v) {
+                Ok(n) if n < u32::MAX => n,
+                _ => {
+                    report.repaired(format!("“{key}” is out of range; {existing} is used"));
+                    existing
+                }
+            },
             Err(_) if !map.contains_key(key) && !kind.descriptor().has_tool && existing == 0 => 0,
             Err(e) => {
                 report.repaired(format!("{e}; {existing} is used"));
@@ -762,8 +780,15 @@ fn read_storeys(
     storeys
 }
 
-/// Builds a storey list, repairing coincident elevations if necessary.
-fn storey_list(mut storeys: Vec<Storey>, ground: Option<StoreyId>, problems: &mut Vec<Problem>) -> StoreyList {
+/// Builds a storey list, repairing coincident elevations if necessary. A
+/// ground storey that is missing or names no storey is reported here, unless
+/// `ground_repaired` says the project data reported it already.
+fn storey_list(
+    mut storeys: Vec<Storey>,
+    ground: Option<StoreyId>,
+    ground_repaired: bool,
+    problems: &mut Vec<Problem>,
+) -> StoreyList {
     if storeys.is_empty() {
         problems.push(Problem::warning(
             None,
@@ -781,10 +806,12 @@ fn storey_list(mut storeys: Vec<Storey>, ground: Option<StoreyId>, problems: &mu
                 .find(|s| s.elevation > -MODEL_TOLERANCE)
                 .unwrap_or(&storeys[storeys.len() - 1])
                 .id;
-            problems.push(Problem::warning(
-                None,
-                "the ground storey is not defined; the lowest storey at or above project zero is used",
-            ));
+            if !ground_repaired {
+                problems.push(Problem::warning(
+                    None,
+                    "the ground storey is not defined; the lowest storey at or above project zero is used",
+                ));
+            }
             g
         }
     };
@@ -1059,6 +1086,7 @@ pub(crate) fn read_with(file: &IfcxFile, migrations: &[Migration], current: u32)
     let storeys = storey_list(
         storey_entries.iter().map(|(s, _)| s.clone()).collect(),
         data.ground,
+        data.ground_repaired,
         &mut problems,
     );
 
