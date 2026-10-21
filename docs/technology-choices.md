@@ -36,6 +36,7 @@ These limits apply to all of v1, not only to the first prototype. They were alig
 | Menu bar and keyboard shortcuts | egui (drawn inside the window) |
 | File dialogs | rfd |
 | User-interface text | Fluent message catalogues (fluent-bundle, unic-langid) |
+| Number locale of the operating system | windows-sys (Windows), objc2-foundation (macOS), sys-locale and a CLDR table (Linux, fallback) |
 | GPU rendering | wgpu, WGSL shaders, bytemuck |
 | 2D tessellation for plan views | lyon |
 | Math | glam |
@@ -47,7 +48,7 @@ These limits apply to all of v1, not only to the first prototype. They were alig
 | Testing | cargo test, insta, egui_kittest, jsonschema, cargo-fuzz, syn (dev-only, the literal-string lint); buildingSMART's reference code and viewer for conformance (test-only, under Node.js) |
 | Licence checks | cargo-deny |
 
-All of these are licensed under MIT, Apache-2.0, or a choice of both; the planned Manifold library is Apache-2.0. The Node.js test tools are not shipped.
+All of these are licensed under MIT, Apache-2.0, or a choice of both (the CLDR table is Unicode-3.0); the planned Manifold library is Apache-2.0. The Node.js test tools are not shipped.
 
 ## Choices in detail
 
@@ -111,6 +112,15 @@ How the main window (SRS UI-001) maps onto egui. The Archicad names are only for
 - Every string the user reads comes from a [Fluent](https://projectfluent.org) message catalogue embedded in the application (`crates/archicraft-app/locales/`), looked up by key (SRS NFR-L10N-001). English is the default; a German catalogue (NFR-L10N-002) is added beside it without code changes.
 - **fluent-bundle** (with fluent-syntax for reading the catalogue files) instead of a hand-written key table, because the German translation needs CLDR plural rules and arguments in a different order. **unic-langid** names the languages. All three are Mozilla's Project Fluent crates; Firefox uses them.
 - Numbers are formatted with the user's number format before they are passed to a message (NFR-L10N-004), not by Fluent.
+
+### Number locale: windows-sys, objc2-foundation, sys-locale and CLDR data
+
+- The "Automatic" decimal separator and the digit grouping character come from the operating system (SRS STR-010), detected once at start in `crates/archicraft-app/src/i18n/os_locale.rs`. All three crates are target-specific or tiny, and none adds a dependency the tree lacks.
+- **windows-sys** (Windows only): `GetLocaleInfoEx` with `LOCALE_SDECIMAL` and `LOCALE_STHOUSAND` of the user default locale, which honours changes made in the Region settings. Microsoft's own raw bindings; already in the tree through winit and wgpu. The two calls are the only `unsafe` code in the application, in `os_locale/windows.rs`.
+- **objc2-foundation** (macOS only): `NSLocale.currentLocale` with `decimalSeparator` and `groupingSeparator`, which honour Language & Region. The objc2 project's Foundation bindings, already in the tree through winit; the methods used are declared safe.
+- **sys-locale** (all platforms): the locale tag where the platform has no number API (Linux, after `LC_ALL`, `LC_NUMERIC` and `LANG`) and wherever the platform's answer is unusable. 1Password's crate; its only dependency, libc, is already in the tree.
+- **CLDR data**: the tag is mapped to its decimal and grouping symbols through a table of about 120 locales in `crates/archicraft-app/src/i18n/cldr_numbers.rs`, generated with `scripts/cldr-numbers.mjs` from the CLDR data in Node.js's ICU (CLDR 45). Unicode-3.0 licence, on the deny.toml allow list. Indian two-digit grouping is not supported; those locales get three-digit groups.
+- Considered and rejected: icu4x's decimal formatter with compiled data (a large dependency tree for two characters per locale), and reading only the POSIX variables (GUI launches on macOS and Windows have none).
 
 ### GPU rendering: wgpu
 
@@ -335,6 +345,9 @@ Figures from lib.rs on 2026-10-16. Rows added later give their source and date i
 | fluent-bundle | 0.16.0 | 2025-05-22 | 2.5 M | MIT/Apache | Project Fluent (Mozilla), six owners; mature, few releases |
 | fluent-syntax | 0.12.0 | 2025-05-22 | 2.6 M | MIT/Apache | Project Fluent; released with fluent-bundle |
 | unic-langid | 0.9.6 | 2025-05-09 | 3.2 M | MIT/Apache | Zibi Braniecki and Manish Goregaokar |
+| sys-locale | 0.3.2 | 2024-11-01 | 4.2 M | MIT/Apache | 1Password; small, stable API |
+| windows-sys | 0.61.2 | 2025-10-06 | 155 M | MIT/Apache | Microsoft; Windows-only dependency, already in the tree |
+| objc2-foundation | 0.3.2 | 2025-10-04 | 15.3 M | MIT | Mads Marquart (madsmtm) and simlay; macOS-only dependency, already in the tree |
 | criterion | 0.8.2 | 2026-02-04 | 22.6 M | MIT/Apache | Dev-dependency for the benches; default features (rayon, plotters) off |
 | syn | 3.0.9 | 2026-10-12 | 246 M | MIT/Apache | David Tolnay; dev-dependency for the literal-string lint, with proc-macro2 (already in the tree) for line numbers |
 | cargo-fuzz | 0.13.2 | 2026-06-09 | 593 k | MIT/Apache | rust-fuzz organisation, four owners plus its publishers team; CI tool, pinned in `.github/workflows/fuzz.yml`, needs nightly |
@@ -342,7 +355,7 @@ Figures from lib.rs on 2026-10-16. Rows added later give their source and date i
 | ureq (planned) | 3.4.2 | 2026-09-13 | 23.9 M | MIT/Apache | Martin Algesten and Jacob Hoffman-Andrews; blocking, small dependency tree |
 | @playwright/test (npm) | 1.64.1 | 2026-10-14 | 294 M | Apache-2.0 | Microsoft; test-only under Node.js, pinned at 1.63.0 in `conformance/package.json` |
 
-The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them. The criterion and syn rows were added on 2026-10-20 the same way. The cargo-fuzz, cargo-deny and ureq rows were added on 2026-10-20 the same way; the @playwright/test row comes from npm (downloads in the 30 days to 2026-10-18). cargo-fuzz, ureq and Playwright meet the selection criteria; cargo-deny misses criterion 1 (one main maintainer) and is kept because it is a CI tool that can be swapped without touching the product.
+The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them. The criterion and syn rows were added on 2026-10-20 the same way. The sys-locale, windows-sys and objc2-foundation rows were added on 2026-10-21 the same way; sys-locale's last release is older than a year (criterion 2) and it is kept because its job, reading one system setting, is stable and it is only the fallback. The cargo-fuzz, cargo-deny and ureq rows were added on 2026-10-20 the same way; the @playwright/test row comes from npm (downloads in the 30 days to 2026-10-18). cargo-fuzz, ureq and Playwright meet the selection criteria; cargo-deny misses criterion 1 (one main maintainer) and is kept because it is a CI tool that can be swapped without touching the product.
 
 serde, serde_json, uuid, thiserror, anyhow, tracing, bytemuck and insta are among the most widely used crates in the Rust ecosystem and were not checked individually. Playwright is pinned as `@playwright/test` 1.63.0 (2026-09-04, Apache-2.0) with the three.js release the pinned viewer loads (0.177.0, MIT), both in `conformance/package.json`; like Node.js they are CI test tools, and Playwright's browser download never happens in the product.
 
