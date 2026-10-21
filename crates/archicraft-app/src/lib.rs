@@ -2,6 +2,7 @@
 //! views, built with eframe/egui and wgpu (technology choices R8).
 
 pub mod app;
+pub mod commands;
 pub mod document;
 pub mod i18n;
 pub mod input;
