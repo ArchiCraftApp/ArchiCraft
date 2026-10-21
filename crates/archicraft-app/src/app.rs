@@ -114,14 +114,6 @@ impl std::fmt::Debug for ArchiCraftApp {
     }
 }
 
-/// The number of modifier keys a shortcut needs.
-fn modifier_count(m: egui::Modifiers) -> usize {
-    [m.alt, m.ctrl, m.shift, m.mac_cmd, m.command]
-        .into_iter()
-        .filter(|&b| b)
-        .count()
-}
-
 fn default_tree(ws: &Workspace) -> Tree<Pane> {
     let mut panes = vec![Pane::Plan(ws.doc.project.storeys.ground())];
     if let Some(view) = ws.doc.project.views.first() {
@@ -559,27 +551,12 @@ impl ArchiCraftApp {
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.text_edit_focused();
         let drawing = self.ws.input.captures_keys(&self.ws.tool);
-        let mut triggered = Vec::new();
-        // egui ignores an extra Shift when matching a shortcut, so the ones
-        // with more modifiers go first: Ctrl+Shift+Tab is the previous tab,
-        // not the next one (UI-006), Shift+F zooms to the selection, not to
-        // the window (VIEW-014).
-        let mut actions = Action::ALL;
-        actions.sort_by_key(|a| std::cmp::Reverse(a.shortcut().map_or(0, |s| modifier_count(s.modifiers))));
-        for action in actions {
-            let Some(shortcut) = action.shortcut() else {
-                continue;
-            };
-            if typing && !action.works_while_typing() {
-                continue;
-            }
-            if drawing && (action.is_single_key() || action == Action::NextTab) {
-                continue;
-            }
-            if ctx.input_mut(|i| i.consume_shortcut(&shortcut)) {
-                triggered.push(action);
-            }
-        }
+        let mut triggered = ctx.input_mut(|i| {
+            Action::consume_shortcuts(i, |action| {
+                (!typing || action.works_while_typing())
+                    && !(drawing && (action.is_single_key() || action == Action::NextTab))
+            })
+        });
         if !typing {
             let redo_y = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Y);
             if ctx.input_mut(|i| i.consume_shortcut(&redo_y)) {
