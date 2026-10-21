@@ -5,7 +5,8 @@
 #![allow(clippy::unwrap_used)]
 
 use archicraft_model::fixtures::{self, D7, EXTRA, Fixture, REQUIRED_INCREMENT};
-use archicraft_model::{LayerId, Project, samples};
+use archicraft_model::{BuildingId, ElementId, LayerId, Project, SiteId, samples};
+use uuid::Uuid;
 
 /// Appendix D.7: ids F1..F9 in order with their knowledge-base sources, the
 /// owning epics of docs/roadmap.md and the increment that needs them.
@@ -41,7 +42,14 @@ fn registry_ids_are_unique_and_unambiguous() {
     sorted.dedup();
     assert_eq!(sorted.len(), ids.len(), "duplicate id in {ids:?}");
     for f in EXTRA {
-        assert!(f.id.contains('-'), "{} has a hyphen", f.id);
+        let lowercase =
+            f.id.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        assert!(
+            f.id == "S-shell" || (lowercase && f.id.contains('-')),
+            "{} is lowercase with a hyphen or S-shell",
+            f.id
+        );
         assert!(!D7.iter().any(|d| d.id.eq_ignore_ascii_case(f.id)), "{}", f.id);
     }
     assert_eq!(fixtures::all().count(), D7.len() + EXTRA.len());
@@ -129,6 +137,66 @@ fn check_names_the_fixture_and_the_problem() {
         error.contains("x-unbuilt") && error.contains("no constructor"),
         "{error}"
     );
+}
+
+fn rekeyed_element() -> Project {
+    let mut project = samples::two_storey_shell();
+    let (_, element) = project.elements.pop().unwrap();
+    project.elements.insert(ElementId::new(), element);
+    project
+}
+
+const SHARED: Uuid = Uuid::from_u128(0x5eed);
+
+fn duplicate_identity() -> Project {
+    let mut project = samples::two_storey_shell();
+    project.site.id = SiteId::from_uuid(SHARED);
+    project.building.id = BuildingId::from_uuid(SHARED);
+    project
+}
+
+/// `check` reports an element whose map key is not its own id, naming the
+/// fixture and the element (IFX-064: identities survive a round trip only
+/// when the key and the element agree).
+#[test]
+fn check_names_an_element_stored_under_another_id() {
+    let name = samples::two_storey_shell()
+        .elements
+        .values()
+        .last()
+        .unwrap()
+        .name
+        .clone();
+    let error = fixtures::check(&entry("x-rekeyed", 0, Some(rekeyed_element))).unwrap_err();
+    assert!(error.starts_with("x-rekeyed: "), "{error}");
+    assert!(error.contains(&format!("{name} is stored under another id")), "{error}");
+}
+
+/// `check` reports an identity used by two objects, naming the fixture and
+/// the identity (IFX-064).
+#[test]
+fn check_names_a_duplicate_identity() {
+    let error = fixtures::check(&entry("x-duplicate", 0, Some(duplicate_identity))).unwrap_err();
+    assert!(error.starts_with("x-duplicate: "), "{error}");
+    assert!(error.contains(&format!("identity {SHARED} is used twice")), "{error}");
+}
+
+/// `check` reports a fixture marked seeded whose two builds differ, naming
+/// the fixture; the shell's identities are random, so its builds differ.
+#[test]
+fn check_names_a_seeded_fixture_whose_builds_differ() {
+    let seeded = Fixture {
+        seeded: true,
+        ..entry("x-unseeded", 0, Some(shell))
+    };
+    let error = fixtures::check(&seeded).unwrap_err();
+    assert!(error.starts_with("x-unseeded: "), "{error}");
+    assert!(
+        error.contains("two builds differ although the fixture is seeded"),
+        "{error}"
+    );
+    let unseeded = entry("x-unseeded", 0, Some(shell));
+    assert!(fixtures::check(&unseeded).is_ok());
 }
 
 /// Every registered fixture with a constructor passes the generic model

@@ -683,7 +683,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     }
     if let (Some((resolved, tracker)), Some(p)) = (resolved, pointer) {
         let target = camera.to_screen(rect, resolved.point);
-        for (ring, closed) in ws.tool.preview(&resolved).outlines {
+        for (ring, closed) in ws.tool.preview(&ws.doc.project, &resolved).outlines {
             let points: Vec<Pos2> = ring.iter().map(|q| camera.to_screen(rect, *q)).collect();
             let stroke = Stroke::new(1.5, palette.preview);
             if closed {

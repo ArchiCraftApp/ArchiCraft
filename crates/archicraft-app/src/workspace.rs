@@ -147,10 +147,20 @@ impl Workspace {
         index.clone()
     }
 
-    /// Switches to the tool `kind`, discarding the input in progress.
+    /// Switches to the tool `kind`, discarding the input in progress. An open
+    /// wall chain keeps its walls (UND-003).
     pub fn select_tool(&mut self, kind: ToolKind) {
+        self.end_chain();
         self.tool.select(kind);
         self.input = PointInput::default();
+    }
+
+    /// Ends an open wall chain, creating its walls as one undo step
+    /// (UND-003).
+    pub fn end_chain(&mut self) {
+        if let Some(command) = self.tool.end_chain(&self.doc.project) {
+            self.execute(command);
+        }
     }
 
     /// Discards the points and typed values of the input in progress.
@@ -292,5 +302,40 @@ impl Workspace {
             .map(|e| e.id)
             .collect();
         self.info(format!("{} element(s) selected", self.selection.len()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use archicraft_model::glam::DVec2;
+    use archicraft_model::template::default_metric_project;
+
+    use super::*;
+    use crate::input::InputConsumer;
+
+    /// UND-003: switching to the slab tool with three pending chain points
+    /// keeps the chain: its two walls are created as one undo step.
+    #[test]
+    fn switching_tool_commits_an_open_wall_chain() {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        ws.select_tool(ToolKind::Wall);
+        let storey = ws.active_storey;
+        for p in [(0.0, 0.0), (5.0, 0.0), (5.0, 4.0)] {
+            let outcome = ws.tool.commit(&ws.doc.project, storey, DVec2::new(p.0, p.1));
+            assert_eq!(outcome, crate::input::Outcome::Continue);
+        }
+        ws.select_tool(ToolKind::Slab);
+        assert_eq!(ws.tool.kind, ToolKind::Slab);
+        assert!(!ws.tool.is_drawing());
+        let walls = ws
+            .doc
+            .project
+            .elements
+            .values()
+            .filter(|e| e.as_wall().is_some())
+            .count();
+        assert_eq!(walls, 2);
+        ws.undo();
+        assert!(ws.doc.project.elements.is_empty(), "the chain is one undo step");
     }
 }
