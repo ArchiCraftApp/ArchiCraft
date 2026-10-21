@@ -4,9 +4,10 @@
 use std::path::{Path, PathBuf};
 
 use archicraft_model::units::NumberFormat;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::i18n::os_locale::{self, OsNumberLocale};
+use crate::input::InputMode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ThemeChoice {
@@ -44,6 +45,10 @@ pub struct Preferences {
     pub snap_radius: f32,
     /// Angle increment of the constraint modifier, in degrees (INP-006).
     pub angle_increment_deg: f64,
+    /// Click-click or press-drag-release point input (INP-020). An unknown
+    /// value reads as click-click and keeps the rest of the file.
+    #[serde(deserialize_with = "lenient_input_mode")]
+    pub input_mode: InputMode,
     /// Step of the invisible snap grid in metres (INP-013).
     pub snap_step: f64,
     /// Show the reference lines of all walls in plan views (WAL-007).
@@ -69,6 +74,7 @@ impl Default for Preferences {
             digit_grouping: false,
             snap_radius: 8.0,
             angle_increment_deg: 45.0,
+            input_mode: InputMode::ClickClick,
             snap_step: 0.05,
             show_reference_lines: false,
             indented_ifcx: false,
@@ -79,6 +85,22 @@ impl Default for Preferences {
 }
 
 const MAX_RECENT: usize = 10;
+
+/// Reads an input mode, taking click-click for a value this version does not
+/// know (a newer version's mode, a typo), so the other preferences of the
+/// file stay (INP-020).
+fn lenient_input_mode<'de, D: Deserializer<'de>>(deserializer: D) -> Result<InputMode, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Lenient {
+        Known(InputMode),
+        Unknown(serde::de::IgnoredAny),
+    }
+    Ok(match Lenient::deserialize(deserializer)? {
+        Lenient::Known(mode) => mode,
+        Lenient::Unknown(_) => InputMode::ClickClick,
+    })
+}
 
 impl Preferences {
     /// Loads preferences; a missing or unreadable file gives the defaults.
@@ -202,6 +224,49 @@ mod tests {
         };
         prefs.save(&path).unwrap();
         assert!(Preferences::load(&path).indented_ifcx);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// INP-020: the input mode survives a restart; preference files without
+    /// it read as click-click.
+    #[test]
+    fn input_mode_round_trips() {
+        assert_eq!(Preferences::default().input_mode, InputMode::ClickClick);
+        let dir = std::env::temp_dir().join(format!("archicraft-prefs-input-mode-{}", std::process::id()));
+        let path = dir.join("preferences.json");
+        let prefs = Preferences {
+            input_mode: InputMode::DragRelease,
+            ..Preferences::default()
+        };
+        prefs.save(&path).unwrap();
+        assert_eq!(Preferences::load(&path), prefs);
+        std::fs::write(&path, r#"{"author": "Ada"}"#).unwrap();
+        assert_eq!(Preferences::load(&path).input_mode, InputMode::ClickClick);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// INP-020: an input mode this version does not know falls back to
+    /// click-click; the other preferences of the same file are kept.
+    #[test]
+    fn an_unknown_input_mode_falls_back_to_click_click() {
+        let dir = std::env::temp_dir().join(format!("archicraft-prefs-unknown-mode-{}", std::process::id()));
+        let path = dir.join("preferences.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        for unknown in [r#""Telepathy""#, "3", r#"{"Gesture": 1}"#, "null"] {
+            let file =
+                format!(r#"{{"author": "Ada", "input_mode": {unknown}, "snap_radius": 12.0, "indented_ifcx": true}}"#);
+            std::fs::write(&path, file).unwrap();
+            let prefs = Preferences::load(&path);
+            assert_eq!(prefs.input_mode, InputMode::ClickClick, "{unknown}");
+            assert_eq!(
+                prefs.author, "Ada",
+                "{unknown}: the file was read, not replaced by the defaults"
+            );
+            assert_eq!(prefs.snap_radius, 12.0);
+            assert!(prefs.indented_ifcx);
+        }
+        std::fs::write(&path, r#"{"author": "Ada", "input_mode": "DragRelease"}"#).unwrap();
+        assert_eq!(Preferences::load(&path).input_mode, InputMode::DragRelease);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

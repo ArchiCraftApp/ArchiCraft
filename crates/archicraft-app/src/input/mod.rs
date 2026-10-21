@@ -9,6 +9,7 @@
 mod constrain;
 mod consumer;
 mod keys;
+mod pointer;
 mod snap;
 mod surface;
 mod targets;
@@ -22,6 +23,7 @@ use archicraft_model::{Command, Project, StoreyId};
 pub use constrain::constrain;
 pub use consumer::{CursorState, Expect, InputConsumer, KeyHint, Outcome, Preview, StepSpec, TrackerMode};
 pub use keys::{KeyInput, Modifiers};
+pub use pointer::{InputMode, PointerEvent};
 pub use snap::{Snap, SnapKind, snap};
 pub use surface::{SurfaceFrame, ViewSurface};
 pub use targets::{IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
@@ -65,6 +67,10 @@ pub struct InputContext<'a> {
     /// The snap radius in model units: the radius in pixels times the
     /// surface's model length per pixel.
     pub radius: f64,
+    /// How far the pointer moves before a press becomes a drag, in model
+    /// units: the click distance in pixels times the surface's model length
+    /// per pixel (INP-020).
+    pub drag_threshold: f64,
     pub units: &'a UnitSettings,
     pub number_format: &'a NumberFormat,
     pub angle_increment_deg: f64,
@@ -99,6 +105,8 @@ pub struct PointInput {
     pub typed: TypedInput,
     cursor: Option<(DVec2, Modifiers)>,
     last: Option<Resolved>,
+    /// Where the press of a press-drag-release gesture took its point.
+    pressed: Option<DVec2>,
 }
 
 impl PointInput {
@@ -284,6 +292,38 @@ impl PointInput {
         self.commit(resolved.point, consumer, ctx)
     }
 
+    /// Handles a primary-button event in `mode` (INP-020). Click-click takes
+    /// a point per click. Press-drag-release takes a point on the press and
+    /// the next one on the release when the pointer moved beyond the drag
+    /// threshold; a press and release without that movement takes one point,
+    /// like a click. A double-click finishes a repeating step in both modes.
+    pub fn pointer(
+        &mut self,
+        event: PointerEvent,
+        mode: InputMode,
+        cursor: DVec2,
+        mods: Modifiers,
+        consumer: &mut dyn InputConsumer,
+        ctx: &InputContext,
+    ) -> Effect {
+        match (mode, event) {
+            (_, PointerEvent::DoubleClicked) => {
+                self.pressed = None;
+                self.double_click(consumer, ctx)
+            }
+            (_, PointerEvent::Clicked) => self.click(cursor, mods, consumer, ctx),
+            (InputMode::DragRelease, PointerEvent::Pressed) => {
+                self.pressed = consumer.step().is_some().then_some(cursor);
+                self.click(cursor, mods, consumer, ctx)
+            }
+            (InputMode::DragRelease, PointerEvent::Released) => match self.pressed.take() {
+                Some(press) if press.distance(cursor) > ctx.drag_threshold => self.click(cursor, mods, consumer, ctx),
+                _ => Effect::None,
+            },
+            (InputMode::ClickClick, PointerEvent::Pressed | PointerEvent::Released) => Effect::None,
+        }
+    }
+
     /// Finishes a repeating step (a chain, a polygon, multiple copies).
     pub fn double_click(&mut self, consumer: &mut dyn InputConsumer, ctx: &InputContext) -> Effect {
         self.typed.clear();
@@ -304,6 +344,9 @@ mod tests {
     use super::*;
     use crate::input::targets::tests::index_of;
     use crate::tools::{SlabMode, ToolKind, ToolState, WallMode};
+
+    /// The model length of one screen pixel in [`Env`].
+    const PIXEL: f64 = 0.01;
 
     /// How a [`TransformStub`] places the result.
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -533,6 +576,7 @@ mod tests {
                 previous: consumer.reference_point(),
                 expects: consumer.step().map_or(Expect::Point, |s| s.expects),
                 radius: 0.1,
+                drag_threshold: 6.0 * PIXEL,
                 units: &self.units,
                 number_format: &self.nf,
                 angle_increment_deg: 45.0,
@@ -544,6 +588,26 @@ mod tests {
         fn click(&mut self, input: &mut PointInput, consumer: &mut dyn InputConsumer, at: (f64, f64)) -> Effect {
             let ctx = self.ctx(consumer);
             let effect = input.click(DVec2::new(at.0, at.1), Modifiers::default(), consumer, &ctx);
+            self.run(effect)
+        }
+
+        fn pointer(
+            &mut self,
+            input: &mut PointInput,
+            consumer: &mut dyn InputConsumer,
+            event: PointerEvent,
+            mode: InputMode,
+            at: (f64, f64),
+        ) -> Effect {
+            let ctx = self.ctx(consumer);
+            let effect = input.pointer(
+                event,
+                mode,
+                DVec2::new(at.0, at.1),
+                Modifiers::default(),
+                consumer,
+                &ctx,
+            );
             self.run(effect)
         }
 
@@ -604,6 +668,99 @@ mod tests {
             ]
         );
         assert!(tool.points.is_empty(), "Enter ends the chain");
+    }
+
+    /// INP-020: in press-drag-release mode a press takes the first point and
+    /// the release 20 px away the next; a single wall is created by one drag.
+    #[test]
+    fn a_press_drag_release_takes_two_points() {
+        use PointerEvent::{Pressed, Released};
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Chain);
+        let drag = InputMode::DragRelease;
+        assert_eq!(
+            env.pointer(&mut input, &mut tool, Pressed, drag, (1.0, 1.0)),
+            Effect::None
+        );
+        assert_eq!(tool.points, [DVec2::ONE], "the press takes the first point");
+        env.pointer(&mut input, &mut tool, Released, drag, (1.0 + 20.0 * PIXEL, 1.0));
+        assert_eq!(
+            tool.points,
+            [DVec2::ONE, DVec2::new(1.2, 1.0)],
+            "the release takes the next"
+        );
+        assert!(env.walls().is_empty(), "the chain waits for its end");
+
+        let mut tool = wall_tool(WallMode::Single);
+        env.pointer(&mut input, &mut tool, Pressed, drag, (0.0, 0.0));
+        env.pointer(&mut input, &mut tool, Released, drag, (0.0, 20.0 * PIXEL));
+        assert_eq!(env.walls(), [(DVec2::ZERO, DVec2::new(0.0, 0.2))]);
+        assert!(tool.points.is_empty());
+    }
+
+    /// INP-020: a press and release without movement beyond the drag
+    /// threshold takes one point, exactly as a click does; so does a click
+    /// in press-drag-release mode.
+    #[test]
+    fn a_press_and_release_without_movement_is_a_click() {
+        use PointerEvent::{Clicked, Pressed, Released};
+        let drag = InputMode::DragRelease;
+        let gestures: [&[(PointerEvent, (f64, f64))]; 3] = [
+            &[(Pressed, (1.0, 1.0)), (Released, (1.0, 1.0))],
+            &[(Pressed, (1.0, 1.0)), (Released, (1.0 + 5.0 * PIXEL, 1.0))],
+            &[(Clicked, (1.0, 1.0))],
+        ];
+        for gesture in gestures {
+            for mode in [WallMode::Single, WallMode::Chain, WallMode::Rectangle] {
+                let mut clicked = (Env::new(), PointInput::default(), wall_tool(mode));
+                let mut dragged = (Env::new(), PointInput::default(), wall_tool(mode));
+                for p in [(0.0, 0.0), (1.0, 1.0)] {
+                    clicked.0.click(&mut clicked.1, &mut clicked.2, p);
+                }
+                dragged
+                    .0
+                    .pointer(&mut dragged.1, &mut dragged.2, Clicked, drag, (0.0, 0.0));
+                for &(event, at) in gesture {
+                    dragged.0.pointer(&mut dragged.1, &mut dragged.2, event, drag, at);
+                }
+                assert_eq!(dragged.2.points, clicked.2.points, "{mode:?} {gesture:?}");
+                assert_eq!(dragged.0.walls(), clicked.0.walls(), "{mode:?} {gesture:?}");
+            }
+        }
+    }
+
+    /// INP-020: click-click stays the default and behaves as before: each
+    /// click takes a point, a double-click ends the chain, presses and
+    /// releases take nothing.
+    #[test]
+    fn click_click_is_the_default_and_unchanged() {
+        use PointerEvent::{Clicked, DoubleClicked, Pressed, Released};
+        assert_eq!(InputMode::default(), InputMode::ClickClick);
+        let mode = InputMode::ClickClick;
+        let points = [(0.0, 0.0), (4.0, 0.0), (4.0, 3.0)];
+        let mut before = (Env::new(), PointInput::default(), wall_tool(WallMode::Chain));
+        for p in points {
+            before.0.click(&mut before.1, &mut before.2, p);
+        }
+        let ctx = before.0.ctx(&before.2);
+        let effect = before.1.double_click(&mut before.2, &ctx);
+        before.0.run(effect);
+
+        let mut now = (Env::new(), PointInput::default(), wall_tool(WallMode::Chain));
+        for p in points {
+            now.0.pointer(&mut now.1, &mut now.2, Pressed, mode, p);
+            assert_eq!(
+                now.0.pointer(&mut now.1, &mut now.2, Released, mode, (9.0, 9.0)),
+                Effect::None
+            );
+            now.0.pointer(&mut now.1, &mut now.2, Clicked, mode, p);
+        }
+        assert_eq!(now.2.points.len(), 3, "presses and releases take no point");
+        now.0.pointer(&mut now.1, &mut now.2, DoubleClicked, mode, (4.0, 3.0));
+        assert_eq!(now.0.walls(), before.0.walls());
+        assert_eq!(now.0.walls().len(), 2);
+        assert!(now.2.points.is_empty());
     }
 
     /// INP-001, INP-003: a move takes its base point, then the typed distance

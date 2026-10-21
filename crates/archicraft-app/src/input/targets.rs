@@ -502,6 +502,7 @@ pub(crate) mod tests {
             previous: None,
             expects: Expect::Point,
             radius: 0.2,
+            drag_threshold: 0.06,
             units: &ws.doc.project.settings.units,
             number_format: &ws.prefs.number_format(),
             angle_increment_deg: 45.0,
