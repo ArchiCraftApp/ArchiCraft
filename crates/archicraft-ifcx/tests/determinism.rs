@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use archicraft_geometry::ModelGeometry;
 use archicraft_ifcx::WriteOptions;
-use archicraft_ifcx::alpha::writer::sub_node_id;
-use archicraft_ifcx::json::{format_f64, round_coordinate};
+use archicraft_ifcx::alpha::writer::{sub_node_id, to_bytes, write};
+use archicraft_ifcx::json::{self, format_f64, round_coordinate};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{LengthUnit, NumberFormat, parse_length};
 use archicraft_model::{
@@ -425,6 +425,30 @@ fn indented_output_round_trips_to_the_golden_bytes() {
             "{}: indented, loaded and saved compact differs from the golden file",
             path.display()
         );
+    }
+}
+
+#[test]
+fn saving_node_by_node_writes_the_bytes_of_the_whole_document() {
+    // IFX-007, IFX-008, NFR-SEC-003: `save` formats the document one node at
+    // a time; its bytes are those of the whole document formatted at once,
+    // compact and indented, and so are those of `to_bytes`.
+    for project in common::samples() {
+        let geometry = ModelGeometry::evaluate(&project);
+        let document = write(&project, &geometry, &options()).file;
+        let whole = serde_json::to_value(&document).unwrap();
+        for pretty in [false, true] {
+            let (saved, _) = archicraft_ifcx::save(&project, &geometry, &options(), pretty);
+            let name = &project.info.name;
+            assert!(
+                saved == json::to_string(&whole, pretty).as_bytes(),
+                "{name} (indented: {pretty}): the saved bytes differ from the whole document's"
+            );
+            assert!(
+                to_bytes(&document, pretty) == saved,
+                "{name} (indented: {pretty}): to_bytes differs from save"
+            );
+        }
     }
 }
 

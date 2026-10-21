@@ -36,15 +36,16 @@ pub use validate::{Problem, Severity};
 pub const WRITTEN_VERSION: &str = alpha::writer::IFCX_VERSION;
 
 /// Serialises a project with its evaluated geometry. Returns the file bytes
-/// and warnings (for example elements saved without a body).
+/// and warnings (for example elements saved without a body). The file is
+/// written one node at a time, so saving needs little memory beyond the
+/// bytes it returns (NFR-SEC-003).
 pub fn save(
     project: &Project,
     geometry: &ModelGeometry,
     options: &WriteOptions,
     pretty: bool,
 ) -> (Vec<u8>, Vec<Problem>) {
-    let outcome = alpha::writer::write(project, geometry, options);
-    (alpha::writer::to_bytes(&outcome.file, pretty), outcome.warnings)
+    alpha::writer::save(project, geometry, options, pretty)
 }
 
 /// The reader of one IFCX version (IFX-090).

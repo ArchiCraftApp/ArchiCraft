@@ -16,12 +16,14 @@ use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
 use archicraft_model::project::{DefaultsSlot, NameCounters};
 use archicraft_model::{Element, ElementKind, KindTag, Layer, MaterialId, Project, ReferenceLine, Slab, TopLink, Wall};
+use indexmap::IndexMap;
+use serde::Serialize;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use super::schema::{self, FORMAT_VERSION};
 use crate::container::{Header, IfcxFile, Import, Node};
-use crate::json::round_coordinate;
+use crate::json::{self, round_coordinate};
 use crate::registry;
 use crate::validate::Problem;
 
@@ -314,11 +316,67 @@ fn transform(t: DVec3) -> Value {
     json!({"transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [row[0], row[1], row[2], 1.0]]})
 }
 
+/// `header` of the document for a project (IFX-002, IFX-013).
+fn header(project: &Project, options: &WriteOptions) -> Header {
+    Header {
+        id: dataset_id(project),
+        ifcx_version: IFCX_VERSION.to_owned(),
+        data_version: options.data_version.to_string(),
+        author: options.author.clone(),
+        timestamp: options.timestamp.clone(),
+    }
+}
+
+/// The standard schema files every document imports (IFX-004).
+fn imports() -> Vec<Import> {
+    [registry::IFC_CORE, registry::IFC_PROP, registry::USD]
+        .into_iter()
+        .map(|uri| Import {
+            uri: uri.to_owned(),
+            integrity: None,
+        })
+        .collect()
+}
+
 /// Builds the IFCX document for a project and its evaluated geometry. The
-/// geometry must have been evaluated from the same project revision.
+/// geometry must have been evaluated from the same project revision. It
+/// holds every node at once; [`save`] writes the same document without
+/// building it.
 pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions) -> WriteOutcome {
     let mut warnings = Vec::new();
-    let mut data: Vec<Node> = Vec::new();
+    let mut data = Vec::new();
+    nodes(project, geometry, &mut warnings, &mut |node| data.push(node));
+    let file = IfcxFile {
+        header: header(project, options),
+        imports: imports(),
+        schemas: schema::declarations(),
+        data,
+    };
+    WriteOutcome { file, warnings }
+}
+
+/// Writes the IFCX document for a project and its evaluated geometry
+/// straight into bytes, compact or indented (IFX-007, IFX-008), with the
+/// warnings of [`write`]. Each data node is formatted as soon as it is built
+/// and then dropped, so that saving holds the output and one node at a time,
+/// not a tree of the whole file (NFR-SEC-003). The bytes are those of
+/// [`to_bytes`] of the [`write`] document.
+pub fn save(
+    project: &Project,
+    geometry: &ModelGeometry,
+    options: &WriteOptions,
+    pretty: bool,
+) -> (Vec<u8>, Vec<Problem>) {
+    let mut warnings = Vec::new();
+    let mut document = DocumentWriter::new(&header(project, options), &imports(), &schema::declarations(), pretty);
+    nodes(project, geometry, &mut warnings, &mut |node| document.node(&node));
+    (document.finish(), warnings)
+}
+
+/// Builds the data nodes of the document in file order and hands each to
+/// `emit`: the spatial tree from the project down, every storey followed by
+/// its elements and their sub-nodes, then the materials the elements use.
+fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem>, emit: &mut impl FnMut(Node)) {
     let mut used_materials: HashSet<MaterialId> = HashSet::new();
 
     let project_uuid = project.id.uuid();
@@ -338,8 +396,8 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
             .insert("bsi::ifc::prop::Description".into(), json!(project.info.description));
     }
     root.attributes
-        .insert(schema::PROJECT.into(), project_attribute(project, &mut warnings));
-    data.push(root);
+        .insert(schema::PROJECT.into(), project_attribute(project, warnings));
+    emit(root);
 
     let mut site = Node::new(site_uuid.to_string());
     site.children.insert(
@@ -353,7 +411,7 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
         "bsi::ifc::prop::RefElevation".into(),
         json!(project.site.location.altitude),
     );
-    data.push(site);
+    emit(site);
 
     let mut building = Node::new(building_uuid.to_string());
     let mut storey_keys = HashSet::new();
@@ -369,7 +427,7 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
     building
         .attributes
         .insert("bsi::ifc::prop::Name".into(), json!(project.building.name));
-    data.push(building);
+    emit(building);
 
     for storey in project.storeys.iter() {
         let mut node = Node::new(storey.id.to_string());
@@ -395,10 +453,10 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
         }
         node.attributes
             .insert(schema::STOREY.into(), Value::Object(storey_attr));
-        data.push(node);
+        emit(node);
 
         for e in elements {
-            write_element(e, geometry, &mut data, &mut used_materials, &mut warnings);
+            write_element(e, geometry, emit, &mut used_materials, warnings);
         }
     }
 
@@ -410,34 +468,14 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
             .insert("bsi::ifc::presentation::diffuseColor".into(), rgb(material.color));
         node.attributes
             .insert("bsi::ifc::presentation::opacity".into(), json!(material.opacity));
-        data.push(node);
+        emit(node);
     }
-
-    let file = IfcxFile {
-        header: Header {
-            id: dataset_id(project),
-            ifcx_version: IFCX_VERSION.to_owned(),
-            data_version: options.data_version.to_string(),
-            author: options.author.clone(),
-            timestamp: options.timestamp.clone(),
-        },
-        imports: [registry::IFC_CORE, registry::IFC_PROP, registry::USD]
-            .into_iter()
-            .map(|uri| Import {
-                uri: uri.to_owned(),
-                integrity: None,
-            })
-            .collect(),
-        schemas: schema::declarations(),
-        data,
-    };
-    WriteOutcome { file, warnings }
 }
 
 fn write_element(
     e: &Element,
     geometry: &ModelGeometry,
-    data: &mut Vec<Node>,
+    emit: &mut impl FnMut(Node),
     used_materials: &mut HashSet<MaterialId>,
     warnings: &mut Vec<Problem>,
 ) {
@@ -501,14 +539,82 @@ fn write_element(
             ),
         )),
     }
-    data.push(node);
-    data.extend(parts);
+    emit(node);
+    for part in parts {
+        emit(part);
+    }
 }
 
 /// Serialises a document deterministically (IFX-007), compact or indented
-/// (IFX-008).
+/// (IFX-008), one data node at a time.
 pub fn to_bytes(file: &IfcxFile, pretty: bool) -> Vec<u8> {
-    // The container types always serialise.
-    let value = serde_json::to_value(file).unwrap_or(Value::Null);
-    crate::json::to_string(&value, pretty).into_bytes()
+    let mut document = DocumentWriter::new(&file.header, &file.imports, &file.schemas, pretty);
+    for node in &file.data {
+        document.node(node);
+    }
+    document.finish()
+}
+
+/// Formats an IFCX document with [`json::Writer`]: the header, imports and
+/// schemas when it is created, then each data node as it is handed over,
+/// with the bytes that formatting the whole document as one value would give.
+struct DocumentWriter {
+    json: json::Writer,
+}
+
+impl DocumentWriter {
+    fn new(header: &Header, imports: &[Import], schemas: &IndexMap<String, Value>, pretty: bool) -> Self {
+        let mut json = json::Writer::new(pretty);
+        json.begin_object();
+        json.key("header");
+        json.value(&to_value(header));
+        json.key("imports");
+        json.value(&to_value(imports));
+        json.key("schemas");
+        json.begin_object();
+        for (id, schema) in schemas {
+            json.key(id);
+            json.value(schema);
+        }
+        json.end();
+        json.key("data");
+        json.begin_array();
+        Self { json }
+    }
+
+    /// Writes a data node as its `Serialize` implementation does: the path,
+    /// then `children`, `inherits` and `attributes` unless they are empty.
+    fn node(&mut self, node: &Node) {
+        let json = &mut self.json;
+        json.begin_object();
+        json.key("path");
+        json.value(&Value::String(node.path.clone()));
+        if !node.children.is_empty() {
+            json.key("children");
+            json.value(&to_value(&node.children));
+        }
+        if !node.inherits.is_empty() {
+            json.key("inherits");
+            json.value(&to_value(&node.inherits));
+        }
+        if !node.attributes.is_empty() {
+            json.key("attributes");
+            json.begin_object();
+            for (id, value) in &node.attributes {
+                json.key(id);
+                json.value(value);
+            }
+            json.end();
+        }
+        json.end();
+    }
+
+    fn finish(self) -> Vec<u8> {
+        self.json.finish().into_bytes()
+    }
+}
+
+/// A small container part as JSON; these types always serialise.
+fn to_value<T: Serialize + ?Sized>(part: &T) -> Value {
+    serde_json::to_value(part).unwrap_or(Value::Null)
 }
