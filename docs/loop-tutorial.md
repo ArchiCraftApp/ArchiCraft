@@ -57,16 +57,18 @@ type `continue` to start the next batch.
 
 Start with small numbers (3 to 5). Each bead is a full working session, so you see cost and
 quality before you let a run go longer. The coordinator never waits for a merge: a bead
-counts once its pull request is open with auto-merge on, and beads that build on it go into a
-later batch.
+counts once its pull request is open with auto-merge on or in the merge queue, and beads that
+build on it go into a later batch.
 
 ## 2. While it runs
 
 You do not need to watch. If you want to:
 
 - open a bead session in the sidebar and read along;
-- look at the pull requests on GitHub (or `gh pr list`); their titles start with the bead id,
-  and they merge themselves when CI passes;
+- look at the pull requests on GitHub (or `gh pr list`); their titles start with the bead id.
+  When CI passes they join the merge queue, which tests each again on `main` together with the
+  pull requests ahead of it and merges it when that passes too, so two pull requests that pass
+  on their own cannot break `main` together ([loop.md](loop.md), "The merge queue");
 - ask the backlog in a terminal:
 
   ```bash
@@ -142,7 +144,10 @@ Claude cannot get around, so that pull request waits for you. Its description na
 files, and the coordinator tells you about it.
 
 1. Read the pull request on GitHub; its description says what changes and why.
-2. Merge it, or comment on it.
+2. Merge it, or comment on it. Its status `User review` fails on purpose, so it cannot enter
+   the merge queue: tick "Merge without waiting for requirements to be met (bypass rules)" and
+   merge it directly. If its description asks you to run `scripts/loop/setup-github.sh` after
+   the merge, do that too.
 
 Claude Code reads the hook wiring, the skills and the reviewer from the main checkout (each
 session runs the hook scripts of its own worktree), so it has to follow `main` after a `loop`
@@ -176,6 +181,7 @@ Or tell any Claude session "pull the main checkout".
 |---|---|
 | Claude says "Code changes need a bead" | A guard: code changes happen only inside a bead. Use `/bead`. |
 | A pull request stays open with a red check | The bead's session usually fixes it on its own (Auto-fix). If not, the checks tab on GitHub shows the failure; tell that session, or resume it with `/bead`. |
+| A pull request left the merge queue | Its CI failed (or it conflicted) on `main` together with the pull requests ahead of it, so it did not merge and `main` stayed green. The sweep reports it as `ATTENTION … left the merge queue` and the coordinator sends it back to the bead's session to fix; nothing for you to do. |
 | The loop behaves like an older version | The main checkout is behind: the sweep could not fast-forward it and reported a `stale` line (section 3). Fix the cause and pull it by hand. |
 | A session takes minutes to stop | The stop guard runs the gate on unfinished code; that is intended. To stop anyway, Claude runs `scripts/loop/pause.sh "<reason>"`. |
 | `bd` is very slow in a new session | The beads checkout import is on. Turn it off: `bd config set import.auto false`. |
@@ -188,8 +194,8 @@ bd config set import.auto false
 ```
 
 You also need Rust (rustup), Node.js (for the IFCX conformance check) and `bd`. GitHub is
-already set up (auto-merge, labels, required checks); `scripts/loop/setup-github.sh` would
-redo it. For fast first builds in new worktrees, build once in the main checkout:
+already set up (auto-merge, labels, the merge queue and required checks on `main`);
+`scripts/loop/setup-github.sh` would redo it. For fast first builds in new worktrees, build once in the main checkout:
 
 ```bash
 cargo clippy --workspace --all-targets && cargo test --workspace --no-run

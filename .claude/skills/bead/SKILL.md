@@ -183,9 +183,11 @@ scripts/loop/land.sh
 
 `land.sh` pushes the branch, opens the PR (title from the commit subject, body from the
 bead, the review and the gate), turns on squash auto-merge and records the PR on the bead.
+Auto-merge puts the PR into the merge queue once its CI passes, and the queue merges it once CI
+passes again on `main` with the PRs ahead of it (`docs/loop.md`, "The merge queue").
 When the branch changes `.github/workflows/` or `.claude/settings.json`, it leaves auto-merge
-off and names those files instead: the PR waits for the user's review, so say that in your
-report.
+off, names those files and writes the user's steps into the PR description instead: the PR
+waits for the user's review, so say that in your report.
 In the Claude desktop app, also bind the PR to this session if `get_status` does not show
 it and turn on Auto-fix and archive-on-close with the `ccd_pr` tools, so CI failures wake
 this session. Never poll CI yourself.
@@ -193,6 +195,15 @@ this session. Never poll CI yourself.
 When CI fails or `main` moved under the PR: fix on the same branch, gate, review, commit,
 then `scripts/loop/land.sh` again (after a rebase onto `origin/main`:
 `scripts/loop/land.sh --rebased`).
+
+When the PR left the merge queue (the sweep's `ATTENTION <id>: <url> left the merge queue
+(<reason>, <run>)` line, or the orchestrator's message with it): its merge group, `main` with the
+PRs ahead of it and this PR, failed (`failed_checks`, `checks_timed_out`) or did not merge
+(`merge_conflict`), so nothing merged and auto-merge is off. Read the failed group run
+(`gh run view <run> --log-failed`), rebase onto `origin/main`
+(`git fetch origin main && git -c core.hooksPath=/dev/null rebase origin/main`), fix what the
+combination broke, then gate, review, commit and `scripts/loop/land.sh --rebased`, which turns
+auto-merge on again.
 
 ## 8. Close
 
@@ -222,8 +233,9 @@ iteration. Before you end the session:
   ```
 
   The status is ✅ (PR open or merged), ⏫ (escalated one tier up, see Stop rules),
-  ⏸ (paused, label `human`) or ❌ (no PR); the bracket says `auto-merge`, `waits for you`
-  (`land.sh` left auto-merge off) or `blocked`, then the tier.
+  ⏸ (paused, label `human`) or ❌ (no PR); the bracket says `auto-merge` (on its way through
+  the merge queue), `waits for you` (`land.sh` left auto-merge off) or `blocked`, then the
+  tier.
   `Needs you:` names the one thing the user has to do, or `-`. Two more lines at most, only
   for what the user must know: a `refused` or `stale` sweep line, a skipped criterion, a
   follow-up bead.

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Step 7 of the bead loop (docs/loop.md): pushes the committed bead branch, opens or updates
-# its pull request and turns on auto-merge, so GitHub merges it once the required CI checks
-# pass. A PR that changes the CI workflows or the hook wiring (LOOP_USER_REVIEW_PATHS, as the
-# base or the branch defines it) or that pattern itself waits for the user's review instead.
+# its pull request and turns on auto-merge, so GitHub puts it into the merge queue once the
+# required CI checks pass, and merges it once they pass again on main with the PRs ahead of it
+# (docs/loop.md, "The merge queue"). A PR that changes the CI workflows or the hook wiring
+# (LOOP_USER_REVIEW_PATHS, as the base or the branch defines it) or that pattern itself waits for
+# the user's review instead.
 # CI enforces that from the base's copy whatever this script does (ci-user-review.sh).
 # Records the PR on the bead, which stays in progress until sweep.sh sees the merge.
 # Usage: scripts/loop/land.sh [--rebased]   (--rebased pushes with --force-with-lease)
@@ -56,6 +58,16 @@ body="$(mktemp "${TMPDIR:-/tmp}/loop-pr.XXXXXX")"
     if [ -n "$waits" ]; then
         echo
         echo "Waits for the user's review (no auto-merge): it changes the CI workflows, the hook wiring or which files wait, $waits."
+        echo
+        echo "## Steps for the user"
+        echo
+        echo "1. Review the change."
+        echo "2. Merge it as an admin, past the failing status \`User review\` and the merge queue: \"Merge without waiting for requirements to be met (bypass rules)\" on GitHub, or \`gh pr merge <number> --admin --squash\` in your own terminal."
+        # Its settings take effect only when the user runs it, and only from the merged main: they
+        # may rely on workflows this PR brings (docs/loop.md, Setup).
+        if loop_changed_files | grep -qx scripts/loop/setup-github.sh; then
+            echo "3. After the merge, update the main checkout to the merged \`main\` (\`git pull --ff-only\` there; the next sweep does it too) and run \`scripts/loop/setup-github.sh\` in it: this PR changes the GitHub settings, and they apply only then. Not before the merge, since they rely on what this PR brings to \`main\`. The script prints what it set; Settings → Rules → Rulesets on GitHub shows the result."
+        fi
     fi
     echo
     echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
@@ -82,14 +94,21 @@ rm -f "$body"
 # Every bead PR auto-merges, a loop bead's too, except one that changes the CI gate or the hook
 # wiring: those are the gates that cannot be bypassed, so the user reviews it (2026-10-19).
 if [ -n "$waits" ]; then
-    # An earlier run may have turned auto-merge on, before the branch changed these files.
+    # An earlier run may have turned auto-merge on, before the branch changed these files. The
+    # push above took the PR out of the merge queue if it was in it, and a merge group with it
+    # would fail the status User review anyway (user-review.yml runs on merge_group too).
     if [ "$(gh pr view "$url" --json autoMergeRequest -q '.autoMergeRequest != null')" = true ]; then
         gh pr merge "$url" --disable-auto >/dev/null
     fi
     merge="waits for the user's review, as it changes the CI workflows, the hook wiring or which files wait: $waits"
 else
+    # With the merge queue on, gh enables "merge when ready" (the queue's own method, squash, wins)
+    # or adds a PR whose checks already passed to the queue at once.
     gh pr merge "$url" --auto --squash >/dev/null
-    merge="auto-merge (squash) on green CI"
+    case "$(bash "$(dirname "${BASH_SOURCE[0]}")/pr-state.sh" "$url")" in
+        "queued "*) merge="auto-merge (squash): in the merge queue" ;;
+        *) merge="auto-merge (squash): it joins the merge queue on green CI" ;;
+    esac
 fi
 echo "Merge: $merge."
 

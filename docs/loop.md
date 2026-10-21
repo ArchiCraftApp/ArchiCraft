@@ -12,14 +12,14 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 
 | Step | What happens | Tool |
 |---|---|---|
-| 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report closes bd refused, waiting PRs, beads for a human, epics due for a demo, a failed newest Windows run on `main` (`ATTENTION`); fast-forward the main checkout to `origin/main` when it is on `main` (git hooks off), or report as `stale` why not. The copy on `origin/main` runs, since a new worktree may be cut from an older `main` | `scripts/loop/sweep.sh` |
+| 0 Sweep | Close beads whose PR merged and split parents (label `loop-split`) whose children are done; report closes bd refused, waiting and queued PRs, PRs the merge queue dropped (`ATTENTION`), beads for a human, epics due for a demo, a failed newest Windows run on `main` (`ATTENTION`); fast-forward the main checkout to `origin/main` when it is on `main` (git hooks off), or report as `stale` why not. The copy on `origin/main` runs, since a new worktree may be cut from an older `main` | `scripts/loop/sweep.sh` |
 | 1 Claim | Claim the bead, branch `bead/<id>-<slug>` from `origin/main`, clone the warm build cache. It re-executes the copy on `origin/main` when the worktree's `scripts/loop` differs | `scripts/loop/start-bead.sh <id>` |
 | 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines (a top-level `#[cfg(test)] mod tests` does not count), or with separable criteria | `bd create --parent` |
 | 3 Tests first | Every acceptance criterion becomes a failing test | |
 | 4 Implement | CLAUDE.md conventions; rustfmt runs after every edit | |
 | 5 Gate | fmt, clippy, tests, layering, golden files, diff budget, `.beads/`, loop guardrails only under label `loop`, conformance, licences | `scripts/loop/gate.sh` |
 | 6 Review | Fresh-context `bead-reviewer` agent; its verdict becomes the review stamp | `.claude/agents/bead-reviewer.md` |
-| 7 Land | Commit `<id>: <summary>`, push, PR, squash auto-merge on green CI (a PR that changes `.github/workflows/` or `.claude/settings.json` waits for the user) | `scripts/loop/land.sh` |
+| 7 Land | Commit `<id>: <summary>`, push, PR, squash auto-merge: on green CI the PR joins the merge queue, which merges it once CI passes on `main` with the PRs ahead of it (a PR that changes `.github/workflows/` or `.claude/settings.json` waits for the user) | `scripts/loop/land.sh` |
 | 8 Close | Close note (tier, review rounds, gate failures); bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |
 
 The gate and the review stamp the exact tree they checked (`loop_tree_hash` in
@@ -82,13 +82,14 @@ the loop: one session per bead.
 
 Turns triggered by the bead sessions' reports only verify each PR and auto-merge and report.
 Nobody waits on a merge: the app's PR monitor wakes a session on a CI failure, a conflict or
-a review comment, never on a merge. A bead counts once its PR is open with auto-merge on, or
-waits for the user (see below); a bead blocked by a bead whose PR is still open is not ready
+a review comment, never on a merge. A bead counts once its PR is open with auto-merge on, is in
+the merge queue, or waits for the user (see below); a bead blocked by a bead whose PR is still open is not ready
 and goes into a later batch, and the sweep closes merged beads. The run stops after `count`
 beads or when an epic's tasks are all closed.
 
 **Reports.** A bead session ends with at most 4 lines:
-`<id> ✅ PR #N (auto-merge|waits for you|blocked, <tier>): <what changed>` (⏫ for an
+`<id> ✅ PR #N (auto-merge|waits for you|blocked, <tier>): <what changed>`, where `auto-merge`
+means on its way through the merge queue (⏫ for an
 escalated bead, ⏸ for one labelled `human`), then `Needs you: -` or the one thing the user has
 to do. The orchestrator reports one line per bead and a `Needs you:` line only when something
 does, without restating the sessions' reports. Details only on request. A review finding
@@ -113,11 +114,12 @@ Instructions are soft; these are not:
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
 | CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop` (labels read live at run time, since `gh pr create` attaches them after the PR is opened); headless layering; the hooks' self-test |
 | CI workflow `User review` | A PR that changes `.github/workflows/` or `.claude/settings.json` (or `LOOP_USER_REVIEW_PATHS`) gets the failing status `User review`, decided by the base's `scripts/loop/ci-user-review.sh` (`pull_request_target`), never by the PR's own scripts |
-| Branch protection on `main` | Auto-merge waits for the six required CI checks on Linux and the status `User review`; Windows runs on `main`, nightly and by hand, macOS only for releases and the nightly conformance matrix (below) |
+| Rulesets on `main` | Every PR merges through the merge queue (squash), which needs the six required CI checks on Linux and the status `User review` on the PR and again on `main` with the PRs ahead of it (The merge queue, below); admins bypass it, nobody deletes or force-pushes `main`; Windows runs on `main`, nightly and by hand, macOS only for releases and the nightly conformance matrix (below) |
 
-**A bead PR runs CI once.** `ci.yml` runs for the `pull_request` event; its `push` trigger
-covers only `main` and version tags `v*`, so pushing a bead branch does not start a second run
-(before 2026-10-20 every bead PR ran it twice, in two concurrency groups).
+**A bead PR runs CI once, and once more in the merge queue.** `ci.yml` runs for the
+`pull_request` event; its `push` trigger covers only `main` and version tags `v*`, so pushing a
+bead branch does not start a second run (before 2026-10-20 every bead PR ran it twice, in two
+concurrency groups). Its `merge_group` trigger runs it on the PR's merge group (below).
 
 **Windows runs on `main` and nightly.** No Windows job runs on a pull request, and none is a
 required check: the Windows test job took 10 to 17 minutes where Linux took 1.5 to 9, and every
@@ -128,7 +130,7 @@ nightly and when started by hand (`gh workflow run windows.yml --ref <branch>`).
 Windows-only failure lands on `main` and shows up after the merge: `sweep.sh` looks at the
 newest finished run on `main` that was not cancelled and prints `ATTENTION windows: …` with its
 link when it did not pass. `/bead-loop` turns that line into a P0 bead labelled `red-main` and
-starts it first in its next batch. Branch protection names its required checks, so a change to
+starts it first in its next batch. The ruleset `main` names its required checks, so a change to
 that list in `setup-github.sh` takes effect only when the user runs the script again (Setup):
 for the change that dropped the Windows check, before its PR merges, since that PR's own run no
 longer reports `Test (windows-latest)`.
@@ -150,6 +152,75 @@ a bead. When GitHub adds the next macOS major version, move both labels in `maco
 one ([actions/runner-images](https://github.com/actions/runner-images#available-images) lists
 the current labels).
 
+**The merge queue.** Until 2026-10-21 branch protection required the CI checks but not that a
+PR be up to date with `main` (`strict: false`), and `/bead-loop` lands up to three PRs at once.
+Each PR's CI ran on the PR merged into `main` as it was at the PR's last push, never on the
+combination, so two PRs that each passed could merge into a `main` that did not compile. That
+happened twice that day, and each time every open bead PR was blocked until a P0 `red-main` bead
+fixed it: #86 added `IfcClass::BuildingElementProxy` while #84 added `IfcClass::label_key()`
+without that arm (archicraft-o363), and #97 added the field `Element::snap_excluded` while #98
+added a builder in `crates/archicraft-model/src/samples.rs` that does not set it
+(archicraft-va4v). Requiring up-to-date branches would have caught both, but every merge would
+then leave every other open PR stale, to be updated and tested again by hand, and the loop is
+meant to run for hours without the user.
+
+So every PR merges through GitHub's merge queue (archicraft-9uh3). Auto-merge
+(`gh pr merge --auto --squash` in `land.sh`) no longer merges a PR itself: once the PR's own
+required checks pass, GitHub puts it into the queue (GitHub admits no PR whose checks have not
+passed). For each PR the queue builds a merge group, a commit on the branch
+`gh-readonly-queue/main/pr-<number>-<sha>` that holds `main`, the PRs ahead in the queue and this
+PR, each squashed. CI runs on it (the event `merge_group`), and only when every required check
+passed there does `main` fast-forward to that very commit. When a group fails, the queue drops its
+PR and rebuilds the groups behind it without it, and `main` stays green. The settings, in the
+ruleset `main` that `setup-github.sh` writes: squash; ALLGREEN, so each PR's own group must pass;
+up to 3 groups built at once (one `/bead-loop` batch) and up to 3 PRs merged in one push; and 30
+minutes for a required check to report on a group before the queue counts it as failed (the
+slowest required job, the Linux tests, takes 3 to 9 minutes; the rest covers waiting for a
+runner).
+
+Every required check must report on a merge group, or the queue waits for it until that timeout
+and drops the PR. `ci.yml` runs on `merge_group` and all its required jobs run there; the bench,
+which is not required, skips it, since the PR's run compared it with the merge base already.
+`selftest.sh` checks that every required check of the ruleset is a job of `ci.yml` without a
+condition, or the status `User review`. Windows, macOS, the conformance matrix, the fuzzing run and
+the announcement are not required and do not run on merge groups; Windows and the announcement
+run when the queue has pushed to `main`. The status `User review` comes from `user-review.yml`,
+which runs on `merge_group` too: there it checks out `main`, not the group's commit, and `main`'s
+`ci-user-review.sh` judges everything the group adds to `main` and posts the status on the
+group's commit, so the queue neither skips the rule nor waits for the status. A PR that waits for
+the user never gets into the queue (its `User review` fails on the PR), and if one did, its group
+would fail the same check. For a merge group GitHub takes `user-review.yml` from the group's
+commit rather than from `main`; that is safe because every PR in the queue passed the check as
+`main` defines it first, so none of them changed that file.
+
+A PR the queue dropped stays open with auto-merge off (GitHub clears it), and its own checks stay
+green, so nothing on the PR wakes the bead's session. `scripts/loop/pr-state.sh` reads where a PR
+stands (`queued <position>`, `auto-merge`, `left-queue <reason>`, `waits-for-user`, `open`,
+`merged`, `closed`), with GitHub's reason for a drop (`failed_checks`, `merge_conflict`,
+`checks_timed_out`, `manual`). The sweep prints a dropped PR as `ATTENTION <id>: <url> left the
+merge queue (<reason>, <the failed merge group run>)`; the orchestrator hands that line to the
+bead's session (or resumes the bead in a new one), which rebases onto `origin/main`, fixes the
+combination, runs the gate and the review again and lands with `land.sh --rebased`, and auto-merge
+puts the PR back in the queue. A PR in the queue shows as `queued` with its position, one whose
+CI still runs as `waiting` (`CI pending, then the merge queue`), and the reports count both as on
+their way (`auto-merge`). A PR that nothing moves on, open without auto-merge, outside the queue
+and not waiting for the user, shows as `ATTENTION <id>: <url> is open without auto-merge and not
+in the merge queue` and goes into the orchestrator's `Needs you:` line.
+
+The user merges a PR that waits for the review as before, as an admin past the failing status
+`User review` and past the queue ("Merge without waiting for requirements to be met (bypass
+rules)" on GitHub). Admins bypass the ruleset `main`, which also lets them repair `main` and push
+to it directly; the ruleset `main history` forbids deleting and force-pushing `main` for everyone,
+since a bypass covers every rule of its ruleset. `setup-github.sh` replaces the classic branch
+protection of `main` with these two rulesets: GitHub configures a merge queue only through
+rulesets, and the classic protection's list of required checks would apply to merge groups as
+well. GitHub offers the merge queue to public repositories owned by an organization, on every
+plan, which this one is (checked 2026-10-21); a private one needs GitHub Enterprise Cloud, and
+there `setup-github.sh` stops without changing anything. The fallback there would be
+`strict: true`, under which auto-merge waits until a PR is up to date with `main`, and the sweep
+would have to bring each stale PR up to date (`gh pr update-branch <pr>`) so that CI runs again
+on the combination.
+
 The hooks are wired in `.claude/settings.json`. Claude Code reads that file, the skills and
 the agents from the main checkout and starts the hook commands there, also for a session in a
 worktree (the desktop app passes the main checkout as `--project-config-root`). So each hook
@@ -163,7 +234,7 @@ merge by themselves, so `sweep.sh` updates it at the start of every bead: a fast
 for minutes). Git refuses when local changes would be overwritten or local `main` has commits
 of its own; the sweep then reports a `stale` line and carries on, and the user pulls by hand
 ([loop-tutorial.md](loop-tutorial.md), section 3). Command-line matching is a guardrail, not a
-sandbox: CI and branch protection are the gates that cannot be bypassed.
+sandbox: CI and the rulesets on `main` are the gates that cannot be bypassed.
 
 `guard-edit` sees only the Edit and Write tools. A file changed through Bash (`sed -i`, a
 heredoc, a script) bypasses it, on `main` as on a bead branch. Only the stamps catch such a
@@ -199,7 +270,8 @@ review), so the loop runs for hours without the user. The exception is a PR that
 `.github/workflows/` or `.claude/settings.json` (`LOOP_USER_REVIEW_PATHS` in
 `scripts/loop/lib.sh`): they hold the CI gate and the hook wiring, the gates that cannot be
 bypassed. `land.sh` leaves auto-merge off for such a PR, also when an earlier run turned it on,
-and names the files; `guard-bash` refuses turning it on by hand; the user reviews and merges it.
+names the files and writes the user's steps into its description (review it, merge it as an
+admin, and run `setup-github.sh` after the merge when the PR changes it); `guard-bash` refuses turning it on by hand; the user reviews and merges it.
 Both judge by the pattern as `origin/main` defines it as well as the branch's copy, so a branch
 that narrows `LOOP_USER_REVIEW_PATHS` still waits for every file the base names, and both also
 make a PR wait when it changes the pattern itself (naming `scripts/loop/lib.sh`).
@@ -209,12 +281,14 @@ Both still run the branch's own copies, though, so a branch that rewrites `land.
 takes the workflow and its script `scripts/loop/ci-user-review.sh` from `main`; it checks out
 `main`, reads the PR's commits as data and posts the commit status `User review` on the PR's
 head, failing when the PR changes a file of `main`'s `LOOP_USER_REVIEW_PATHS` or the pattern
-itself. Branch protection requires that status, so auto-merge does not merge such a PR even
+itself. The ruleset `main` requires that status, so auto-merge does not merge such a PR even
 when a branch whose scripts skip the rule turned it on; the user merges it after the review as
-an admin, past the failing status ("Merge without waiting for requirements", or
-`gh pr merge --admin`, which the hooks refuse to agents). Protection names the status by its
-context only, so a status of the same name from another source (the PR's own workflow, a
-`gh api` call) could still overwrite it; closing that is archicraft-t9zs.
+an admin, past the failing status and the merge queue ("Merge without waiting for requirements
+to be met (bypass rules)", or `gh pr merge --admin`, which the hooks refuse to agents). The
+ruleset ties every required check to GitHub Actions (`integration_id` 15368 in
+`setup-github.sh`), so a status of the same name posted through `gh api` with a personal token
+does not count; one that the PR's own workflow posts with its `GITHUB_TOKEN` still could
+overwrite it, and closing that is archicraft-t9zs.
 A CODEOWNERS review cannot enforce this while Claude works under the user's GitHub account,
 because GitHub does not let an account approve its own PR.
 
@@ -223,8 +297,9 @@ because GitHub does not let an account approve its own PR.
 Once per machine: `brew install gh && gh auth login` (PRs and auto-merge), optionally
 `cargo install cargo-deny` (the gate skips the licence check without it; CI runs it).
 
-Once per repository, by an admin: `scripts/loop/setup-github.sh` (auto-merge, labels,
-required checks on `main`). Run it again after a change to its list of required checks. A PR
+Once per repository, by an admin: `scripts/loop/setup-github.sh` (auto-merge, labels, the
+rulesets on `main` with the merge queue and the required checks). Run it again after a change to
+its list of required checks or the queue's settings. A PR
 opened before the status `User review` became required gets it with its next push (or a close
 and reopen).
 

@@ -1,12 +1,16 @@
 name: CI
 
-# A bead PR runs this workflow once, for its pull_request event: a push runs it only on main and
-# for version tags, not a second time for the PR's branch (docs/loop.md, Enforcement).
+# A bead PR runs this workflow once for its pull_request event, then once more in the merge queue
+# (merge_group) on main with the PRs ahead of it, before it merges; a push runs it only on main and
+# for version tags, not a second time for the PR's branch (docs/loop.md, Enforcement and "The merge
+# queue"). Every required check (setup-github.sh) is a job here that runs on merge_group too, or the
+# queue waits for it until its timeout and drops the PR.
 on:
   push:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -119,6 +123,9 @@ jobs:
   # criterion reports are uploaded: the numbers published per run (docs/performance/README.md).
   bench:
     name: Bench regression gate
+    # Not a required check: the PR's run compared its benches with the merge base already, and a
+    # second comparison per merge group would cost ten minutes of a runner for every merge.
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04
     # Two release builds that share their dependencies and two smoke runs: about 10 minutes
     # with a warm Rust cache.

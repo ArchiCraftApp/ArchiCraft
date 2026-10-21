@@ -7,9 +7,12 @@
 # checks out the base and never runs the PR's code; the PR's commits are only read as data.
 # It reports the commit status "User review" on the PR's head, failure when the PR waits. Branch
 # protection requires that status (setup-github.sh), so auto-merge never merges such a PR; the
-# user merges it after the review, as an admin past the failing status.
-# Environment: HEAD_SHA (the PR's head commit, fetched); GH_REPO and GH_TOKEN to post the status
-# (without GH_REPO it only prints the result). Exits 1 when the PR waits.
+# user merges it after the review, as an admin past the failing status and the merge queue.
+# The merge queue requires the status on the merge group's commit too: there the workflow runs
+# this script in a checkout of main with HEAD_SHA the group's head, so it judges everything the
+# group adds to main, every PR ahead in the queue included (docs/loop.md, "The merge queue").
+# Environment: HEAD_SHA (the PR's or the merge group's head commit, fetched); GH_REPO and GH_TOKEN
+# to post the status (without GH_REPO it only prints the result). Exits 1 when the change waits.
 # Usage: scripts/loop/ci-user-review.sh   (run in the base's checkout)
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"

@@ -63,7 +63,9 @@ cat >"$work/bin/gh" <<'EOF'
 # files in FAKE_GH_FILES ("<old>=><new>" is a move; --name-only lists only the new paths, like gh),
 # each changing line x into FAKE_GH_LINE (default y), or fails when FAKE_GH_FAIL is set; pr view --json labels prints FAKE_GH_LABELS, or fails when
 # FAKE_GH_FAIL is set. pr create and pr edit copy the PR body (--body-file) to FAKE_GH_BODY when
-# it is set. run list prints the JSON in FAKE_GH_RUNS.
+# it is set. run list prints the JSON in FAKE_GH_CI_RUNS for ci.yml, in FAKE_GH_RUNS otherwise.
+# api graphql answers pr-state.sh's query: the PR its url= names in the JSON object FAKE_GH_PRS
+# (url -> the PullRequest fields), else a PR in FAKE_GH_STATE (default OPEN) without queue events.
 [ -n "${FAKE_GH_LOG:-}" ] && echo "$*" >>"$FAKE_GH_LOG"
 if [ -n "${FAKE_GH_BODY:-}" ]; then
     prev=""
@@ -79,7 +81,22 @@ case "$1 $2" in
         esac
         ;;
     "pr create") echo "https://github.com/o/r/pull/9" ;;
-    "run list") echo "${FAKE_GH_RUNS:-}" ;;
+    # setup-github.sh: the repository's kind from FAKE_GH_REPO_KIND ("<in an org> <visibility>"),
+    # the id of an existing ruleset from FAKE_GH_RULESET_ID, a classic protection unless
+    # FAKE_GH_NO_PROTECTION is set.
+    "repo view") case "$*" in *isInOrganization*) echo "${FAKE_GH_REPO_KIND:-true PUBLIC}" ;; *) echo o/r ;; esac ;;
+    "api repos/"*/rulesets\?*) echo "${FAKE_GH_RULESET_ID:-}" ;;
+    "api repos/"*/protection) [ -z "${FAKE_GH_NO_PROTECTION:-}" ] || exit 1 ;;
+    "run list") case "$*" in *ci.yml*) echo "${FAKE_GH_CI_RUNS:-}" ;; *) echo "${FAKE_GH_RUNS:-}" ;; esac ;;
+    "api graphql")
+        url=""
+        for a in "$@"; do case "$a" in url=*) url="${a#url=}" ;; esac; done
+        if [ -n "${FAKE_GH_PRS:-}" ]; then
+            jq -c --arg u "$url" '{data: {resource: .[$u]}}' <<<"$FAKE_GH_PRS"
+        else
+            jq -nc --arg s "${FAKE_GH_STATE:-OPEN}" '{data: {resource: {state: $s}}}'
+        fi
+        ;;
     "pr diff")
         [ -z "${FAKE_GH_FAIL:-}" ] || exit 1
         shift 2
@@ -210,6 +227,8 @@ check "force-with-lease push of a bead branch" allow "$(hook guard-bash "$(bash_
 check "push to main" deny "$(hook guard-bash "$(bash_input 'git push origin HEAD:main')")"
 check "push then rm -rf" allow "$(hook guard-bash "$(bash_input 'git push -u origin bead/x && rm -rf /tmp/x')")"
 check "merge without auto" deny "$(hook guard-bash "$(bash_input 'gh pr merge 12 --squash')")"
+expect "a merge without auto is pointed at the merge queue" 1 \
+    "$(hook guard-bash "$(bash_input 'gh pr merge 12 --squash')" | grep -c 'puts them into the merge queue on green CI')"
 check "merge with admin" deny "$(hook guard-bash "$(bash_input 'gh pr merge 12 --auto --admin')")"
 check "merge with auto" allow "$(FAKE_GH_PR=12 hook guard-bash "$(bash_input 'gh pr merge 12 --auto --squash')")"
 # Auto-merge stays off for a PR that changes the CI workflows or the hook wiring (LOOP_USER_REVIEW_PATHS).
@@ -665,6 +684,80 @@ expect "sweep is quiet without Windows runs or an answer from gh" "0 0" \
     "$(windows_attention '[]') $(windows_attention '')"
 unset FAKE_BD_DB
 
+# --- pr-state: where a PR stands with the merge queue ----------------------------------------
+# The PRs are jq expressions built from these helpers, in single quotes: bash 3.2 brace-expands
+# JSON with escaped quotes inside a nested command substitution.
+pr_jq='def auto: {autoMergeRequest: {enabledAt: "2026-10-21T10:00:00Z"}};
+    def event($type; $reason): {timelineItems: {nodes: [{__typename: $type, reason: $reason}]}};
+    def review($state): {commits: {nodes: [{commit: {status: {context: {state: $state}}}}]}};'
+pr_state() { # pr_state <jq expression for the PullRequest fields>: pr-state.sh's answer for such a PR
+    FAKE_GH_PRS="$(jq -nc "$pr_jq"' {"https://github.com/o/r/pull/5": ('"$1"')}')" \
+        bash scripts/loop/pr-state.sh https://github.com/o/r/pull/5 2>&1
+}
+expect "pr-state: merged" merged "$(pr_state '{state: "MERGED"} + auto')"
+expect "pr-state: closed without merging" closed "$(pr_state '{state: "CLOSED"}')"
+expect "pr-state: in the merge queue at its position" "queued 2" \
+    "$(pr_state '{state: "OPEN"} + auto + {mergeQueueEntry: {position: 2}} + event("AddedToMergeQueueEvent"; null)')"
+expect "pr-state: auto-merge on while CI runs" auto-merge "$(pr_state '{state: "OPEN"} + auto + review("PENDING")')"
+expect "pr-state: dropped by the merge queue" "left-queue failed_checks" \
+    "$(pr_state '{state: "OPEN"} + event("RemovedFromMergeQueueEvent"; "failed_checks") + review("SUCCESS")')"
+expect "pr-state: auto-merge on again after the queue dropped it" auto-merge \
+    "$(pr_state '{state: "OPEN"} + auto + event("AutoMergeEnabledEvent"; null)')"
+# A disabled auto-merge must not turn a dropped PR into a merely open one, so the query leaves it out.
+export FAKE_GH_LOG="$work/pr-state.log"
+: >"$FAKE_GH_LOG"
+pr_state '{state: "OPEN"}' >/dev/null
+expect "pr-state asks only for the events that put a PR into the queue or take it out" \
+    "ADDED_TO_MERGE_QUEUE_EVENT REMOVED_FROM_MERGE_QUEUE_EVENT AUTO_MERGE_ENABLED_EVENT" \
+    "$(tr '\n' ' ' <"$FAKE_GH_LOG" | grep -o 'itemTypes: \[[^]]*\]' | sed 's/itemTypes: //' | tr -d '[],' | tr -s ' ')"
+unset FAKE_GH_LOG
+expect "pr-state: a removal because the PR merged is no drop" open \
+    "$(pr_state '{state: "OPEN"} + event("RemovedFromMergeQueueEvent"; "merged")')"
+expect "pr-state: waits for the user's review" waits-for-user "$(pr_state '{state: "OPEN"} + review("FAILURE")')"
+expect "pr-state: waits for the user's review after the queue dropped an earlier commit" waits-for-user \
+    "$(pr_state '{state: "OPEN"} + event("RemovedFromMergeQueueEvent"; "failed_checks") + review("FAILURE")')"
+expect "pr-state: open without auto-merge" open "$(pr_state '{state: "OPEN"}')"
+expect "pr-state: no answer from gh" unknown "$(FAKE_GH_PRS='{}' bash scripts/loop/pr-state.sh https://github.com/o/r/pull/5)"
+
+# --- sweep: PRs in and out of the merge queue --------------------------------------------------
+export FAKE_BD_DB="$work/beads-queue.json"
+jq -n '[range(1; 8) as $n | {id: "x-pr\($n)", status: "in_progress", external_ref: "https://github.com/o/r/pull/\($n)"}]' \
+    >"$FAKE_BD_DB"
+: >"$FAKE_BD_DB.closed"
+prs='{
+    "https://github.com/o/r/pull/1": ({state: "OPEN", mergeQueueEntry: {position: 1}} + auto),
+    "https://github.com/o/r/pull/2": ({state: "OPEN"} + auto),
+    "https://github.com/o/r/pull/3": ({state: "OPEN"} + event("RemovedFromMergeQueueEvent"; "failed_checks")),
+    "https://github.com/o/r/pull/4": ({state: "OPEN"} + review("FAILURE")),
+    "https://github.com/o/r/pull/5": {state: "OPEN"},
+    "https://github.com/o/r/pull/6": {state: "CLOSED"},
+    "https://github.com/o/r/pull/7": ({state: "OPEN"} + event("RemovedFromMergeQueueEvent"; "merge_conflict"))
+}'
+FAKE_GH_PRS="$(jq -nc "$pr_jq$prs")"
+# Merge group runs of ci.yml: PR 3's failed group, a passing older one, and PR 33's, which is not 3's.
+group_run() { printf '{"headBranch": "gh-readonly-queue/main/pr-%s-%s", "conclusion": "%s", "url": "https://github.com/o/r/actions/runs/%s"}' "$@"; }
+FAKE_GH_CI_RUNS="[$(group_run 33 aaa failure 33),$(group_run 3 bbb failure 30),$(group_run 3 ccc success 29)]"
+out="$(FAKE_GH_PRS="$FAKE_GH_PRS" FAKE_GH_CI_RUNS="$FAKE_GH_CI_RUNS" bash scripts/loop/sweep.sh 2>&1)"
+expect "sweep reports a PR in the merge queue, not as pending" \
+    "queued   x-pr1 (https://github.com/o/r/pull/1, merge queue position 1)" "$(grep 'x-pr1 ' <<<"$out")"
+expect "sweep reports a PR whose CI runs before it joins the queue" \
+    "waiting  x-pr2 (https://github.com/o/r/pull/2, CI pending, then the merge queue)" "$(grep 'x-pr2 ' <<<"$out")"
+expect "sweep reports a PR the merge queue dropped, with its failed merge group run" \
+    "ATTENTION x-pr3: https://github.com/o/r/pull/3 left the merge queue (failed_checks, https://github.com/o/r/actions/runs/30): rebase it onto origin/main, fix it and land it again" \
+    "$(grep 'x-pr3:' <<<"$out")"
+expect "sweep reports a PR that waits for the user's review" \
+    "waits    x-pr4 (https://github.com/o/r/pull/4, waits for the user's review)" "$(grep 'x-pr4 ' <<<"$out")"
+expect "sweep reports an open PR that nothing moves on" \
+    "ATTENTION x-pr5: https://github.com/o/r/pull/5 is open without auto-merge and not in the merge queue" \
+    "$(grep 'x-pr5:' <<<"$out")"
+expect "sweep reports a PR closed without merging" \
+    "ATTENTION x-pr6: https://github.com/o/r/pull/6 was closed without merging" "$(grep 'x-pr6:' <<<"$out")"
+expect "sweep reports a PR the queue dropped for a conflict, without a run" \
+    "ATTENTION x-pr7: https://github.com/o/r/pull/7 left the merge queue (merge_conflict): rebase it onto origin/main, fix it and land it again" \
+    "$(grep 'x-pr7:' <<<"$out")"
+expect "sweep closes none of the open PRs' beads" "" "$(cat "$FAKE_BD_DB.closed")"
+unset FAKE_BD_DB
+
 # --- diff budget -------------------------------------------------------------------------------
 reset_state
 printf 'pub fn demo() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn old() {}\n}\n' >crates/demo/src/lib.rs
@@ -730,6 +823,11 @@ pr=https://github.com/o/r/pull/9
 commit_on bead/archicraft-fe01-feature crates/demo/src/lib.rs
 out="$(land "")"
 expect "land.sh turns on auto-merge for a feature bead" "pr merge $pr --auto --squash" "$(merge_calls)"
+expect "land.sh says the PR joins the merge queue on green CI" 1 \
+    "$(grep -c '^Merge: auto-merge (squash): it joins the merge queue on green CI\.$' <<<"$out")"
+out="$(FAKE_GH_PRS="{\"$pr\": {\"state\": \"OPEN\", \"mergeQueueEntry\": {\"position\": 1}}}" land "")"
+expect "land.sh says a PR whose CI passed is in the merge queue" 1 \
+    "$(grep -c '^Merge: auto-merge (squash): in the merge queue\.$' <<<"$out")"
 commit_on bead/archicraft-lp01-loop scripts/loop/gate.sh .claude/skills/bead/SKILL.md .claude/settings.local.json
 out="$(land loop)"
 expect "land.sh turns on auto-merge for a loop bead" "pr merge $pr --auto --squash" "$(merge_calls)"
@@ -745,6 +843,21 @@ expect "land.sh names the hook wiring that makes the PR wait" 1 \
     "$(grep -c "waits for the user's review.*\`\.claude/settings\.json\`" <<<"$out")"
 out="$(FAKE_GH_URL=$pr FAKE_GH_AUTO=true land loop)"
 expect "land.sh turns auto-merge off when a PR that had it changes the hook wiring" "pr merge $pr --disable-auto" "$(merge_calls)"
+# A PR that waits gets the user's steps in its description: review, merge as an admin, and run
+# setup-github.sh after the merge when the PR changes it (archicraft-9uh3).
+export FAKE_GH_BODY="$work/pr-body.md"
+steps() { sed -n '/^## Steps for the user$/,$p' "$FAKE_GH_BODY" | grep -Eo '^[0-9]\. [A-Z][a-z]+' | paste -sd '|' -; }
+land loop >/dev/null
+expect "a PR that waits names the user's steps" "1. Review|2. Merge" "$(steps)"
+expect "the user merges it past the failing status and the queue" 1 \
+    "$(grep -c '^2\. Merge it as an admin, past the failing status `User review` and the merge queue: ' "$FAKE_GH_BODY")"
+commit_on bead/archicraft-lp09-setup scripts/loop/setup-github.sh .github/workflows/ci.yml
+land loop >/dev/null
+expect "a PR that changes setup-github.sh tells the user to run it after the merge" "1. Review|2. Merge|3. After" "$(steps)"
+git switch -q bead/archicraft-fe01-feature
+land "" >/dev/null
+expect "a PR that auto-merges has no steps for the user" "" "$(steps)"
+unset FAKE_GH_BODY
 git switch -q main
 mkdir -p .github/workflows && echo 'on: push' >.github/workflows/ci.yml
 git add -A && git commit -qm workflows && git push -q origin main
@@ -841,15 +954,84 @@ expect "user-review check posts a failing status on the PR's head" 1 "$(grep -c 
 GH_REPO=o/r user_review bead/archicraft-fe01-feature >/dev/null
 expect "user-review check posts a passing status on the PR's head" 1 "$(grep -c "^api -X POST repos/o/r/statuses/$(
     git rev-parse bead/archicraft-fe01-feature) -f state=success -f context=User review -f description=" "$FAKE_GH_LOG")"
+# In the merge queue the check judges the merge group's commit, which stacks the PRs ahead of this
+# one on main: it fails when any of them changes a workflow, and posts the status on the group's head.
+git switch -q -c queue-ok main
+echo '# pr 1' >>docs/a.md && git commit -qam "pr 1: docs"
+echo '// pr 2' >>crates/demo/src/lib.rs && git commit -qam "pr 2: code"
+git switch -q -c queue-workflow queue-ok
+echo '# pr 3' >>.github/workflows/ci.yml && git commit -qam "pr 3: workflow"
+echo '# pr 4' >>docs/a.md && git commit -qam "pr 4: docs"
+git switch -q main
+expect "user-review check passes a merge group of PRs that change no workflow" pass "$(waits_for queue-ok)"
+expect "user-review check fails a merge group with a workflow change ahead of the last PR" .github/workflows/ci.yml \
+    "$(waits_for queue-workflow)"
+: >"$FAKE_GH_LOG"
+GH_REPO=o/r user_review queue-ok >/dev/null
+expect "user-review check posts its status on the merge group's head" 1 \
+    "$(grep -c "^api -X POST repos/o/r/statuses/$(git rev-parse queue-ok) -f state=success -f context=User review " "$FAKE_GH_LOG")"
 unset FAKE_GH_LOG
-# The workflow runs the base's copy (pull_request_target, no checkout of the PR) and branch
-# protection requires its status.
+# The workflow runs the base's copy (pull_request_target, no checkout of the PR; main for a merge
+# group) and the ruleset requires its status.
 wf="$src/../../.github/workflows/user-review.yml"
-expect "the user-review workflow runs on pull_request_target only" "pull_request_target:" \
-    "$(sed -n '/^on:/,/^[a-z]/p' "$wf" | grep -E '^  [a-z_]+:' | sed 's/^ *//')"
-expect "the user-review workflow checks out the base, not the PR" 0 "$(grep -Ec '^ *(ref|repository):' "$wf")"
+expect "the user-review workflow runs on pull_request_target and in the merge queue" "pull_request_target: merge_group:" \
+    "$(sed -n '/^on:/,/^[a-z]/p' "$wf" | grep -E '^  [a-z_]+:' | sed 's/^ *//' | paste -sd ' ' -)"
+expect "the user-review workflow checks out the base, main for a merge group, never the PR" \
+    'ref: ${{ github.event.merge_group.base_ref }}' "$(grep -E '^ *(ref|repository):' "$wf" | sed 's/^ *//')"
+expect "the user-review workflow judges the PR's head or the merge group's" 2 \
+    "$(grep -c '^ *HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}$' "$wf")"
+expect "the user-review workflow runs once per merge group, which has no PR number" 1 \
+    "$(grep -c '^ *group: user-review-${{ github.event.pull_request.number || github.event.merge_group.head_ref }}$' "$wf")"
 expect "the user-review workflow runs the check" 1 "$(grep -c '^ *run: scripts/loop/ci-user-review\.sh$' "$wf")"
-expect "branch protection requires the user-review status" 1 "$(grep -c '^ *"User review",\?$' "$src/setup-github.sh")"
+rulesets="$(bash "$src/setup-github.sh" --print-rulesets)"
+ruleset="$(jq '.[] | select(.name == "main")' <<<"$rulesets")"
+required="$(jq -r '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' <<<"$ruleset")"
+expect "the ruleset requires the user-review status" 1 "$(grep -cx 'User review' <<<"$required")"
+# Every other required check is a job of ci.yml that runs on a merge group too: ci.yml runs on
+# merge_group and the job has no condition. A required check that never reports there keeps the
+# queue waiting until its timeout (docs/loop.md, "The merge queue").
+ci_wf="$src/../../.github/workflows/ci.yml"
+expect "CI runs in the merge queue" 1 "$(sed -n '/^on:/,/^[a-z]/p' "$ci_wf" | grep -c '^  merge_group:$')"
+ci_jobs="$(awk '
+    /^jobs:/ { jobs = 1; next }
+    jobs && /^  [a-z][a-z0-9_-]*:$/ { if (name != "") print name "\t" cond; name = ""; cond = "" }
+    jobs && /^    name: / { name = substr($0, 11) }
+    jobs && /^    if: / { cond = substr($0, 9) }
+    END { if (name != "") print name "\t" cond }' "$ci_wf")"
+expect "the job list of ci.yml has the conditions (bench skips the merge queue)" 1 \
+    "$(grep -cxF "Bench regression gate	github.event_name != 'merge_group'" <<<"$ci_jobs")"
+expect "every required check reports on a merge group" "" "$(grep -vx 'User review' <<<"$required" |
+    while IFS= read -r c; do grep -qxF "$c	" <<<"$ci_jobs" || echo "$c"; done | paste -sd ',' -)"
+expect "a required check that is no CI job counts as missing" "Test (windows-latest)" \
+    "$(printf 'Test (windows-latest)\nLoop policy\n' | while IFS= read -r c; do grep -qxF "$c	" <<<"$ci_jobs" || echo "$c"; done)"
+expect "main merges through the merge queue, squashed, each PR's group green" "SQUASH ALLGREEN" \
+    "$(jq -r '.rules[] | select(.type == "merge_queue") | .parameters | "\(.merge_method) \(.grouping_strategy)"' <<<"$ruleset")"
+expect "the queue tests PRs on main, so they need not be up to date" false \
+    "$(jq '.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy' <<<"$ruleset")"
+expect "admins bypass the ruleset (repairs of main, PRs that wait for the review)" always \
+    "$(jq -r '.bypass_actors[] | select(.actor_type == "RepositoryRole" and .actor_id == 5) | .bypass_mode' <<<"$ruleset")"
+expect "nobody deletes or force-pushes main, admins neither" "deletion non_fast_forward 0" \
+    "$(jq -r '.[] | select(.name == "main history") | "\([.rules[].type] | join(" ")) \(.bypass_actors | length)"' <<<"$rulesets")"
+
+# --- setup-github.sh: the ruleset first, then the classic protection goes ---------------------
+export FAKE_GH_LOG="$work/gh.log"
+setup() { : >"$FAKE_GH_LOG"; bash "$src/setup-github.sh" 2>&1; }
+api_calls() { # the calls to the rulesets and the protection of main, in order
+    grep -E '^api (-X [A-Z]+ )?repos/o/r/(rulesets|branches)' "$FAKE_GH_LOG" | sed 's/ --input -$//; s/ -q .*//' | paste -sd '|' -
+}
+setup >/dev/null
+expect "setup creates both rulesets, then deletes the classic protection" \
+    "$(printf '%s|' 'api repos/o/r/rulesets?includes_parents=false' 'api -X POST repos/o/r/rulesets' \
+        'api repos/o/r/rulesets?includes_parents=false' 'api -X POST repos/o/r/rulesets' 'api repos/o/r/branches/main/protection')api -X DELETE repos/o/r/branches/main/protection" \
+    "$(api_calls)"
+FAKE_GH_RULESET_ID=42 FAKE_GH_NO_PROTECTION=1 setup >/dev/null
+expect "setup updates existing rulesets and leaves an absent protection alone" \
+    "$(printf '%s|' 'api repos/o/r/rulesets?includes_parents=false' 'api -X PUT repos/o/r/rulesets/42' \
+        'api repos/o/r/rulesets?includes_parents=false' 'api -X PUT repos/o/r/rulesets/42')api repos/o/r/branches/main/protection" "$(api_calls)"
+out="$(FAKE_GH_REPO_KIND="false PUBLIC" setup)"
+expect "setup changes nothing where GitHub offers no merge queue" "1 0" \
+    "$(grep -c "The merge queue needs a public repository owned by an organization" <<<"$out") $(grep -c '^api -X' "$FAKE_GH_LOG")"
+unset FAKE_GH_LOG
 
 # --- start-bead.sh runs as it is on origin/main ------------------------------------------------
 git switch -q main
