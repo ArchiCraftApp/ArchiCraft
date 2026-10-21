@@ -50,7 +50,7 @@ const CHILD_LOG: &str = "child.log";
 
 /// How long the parent waits for the child to get ready.
 const READY_TIMEOUT: Duration = Duration::from_secs(40);
-/// How long the child keeps editing before it gives up on being killed, so
+/// How long the child keeps running before it gives up on being killed, so
 /// it never outlives a parent that failed.
 const CHILD_LIFETIME: Duration = Duration::from_secs(120);
 /// How long the child waits for the autosave thread.
@@ -106,7 +106,8 @@ fn files_below(dir: &Path) -> Vec<PathBuf> {
 
 /// The child process of `as05_crash_recovery`: saves house.ifcx at minute 0,
 /// edits at minute 1, is autosaved at minute 5, edits again at minute 5.5 and
-/// keeps editing at minute 6 until it is killed.
+/// keeps stepping frames at minute 6, with the minute-5.5 edit unsaved, until
+/// it is killed.
 #[test]
 #[ignore = "the child process of as05_crash_recovery, which runs it"]
 fn as05_child() {
@@ -171,14 +172,40 @@ fn as05_child() {
     fs::write(&partial, session.to_string_lossy().as_bytes()).expect("the ready marker");
     fs::rename(&partial, &ready).expect("the ready marker");
 
-    // Minute 6, still editing: frames keep running until the parent kills
-    // the process.
+    // Minute 6, with the minute-5.5 edit unsaved: frames keep running until
+    // the parent kills the process.
     let deadline = Instant::now() + CHILD_LIFETIME;
     while Instant::now() < deadline {
         h.step();
         std::thread::sleep(Duration::from_millis(20));
     }
     panic!("not killed within {CHILD_LIFETIME:?}");
+}
+
+/// How long the parent waits for the operating system to release the killed
+/// child's session lock.
+const LOCK_RELEASE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Waits until the lock on `lock_file` can be taken. Windows releases the
+/// locks of a terminated process after a delay that depends on the system's
+/// load; until then the restarted application would take the killed session
+/// for a running one.
+fn wait_for_lock_release(lock_file: &Path) {
+    let started = Instant::now();
+    loop {
+        let file = File::options()
+            .write(true)
+            .open(lock_file)
+            .unwrap_or_else(|e| panic!("cannot open {}: {e}", lock_file.display()));
+        if file.try_lock().is_ok() {
+            return;
+        }
+        assert!(
+            started.elapsed() < LOCK_RELEASE_TIMEOUT,
+            "the killed session is still locked after {LOCK_RELEASE_TIMEOUT:?}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 /// Removes the test folder when the test ends, passed or failed.
@@ -248,6 +275,7 @@ fn as05_crash_recovery() {
     child.0.kill().expect("the child is killed");
     let status = child.0.wait().expect("the child ends");
     assert!(!status.success(), "the child was killed, it did not finish");
+    wait_for_lock_release(&killed_session.join("session.lock"));
 
     // PRJ-004: the autosave went to the recovery folder, never next to the
     // project; the project folder holds the file and its backup only.
