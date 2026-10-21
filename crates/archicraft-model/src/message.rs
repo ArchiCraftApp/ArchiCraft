@@ -50,6 +50,10 @@ pub const ALL_KEYS: &[&str] = &[
     "model-kind-wall-noun",
     "model-kind-slab",
     "model-kind-slab-noun",
+    // The test kind (feature `test-kinds`), listed in every build so that
+    // the application's catalogue is the same in test and release builds.
+    "model-kind-test",
+    "model-kind-test-noun",
     // Command errors (CommandError::message).
     "model-error-no-change",
     "model-error-invalid-distance",

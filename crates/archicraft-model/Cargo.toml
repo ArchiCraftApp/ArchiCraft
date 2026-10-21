@@ -15,7 +15,14 @@ serde.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 
+[features]
+# A test-only element kind (src/kinds/mod.rs). Enabled for this crate's tests
+# by the dev-dependency on itself below and for the other crates' tests by
+# theirs; never in a normal or release build.
+test-kinds = []
+
 [dev-dependencies]
+archicraft-model = { workspace = true, features = ["test-kinds"] }
 serde_json.workspace = true
 
 [lints]

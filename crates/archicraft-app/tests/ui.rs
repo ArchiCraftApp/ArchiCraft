@@ -228,6 +228,39 @@ fn selecting_an_element_shows_its_properties() {
     harness.get_by_label("Home storey");
 }
 
+/// SRS 3.2: an element of a kind without a panel of its own (the model's
+/// test kind) shows the common fields only, and its missing geometry is the
+/// only problem listed.
+#[test]
+fn a_kind_without_its_own_panel_shows_the_common_fields() {
+    let mut harness = harness("test-kind");
+    {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let material = ws.doc.project.materials[0].id;
+        let element = archicraft_model::kinds::Dummy::new(DVec2::ZERO, DVec2::ONE, material).into_element(
+            &ws.doc.project,
+            storey,
+            0,
+        );
+        let id = element.id;
+        let wall = ws
+            .doc
+            .project
+            .new_wall(storey, DVec2::new(0.0, 3.0), DVec2::new(4.0, 3.0), 0);
+        assert!(ws.execute(Command::AddElements(vec![element, wall])));
+        ws.selection.insert(id);
+    }
+    harness.run_steps(2);
+    for common in ["Locked", "Home storey"] {
+        harness.get_by_label(common);
+    }
+    for specific in ["Thickness", "Reference line", "Length", "Area"] {
+        assert!(harness.query_by_label(specific).is_none(), "{specific} is shown");
+    }
+    assert_eq!(harness.state_mut().workspace().doc.geometry().problems.len(), 1);
+}
+
 /// NFR-L10N-001: a value the model rejects reports the localized message in
 /// the status line, with the limits in the project length unit.
 #[test]

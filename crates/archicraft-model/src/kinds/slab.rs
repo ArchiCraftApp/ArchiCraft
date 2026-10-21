@@ -3,7 +3,7 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor};
+use super::{Kind, KindDescriptor, plan_bounds_of};
 use crate::element::IfcClass;
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
@@ -111,5 +111,10 @@ impl Kind for Slab {
         let home = storeys.get(home)?.elevation;
         self.offset = home + self.offset - target_elevation;
         Some(())
+    }
+
+    /// Holes lie inside the outline, so the outline bounds the slab.
+    fn plan_bounds(&self) -> Option<(DVec2, DVec2)> {
+        plan_bounds_of(self.outline.iter().copied())
     }
 }

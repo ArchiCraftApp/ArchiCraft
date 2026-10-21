@@ -14,11 +14,25 @@
 //! [`ElementKind`] (the payload enum; serde variant names are the payload
 //! names), [`KindTag`] (the payload-free tag with [`KindTag::ALL`] and
 //! [`KindTag::descriptor`]), [`KINDS`], the `Element::as_<kind>()` accessors
-//! and the methods of [`ElementKind`] that delegate to the hooks.
+//! and the methods of [`ElementKind`] that delegate to the hooks. Both enums
+//! are `#[non_exhaustive]`: crates outside the model match them with a
+//! wildcard arm for kinds they have no specific code for.
 //!
 //! The base and top of vertical kinds is a shared [`VerticalLink`] (ELM-006),
 //! and plan moves, rotations and mirrors go through [`Kind::transform`].
+//!
+//! # The test kind
+//!
+//! One kind exists only for tests, behind the cargo feature `test-kinds`: it
+//! proves that a kind is one module plus one line in the list below, and it
+//! exercises the paths other crates take for kinds they do not know yet. The
+//! feature is enabled through dev-dependencies, for this crate's own tests by
+//! a dev-dependency on itself. Cargo (resolver 2 and later) activates the
+//! features of dev-dependencies only in builds of tests, examples and
+//! benchmarks, so a normal or release build never contains the test kind,
+//! while `cargo test --workspace` builds every crate with it.
 
+use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, IfcClass};
@@ -69,6 +83,27 @@ pub struct StoreyLinkRef {
     /// What is linked, for messages, for example "top".
     pub role: &'static str,
     pub storey: StoreyId,
+}
+
+/// A part of a compound element, written as a child node with its own IFC
+/// class (IFX-016, Table 5-1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PartSpec {
+    /// Role and child name, for example `Flight_1`.
+    pub role: String,
+    pub class: IfcClass,
+    /// User-facing name, for example "Flight 1".
+    pub label: String,
+}
+
+/// The spatial node an element is placed under (Table 5-1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum Container {
+    /// Below its home storey, like walls and slabs.
+    #[default]
+    Storey,
+    /// Below the site, like terrain.
+    Site,
 }
 
 /// The parameters and behaviour of one element kind (SRS 3.2).
@@ -127,45 +162,71 @@ pub trait Kind: Sized {
     fn unlink_storey(&mut self, _home: StoreyId, _storeys: &StoreyList, _storey: StoreyId) -> bool {
         false
     }
+
+    /// The parts of a compound element (IFX-016); empty for simple ones.
+    fn parts(&self) -> Vec<PartSpec> {
+        Vec::new()
+    }
+
+    /// The spatial node the element is placed under (Table 5-1).
+    fn container(&self) -> Container {
+        Container::Storey
+    }
+
+    /// Smallest and largest plan coordinates the element covers. `None` if
+    /// it has no points.
+    fn plan_bounds(&self) -> Option<(DVec2, DVec2)>;
+}
+
+/// Bounding box of plan points, `None` if there are none.
+pub(crate) fn plan_bounds_of(points: impl IntoIterator<Item = DVec2>) -> Option<(DVec2, DVec2)> {
+    points
+        .into_iter()
+        .map(|p| (p, p))
+        .reduce(|(lo, hi), (l, h)| (lo.min(l), hi.max(h)))
 }
 
 /// Generates the registry from one list of
-/// `module => Payload (as_kind, as_kind_mut)` entries; see the module documentation.
+/// `module => Payload (as_kind, as_kind_mut)` entries, each optionally behind
+/// attributes such as `#[cfg(…)]`; see the module documentation.
 macro_rules! kinds {
-    ($($module:ident => $Payload:ident ($as_kind:ident, $as_kind_mut:ident)),+ $(,)?) => {
-        $(mod $module;)+
-        $(pub use self::$module::$Payload;)+
+    ($($(#[$meta:meta])* $module:ident => $Payload:ident ($as_kind:ident, $as_kind_mut:ident)),+ $(,)?) => {
+        $($(#[$meta])* mod $module;)+
+        $($(#[$meta])* pub use self::$module::$Payload;)+
 
         /// The kind-specific parameters of an element (SRS 3.2).
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+        #[non_exhaustive]
         pub enum ElementKind {
-            $($Payload($Payload),)+
+            $($(#[$meta])* $Payload($Payload),)+
         }
 
         /// An element kind without its parameters: the tool that creates
         /// it (SRS 3.2).
         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+        #[non_exhaustive]
         pub enum KindTag {
-            $($Payload,)+
+            $($(#[$meta])* $Payload,)+
         }
 
         impl KindTag {
-            /// Every kind, in registry order.
-            pub const ALL: &'static [KindTag] = &[$(KindTag::$Payload,)+];
+            /// Every kind of this build, in registry order.
+            pub const ALL: &'static [KindTag] = &[$($(#[$meta])* KindTag::$Payload,)+];
 
             /// The kind's entry in the registry.
             pub fn descriptor(self) -> &'static KindDescriptor {
                 match self {
-                    $(KindTag::$Payload => &<$Payload as Kind>::DESCRIPTOR,)+
+                    $($(#[$meta])* KindTag::$Payload => &<$Payload as Kind>::DESCRIPTOR,)+
                 }
             }
         }
 
         /// The registry: one descriptor per kind, in the order of
         /// [`KindTag::ALL`].
-        pub static KINDS: &[&KindDescriptor] = &[$(&<$Payload as Kind>::DESCRIPTOR,)+];
+        pub static KINDS: &[&KindDescriptor] = &[$($(#[$meta])* &<$Payload as Kind>::DESCRIPTOR,)+];
 
         $(
+            $(#[$meta])*
             impl From<$Payload> for ElementKind {
                 fn from(payload: $Payload) -> Self {
                     ElementKind::$Payload(payload)
@@ -175,6 +236,7 @@ macro_rules! kinds {
 
         impl Element {
             $(
+                $(#[$meta])*
                 #[doc = concat!("The parameters of the element if it is a ", stringify!($module), ".")]
                 pub fn $as_kind(&self) -> Option<&$Payload> {
                     match &self.kind {
@@ -183,6 +245,7 @@ macro_rules! kinds {
                     }
                 }
 
+                $(#[$meta])*
                 #[doc = concat!("The parameters of the element, for changing, if it is a ", stringify!($module), ".")]
                 pub fn $as_kind_mut(&mut self) -> Option<&mut $Payload> {
                     match &mut self.kind {
@@ -196,70 +259,91 @@ macro_rules! kinds {
         impl ElementKind {
             pub fn tag(&self) -> KindTag {
                 match self {
-                    $(ElementKind::$Payload(_) => KindTag::$Payload,)+
+                    $($(#[$meta])* ElementKind::$Payload(_) => KindTag::$Payload,)+
                 }
             }
 
             /// See [`Kind::material`].
             pub fn material(&self) -> MaterialId {
                 match self {
-                    $(ElementKind::$Payload(k) => k.material(),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.material(),)+
                 }
             }
 
             /// See [`Kind::set_material`].
             pub fn set_material(&mut self, material: MaterialId) {
                 match self {
-                    $(ElementKind::$Payload(k) => k.set_material(material),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.set_material(material),)+
                 }
             }
 
             /// See [`Kind::validate`].
             pub fn validate(&self, storeys: &StoreyList) -> Result<ElementKind, Message> {
                 match self {
-                    $(ElementKind::$Payload(k) => k.validate(storeys).map(ElementKind::$Payload),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.validate(storeys).map(ElementKind::$Payload),)+
                 }
             }
 
             /// See [`Kind::transform`].
             pub fn transform(&mut self, transform: &PlanTransform) -> Result<(), TransformError> {
                 match self {
-                    $(ElementKind::$Payload(k) => k.transform(transform),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.transform(transform),)+
                 }
             }
 
             /// See [`Kind::vertical_extent`].
             pub fn vertical_extent(&self, home: StoreyId, storeys: &StoreyList) -> Option<(f64, f64)> {
                 match self {
-                    $(ElementKind::$Payload(k) => k.vertical_extent(home, storeys),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.vertical_extent(home, storeys),)+
                 }
             }
 
             /// See [`Kind::storey_links`].
             pub fn storey_links(&self) -> Vec<StoreyLinkRef> {
                 match self {
-                    $(ElementKind::$Payload(k) => k.storey_links(),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.storey_links(),)+
                 }
             }
 
             /// See [`Kind::rehome`].
             pub fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target_elevation: f64) -> Option<()> {
                 match self {
-                    $(ElementKind::$Payload(k) => k.rehome(home, storeys, target_elevation),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.rehome(home, storeys, target_elevation),)+
                 }
             }
 
             /// See [`Kind::relink`].
             pub fn relink(&mut self, home: StoreyId, storeys: &StoreyList, target: StoreyId) -> Option<()> {
                 match self {
-                    $(ElementKind::$Payload(k) => k.relink(home, storeys, target),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.relink(home, storeys, target),)+
                 }
             }
 
             /// See [`Kind::unlink_storey`].
             pub fn unlink_storey(&mut self, home: StoreyId, storeys: &StoreyList, storey: StoreyId) -> bool {
                 match self {
-                    $(ElementKind::$Payload(k) => k.unlink_storey(home, storeys, storey),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.unlink_storey(home, storeys, storey),)+
+                }
+            }
+
+            /// See [`Kind::parts`].
+            pub fn parts(&self) -> Vec<PartSpec> {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.parts(),)+
+                }
+            }
+
+            /// See [`Kind::container`].
+            pub fn container(&self) -> Container {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.container(),)+
+                }
+            }
+
+            /// See [`Kind::plan_bounds`].
+            pub fn plan_bounds(&self) -> Option<(DVec2, DVec2)> {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.plan_bounds(),)+
                 }
             }
         }
@@ -270,6 +354,7 @@ macro_rules! kinds {
 kinds! {
     wall => Wall (as_wall, as_wall_mut),
     slab => Slab (as_slab, as_slab_mut),
+    #[cfg(feature = "test-kinds")] dummy => Dummy (as_dummy, as_dummy_mut),
 }
 
 impl KindTag {

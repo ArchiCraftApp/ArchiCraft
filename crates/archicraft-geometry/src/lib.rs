@@ -24,6 +24,10 @@ pub enum GeometryError {
     InvalidExtent,
     #[error("the {0} is missing")]
     MissingReference(&'static str),
+    /// No geometry generator exists for the element's kind yet; the value
+    /// is the kind's code.
+    #[error("elements of the kind “{0}” have no geometry yet")]
+    UnsupportedKind(&'static str),
 }
 
 /// Re-exported for dependants that work with plan polygons.

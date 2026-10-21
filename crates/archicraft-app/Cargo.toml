@@ -38,6 +38,9 @@ tracing-subscriber.workspace = true
 unic-langid.workspace = true
 
 [dev-dependencies]
+# The test-only element kind (archicraft_model::kinds), for kinds without
+# kind-specific panels.
+archicraft-model = { workspace = true, features = ["test-kinds"] }
 egui_kittest = { workspace = true, features = ["eframe"] }
 proc-macro2.workspace = true
 syn.workspace = true

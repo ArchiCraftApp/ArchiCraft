@@ -296,6 +296,7 @@ fn str_004_deleting_a_storey_moves_or_deletes_its_elements() {
                     w.top = TopLink::Fixed { height: 1.0 };
                 }
                 ElementKind::Slab(s) => s.offset = 0.0,
+                other => panic!("only walls and slabs here: {other:?}"),
             }
         }
         assert_eq!(in_plan, old_in_plan, "{} keeps its plan position", moved.name);

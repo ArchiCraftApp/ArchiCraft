@@ -220,8 +220,10 @@ fn counters(counters: &NameCounters) -> Value {
         .into()
 }
 
-fn element_attributes(e: &Element) -> (&'static str, Value) {
-    match &e.kind {
+/// The kind's parameter attribute, or `None` for a kind this format
+/// version cannot store yet.
+fn element_attributes(e: &Element) -> Option<(&'static str, Value)> {
+    Some(match &e.kind {
         ElementKind::Wall(w) => {
             let mut map = Map::new();
             map.insert("start".into(), point2(w.start));
@@ -244,7 +246,8 @@ fn element_attributes(e: &Element) -> (&'static str, Value) {
                 "material": s.material.to_string(),
             }),
         ),
-    }
+        _ => return None,
+    })
 }
 
 /// Mesh points rounded to 10⁻⁶ m (IFX-007) and a triangle list (IFX-032).
@@ -437,17 +440,30 @@ fn write_element(
         node.attributes
             .insert("bsi::ifc::prop::IsExternal".into(), json!(external));
     }
-    node.attributes.insert(
-        schema::ELEMENT.into(),
-        json!({
-            "kind": e.tag().code(),
-            "layer": e.layer.to_string(),
-            "locked": e.locked,
-            "position": e.position.code(),
-        }),
-    );
-    let (key, value) = element_attributes(e);
-    node.attributes.insert(key.into(), value);
+    match element_attributes(e) {
+        Some((key, value)) => {
+            node.attributes.insert(
+                schema::ELEMENT.into(),
+                json!({
+                    "kind": e.tag().code(),
+                    "layer": e.layer.to_string(),
+                    "locked": e.locked,
+                    "position": e.position.code(),
+                }),
+            );
+            node.attributes.insert(key.into(), value);
+        }
+        // Without its kind and parameters the element reads back as an
+        // unsupported node, not as a broken element.
+        None => warnings.push(Problem::warning(
+            Some(&e.id.to_string()),
+            format!(
+                "{} is of the kind “{}”, which this file format cannot store yet; it was saved without its parameters and will not open as an editable element.",
+                e.name,
+                e.tag().code()
+            ),
+        )),
+    }
     data.push(node);
     data.extend(parts);
 }

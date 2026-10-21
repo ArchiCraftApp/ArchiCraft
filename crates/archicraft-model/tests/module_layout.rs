@@ -64,7 +64,7 @@ fn element_kinds_are_generated_from_one_list() {
         .and_then(|(_, rest)| rest.split_once("\n}"))
         .map(|(list, _)| list)
         .expect("kinds/mod.rs must invoke `kinds! { … }`");
-    for (module, payload) in [("wall", "Wall"), ("slab", "Slab")] {
+    for (module, payload) in [("wall", "Wall"), ("slab", "Slab"), ("dummy", "Dummy")] {
         let entry = format!("{module} => {payload}");
         assert_eq!(invocation.matches(&entry).count(), 1, "`{entry}` must be listed once");
     }
@@ -85,10 +85,11 @@ fn core_model_code_does_not_match_on_kind_tags() {
     }
 }
 
-/// The crate-root re-export paths stay as they were, so dependants do not
-/// change.
+/// The payload types are defined in the kind modules; the crate-root
+/// re-exports they are named through here (`archicraft_model::Wall`, …)
+/// still compile, so dependants do not change.
 #[test]
-fn payload_reexport_paths_are_unchanged() {
+fn payload_types_are_defined_in_the_kinds_module() {
     let names = [
         std::any::type_name::<Wall>(),
         std::any::type_name::<ReferenceLine>(),
@@ -170,6 +171,55 @@ fn only_kind_modules_match_on_kind_variants() {
         for (n, line) in code.lines().enumerate() {
             for pattern in ["ElementKind::Wall(", "ElementKind::Slab("] {
                 assert!(!line.contains(pattern), "{file}:{}: `{pattern}` in {line:?}", n + 1);
+            }
+        }
+    }
+}
+
+/// A file below a crate's `src/` that may name the test kind, and on how
+/// many lines (`None`: any number).
+type Allowed = (&'static str, Option<usize>);
+
+/// The crates whose sources [`the_test_kind_is_named_only_in_its_module`]
+/// scans, with the files of each that may name the test kind.
+const TEST_KIND_SCOPE: &[(&str, &[Allowed])] = &[
+    (
+        "archicraft-model",
+        &[("kinds/dummy.rs", None), ("kinds/mod.rs", Some(1))],
+    ),
+    ("archicraft-app", &[]),
+];
+
+/// SRS 3.2, ELM-011: a kind is one module plus one line in the `kinds!`
+/// list. The test kind's identifiers `Dummy` and `dummy` occur in the model
+/// sources only in `kinds/dummy.rs` and on one line of `kinds/mod.rs`, and
+/// in no other scanned crate, so everything else reaches it through the
+/// registry and the hooks.
+#[test]
+fn the_test_kind_is_named_only_in_its_module() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates folder");
+    for (krate, allowed) in TEST_KIND_SCOPE {
+        let root = crates.join(krate).join("src");
+        let mut files = Vec::new();
+        rust_files(&root, &root, &mut files);
+        assert!(!files.is_empty(), "{}", root.display());
+        for (name, _) in *allowed {
+            assert!(files.iter().any(|f| f == name), "{krate}: {name} is missing");
+        }
+        for file in &files {
+            let text = fs::read_to_string(root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+            let lines: Vec<(usize, &str)> = text
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| line.contains("Dummy") || line.contains("dummy"))
+                .map(|(n, line)| (n + 1, line))
+                .collect();
+            match allowed.iter().find(|(name, _)| name == file) {
+                Some((_, None)) => {}
+                Some((_, Some(limit))) => assert_eq!(lines.len(), *limit, "{krate}/src/{file}: {lines:?}"),
+                None => assert!(lines.is_empty(), "{krate}/src/{file}: {lines:?}"),
             }
         }
     }

@@ -17,6 +17,9 @@ pub enum IfcClass {
     Slab,
     Footing,
     Covering,
+    /// `IfcBuildingElementProxy`, for elements without a more specific
+    /// class.
+    BuildingElementProxy,
 }
 
 impl IfcClass {
@@ -27,13 +30,20 @@ impl IfcClass {
             IfcClass::Slab => "IfcSlab",
             IfcClass::Footing => "IfcFooting",
             IfcClass::Covering => "IfcCovering",
+            IfcClass::BuildingElementProxy => "IfcBuildingElementProxy",
         }
     }
 
     pub fn from_code(code: &str) -> Option<Self> {
-        [IfcClass::Wall, IfcClass::Slab, IfcClass::Footing, IfcClass::Covering]
-            .into_iter()
-            .find(|c| c.code() == code)
+        [
+            IfcClass::Wall,
+            IfcClass::Slab,
+            IfcClass::Footing,
+            IfcClass::Covering,
+            IfcClass::BuildingElementProxy,
+        ]
+        .into_iter()
+        .find(|c| c.code() == code)
     }
 }
 

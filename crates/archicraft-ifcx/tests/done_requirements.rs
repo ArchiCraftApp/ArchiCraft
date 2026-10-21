@@ -526,6 +526,7 @@ fn ifx_020_classes_and_parents_follow_table_5_1() {
                 (KindTag::Wall, _, _) => "IfcWall",
                 (KindTag::Slab, _, true) => "IfcCovering",
                 (KindTag::Slab, _, false) => "IfcSlab",
+                (kind, ..) => panic!("the sample has only walls and slabs, not {kind:?}"),
             };
             assert_eq!(element.ifc_class.code(), code, "{} in the model", element.name);
             expected.push((element.id.to_string(), code, Some("IfcBuildingStorey")));
@@ -1365,6 +1366,7 @@ fn ifx_080_xch_008_every_element_of_an_opened_file_accepts_update_elements() {
         match &mut element.kind {
             ElementKind::Wall(w) => w.thickness += 0.01,
             ElementKind::Slab(s) => s.thickness += 0.01,
+            other => panic!("the sample has only walls and slabs, not {other:?}"),
         }
         kinds.insert(element.tag());
         execute(

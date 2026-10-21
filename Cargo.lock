@@ -292,6 +292,7 @@ dependencies = [
 name = "archicraft-model"
 version = "0.1.0"
 dependencies = [
+ "archicraft-model",
  "glam",
  "indexmap",
  "serde",

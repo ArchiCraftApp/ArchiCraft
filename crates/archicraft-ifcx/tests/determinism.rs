@@ -441,10 +441,7 @@ fn wall_on(project: &mut Project, start: DVec2, end: DVec2, thickness: f64) -> E
 }
 
 fn wall_of(project: &Project, id: ElementId) -> &archicraft_model::Wall {
-    match &project.elements[&id].kind {
-        ElementKind::Wall(w) => w,
-        ElementKind::Slab(_) => unreachable!(),
-    }
+    project.elements[&id].as_wall().unwrap()
 }
 
 #[test]

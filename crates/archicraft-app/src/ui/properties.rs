@@ -44,11 +44,16 @@ struct Editing {
     selected: usize,
 }
 
-fn prototype(project: &Project, kind: KindTag) -> Element {
+/// An element built from a tool's defaults, for editing them; `None` for a
+/// kind without tool defaults.
+fn prototype(project: &Project, kind: KindTag) -> Option<Element> {
     let storey = project.storeys.ground();
     match kind {
-        KindTag::Wall => project.new_wall(storey, DVec2::ZERO, DVec2::X, 0),
-        KindTag::Slab => project.new_slab(storey, vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::Y], Vec::new(), 0),
+        KindTag::Wall => Some(project.new_wall(storey, DVec2::ZERO, DVec2::X, 0)),
+        KindTag::Slab => {
+            Some(project.new_slab(storey, vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::Y], Vec::new(), 0))
+        }
+        _ => None,
     }
 }
 
@@ -62,7 +67,7 @@ fn gather(ws: &Workspace) -> Option<Editing> {
         };
         return Some(Editing {
             subject: Subject::Defaults(kind),
-            targets: vec![prototype(project, kind)],
+            targets: vec![prototype(project, kind)?],
             selected: 0,
         });
     }
@@ -81,8 +86,8 @@ fn gather(ws: &Workspace) -> Option<Editing> {
 }
 
 fn wall_defaults(e: &Element, old: &WallDefaults) -> WallDefaults {
-    match &e.kind {
-        ElementKind::Wall(w) => WallDefaults {
+    match e.as_wall() {
+        Some(w) => WallDefaults {
             thickness: w.thickness,
             reference_line: w.reference_line,
             base_offset: w.base_offset,
@@ -92,13 +97,13 @@ fn wall_defaults(e: &Element, old: &WallDefaults) -> WallDefaults {
             position: e.position,
             ifc_class: e.ifc_class,
         },
-        ElementKind::Slab(_) => old.clone(),
+        None => old.clone(),
     }
 }
 
 fn slab_defaults(e: &Element, old: &SlabDefaults) -> SlabDefaults {
-    match &e.kind {
-        ElementKind::Slab(s) => SlabDefaults {
+    match e.as_slab() {
+        Some(s) => SlabDefaults {
             thickness: s.thickness,
             reference: s.reference,
             offset: s.offset,
@@ -107,7 +112,7 @@ fn slab_defaults(e: &Element, old: &SlabDefaults) -> SlabDefaults {
             position: e.position,
             ifc_class: e.ifc_class,
         },
-        ElementKind::Wall(_) => old.clone(),
+        None => old.clone(),
     }
 }
 
@@ -124,6 +129,8 @@ fn apply(ws: &mut Workspace, editing: Editing) {
             match kind {
                 KindTag::Wall => defaults.wall = wall_defaults(e, &defaults.wall),
                 KindTag::Slab => defaults.slab = slab_defaults(e, &defaults.slab),
+                // A kind without a tool has no defaults to edit.
+                _ => return,
             }
             ws.execute(Command::SetToolDefaults(defaults));
         }
@@ -222,17 +229,11 @@ fn wall(e: &Element) -> Option<&archicraft_model::Wall> {
 }
 
 fn wall_mut(e: &mut Element) -> Option<&mut archicraft_model::Wall> {
-    match &mut e.kind {
-        ElementKind::Wall(w) => Some(w),
-        ElementKind::Slab(_) => None,
-    }
+    e.as_wall_mut()
 }
 
 fn slab_mut(e: &mut Element) -> Option<&mut archicraft_model::Slab> {
-    match &mut e.kind {
-        ElementKind::Slab(s) => Some(s),
-        ElementKind::Wall(_) => None,
-    }
+    e.as_slab_mut()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -258,10 +259,13 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
         |e| match &e.kind {
             ElementKind::Wall(w) => Some(w.thickness),
             ElementKind::Slab(s) => Some(s.thickness),
+            // Other kinds show the common fields only.
+            _ => None,
         },
         |e, v| match &mut e.kind {
             ElementKind::Wall(w) => w.thickness = v,
             ElementKind::Slab(s) => s.thickness = v,
+            _ => {}
         },
     );
     let reference_options: Vec<(u8, String)> = [
@@ -559,6 +563,7 @@ fn derived(ui: &mut Ui, ws: &mut Workspace, layout: Layout) {
             let area = signed_area(&s.outline).abs() - s.holes.iter().map(|h| signed_area(h).abs()).sum::<f64>();
             rows.push(("Area", format_area(area, units, &nf)));
         }
+        _ => {}
     }
     if let Some(v) = volume {
         rows.push(("Volume", format_volume(v, units, &nf)));

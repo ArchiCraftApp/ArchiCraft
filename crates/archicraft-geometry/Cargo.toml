@@ -22,6 +22,9 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+# The test-only element kind (archicraft_model::kinds), for kinds without
+# kind-specific code here.
+archicraft-model = { workspace = true, features = ["test-kinds"] }
 criterion.workspace = true
 
 [[bench]]

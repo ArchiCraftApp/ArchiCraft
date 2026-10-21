@@ -2,6 +2,8 @@
 //! serve as reference models for golden-file and conformance tests (SRS 7.3)
 //! and as a starting point in the application.
 
+use std::collections::BTreeMap;
+
 use glam::DVec2;
 
 use crate::command::{Command, History};
@@ -106,17 +108,14 @@ pub fn tiled_shell(n: usize) -> Project {
     let tile: Vec<_> = project.elements.values().cloned().collect();
     for (i, j) in (0..n).flat_map(|i| (0..n).map(move |j| (i, j))).skip(1) {
         let offset = DVec2::new(i as f64, j as f64) * TILE_PITCH;
-        let (mut walls, mut slabs) = (0, 0);
+        let mut created: BTreeMap<KindTag, u32> = BTreeMap::new();
         let copies = tile
             .iter()
             .map(|element| {
                 let mut copy = element.clone();
                 copy.id = ElementId::new();
                 copy.kind.translate(offset);
-                let nth = match copy.tag() {
-                    KindTag::Wall => &mut walls,
-                    KindTag::Slab => &mut slabs,
-                };
+                let nth = created.entry(copy.tag()).or_default();
                 copy.name = project.next_element_name(copy.tag(), *nth);
                 *nth += 1;
                 copy

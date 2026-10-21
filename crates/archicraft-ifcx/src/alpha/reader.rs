@@ -916,6 +916,11 @@ fn read_element(
                 material: material_of(attr, &mut report),
             })
         }
+        // The writer never writes a kind it cannot read back.
+        _ => {
+            report.skipped(format!("elements of the kind “{}” cannot be read yet", kind.code()));
+            return None;
+        }
     };
     let element = Element {
         id,
