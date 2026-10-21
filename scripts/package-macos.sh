@@ -18,7 +18,7 @@ fi
 cargo build --release --locked -p archicraft-app --bin archicraft
 
 bin=target/release/archicraft
-icon=crates/archicraft-app/assets/icon.png
+icon=ArchiCraft_Logo.png
 version=$(cargo pkgid -p archicraft-app | sed 's/.*[#@]//')
 commit=$(git describe --always --dirty)
 arch=$(lipo -archs "$bin")
@@ -35,7 +35,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$out/AppIcon.iconset"
 cp "$bin" "$app/Contents/MacOS/archicraft"
 cp LICENSE "$app/Contents/Resources/LICENSE"
 
-# Every size iconutil expects, scaled from the 1024 px icon.
+# Every size iconutil expects, scaled from the logo in the repository root.
 for size in 16 32 128 256 512; do
     sips -z "$size" "$size" "$icon" --out "$out/AppIcon.iconset/icon_${size}x${size}.png" >/dev/null
     sips -z $((size * 2)) $((size * 2)) "$icon" --out "$out/AppIcon.iconset/icon_${size}x${size}@2x.png" >/dev/null
