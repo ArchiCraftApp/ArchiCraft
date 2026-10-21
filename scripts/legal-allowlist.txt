@@ -5,3 +5,4 @@
 # One entry per line: <path>: <text the line contains> # <why the reference is nominative>
 .gitignore: KB scraper and its corpus # names the locally kept reference corpus that this ignore rule keeps out of the repository
 docs/roadmap.md: definitions are primitive-based and contain no # states the requirement that no such content ships
+docs/status/requirements.json: KB scraper' corpus (.gitignore:9) out of the repository # the NFR-LEG-002 evidence (source of the exempt docs/implementation-status.md) names the locally kept reference corpus that must stay out of the repository

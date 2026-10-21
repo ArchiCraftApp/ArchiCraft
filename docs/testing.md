@@ -312,6 +312,7 @@ request; the CI step is the regression check.
 | UND-005 | Plan pan, wheel and pinch zoom, fit, previous and next zoom, and 3D pan, orbit and zoom leave the project and the undo stack unchanged; Ctrl+Z then undoes the last edit | Test: `und_005_navigation_creates_no_undo_steps` (app) |
 | HW-001 | In the plan the middle button pans and the scroll wheel zooms; in the 3D view the middle button pans, Shift and the middle button orbit and the wheel zooms; a secondary click opens the context menu of either view | Test: `hw_001_middle_button_and_wheel_navigate_and_the_secondary_button_opens_context_menus` (app); also `view_014_plan_navigation_pans_zooms_and_fits` (app) |
 | IFX-083 | A composition cycle, a reference to an unknown node and an attribute that violates its schema are reported with the affected node path, an unresolved import with its URI, and the file still opens with every element | Test: `ifx_083_composition_and_validation_problems_name_the_node_and_the_file_still_opens` (ifcx); also `cycles_are_detected`, `schema_violations_are_reported` (roundtrip.rs) |
+| INP-017 | A wall with the snap flag off and every wall of a layer with it off provide no snap targets while staying visible, a locked wall still provides them, and a reference source switches off and on as a whole; the flags undo and redo to the exact project and round-trip through IFCX; the properties strip's 'Snap targets' checkbox excludes a selected wall | Test: `excluded_walls_and_layers_provide_no_targets`, `a_reference_source_can_be_switched_off_and_on` (input/targets.rs), `snap_exclusion_undoes_and_redoes_to_the_exact_project` (commands.rs: `crates/archicraft-model/tests/commands.rs`), `snap_exclusion_flags_round_trip` (roundtrip.rs), `a_selected_wall_can_be_excluded_from_snapping` (ui.rs: `crates/archicraft-app/tests/ui.rs`) |
 | INP-020 | Click-click is the default; with press-drag-release a press takes a point and the release after a drag the next, a press and release without movement equals a click; the mode is a preference that round-trips, an unknown value reads as click-click and keeps the rest of the file, and the Preferences window offers it in its Input group | Test: `a_press_drag_release_takes_two_points`, `a_press_and_release_without_movement_is_a_click`, `click_click_is_the_default_and_unchanged` (input/mod.rs), `input_mode_round_trips`, `an_unknown_input_mode_falls_back_to_click_click` (prefs.rs), `preferences_offer_the_input_mode_in_the_input_group` and `press_drag_release_draws_a_wall_in_the_plan_view` (tests/ui.rs) |
 
 Rows with "Test:" name `cargo test` functions, which the "Test" step of the "Test" job runs on
@@ -335,6 +336,49 @@ The negative self-test (`scripts/guards-selftest.sh`) runs each guard on a canne
 tracked `*.gsm` and `*.png` files) and fails if a guard lets it pass.
 
 Every requirement marked done in docs/implementation-status.md has a row here.
+
+## Implementation status
+
+[docs/status/requirements.json](status/requirements.json) holds one row per live requirement of
+docs/SRS.md: `id`, `priority` and `section` (as in the SRS), `status` (`done`, `partial` or
+`missing`), `remaining_effort` (`none` for done rows, else `S`, `M`, `L` or `XL`), `evidence`
+(done rows: what implements it and the test or guard that pins it), `gap` (the other rows: what
+is missing) and `depends_on` (SRS IDs). The counts, the per-section table and the requirement
+table of [docs/implementation-status.md](implementation-status.md) are generated from it between
+`<!-- status:begin … -->` and `<!-- status:end … -->` markers; the text outside the markers is
+edited by hand. `scripts/status.py` (Python 3 standard library) does the work:
+
+- `python3 scripts/status.py generate` rewrites the tables from the JSON and docs/SRS.md, in SRS
+  order, byte-stable.
+- `python3 scripts/status.py check` fails on a live SRS ID without a row, a duplicate row, a row
+  for a withdrawn or unknown ID, a priority or section that disagrees with the SRS, an evidence
+  path (`crates/…`, `docs/…`, `scripts/…`, `conformance/…`, `fuzz/…`, `.github/…`; line numbers
+  are not checked) to a missing file, a done row that names no test or CI guard, and any
+  difference between the document and what generate writes, so a hand edit inside the markers
+  fails. A done row names a test or guard when its evidence or its row in the traceability table
+  above names a test function, a test file or guard script that exists, or the name of a CI job
+  or step.
+- `python3 scripts/status.py merge-check --base <sha>` reads the `SRS:` lines of the
+  pull-request body (`--body-file`, or the event payload in CI) and of the commit messages since
+  the base, outside HTML comments. Every listed ID's row must differ from the base, and no row
+  may go from done to partial or missing unless a `Regresses: <ID> <reason>` line in the body or
+  a commit message names it. When the base has no requirements.json yet, every listed row
+  counts as changed and the regression check compares with the base's Markdown table.
+
+The CI job "Implementation status" runs `scripts/tests/test_status.py` and check on every pull
+request and push to `main`, and merge-check on pull requests.
+
+To change a status (an epic's tasks and every bead):
+
+1. Edit the requirement's row in docs/status/requirements.json: status, remaining effort, the
+   evidence with the test that pins it (and a traceability row above for a new done
+   requirement), or the remaining gap.
+2. Run `python3 scripts/status.py generate` and commit the JSON and the regenerated document
+   together; `python3 scripts/status.py check` passes.
+3. List the IDs on the pull request's `SRS:` line. An epic's final pull request lists the
+   epic's `srs_ids`. `scripts/loop/land.sh` writes the bead's `SRS:` notes line into every bead
+   pull request, so every bead pull request changes the row of each ID it lists, at least the
+   evidence or gap text; an ID whose row stays as it is does not belong on the line.
 
 ## Fuzzing
 
