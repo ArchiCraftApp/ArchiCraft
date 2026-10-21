@@ -53,6 +53,14 @@ link to Applications to drag it to. The app is signed ad hoc; set
 ad hoc signed app opens only after the user allows it under System Settings →
 Privacy & Security.
 
+`scripts/package-linux.sh` (a tarball with the executable, icon and desktop entry) and
+`scripts/package-windows.sh` (a zip with the executable, icon embedded; Git Bash, Windows SDK
+and Python with Pillow) do the same on Linux and Windows. All three take the app icon from
+`ArchiCraft_Logo.png`. An in-between release for testers, with all three packages of a pushed
+commit as a GitHub pre-release, comes from the workflow
+[Preview release](.github/workflows/preview-release.yml): `/preview-release` in Claude Code, or
+`gh workflow run preview-release.yml --ref main -f notes="What to try"`.
+
 ## System requirements
 
 ArchiCraft runs on Windows, macOS and Linux and draws with the GPU: Metal on macOS, DirectX 12
