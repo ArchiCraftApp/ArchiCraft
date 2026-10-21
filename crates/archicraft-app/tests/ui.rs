@@ -549,6 +549,53 @@ fn preferences_offer_indented_ifcx_output() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// INP-009: in the plan view Tab cycles the wall tool's snap candidates
+/// while nothing is typed: the view keeps the key from focus navigation,
+/// the resolved point moves to the next candidate and no point is placed.
+#[test]
+fn tab_cycles_snap_candidates_in_the_plan_view() {
+    let mut harness = harness("snap-cycle");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let pos = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.active_storey;
+        let state = &ws.plan_views[&storey];
+        let (rect, camera) = (state.last_rect, state.camera);
+        let left = camera.to_world(rect, rect.center() - egui::vec2(3.0, 0.0));
+        let right = camera.to_world(rect, rect.center() + egui::vec2(3.0, 0.0));
+        let walls = vec![
+            ws.doc.project.new_wall(storey, left - DVec2::new(2.0, 0.0), left, 0),
+            ws.doc.project.new_wall(storey, right, right + DVec2::new(2.0, 0.0), 1),
+        ];
+        assert!(ws.execute(Command::AddElements(walls)));
+        rect.center()
+    };
+    // A middle click activates the view without placing a point.
+    harness.hover_at(pos);
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(Event::PointerButton {
+            pos,
+            button: PointerButton::Middle,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    harness.run_steps(2);
+    let before = harness.state_mut().workspace().input.last().cloned().unwrap();
+    assert!(before.candidates.len() >= 2, "{:?}", before.candidates);
+    assert_eq!(before.snap, before.candidates[0]);
+
+    harness.key_press(Key::Tab);
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let after = ws.input.last().cloned().unwrap();
+    assert_eq!(after.snap, before.candidates[1], "Tab chose the second candidate");
+    assert!(ws.tool.points.is_empty());
+    assert!(ws.input.typed.is_empty());
+}
+
 /// SET-001, INP-020: the Preferences window gathers snap radius, angle
 /// increment and the input mode in its "Input" group; choosing
 /// press-drag-release with OK applies it, and the status line names it.

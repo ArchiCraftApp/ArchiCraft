@@ -24,7 +24,7 @@ pub use constrain::constrain;
 pub use consumer::{CursorState, Expect, InputConsumer, KeyHint, Outcome, Preview, StepSpec, TrackerMode};
 pub use keys::{KeyInput, Modifiers};
 pub use pointer::{InputMode, PointerEvent};
-pub use snap::{Snap, SnapKind, snap};
+pub use snap::{Snap, SnapKind, SnapLevel, candidates, snap};
 pub use surface::{SurfaceFrame, ViewSurface};
 pub use targets::{IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
 pub use typed::{Field, TypedInput, is_numeric_input};
@@ -42,9 +42,9 @@ pub enum GuideShape {
 pub struct Resolved {
     pub point: DVec2,
     pub snap: Snap,
-    /// The snaps the user can choose between at this position. Until
-    /// candidate cycling arrives this is the chosen snap alone, or nothing
-    /// for a free point.
+    /// The snaps the user can choose between at this position, in order of
+    /// precedence (INP-009); Tab cycles through them. A typed or
+    /// constrained point is the only one, a free point has none.
     pub candidates: Vec<Snap>,
     pub guides: Vec<GuideShape>,
 }
@@ -62,6 +62,8 @@ pub struct InputContext<'a> {
     pub pending: &'a [DVec2],
     /// The consumer's reference point on this storey.
     pub previous: Option<DVec2>,
+    /// The guides shown, snap targets of the guide levels (INP-009).
+    pub guides: &'a [GuideShape],
     /// What the consumer's current step expects.
     pub expects: Expect,
     /// The snap radius in model units: the radius in pixels times the
@@ -98,13 +100,17 @@ impl From<Outcome> for Effect {
     }
 }
 
-/// The state of point input between events: the typed values and the last
-/// cursor position (INP-001, INP-003).
+/// The state of point input between events: the typed values, the last
+/// cursor position and the snap candidate chosen with Tab (INP-001,
+/// INP-003, INP-009).
 #[derive(Clone, Debug, Default)]
 pub struct PointInput {
     pub typed: TypedInput,
     cursor: Option<(DVec2, Modifiers)>,
     last: Option<Resolved>,
+    /// Where cycling through the snap candidates started and the index of
+    /// the chosen candidate, like the selection's pick cycling (SEL-001).
+    cycle: Option<(DVec2, usize)>,
     /// Where the press of a press-drag-release gesture took its point.
     pressed: Option<DVec2>,
 }
@@ -148,9 +154,20 @@ impl PointInput {
         ))
     }
 
+    /// Whether Tab cycles through the snap candidates rather than moving to
+    /// the next typed field (INP-009): while two or more candidates are in
+    /// range and nothing is typed. Typed text in either field makes the
+    /// typed point the only candidate; checking the text directly also
+    /// covers a Tab that follows a typed key before the next resolve.
+    pub fn cycles(&self) -> bool {
+        self.typed.is_empty() && self.last.as_ref().is_some_and(|r| r.candidates.len() >= 2)
+    }
+
     /// Resolves a cursor position on the working plane: typed values first,
-    /// then the angle constraint while Shift is held, then snapping
-    /// (INP-003, INP-006, INP-009).
+    /// then the angle constraint while Shift is held, then snapping to the
+    /// candidate chosen with Tab, the first one unless the user cycled
+    /// (INP-003, INP-006, INP-009). Leaving the snap radius around the
+    /// position where cycling started ends the cycle.
     pub fn resolve(&mut self, cursor: DVec2, mods: Modifiers, ctx: &InputContext) -> Resolved {
         self.cursor = Some((cursor, mods));
         let origin = ctx.expects.origin(ctx.previous);
@@ -167,17 +184,32 @@ impl PointInput {
                 kind: SnapKind::Constrained,
             })
         };
-        let s = typed.or_else(constrained).unwrap_or_else(|| {
-            snap(
+        let candidates = match typed.or_else(constrained) {
+            Some(s) => vec![s],
+            None => candidates(
                 ctx.targets,
                 ctx.pending,
                 cursor,
                 ctx.radius,
                 ctx.snap_step,
                 ctx.previous,
-            )
-        });
-        let candidates = if s.kind == SnapKind::Free { Vec::new() } else { vec![s] };
+                ctx.guides,
+            ),
+        };
+        let chosen = match self.cycle {
+            Some((start, i)) if start.distance(cursor) <= ctx.radius => i,
+            _ => {
+                self.cycle = None;
+                0
+            }
+        };
+        let s = candidates
+            .get(chosen % candidates.len().max(1))
+            .copied()
+            .unwrap_or(Snap {
+                point: cursor,
+                kind: SnapKind::Free,
+            });
         let resolved = Resolved {
             point: s.point,
             snap: s,
@@ -213,8 +245,9 @@ impl PointInput {
         Some(origin + DVec2::from_angle(angle) * distance)
     }
 
-    /// Handles a key (INP-003): characters go to the active field, Tab moves
-    /// between fields, Enter commits the typed point or finishes a repeating
+    /// Handles a key (INP-003): characters go to the active field, Tab cycles
+    /// through the snap candidates in range or else moves between fields
+    /// (INP-009), Enter commits the typed point or finishes a repeating
     /// step, Backspace removes a character and then a point, and Esc clears
     /// the typed text and then cancels one step.
     pub fn key(&mut self, key: KeyInput, consumer: &mut dyn InputConsumer, ctx: &InputContext) -> Effect {
@@ -228,6 +261,15 @@ impl PointInput {
                 self.typed
                     .active_text()
                     .extend(text.chars().filter(|c| is_numeric_input(*c)));
+                Effect::None
+            }
+            KeyInput::Tab if self.cycles() => {
+                if let Some((cursor, _)) = self.cursor {
+                    self.cycle = Some(match self.cycle {
+                        Some((start, i)) => (start, i + 1),
+                        None => (cursor, 1),
+                    });
+                }
                 Effect::None
             }
             KeyInput::Tab if typing => {
@@ -332,6 +374,7 @@ impl PointInput {
 
     fn commit(&mut self, point: DVec2, consumer: &mut dyn InputConsumer, ctx: &InputContext) -> Effect {
         self.typed.clear();
+        self.cycle = None;
         consumer.commit(ctx.project, ctx.storey, point).into()
     }
 }
@@ -574,6 +617,7 @@ mod tests {
                 targets: &self.targets,
                 pending: &self.pending,
                 previous: consumer.reference_point(),
+                guides: &[],
                 expects: consumer.step().map_or(Expect::Point, |s| s.expects),
                 radius: 0.1,
                 drag_threshold: 6.0 * PIXEL,
@@ -1047,5 +1091,90 @@ mod tests {
             Effect::Error(_)
         ));
         assert_eq!(tool.points.len(), 1);
+    }
+
+    /// Resolves `cursor` for `consumer`'s current step.
+    fn resolve_at(env: &Env, input: &mut PointInput, consumer: &dyn InputConsumer, cursor: DVec2) -> Resolved {
+        input.resolve(cursor, Modifiers::default(), &env.ctx(consumer))
+    }
+
+    /// INP-009: with two candidates in range Tab selects the second, which a
+    /// click then takes, and the next Tab wraps to the first; moving within
+    /// the radius keeps the choice, leaving it starts over.
+    #[test]
+    fn tab_cycles_through_the_candidates_in_range() {
+        let mut env = Env::new();
+        let (near, far) = (DVec2::new(1.0, 0.0), DVec2::new(1.05, 0.0));
+        env.targets = index_of(&[near, far], &[]);
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        let cursor = DVec2::new(1.02, 0.0);
+        let resolved = resolve_at(&env, &mut input, &tool, cursor);
+        assert_eq!(
+            resolved.candidates.iter().map(|s| s.point).collect::<Vec<_>>(),
+            [near, far]
+        );
+        assert_eq!(resolved.point, near);
+        assert!(input.cycles());
+
+        assert_eq!(env.key(&mut input, &mut tool, KeyInput::Tab), Effect::None);
+        assert_eq!(resolve_at(&env, &mut input, &tool, cursor).point, far);
+        assert_eq!(
+            resolve_at(&env, &mut input, &tool, cursor + DVec2::new(0.0, 0.05)).point,
+            far
+        );
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        assert_eq!(resolve_at(&env, &mut input, &tool, cursor).point, near, "wraps");
+
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        assert_eq!(resolve_at(&env, &mut input, &tool, cursor).point, far);
+        let away = resolve_at(&env, &mut input, &tool, DVec2::new(5.0, 5.0));
+        assert_eq!((away.snap.kind, away.candidates.len()), (SnapKind::Free, 0));
+        assert_eq!(
+            resolve_at(&env, &mut input, &tool, cursor).point,
+            near,
+            "leaving the radius ends the cycle"
+        );
+
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        resolve_at(&env, &mut input, &tool, cursor);
+        env.click(&mut input, &mut tool, (cursor.x, cursor.y));
+        assert_eq!(tool.points, [far], "a click takes the chosen candidate");
+        assert_eq!(input.typed, TypedInput::default(), "Tab typed nothing");
+    }
+
+    /// INP-003, INP-009: with typed text present, or with a single candidate
+    /// in range, Tab moves to the next typed field instead.
+    #[test]
+    fn tab_moves_to_the_next_field_without_two_candidates() {
+        let mut env = Env::new();
+        env.targets = index_of(
+            &[DVec2::new(1.0, 0.0), DVec2::new(1.05, 0.0), DVec2::new(4.0, 0.0)],
+            &[],
+        );
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 3.0));
+
+        let single = resolve_at(&env, &mut input, &tool, DVec2::new(4.02, 0.0));
+        assert_eq!(single.candidates.len(), 1);
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        assert_eq!(input.typed.field, Field::Angle);
+        assert_eq!(
+            resolve_at(&env, &mut input, &tool, DVec2::new(4.02, 0.0)).point,
+            DVec2::new(4.0, 0.0)
+        );
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        assert_eq!(input.typed.field, Field::Distance);
+
+        let cursor = DVec2::new(1.02, 0.0);
+        assert_eq!(resolve_at(&env, &mut input, &tool, cursor).candidates.len(), 2);
+        env.key(&mut input, &mut tool, text("2"));
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        assert_eq!(input.typed.field, Field::Angle, "typed text: Tab moves on");
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        assert_eq!(input.typed.field, Field::Distance, "the other field holds text");
+        let typed = resolve_at(&env, &mut input, &tool, cursor);
+        assert_eq!((typed.snap.kind, typed.candidates.len()), (SnapKind::Typed, 1));
     }
 }

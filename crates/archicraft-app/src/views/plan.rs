@@ -178,6 +178,7 @@ impl PlanInput {
             targets: &self.targets,
             pending: &self.pending,
             previous: tool.reference_point().filter(|_| here),
+            guides: &[],
             expects: tool.step().filter(|_| here).map_or(Expect::Point, |s| s.expects),
             radius: self.radius,
             drag_threshold: self.drag_threshold,
@@ -440,7 +441,7 @@ fn draw_plan(
 fn draw_snap_marker(painter: &egui::Painter, p: Pos2, snap: SnapKind, color: Color32) {
     let stroke = Stroke::new(1.5, color);
     match snap {
-        SnapKind::Node => {
+        SnapKind::Node | SnapKind::Handle | SnapKind::Centre | SnapKind::AxisPoint | SnapKind::Centroid => {
             painter.rect_stroke(
                 Rect::from_center_size(p, egui::vec2(10.0, 10.0)),
                 0.0,
@@ -448,7 +449,7 @@ fn draw_snap_marker(painter: &egui::Painter, p: Pos2, snap: SnapKind, color: Col
                 StrokeKind::Middle,
             );
         }
-        SnapKind::Intersection => {
+        SnapKind::Intersection | SnapKind::GuideIntersection => {
             painter.line_segment([p + egui::vec2(-6.0, -6.0), p + egui::vec2(6.0, 6.0)], stroke);
             painter.line_segment([p + egui::vec2(-6.0, 6.0), p + egui::vec2(6.0, -6.0)], stroke);
         }
@@ -464,10 +465,10 @@ fn draw_snap_marker(painter: &egui::Painter, p: Pos2, snap: SnapKind, color: Col
             painter.line_segment([p + egui::vec2(-6.0, 6.0), p + egui::vec2(6.0, 6.0)], stroke);
             painter.line_segment([p + egui::vec2(0.0, 6.0), p + egui::vec2(0.0, -6.0)], stroke);
         }
-        SnapKind::Edge => {
+        SnapKind::Edge | SnapKind::Tangent => {
             painter.circle_stroke(p, 5.0, stroke);
         }
-        SnapKind::Grid | SnapKind::Constrained | SnapKind::Typed => {
+        SnapKind::Guide | SnapKind::Grid | SnapKind::Constrained | SnapKind::Typed => {
             painter.circle_filled(p, 2.5, color);
         }
         SnapKind::Free => {}
@@ -786,7 +787,9 @@ fn apply(ws: &mut Workspace, effect: Effect) {
 }
 
 /// Translates the frame's key events into point input (INP-003) and handles
-/// the plan's own keys: Tab cycling of the selection tool and R.
+/// the plan's own keys: Tab cycling of the selection tool and R. Tab goes to
+/// point input while a drawing tool takes typed values or has snap
+/// candidates to cycle through (INP-009).
 fn handle_keys(
     ui: &Ui,
     ws: &mut Workspace,
@@ -804,7 +807,11 @@ fn handle_keys(
                 modifiers,
                 ..
             } => match key {
-                Key::Tab if ws.input.captures_keys(&ws.tool) => KeyInput::Tab,
+                Key::Tab
+                    if ws.input.captures_keys(&ws.tool) || (ws.tool.kind != ToolKind::Select && ws.input.cycles()) =>
+                {
+                    KeyInput::Tab
+                }
                 Key::Tab => {
                     // Cycle the highlight through overlapping candidates
                     // (SEL-001); the next click selects it.
@@ -928,5 +935,47 @@ mod tests {
         assert_eq!(surface.model_per_pixel(), 1.0 / 64.0);
         assert_eq!(surface.frame(), SurfaceFrame::plan(2.8));
         assert_eq!(surface.frame().to_model(DVec2::new(1.0, 2.0)).z, 2.8);
+    }
+
+    /// INP-008: the snap radius is the preference in pixels times the model
+    /// length per pixel; at 50 pixels per metre a node 10 pixels from the
+    /// cursor is no candidate with the default 8 pixels and is one with 16.
+    #[test]
+    fn the_snap_radius_follows_the_preference_in_pixels() {
+        use archicraft_model::Command;
+        use archicraft_model::template::default_metric_project;
+
+        use crate::document::Document;
+        use crate::persistence::prefs::Preferences;
+
+        let project = default_metric_project();
+        let storey = project.storeys.ground();
+        let end = DVec2::new(2.0, 0.0);
+        let wall = project.new_wall(storey, DVec2::ZERO, end, 0);
+        let mut ws = Workspace::new(Document::new(project, 10), Preferences::default());
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+        ws.select_tool(ToolKind::Wall);
+        let surface = PlanSurface {
+            camera: Camera2d {
+                center: DVec2::ZERO,
+                scale: 50.0,
+            },
+            rect: Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0)),
+            elevation: 0.0,
+        };
+        let cursor = end + DVec2::new(10.0 / 50.0, 0.0);
+        assert_eq!(ws.prefs.snap_radius, 8.0);
+        for (pixels, found) in [(8.0, false), (16.0, true)] {
+            ws.prefs.snap_radius = pixels;
+            let input = PlanInput::new(&mut ws, storey, &surface, 6.0);
+            let ctx = input.ctx(&ws.doc.project, &ws.tool);
+            assert_eq!(ctx.radius, f64::from(pixels) * surface.model_per_pixel());
+            let resolved = ws.input.resolve(cursor, Modifiers::default(), &ctx);
+            let node = resolved
+                .candidates
+                .iter()
+                .any(|s| s.kind == SnapKind::Node && s.point == end);
+            assert_eq!(node, found, "{pixels} px: {:?}", resolved.candidates);
+        }
     }
 }

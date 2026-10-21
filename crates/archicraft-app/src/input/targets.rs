@@ -381,8 +381,10 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::document::Document;
-    use crate::input::snap::{choose, segment_intersection};
-    use crate::input::{Expect, InputContext, Modifiers, PointInput, Resolved, Snap, SnapKind, SurfaceFrame, snap};
+    use crate::input::snap::{collect, segment_intersection};
+    use crate::input::{
+        Expect, InputContext, Modifiers, PointInput, Resolved, Snap, SnapKind, SurfaceFrame, candidates, snap,
+    };
     use crate::persistence::prefs::Preferences;
     use crate::workspace::Workspace;
 
@@ -454,13 +456,20 @@ pub(crate) mod tests {
             }
         }
 
-        fn snap(&self, pending: &[DVec2], cursor: DVec2, radius: f64, grid: f64, previous: Option<DVec2>) -> Snap {
+        fn candidates(
+            &self,
+            pending: &[DVec2],
+            cursor: DVec2,
+            radius: f64,
+            grid: f64,
+            previous: Option<DVec2>,
+        ) -> Vec<Snap> {
             let mut nodes = self.nodes.clone();
             nodes.extend_from_slice(pending);
             let near: Vec<[DVec2; 2]> = (self.edges.iter().copied())
                 .filter(|e| closest_on_segment(cursor, *e).distance(cursor) <= radius)
                 .collect();
-            choose(&nodes, &near, cursor, radius, grid, previous)
+            collect(&nodes, &near, &[], cursor, radius, grid, previous)
         }
     }
 
@@ -500,6 +509,7 @@ pub(crate) mod tests {
             targets: &targets,
             pending: &[],
             previous: None,
+            guides: &[],
             expects: Expect::Point,
             radius: 0.2,
             drag_threshold: 0.06,
@@ -516,8 +526,8 @@ pub(crate) mod tests {
         Workspace::new(Document::new(project, 50), Preferences::default())
     }
 
-    /// NFR-PERF-005, INP-008: on both storeys of two_storey_shell the
-    /// indexed snap gives the same snap as scanning every target, for 500
+    /// NFR-PERF-005, INP-008, INP-009: on both storeys of two_storey_shell
+    /// the index gives the same candidates as scanning every target, for 500
     /// seeded cursor positions at three radii, with and without a previous
     /// point and pending points.
     #[test]
@@ -559,10 +569,10 @@ pub(crate) mod tests {
                 let pending: &[DVec2] = if i % 5 == 0 { &pending } else { &[] };
                 for radius in [0.05, 0.2, 1.0] {
                     let grid = if i % 7 == 0 { 0.05 } else { 0.0 };
-                    let expected = brute.snap(pending, cursor, radius, grid, previous);
-                    let found = snap(&index, pending, cursor, radius, grid, previous);
+                    let expected = brute.candidates(pending, cursor, radius, grid, previous);
+                    let found = candidates(&index, pending, cursor, radius, grid, previous, &[]);
                     assert_eq!(found, expected, "{cursor} r {radius} previous {previous:?}");
-                    kinds.push(found.kind);
+                    kinds.push(snap(&index, pending, cursor, radius, grid, previous).kind);
                 }
             }
         }

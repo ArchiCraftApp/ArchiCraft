@@ -1,36 +1,132 @@
 //! Snapping of point input (INP-008, INP-009).
 //!
+//! Every snap target near the cursor is a candidate; the candidates are
+//! ordered by a fixed precedence (INP-009), and the first one wins unless
+//! the user cycles through them with Tab. The precedence has the seven
+//! levels of the SRS, and inside a level a fixed rank among the kinds of
+//! that level, before the distance from the cursor decides:
+//!
+//! | Level              | Kinds, by rank                                   |
+//! |--------------------|--------------------------------------------------|
+//! | 1 node             | node, handle, centre, axis point, centroid       |
+//! | 2 intersection     | intersection                                     |
+//! | 3 division point   | midpoint                                         |
+//! | 4 guide intersection | guide intersection                             |
+//! | 5 edge             | perpendicular foot, tangent point, point on edge |
+//! | 6 guide            | point on a guide                                 |
+//! | 7 grid             | grid point                                       |
+//!
+//! Derived points sit in the level whose nature they share. Perpendicular
+//! and tangent points outrank the plain point on the same edge, which is
+//! always nearer the cursor.
+//!
 //! Points closer than the model tolerance are one point (NFR-ACC-003):
 //! coincident nodes are one target, and coincident candidates are one
-//! candidate before precedence decides.
+//! candidate, at the point found first and with the best kind of them.
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::tolerance::{coincident, is_parallel};
 
+use super::GuideShape;
 use super::targets::SnapIndex;
 
-/// Kinds of snap, in order of precedence (INP-009).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SnapKind {
+/// The seven levels of snap precedence (INP-009), best first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SnapLevel {
     Node,
     Intersection,
-    Midpoint,
-    Perpendicular,
+    Division,
+    GuideIntersection,
     Edge,
+    Guide,
     Grid,
+}
+
+/// Kinds of snap: the targets of each precedence level in their rank within
+/// the level (INP-008, INP-009), then the results of point input that are
+/// no snap target. The order of the variants is the order of precedence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SnapKind {
+    /// An element node: a corner or an end.
+    Node,
+    /// A handle of a selected element.
+    Handle,
+    /// The centre of an arc or a circle.
+    Centre,
+    /// An axis point of a column or a beam.
+    AxisPoint,
+    /// The centroid of a polygon (INP-024).
+    Centroid,
+    Intersection,
+    /// The midpoint of an edge, the division point of mode half (INP-010).
+    Midpoint,
+    GuideIntersection,
+    /// The foot of the perpendicular from the previous point.
+    Perpendicular,
+    /// A tangent point from the previous point.
+    Tangent,
+    /// The point of an edge nearest the cursor.
+    Edge,
+    /// The point of a guide nearest the cursor.
+    Guide,
+    Grid,
+    /// A point on the angle constraint (INP-006).
     Constrained,
+    /// A point from typed values (INP-003).
     Typed,
+    /// The cursor itself: nothing to snap to.
     Free,
 }
 
 impl SnapKind {
+    /// The kinds of snap targets, in order of precedence.
+    pub const TARGETS: [SnapKind; 13] = [
+        SnapKind::Node,
+        SnapKind::Handle,
+        SnapKind::Centre,
+        SnapKind::AxisPoint,
+        SnapKind::Centroid,
+        SnapKind::Intersection,
+        SnapKind::Midpoint,
+        SnapKind::GuideIntersection,
+        SnapKind::Perpendicular,
+        SnapKind::Tangent,
+        SnapKind::Edge,
+        SnapKind::Guide,
+        SnapKind::Grid,
+    ];
+
+    /// The precedence level of a snap target, or `None` for a typed,
+    /// constrained or free point.
+    pub fn level(self) -> Option<SnapLevel> {
+        Some(match self {
+            SnapKind::Node | SnapKind::Handle | SnapKind::Centre | SnapKind::AxisPoint | SnapKind::Centroid => {
+                SnapLevel::Node
+            }
+            SnapKind::Intersection => SnapLevel::Intersection,
+            SnapKind::Midpoint => SnapLevel::Division,
+            SnapKind::GuideIntersection => SnapLevel::GuideIntersection,
+            SnapKind::Perpendicular | SnapKind::Tangent | SnapKind::Edge => SnapLevel::Edge,
+            SnapKind::Guide => SnapLevel::Guide,
+            SnapKind::Grid => SnapLevel::Grid,
+            SnapKind::Constrained | SnapKind::Typed | SnapKind::Free => return None,
+        })
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             SnapKind::Node => "node",
+            SnapKind::Handle => "handle",
+            SnapKind::Centre => "centre",
+            SnapKind::AxisPoint => "axis point",
+            SnapKind::Centroid => "centroid",
             SnapKind::Intersection => "intersection",
             SnapKind::Midpoint => "midpoint",
+            SnapKind::GuideIntersection => "guide intersection",
             SnapKind::Perpendicular => "perpendicular",
+            SnapKind::Tangent => "tangent",
             SnapKind::Edge => "on edge",
+            SnapKind::Guide => "guide",
             SnapKind::Grid => "grid",
             SnapKind::Constrained => "constrained",
             SnapKind::Typed => "typed",
@@ -68,16 +164,8 @@ pub(super) fn segment_intersection([a, b]: [DVec2; 2], [c, d]: [DVec2; 2]) -> Op
     ((0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u)).then(|| a + r * t)
 }
 
-/// Finds the snap point for `cursor` within `radius` (model units), with the
-/// fixed precedence of INP-009: nodes, intersections, midpoints,
-/// perpendicular feet from the previous point, edges, then the snap grid.
-/// The targets are those of `index` near the cursor and the consumer's
-/// `pending` points, which are not in the index (NFR-PERF-005).
-///
-/// Candidates within the model tolerance are one point (NFR-ACC-003): a
-/// candidate coincident with the best so far only raises its precedence and
-/// keeps its point, so the target found first wins, however near the cursor
-/// the other one lies.
+/// The snap point for `cursor`: the first of its [`candidates`] without
+/// guides, or the cursor itself.
 pub fn snap(
     index: &SnapIndex,
     pending: &[DVec2],
@@ -86,71 +174,100 @@ pub fn snap(
     grid_step: f64,
     previous: Option<DVec2>,
 ) -> Snap {
-    let mut nodes = index.nodes_near(cursor, radius);
-    nodes.extend_from_slice(pending);
-    let near = index.edges_near(cursor, radius);
-    choose(&nodes, &near, cursor, radius, grid_step, previous)
+    let found = candidates(index, pending, cursor, radius, grid_step, previous, &[]);
+    found.first().copied().unwrap_or(Snap {
+        point: cursor,
+        kind: SnapKind::Free,
+    })
 }
 
-/// The snap among `nodes` and the `near` edges, which lie within `radius`
-/// of the cursor, in the order of precedence of [`snap`].
-pub(super) fn choose(
-    nodes: &[DVec2],
-    near: &[[DVec2; 2]],
+/// The snap candidates within `radius` (model units) of `cursor`, in the
+/// order of precedence of INP-009 (see the module documentation), ties
+/// broken by the distance from the cursor. The targets are those of `index`
+/// near the cursor, the consumer's `pending` points, which are not in the
+/// index (NFR-PERF-005), and the `guides` shown; perpendicular feet start
+/// at `previous`, and the snap grid has the spacing `grid_step` (none when
+/// zero).
+///
+/// Candidates within the model tolerance are one point (NFR-ACC-003): a
+/// candidate coincident with one found before only raises its precedence and
+/// keeps its point, so the target found first stays, however near the
+/// cursor the other one lies.
+pub fn candidates(
+    index: &SnapIndex,
+    pending: &[DVec2],
     cursor: DVec2,
     radius: f64,
     grid_step: f64,
     previous: Option<DVec2>,
-) -> Snap {
-    let mut best: Option<(SnapKind, f64, DVec2)> = None;
-    let mut consider = |kind: SnapKind, p: DVec2| {
-        let d = p.distance(cursor);
-        if d > radius {
+    guides: &[GuideShape],
+) -> Vec<Snap> {
+    let mut nodes = index.nodes_near(cursor, radius);
+    nodes.extend_from_slice(pending);
+    let near = index.edges_near(cursor, radius);
+    let guides: Vec<[DVec2; 2]> = guides
+        .iter()
+        .map(|GuideShape::Line(line)| *line)
+        .filter(|line| closest_on_segment(cursor, *line).distance(cursor) <= radius)
+        .collect();
+    collect(&nodes, &near, &guides, cursor, radius, grid_step, previous)
+}
+
+/// The candidates among `nodes`, the `near` edges and the `guides`, which
+/// lie within `radius` of the cursor, in the order of [`candidates`].
+pub(super) fn collect(
+    nodes: &[DVec2],
+    near: &[[DVec2; 2]],
+    guides: &[[DVec2; 2]],
+    cursor: DVec2,
+    radius: f64,
+    grid_step: f64,
+    previous: Option<DVec2>,
+) -> Vec<Snap> {
+    let mut found: Vec<Snap> = Vec::new();
+    let mut add = |kind: SnapKind, point: DVec2| {
+        if point.distance(cursor) > radius {
             return;
         }
-        best = match best {
-            Some((k, bd, bp)) if coincident(p, bp) => Some((kind.min(k), bd, bp)),
-            Some((k, bd, _)) if (k, bd) <= (kind, d) => best,
-            _ => Some((kind, d, p)),
-        };
+        match found.iter_mut().find(|s| coincident(s.point, point)) {
+            Some(s) => s.kind = s.kind.min(kind),
+            None => found.push(Snap { point, kind }),
+        }
     };
     for &n in nodes {
-        consider(SnapKind::Node, n);
+        add(SnapKind::Node, n);
     }
     for (i, a) in near.iter().enumerate() {
         for b in &near[i + 1..] {
             if let Some(p) = segment_intersection(*a, *b) {
-                consider(SnapKind::Intersection, p);
+                add(SnapKind::Intersection, p);
             }
         }
     }
     for e in near {
-        consider(SnapKind::Midpoint, (e[0] + e[1]) / 2.0);
+        add(SnapKind::Midpoint, (e[0] + e[1]) / 2.0);
         if let Some(prev) = previous {
             let dir = (e[1] - e[0]).normalize_or_zero();
             let foot = e[0] + dir * (prev - e[0]).dot(dir);
             if coincident(closest_on_segment(foot, *e), foot) {
-                consider(SnapKind::Perpendicular, foot);
+                add(SnapKind::Perpendicular, foot);
             }
         }
-        consider(SnapKind::Edge, closest_on_segment(cursor, *e));
+        add(SnapKind::Edge, closest_on_segment(cursor, *e));
     }
-    if let Some((kind, _, point)) = best {
-        return Snap { point, kind };
+    for (i, g) in guides.iter().enumerate() {
+        for other in near.iter().chain(&guides[i + 1..]) {
+            if let Some(p) = segment_intersection(*g, *other) {
+                add(SnapKind::GuideIntersection, p);
+            }
+        }
+        add(SnapKind::Guide, closest_on_segment(cursor, *g));
     }
     if grid_step > 0.0 {
-        let point = (cursor / grid_step).round() * grid_step;
-        if point.distance(cursor) <= radius {
-            return Snap {
-                point,
-                kind: SnapKind::Grid,
-            };
-        }
+        add(SnapKind::Grid, (cursor / grid_step).round() * grid_step);
     }
-    Snap {
-        point: cursor,
-        kind: SnapKind::Free,
-    }
+    found.sort_by(|a, b| (a.kind.cmp(&b.kind)).then(a.point.distance(cursor).total_cmp(&b.point.distance(cursor))));
+    found
 }
 
 #[cfg(test)]
@@ -261,5 +378,128 @@ mod tests {
         let previous = Some(DVec2::new(4.0 + 20.0 * MICROMETRE, 3.0));
         let s = snap(&targets, &[], DVec2::new(3.95, 0.1), 0.2, 0.0, previous);
         assert_eq!(s.kind, SnapKind::Edge, "the foot lies beyond the edge");
+    }
+
+    fn v(x: f64, y: f64) -> DVec2 {
+        DVec2::new(x, y)
+    }
+
+    /// INP-009: seven candidates within the radius, one of each level and
+    /// three edge points, come out in the SRS order: node, intersection,
+    /// division point, guide intersection, edge, guide, grid; points of one
+    /// level by their distance from the cursor.
+    #[test]
+    fn candidates_follow_the_seven_levels() {
+        let targets = index_of(
+            &[v(0.5, 0.3)],
+            &[
+                [v(-0.3, -4.0), v(-0.3, 6.0)],
+                [v(-5.0, 0.4), v(7.0, 0.4)],
+                [v(0.2, -0.6), v(0.6, -0.6)],
+            ],
+        );
+        let guides = [GuideShape::Line([v(0.7, -5.0), v(0.7, 5.0)])];
+        let cursor = v(0.02, -0.03);
+        let found = candidates(&targets, &[], cursor, 1.0, 0.25, None, &guides);
+        let expected = [
+            (SnapKind::Node, v(0.5, 0.3)),
+            (SnapKind::Intersection, v(-0.3, 0.4)),
+            (SnapKind::Midpoint, v(0.4, -0.6)),
+            (SnapKind::GuideIntersection, v(0.7, 0.4)),
+            (SnapKind::Edge, v(-0.3, -0.03)),
+            (SnapKind::Edge, v(0.02, 0.4)),
+            (SnapKind::Edge, v(0.2, -0.6)),
+            (SnapKind::Guide, v(0.7, -0.03)),
+            (SnapKind::Grid, v(0.0, 0.0)),
+        ];
+        assert_eq!(found.len(), expected.len(), "{found:?}");
+        for (snap, (kind, point)) in found.iter().zip(expected) {
+            assert_eq!(snap.kind, kind, "{found:?}");
+            assert!(snap.point.distance(point) < 1e-12, "{snap:?} is not at {point}");
+        }
+        let levels: Vec<SnapLevel> = found.iter().filter_map(|s| s.kind.level()).collect();
+        let mut seven = levels.clone();
+        seven.dedup();
+        assert_eq!(
+            seven,
+            [
+                SnapLevel::Node,
+                SnapLevel::Intersection,
+                SnapLevel::Division,
+                SnapLevel::GuideIntersection,
+                SnapLevel::Edge,
+                SnapLevel::Guide,
+                SnapLevel::Grid,
+            ]
+        );
+        assert_eq!(snap(&targets, &[], cursor, 1.0, 0.25, None).kind, SnapKind::Node);
+    }
+
+    /// INP-009: the kinds are ordered by level, then by their rank within
+    /// the level, as the module documentation's table lists them.
+    #[test]
+    fn kinds_rank_within_their_level() {
+        use SnapKind::*;
+        let by_level = |level| SnapKind::TARGETS.into_iter().filter(move |k| k.level() == Some(level));
+        assert_eq!(
+            by_level(SnapLevel::Node).collect::<Vec<_>>(),
+            [Node, Handle, Centre, AxisPoint, Centroid]
+        );
+        assert_eq!(
+            by_level(SnapLevel::Edge).collect::<Vec<_>>(),
+            [Perpendicular, Tangent, Edge]
+        );
+        assert!(
+            SnapKind::TARGETS
+                .windows(2)
+                .all(|w| w[0] < w[1] && w[0].level() <= w[1].level())
+        );
+        for kind in [Constrained, Typed, Free] {
+            assert_eq!(kind.level(), None);
+        }
+    }
+
+    /// INP-009: the perpendicular foot from the previous point comes before
+    /// the plain point on the same edge, which lies nearer the cursor.
+    #[test]
+    fn the_perpendicular_foot_outranks_the_nearer_edge_point() {
+        let targets = index_of(&[], &[[DVec2::ZERO, v(6.0, 0.0)]]);
+        let cursor = v(2.3, 0.05);
+        let found = candidates(&targets, &[], cursor, 0.5, 0.0, Some(v(2.0, 3.0)), &[]);
+        assert_eq!(
+            found,
+            [
+                Snap {
+                    point: v(2.0, 0.0),
+                    kind: SnapKind::Perpendicular
+                },
+                Snap {
+                    point: v(2.3, 0.0),
+                    kind: SnapKind::Edge
+                },
+            ]
+        );
+        assert!(found[1].point.distance(cursor) < found[0].point.distance(cursor));
+    }
+
+    /// INP-009, NFR-ACC-003: a point that is both a node and the
+    /// intersection of two edges is one candidate, at node level.
+    #[test]
+    fn a_node_on_an_intersection_is_one_candidate() {
+        let targets = index_of(
+            &[v(1.0, 1.0)],
+            &[[v(0.0, 0.0), v(2.0, 2.0)], [v(0.0, 2.0), v(2.0, 0.0)]],
+        );
+        let found = candidates(&targets, &[], v(1.05, 1.02), 0.2, 0.0, None, &[]);
+        let at_crossing: Vec<&Snap> = found.iter().filter(|s| coincident(s.point, v(1.0, 1.0))).collect();
+        assert_eq!(
+            at_crossing,
+            [&Snap {
+                point: v(1.0, 1.0),
+                kind: SnapKind::Node
+            }]
+        );
+        assert_eq!(found[0].kind, SnapKind::Node);
+        assert!(found[1..].iter().all(|s| s.kind == SnapKind::Edge), "{found:?}");
     }
 }
