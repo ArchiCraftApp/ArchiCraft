@@ -41,6 +41,7 @@ impl IfcClass {
             IfcClass::Slab => "model-ifc-class-slab",
             IfcClass::Footing => "model-ifc-class-footing",
             IfcClass::Covering => "model-ifc-class-covering",
+            IfcClass::BuildingElementProxy => "model-ifc-class-proxy",
         }
     }
 

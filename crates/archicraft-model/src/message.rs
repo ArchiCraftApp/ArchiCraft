@@ -167,6 +167,7 @@ pub const ALL_KEYS: &[&str] = &[
     "model-ifc-class-slab",
     "model-ifc-class-footing",
     "model-ifc-class-covering",
+    "model-ifc-class-proxy",
     "model-reference-line-outside",
     "model-reference-line-center",
     "model-reference-line-inside",
