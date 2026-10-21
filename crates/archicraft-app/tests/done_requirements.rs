@@ -240,6 +240,10 @@ fn ui_007_plan_and_3d_side_by_side_share_the_selection() {
     click_at(&mut h, pos);
     let ws = h.state_mut().workspace();
     assert_eq!(ws.selection.iter().copied().collect::<Vec<_>>(), vec![wall]);
+    // Without a GPU the 3D pane draws no scene, so SceneKey::of stands for
+    // it: view3d.rs builds every 3D view's scene from SceneKey::of(ws), whose
+    // selection is the workspace's, so this repeats the assertion above and
+    // pins that the 3D views take the plan's selection.
     assert_eq!(SceneKey::of(ws).selection, vec![wall]);
 }
 
@@ -307,12 +311,10 @@ fn str_003_storeys_are_inserted_renamed_and_deleted_from_dialog_and_browser() {
     // Insert above and below the first floor.
     select_in_storeys_dialog(&mut h, "1");
     h.get_by_label("Insert above").click();
-    h.run_steps(1);
-    h.run_steps(1);
+    h.run_steps(2);
     browser_row_label(&h, "02 Storey");
     h.get_by_label("Insert below").click();
-    h.run_steps(1);
-    h.run_steps(1);
+    h.run_steps(2);
     browser_row_label(&h, "01 Storey");
     assert_eq!(
         storey_names(&mut h),
@@ -325,8 +327,9 @@ fn str_003_storeys_are_inserted_renamed_and_deleted_from_dialog_and_browser() {
     h.run_steps(1);
     h.get(name_field()).type_text("Upper floor");
     h.key_press(Key::Enter);
-    h.run_steps(2);
-    h.run_steps(1);
+    // Enter commits the field, the next frame runs the rename and the one
+    // after shows it in the browser.
+    h.run_steps(3);
     browser_row_label(&h, "Upper floor");
     assert_eq!(
         storey_names(&mut h),
@@ -396,8 +399,9 @@ fn str_003_storeys_are_inserted_renamed_and_deleted_from_dialog_and_browser() {
 }
 
 /// STR-004 and NFR-USE-004: deleting a storey with elements asks how to
-/// handle them, deleting an element does not ask and is undone by Ctrl+Z,
-/// and New with unsaved changes asks to save or discard.
+/// handle them, deleting an element does not ask, is undone by Ctrl+Z and
+/// redone by Ctrl+Shift+Z (UI-008), and New with unsaved changes asks to save
+/// or discard.
 #[test]
 fn str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask() {
     let mut h = harness("str-004");
@@ -417,6 +421,16 @@ fn str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask() {
     assert_eq!(h.state_mut().workspace().doc.project.elements.len(), 2);
     assert!(!has_modal(&h));
     assert_eq!(h.state_mut().prompt_title(), None);
+    h.key_press_modifiers(CTRL, Key::Z);
+    h.run_steps(2);
+    assert_eq!(h.state_mut().workspace().doc.project.elements.len(), 3);
+    // Ctrl+Shift+Z redoes the deletion, it does not undo adding the last
+    // wall (UI-008).
+    h.key_press_modifiers(CTRL.plus(Modifiers::SHIFT), Key::Z);
+    h.run_steps(2);
+    let project = &h.state_mut().workspace().doc.project;
+    assert!(project.element(walls[0]).is_none(), "Ctrl+Shift+Z did not redo");
+    assert!(project.element(walls[2]).is_some(), "Ctrl+Shift+Z undid");
     h.key_press_modifiers(CTRL, Key::Z);
     h.run_steps(2);
     assert_eq!(h.state_mut().workspace().doc.project.elements.len(), 3);
@@ -528,22 +542,30 @@ fn view_014_plan_navigation_pans_zooms_and_fits() {
         grabbed
     );
 
-    // Ctrl+wheel and pinch zoom keep the point under the cursor.
+    // A wheel, Ctrl+wheel (a touchpad's scroll in points too) and the pinch,
+    // which comes without modifiers, zoom and keep the point under the
+    // cursor.
     let cursor = rect.center() + Vec2::new(-120.0, 70.0);
     hover_plan(&mut h, cursor);
+    let wheel = |unit, delta, modifiers| Event::MouseWheel {
+        unit,
+        delta,
+        phase: TouchPhase::Move,
+        modifiers,
+    };
     let zoom_events = [
-        Event::MouseWheel {
-            unit: MouseWheelUnit::Line,
-            delta: Vec2::new(0.0, 2.0),
-            phase: TouchPhase::Move,
-            modifiers: CTRL,
-        },
-        Event::Zoom(0.5),
+        (
+            wheel(MouseWheelUnit::Line, Vec2::new(0.0, 2.0), Modifiers::NONE),
+            Modifiers::NONE,
+        ),
+        (wheel(MouseWheelUnit::Line, Vec2::new(0.0, 2.0), CTRL), CTRL),
+        (wheel(MouseWheelUnit::Point, Vec2::new(0.0, -60.0), CTRL), CTRL),
+        (Event::Zoom(0.5), Modifiers::NONE),
     ];
-    for event in zoom_events {
+    for (event, modifiers) in zoom_events {
         let (_, before) = plan_camera(&mut h, storey);
         let anchor = before.to_world(rect, cursor);
-        h.event_modifiers(event.clone(), CTRL);
+        h.event_modifiers(event.clone(), modifiers);
         h.run_steps(1);
         let (_, after) = plan_camera(&mut h, storey);
         assert_ne!(after.scale, before.scale, "{event:?} did not zoom");
@@ -552,6 +574,20 @@ fn view_014_plan_navigation_pans_zooms_and_fits() {
             "{event:?} moved the point under the cursor"
         );
     }
+
+    // A wheel in points without Ctrl (a touchpad's two-finger scroll) pans:
+    // the point under the cursor moves with the scroll.
+    let (_, before) = plan_camera(&mut h, storey);
+    let anchor = before.to_world(rect, cursor);
+    let delta = Vec2::new(30.0, -20.0);
+    h.event(wheel(MouseWheelUnit::Point, delta, Modifiers::NONE));
+    h.run_steps(1);
+    let (_, after) = plan_camera(&mut h, storey);
+    assert_eq!(after.scale, before.scale, "the scroll zoomed");
+    assert!(
+        after.to_world(rect, cursor + delta).distance(anchor) < 1e-9,
+        "the scroll did not pan by its delta"
+    );
 
     // Fit to window (F) shows the whole model.
     let ends: Vec<DVec2> = [near, far]

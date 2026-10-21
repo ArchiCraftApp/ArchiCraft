@@ -1,7 +1,9 @@
 //! Application commands with their menu labels and default shortcuts
 //! (UI-008, UI-011, UI-017, Appendix D.8).
 
-use egui::{Key, KeyboardShortcut, Modifiers};
+use std::cmp::Reverse;
+
+use egui::{InputState, Key, KeyboardShortcut, Modifiers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -144,6 +146,29 @@ impl Action {
         Some(KeyboardShortcut::new(modifiers, key))
     }
 
+    /// The actions in the order their shortcuts are matched. egui ignores an
+    /// extra Shift or Alt when matching a shortcut, so the ones with more
+    /// modifiers go first: Ctrl+Shift+Tab is the previous tab, not the next
+    /// one (UI-006), Cmd+Shift+Z redo, not undo, Cmd+Shift+S save as, not
+    /// save (UI-008), and Shift+F zooms to the selection, not to the window
+    /// (VIEW-014).
+    pub fn in_match_order() -> [Action; Self::ALL.len()] {
+        let mut actions = Self::ALL;
+        actions.sort_by_key(|a| Reverse(a.shortcut().map_or(0, |s| modifier_count(s.modifiers))));
+        actions
+    }
+
+    /// Consumes the shortcuts pressed this frame in match order and returns
+    /// their actions. Actions for which `enabled` is false are skipped and
+    /// leave their key press to the others.
+    pub fn consume_shortcuts(input: &mut InputState, enabled: impl Fn(Action) -> bool) -> Vec<Action> {
+        Self::in_match_order()
+            .into_iter()
+            .filter(|&action| enabled(action))
+            .filter(|action| action.shortcut().is_some_and(|s| input.consume_shortcut(&s)))
+            .collect()
+    }
+
     /// Shortcuts without modifier keys must not fire while typing (UI-008).
     pub fn is_single_key(self) -> bool {
         self.shortcut().is_some_and(|s| s.modifiers.is_none())
@@ -165,6 +190,14 @@ impl Action {
                 | Action::Problems
         )
     }
+}
+
+/// The number of modifier keys a shortcut needs.
+fn modifier_count(m: Modifiers) -> usize {
+    [m.alt, m.ctrl, m.shift, m.mac_cmd, m.command]
+        .into_iter()
+        .filter(|&b| b)
+        .count()
 }
 
 #[cfg(test)]
@@ -201,6 +234,74 @@ mod tests {
             Action::OrbitMode,
         ] {
             assert!(action.shortcut().is_some(), "{action:?}");
+        }
+    }
+
+    /// UI-008: a shortcut is matched before every other shortcut on the same
+    /// key whose modifiers it contains, because egui would let the one with
+    /// fewer modifiers take the key press.
+    #[test]
+    fn shortcuts_with_more_modifiers_are_matched_first() {
+        let order = Action::in_match_order();
+        let position = |a: Action| order.iter().position(|&b| b == a);
+        for a in Action::ALL {
+            for b in Action::ALL {
+                let (Some(sa), Some(sb)) = (a.shortcut(), b.shortcut()) else {
+                    continue;
+                };
+                if a != b && sa.logical_key == sb.logical_key && sa.modifiers.contains(sb.modifiers) {
+                    assert!(position(a) < position(b), "{a:?} must be matched before {b:?}");
+                }
+            }
+        }
+    }
+
+    /// The actions a key press with `modifiers` triggers.
+    fn pressed(modifiers: Modifiers, key: Key) -> Vec<Action> {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            events: vec![egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        };
+        let mut triggered = Vec::new();
+        let output = ctx.run_ui(input, |ui| {
+            triggered = ui.ctx().input_mut(|i| Action::consume_shortcuts(i, |_| true));
+        });
+        output.drop_without_applying_deltas();
+        triggered
+    }
+
+    /// UI-008, UI-006, VIEW-014: Cmd+Shift+Z redoes and Cmd+Shift+S saves
+    /// as, on macOS and elsewhere; the shortcuts without Shift on the same
+    /// keys keep their own action.
+    #[test]
+    fn a_shortcut_with_shift_runs_its_own_action() {
+        let mac_cmd = Modifiers::MAC_CMD.plus(Modifiers::COMMAND);
+        let ctrl = Modifiers::CTRL.plus(Modifiers::COMMAND);
+        let shift = Modifiers::SHIFT;
+        for cmd in [mac_cmd, ctrl] {
+            for (modifiers, key, expected) in [
+                (cmd.plus(shift), Key::Z, Action::Redo),
+                (cmd, Key::Z, Action::Undo),
+                (cmd.plus(shift), Key::S, Action::SaveAs),
+                (cmd, Key::S, Action::Save),
+            ] {
+                assert_eq!(pressed(modifiers, key), [expected], "{modifiers:?}+{key:?}");
+            }
+        }
+        for (modifiers, key, expected) in [
+            (Modifiers::CTRL.plus(shift), Key::Tab, Action::PreviousTab),
+            (Modifiers::CTRL, Key::Tab, Action::NextTab),
+            (shift, Key::F, Action::ZoomSelection),
+            (Modifiers::NONE, Key::F, Action::FitWindow),
+        ] {
+            assert_eq!(pressed(modifiers, key), [expected], "{modifiers:?}+{key:?}");
         }
     }
 }
