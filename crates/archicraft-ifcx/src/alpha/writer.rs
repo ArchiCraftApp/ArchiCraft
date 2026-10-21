@@ -15,7 +15,7 @@ use archicraft_geometry::{ModelGeometry, TriMesh};
 use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
 use archicraft_model::project::{NameCounters, SlabDefaults, WallDefaults};
-use archicraft_model::{Element, ElementKind, KindTag, MaterialId, Project, ReferenceLine, TopLink};
+use archicraft_model::{Element, ElementKind, KindTag, Layer, MaterialId, Project, ReferenceLine, TopLink};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
@@ -129,6 +129,21 @@ fn slab_defaults(d: &SlabDefaults) -> Value {
     })
 }
 
+/// A layer entry of the project; `snapExcluded` only when set (INP-017), so
+/// files of projects without it stay as they were.
+fn layer_record(l: &Layer) -> Value {
+    let mut record = json!({
+        "id": l.id.to_string(),
+        "name": l.name,
+        "visible": l.visible,
+        "locked": l.locked,
+    });
+    if l.snap_excluded {
+        record["snapExcluded"] = json!(true);
+    }
+    record
+}
+
 fn material_record(m: &Material) -> Value {
     let mut fill = Map::new();
     fill.insert("pattern".into(), json!(m.cut_fill.pattern.code()));
@@ -189,12 +204,7 @@ fn project_attribute(p: &Project) -> Value {
             "trueNorth": p.site.location.true_north,
         },
         "groundStorey": p.storeys.ground().to_string(),
-        "layers": p.layers.iter().map(|l| json!({
-            "id": l.id.to_string(),
-            "name": l.name,
-            "visible": l.visible,
-            "locked": l.locked,
-        })).collect::<Vec<_>>(),
+        "layers": p.layers.iter().map(layer_record).collect::<Vec<_>>(),
         "materials": p.materials.iter().map(material_record).collect::<Vec<_>>(),
         "toolDefaults": {
             "wall": wall_defaults(&p.tool_defaults.wall),
@@ -442,15 +452,16 @@ fn write_element(
     }
     match element_attributes(e) {
         Some((key, value)) => {
-            node.attributes.insert(
-                schema::ELEMENT.into(),
-                json!({
-                    "kind": e.tag().code(),
-                    "layer": e.layer.to_string(),
-                    "locked": e.locked,
-                    "position": e.position.code(),
-                }),
-            );
+            let mut common = json!({
+                "kind": e.tag().code(),
+                "layer": e.layer.to_string(),
+                "locked": e.locked,
+                "position": e.position.code(),
+            });
+            if e.snap_excluded {
+                common["snapExcluded"] = json!(true);
+            }
+            node.attributes.insert(schema::ELEMENT.into(), common);
             node.attributes.insert(key.into(), value);
         }
         // Without its kind and parameters the element reads back as an

@@ -229,6 +229,58 @@ fn selecting_an_element_shows_its_properties() {
     harness.get_by_label("Home storey");
 }
 
+/// INP-017: a selected wall offers a 'Snap targets' checkbox beside
+/// 'Locked'; clearing it excludes the wall from snapping, undoably, while
+/// it stays visible.
+#[test]
+fn a_selected_wall_can_be_excluded_from_snapping() {
+    let mut harness = harness("snap-targets");
+    let id = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+        let id = wall.id;
+        ws.execute(Command::AddElements(vec![wall]));
+        ws.selection.insert(id);
+        id
+    };
+    harness.run_steps(2);
+    harness.get_by_label("Snap targets").click();
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let wall = ws.doc.project.element(id).unwrap().clone();
+    assert!(wall.snap_excluded);
+    assert!(ws.doc.project.is_visible(&wall));
+    assert!(!ws.doc.project.provides_snaps(&wall));
+    ws.undo();
+    assert!(!ws.doc.project.element(id).unwrap().snap_excluded);
+}
+
+/// INP-017: the Layers dialog has a 'Snaps' column whose checkbox excludes
+/// the layer's elements from snapping without hiding them.
+#[test]
+fn the_layers_dialog_has_a_snaps_column() {
+    let mut harness = harness("layer-snaps");
+    // The project browser's button; the Project menu has the same command.
+    harness.query_all_by_label("Layers…").next().unwrap().click();
+    harness.run_steps(4);
+    for header in ["Visible", "Locked", "Snaps", "Name", "Elements"] {
+        harness.get_by_label(header);
+    }
+    let layer = harness.state_mut().workspace().doc.project.layers[0].id;
+    // Each row has the Visible, Locked and Snaps checkboxes, in this order.
+    harness
+        .query_all(By::new().role(Role::CheckBox))
+        .nth(2)
+        .unwrap()
+        .click();
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let layer = ws.doc.project.layer(layer).unwrap();
+    assert!(layer.snap_excluded);
+    assert!(layer.visible && !layer.locked);
+}
+
 /// SRS 3.2: an element of a kind without a panel of its own (the model's
 /// test kind) shows the common fields only, and its missing geometry is the
 /// only problem listed.

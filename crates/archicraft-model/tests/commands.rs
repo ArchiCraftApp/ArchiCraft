@@ -609,3 +609,124 @@ fn a_test_kind_element_with_a_foreign_class_is_rejected() {
     }
     assert_eq!(p, before);
 }
+
+/// INP-017, UND-001: excluding an element and a layer from producing snap
+/// targets is one undoable command each, through UpdateElements and
+/// UpdateLayer.
+#[test]
+fn snap_exclusion_undoes_and_redoes_to_the_exact_project() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let w = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    let id = w.id;
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    let layer = p.layer(p.element(id).unwrap().layer).unwrap().clone();
+
+    let changes = [
+        Command::UpdateElements(vec![Element {
+            snap_excluded: true,
+            ..p.element(id).unwrap().clone()
+        }]),
+        Command::UpdateLayer(Layer {
+            snap_excluded: true,
+            ..layer
+        }),
+    ];
+    for command in changes {
+        let before = p.clone();
+        assert!(p.provides_snaps(p.element(id).unwrap()));
+        h.execute(&mut p, command).unwrap();
+        assert!(!p.provides_snaps(p.element(id).unwrap()));
+        let after = p.clone();
+
+        h.undo(&mut p).unwrap();
+        let mut expected = before;
+        expected.revision = p.revision;
+        assert_eq!(p, expected);
+
+        h.redo(&mut p).unwrap();
+        let mut expected = after;
+        expected.revision = p.revision;
+        assert_eq!(p, expected);
+        h.undo(&mut p).unwrap();
+    }
+}
+
+/// INP-017, LAY-001: locked elements and elements on locked layers provide
+/// snap targets; hidden ones do not; and the snap flag is independent of
+/// the visibility used for drawing and selection.
+#[test]
+fn locked_elements_provide_snaps_and_hidden_ones_do_not() {
+    let mut p = default_metric_project();
+    let mut w = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    w.locked = true;
+    assert!(p.provides_snaps(&w));
+
+    let at = p.layers.iter().position(|l| l.id == w.layer).unwrap();
+    let layer = p.layers[at].clone();
+    p.layers[at] = Layer {
+        locked: true,
+        ..layer.clone()
+    };
+    assert!(p.provides_snaps(&w));
+    p.layers[at] = Layer {
+        visible: false,
+        ..layer.clone()
+    };
+    assert!(!p.provides_snaps(&w));
+    assert!(!p.is_visible(&w));
+
+    p.layers[at] = Layer {
+        snap_excluded: true,
+        ..layer
+    };
+    assert!(!p.provides_snaps(&w));
+    assert!(p.is_visible(&w), "an excluded layer stays visible");
+    w.snap_excluded = true;
+    p.layers[at].snap_excluded = false;
+    assert!(!p.provides_snaps(&w));
+    assert!(p.is_visible(&w), "an excluded element stays visible");
+}
+
+/// INP-017, ELM-013: an element-locked wall accepts the snap flag like its
+/// lock flag; a wall on a locked layer rejects it with the lock reason.
+#[test]
+fn locked_walls_accept_the_snap_flag_unless_their_layer_is_locked() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let mut w = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    w.locked = true;
+    let id = w.id;
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    let excluded = Element {
+        snap_excluded: true,
+        ..p.element(id).unwrap().clone()
+    };
+    h.execute(&mut p, Command::UpdateElements(vec![excluded.clone()]))
+        .unwrap();
+    assert!(p.element(id).unwrap().snap_excluded);
+    let moved = Element {
+        snap_excluded: false,
+        name: "Renamed".into(),
+        ..p.element(id).unwrap().clone()
+    };
+    let (variant, message) = rejection(h.execute(&mut p, Command::UpdateElements(vec![moved])));
+    assert_eq!((variant, message.key()), ("Locked", "model-error-element-locked"));
+    h.undo(&mut p).unwrap();
+
+    let unlocked = Element {
+        locked: false,
+        ..p.element(id).unwrap().clone()
+    };
+    h.execute(&mut p, Command::UpdateElements(vec![unlocked])).unwrap();
+    let layer = p.layer(p.element(id).unwrap().layer).unwrap().clone();
+    h.execute(&mut p, Command::UpdateLayer(Layer { locked: true, ..layer }))
+        .unwrap();
+    let excluded = Element {
+        snap_excluded: true,
+        ..p.element(id).unwrap().clone()
+    };
+    let (variant, message) = rejection(h.execute(&mut p, Command::UpdateElements(vec![excluded])));
+    assert_eq!((variant, message.key()), ("Locked", "model-error-layer-locked"));
+    assert!(!p.element(id).unwrap().snap_excluded);
+}

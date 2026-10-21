@@ -68,6 +68,7 @@ impl Dummy {
             ifc_class: Self::DESCRIPTOR.default_class,
             position: Position::Undefined,
             locked: false,
+            snap_excluded: false,
             kind: self.into(),
         }
     }
