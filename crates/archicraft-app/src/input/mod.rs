@@ -13,13 +13,12 @@ mod pointer;
 mod snap;
 mod surface;
 mod targets;
+mod tracker;
 mod typed;
 
-use archicraft_model::glam::DVec2;
+use archicraft_model::glam::{DVec2, DVec3};
 use archicraft_model::tolerance::coincident;
-use archicraft_model::units::{
-    NumberFormat, UnitSettings, format_angle, format_length, input_alphabet, parse_angle, parse_length,
-};
+use archicraft_model::units::{NumberFormat, UnitSettings, input_alphabet};
 use archicraft_model::{Command, Project, StoreyId};
 
 pub use constrain::constrain;
@@ -29,7 +28,8 @@ pub use pointer::{InputMode, PointerEvent};
 pub use snap::{Snap, SnapKind, SnapLevel, candidates, snap};
 pub use surface::{SurfaceFrame, ViewSurface};
 pub use targets::{IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
-pub use typed::{Field, TypedInput};
+pub use tracker::TrackerLine;
+pub use typed::{Field, FieldSet, Origin, Reference, TypedInput, Value, starts_value};
 
 /// A guide line shown while resolving a point; inference guides (INP-011)
 /// fill these.
@@ -80,6 +80,46 @@ pub struct InputContext<'a> {
     pub angle_increment_deg: f64,
     pub snap_step: f64,
     pub frame: SurfaceFrame,
+    /// The user origin on the working plane (INP-014): the project origin
+    /// until the user origin can be placed (archicraft-k2uv).
+    pub user_origin: DVec2,
+    /// The temporarily marked snap point absolute coordinates can be
+    /// measured from (INP-004); none until points can be marked.
+    pub marked: Option<DVec2>,
+}
+
+impl InputContext<'_> {
+    /// The point of the step that relative input starts from.
+    fn origin(&self) -> Option<DVec2> {
+        self.expects.origin(self.previous)
+    }
+
+    /// The point typed coordinates are measured from (INP-004).
+    fn base(&self, reference: Reference) -> Option<DVec2> {
+        match reference {
+            Reference::Relative => self.origin(),
+            Reference::Absolute(Origin::Project) => Some(self.frame.to_plane(DVec3::ZERO)),
+            Reference::Absolute(Origin::User) => Some(self.user_origin),
+            Reference::Absolute(Origin::Marked) => self.marked,
+        }
+    }
+
+    /// The direction typed angles are measured from: the reference
+    /// direction in a relative angle step, otherwise the X axis.
+    fn base_angle(&self, reference: Reference) -> f64 {
+        match (reference, self.expects) {
+            (Reference::Relative, Expect::Angle { centre }) => self
+                .previous
+                .filter(|p| !coincident(*p, centre))
+                .map_or(0.0, |p| (p - centre).to_angle()),
+            _ => 0.0,
+        }
+    }
+
+    /// The typed fields this step starts with (INP-004).
+    fn follow(&self, typed: &mut TypedInput) {
+        typed.follow_step(self.origin().is_none(), matches!(self.expects, Expect::Angle { .. }));
+    }
 }
 
 /// What the view does after a key or a click.
@@ -124,8 +164,9 @@ impl PointInput {
     }
 
     /// Whether keys belong to point input rather than to single-key
-    /// shortcuts: while the consumer's step takes typed values or a value is
-    /// typed (INP-003, UI-008).
+    /// shortcuts: while the consumer's step has a point to start from or a
+    /// value is typed (INP-003, UI-008). Before that, only a key that
+    /// starts a value ([`PointInput::starts_typing`]) goes to point input.
     pub fn captures_keys(&self, consumer: &dyn InputConsumer) -> bool {
         !self.typed.is_empty()
             || consumer
@@ -133,27 +174,22 @@ impl PointInput {
                 .is_some_and(|s| s.expects.origin(consumer.reference_point()).is_some())
     }
 
-    /// The tracker text next to the cursor (INP-002): distance and angle of
-    /// `point` from the origin of the step, or the typed values with the
-    /// active field marked.
+    /// Whether `text` starts typing a value in the consumer's current step
+    /// (INP-003): a digit, a sign or the decimal separator, also for the
+    /// first point. The Select tool has no step and never types.
+    pub fn starts_typing(&self, consumer: &dyn InputConsumer, text: &str, nf: &NumberFormat) -> bool {
+        consumer.step().is_some() && text.chars().next().is_some_and(|c| starts_value(c, nf))
+    }
+
+    /// The tracker text next to the cursor (INP-002): one line per field
+    /// of the active field set with the value of `point`, or the typed text
+    /// with the active field marked.
     pub fn tracker(&self, point: DVec2, ctx: &InputContext) -> Option<String> {
-        let d = point - ctx.expects.origin(ctx.previous)?;
-        let mark = |field: Field| if self.typed.field == field { "▸" } else { " " };
-        let distance = if self.typed.distance.is_empty() {
-            format_length(d.length(), ctx.units, ctx.number_format, true)
-        } else {
-            format!("{}_", self.typed.distance)
-        };
-        let angle = if self.typed.angle.is_empty() {
-            format_angle(d.to_angle(), ctx.units, ctx.number_format, true)
-        } else {
-            format!("{}_", self.typed.angle)
-        };
-        Some(format!(
-            "{}d {distance}\n{}a {angle}",
-            mark(Field::Distance),
-            mark(Field::Angle)
-        ))
+        let mut typed = self.typed.clone();
+        ctx.follow(&mut typed);
+        let base = ctx.base(typed.reference)?;
+        let lines = tracker::lines(&typed, base, ctx.base_angle(typed.reference), point, ctx);
+        Some(tracker::text(&lines))
     }
 
     /// Whether Tab cycles through the snap candidates rather than moving to
@@ -171,11 +207,12 @@ impl PointInput {
     /// (INP-003, INP-006, INP-009). Leaving the snap radius around the
     /// position where cycling started ends the cycle.
     pub fn resolve(&mut self, cursor: DVec2, mods: Modifiers, ctx: &InputContext) -> Resolved {
+        ctx.follow(&mut self.typed);
         self.cursor = Some((cursor, mods));
-        let origin = ctx.expects.origin(ctx.previous);
-        let typed = origin
-            .filter(|_| !self.typed.is_empty())
-            .and_then(|o| self.apply_typed(o, cursor, ctx))
+        let origin = ctx.origin();
+        let typed = (!self.typed.is_empty())
+            .then(|| self.apply_typed(cursor, ctx))
+            .flatten()
             .map(|point| Snap {
                 point,
                 kind: SnapKind::Typed,
@@ -222,50 +259,54 @@ impl PointInput {
         resolved
     }
 
-    /// The typed distance and angle applied from `origin` (INP-003,
-    /// INP-004). An empty field takes its value from the cursor; an angle
-    /// step measures the typed angle from the reference direction.
-    fn apply_typed(&self, origin: DVec2, cursor: DVec2, ctx: &InputContext) -> Option<DVec2> {
-        let offset = cursor - origin;
-        let angle = if self.typed.angle.is_empty() {
-            offset.to_angle()
-        } else {
-            let base = match ctx.expects {
-                Expect::Angle { centre } => ctx
-                    .previous
-                    .filter(|p| !coincident(*p, centre))
-                    .map_or(0.0, |p| (p - centre).to_angle()),
-                _ => 0.0,
-            };
-            base + parse_angle(&self.typed.angle, ctx.units.angle, ctx.number_format).ok()?
-        };
-        let distance = if self.typed.distance.is_empty() {
-            offset.length()
-        } else {
-            parse_length(&self.typed.distance, ctx.units.length, ctx.number_format).ok()?
-        };
-        Some(origin + DVec2::from_angle(angle) * distance)
+    /// The typed values applied from their base point (INP-003, INP-004):
+    /// an empty field takes its value from the cursor (a typed ΔX with the
+    /// cursor's ΔY, a typed distance with the cursor's angle). `None` when a
+    /// value does not parse or the base point is unknown.
+    fn apply_typed(&self, cursor: DVec2, ctx: &InputContext) -> Option<DVec2> {
+        let typed = &self.typed;
+        let base = ctx.base(typed.reference)?;
+        let offset = cursor - base;
+        let value = |field| typed.value(field, ctx.units, ctx.number_format).transpose().ok();
+        match typed.set {
+            FieldSet::Polar { .. } => {
+                let angle = value(Field::Angle)?.map_or(offset.to_angle(), |a| ctx.base_angle(typed.reference) + a);
+                let distance = value(Field::Distance)?.unwrap_or(offset.length());
+                Some(base + DVec2::from_angle(angle) * distance)
+            }
+            FieldSet::Cartesian { .. } => {
+                // A plan view's working plane is the storey plane: planar
+                // consumers ignore ΔZ until the 3D working plane exists.
+                value(Field::Z)?;
+                let x = value(Field::X)?.unwrap_or(offset.x);
+                let y = value(Field::Y)?.unwrap_or(offset.y);
+                Some(base + DVec2::new(x, y))
+            }
+        }
     }
 
-    /// Handles a key (INP-003): characters go to the active field, Tab cycles
-    /// through the snap candidates in range or else moves between fields
-    /// (INP-009), Enter commits the typed point or finishes a repeating
+    /// Handles a key (INP-003, INP-004): characters go to the active field,
+    /// Tab cycles through the snap candidates in range or else moves between
+    /// fields (INP-009), P and Shift+P switch the field set and the
+    /// reference, Enter commits the typed point or finishes a repeating
     /// step, Backspace removes a character and then a point, and Esc clears
     /// the typed text and then cancels one step.
     pub fn key(&mut self, key: KeyInput, consumer: &mut dyn InputConsumer, ctx: &InputContext) -> Effect {
-        let origin = ctx.expects.origin(ctx.previous);
-        let typing = consumer.step().is_some() && origin.is_some();
+        ctx.follow(&mut self.typed);
+        let origin = ctx.origin();
+        let step = consumer.step().is_some();
         match key {
-            KeyInput::Text(text) if typing => {
-                if self.typed == TypedInput::default() && matches!(ctx.expects, Expect::Angle { .. }) {
-                    self.typed.field = Field::Angle;
+            KeyInput::Text(text) if step => {
+                if !self.typed.is_empty()
+                    || origin.is_some()
+                    || text.chars().next().is_some_and(|c| starts_value(c, ctx.number_format))
+                {
+                    // NFR-L10N-004: the characters the parsers accept under
+                    // the active number format, not a fixed list.
+                    let alphabet = input_alphabet(ctx.number_format);
+                    let text: String = text.chars().filter(|c| alphabet.contains(*c)).collect();
+                    self.typed.push_str(&text);
                 }
-                // NFR-L10N-004: the characters the parsers accept under the
-                // active number format, not a fixed list.
-                let alphabet = input_alphabet(ctx.number_format);
-                self.typed
-                    .active_text()
-                    .extend(text.chars().filter(|c| alphabet.contains(*c)));
                 Effect::None
             }
             KeyInput::Tab if self.cycles() => {
@@ -277,14 +318,23 @@ impl PointInput {
                 }
                 Effect::None
             }
-            KeyInput::Tab if typing => {
-                self.typed.field = match self.typed.field {
-                    Field::Distance => Field::Angle,
-                    Field::Angle => Field::Distance,
-                };
+            KeyInput::Tab if step => {
+                self.typed.next_field();
                 Effect::None
             }
-            KeyInput::Enter if consumer.step().is_some() => {
+            KeyInput::SwitchFields if step => {
+                let reference = self.typed.reference;
+                let cursor = self.cursor.zip(ctx.base(reference)).map(|((c, _), base)| c - base);
+                self.typed
+                    .switch_set(ctx.base_angle(reference), cursor, ctx.units, ctx.number_format);
+                Effect::None
+            }
+            // The first point has nothing to be relative to.
+            KeyInput::SwitchReference if step && origin.is_some() => {
+                self.typed.switch_reference();
+                Effect::None
+            }
+            KeyInput::Enter if step => {
                 if self.typed.is_empty() {
                     return consumer.finish(ctx.project).into();
                 }
@@ -299,22 +349,15 @@ impl PointInput {
                 }
             }
             KeyInput::Backspace => {
-                if self.typed.is_empty() {
+                if !self.typed.pop() {
                     consumer.backspace();
-                } else if self.typed.active_text().pop().is_none() {
-                    self.typed.field = match self.typed.field {
-                        Field::Distance => Field::Angle,
-                        Field::Angle => Field::Distance,
-                    };
-                    self.typed.active_text().pop();
                 }
                 Effect::None
             }
             KeyInput::Escape => {
-                if !self.typed.is_empty() {
-                    self.typed.clear();
-                    Effect::None
-                } else if consumer.cancel_step() {
+                let typed = !self.typed.is_empty();
+                self.typed.clear();
+                if typed || consumer.cancel_step() {
                     Effect::None
                 } else {
                     Effect::NothingToCancel
@@ -598,6 +641,7 @@ mod tests {
         pending: Vec<DVec2>,
         units: UnitSettings,
         nf: NumberFormat,
+        elevation: f64,
     }
 
     impl Env {
@@ -611,6 +655,7 @@ mod tests {
                 pending: Vec::new(),
                 units: UnitSettings::default(),
                 nf: NumberFormat::default(),
+                elevation: 0.0,
             }
         }
 
@@ -630,7 +675,9 @@ mod tests {
                 number_format: &self.nf,
                 angle_increment_deg: 45.0,
                 snap_step: 0.0,
-                frame: SurfaceFrame::plan(0.0),
+                frame: SurfaceFrame::plan(self.elevation),
+                user_origin: DVec2::ZERO,
+                marked: None,
             }
         }
 
@@ -986,7 +1033,11 @@ mod tests {
         let ctx = env.ctx(&stub);
         input.resolve(DVec2::new(-2.0, 0.5), Modifiers::default(), &ctx);
         input.key(text("30"), &mut stub, &ctx);
-        assert_eq!(input.typed.angle, "30", "an angle step types the angle first");
+        assert_eq!(
+            input.typed.text(Field::Angle),
+            "30",
+            "an angle step types the angle first"
+        );
         assert_eq!(input.key(KeyInput::Enter, &mut stub, &ctx), Effect::None);
         let angle = stub.angle.unwrap().to_degrees();
         assert!((angle - 30.0).abs() < 1e-12, "{angle}");
@@ -1014,7 +1065,7 @@ mod tests {
 
         env.key(&mut input, &mut tool, text("12"));
         env.key(&mut input, &mut tool, KeyInput::Backspace);
-        assert_eq!(input.typed.distance, "1");
+        assert_eq!(input.typed.text(Field::Distance), "1");
         env.key(&mut input, &mut tool, KeyInput::Backspace);
         assert!(input.typed.is_empty());
         assert_eq!(tool.points.len(), 1, "typed text goes before points");
@@ -1043,10 +1094,11 @@ mod tests {
         let mut tool = wall_tool(WallMode::Single);
         env.click(&mut input, &mut tool, (0.0, 0.0));
         let ctx = env.ctx(&tool);
-        input.typed.distance = "2500mm".into();
+        input.key(text("2500mm"), &mut tool, &ctx);
         let p = input.resolve(DVec2::new(1.0, 0.0), Modifiers::default(), &ctx).point;
         assert!(p.distance(DVec2::new(2.5, 0.0)) < 1e-12);
-        input.typed.angle = "90".into();
+        input.key(KeyInput::Tab, &mut tool, &ctx);
+        input.key(text("90"), &mut tool, &ctx);
         let p = input.resolve(DVec2::new(1.0, 0.0), Modifiers::default(), &ctx).point;
         assert!(p.distance(DVec2::new(0.0, 2.5)) < 1e-12);
         input.typed.clear();
@@ -1059,16 +1111,21 @@ mod tests {
         assert!(resolved.point.distance(DVec2::new(3.0, 0.0)) < 1e-12);
     }
 
-    /// INP-002, INP-003, UI-008: once a step takes typed values, keys belong
-    /// to point input and the tracker shows the distance and angle from the
-    /// previous point, or the typed value in the active field.
+    /// INP-002, INP-003, UI-008: once a step has a point to start from,
+    /// keys belong to point input and the tracker shows the distance and
+    /// angle from the previous point, or the typed value in the active field.
+    /// Before the first point it shows the absolute X and Y.
     #[test]
     fn keys_and_tracker_follow_the_step() {
         let mut env = Env::new();
         let mut input = PointInput::default();
         let mut tool = wall_tool(WallMode::Single);
-        assert!(!input.captures_keys(&tool), "the first point takes no typed values");
-        assert_eq!(input.tracker(DVec2::X, &env.ctx(&tool)), None);
+        assert!(
+            !input.captures_keys(&tool),
+            "only a value starts typing the first point"
+        );
+        let tracker = input.tracker(DVec2::new(2.0, -1.5), &env.ctx(&tool)).unwrap();
+        assert_eq!(tracker, "▸X 2.000 m\n Y -1.500 m\n Z 0.000 m");
         env.click(&mut input, &mut tool, (1.0, 1.0));
         assert!(input.captures_keys(&tool));
         let tracker = input.tracker(DVec2::new(4.0, 5.0), &env.ctx(&tool)).unwrap();
@@ -1198,7 +1255,7 @@ mod tests {
         let mut tool = wall_tool(WallMode::Single);
         env.click(&mut input, &mut tool, (0.0, 0.0));
         env.key(&mut input, &mut tool, text("2,5xq"));
-        assert_eq!(input.typed.distance, "2,5");
+        assert_eq!(input.typed.text(Field::Distance), "2,5");
         input.cursor = Some((DVec2::X, Modifiers::default()));
         assert_eq!(env.key(&mut input, &mut tool, KeyInput::Enter), Effect::None);
         assert_eq!(env.walls(), [(DVec2::ZERO, DVec2::new(2.5, 0.0))]);
@@ -1208,6 +1265,233 @@ mod tests {
         let mut tool = wall_tool(WallMode::Single);
         env.click(&mut input, &mut tool, (0.0, 0.0));
         env.key(&mut input, &mut tool, text("1,5.5 mz"));
-        assert_eq!(input.typed.distance, "15.5 m");
+        assert_eq!(input.typed.text(Field::Distance), "15.5 m");
+    }
+
+    /// The point `input` resolves for `cursor` in `consumer`'s step.
+    fn point_at(env: &Env, input: &mut PointInput, consumer: &dyn InputConsumer, cursor: (f64, f64)) -> DVec2 {
+        let ctx = env.ctx(consumer);
+        input
+            .resolve(DVec2::new(cursor.0, cursor.1), Modifiers::default(), &ctx)
+            .point
+    }
+
+    /// INP-004: P switches to Cartesian fields; ΔX 3 and ΔY 4 from (1, 1)
+    /// give (4, 5), and a ΔX typed alone takes ΔY from the cursor.
+    #[test]
+    fn cartesian_fields_are_relative_to_the_previous_point() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (1.0, 1.0));
+        env.key(&mut input, &mut tool, KeyInput::SwitchFields);
+        assert!(matches!(input.typed.set, FieldSet::Cartesian { .. }));
+        assert_eq!(input.typed.reference, Reference::Relative);
+        env.key(&mut input, &mut tool, text("3"));
+        assert_eq!(point_at(&env, &mut input, &tool, (0.0, 7.0)), DVec2::new(4.0, 7.0));
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        env.key(&mut input, &mut tool, text("4"));
+        assert_eq!(point_at(&env, &mut input, &tool, (0.0, 7.0)), DVec2::new(4.0, 5.0));
+        env.key(&mut input, &mut tool, KeyInput::Enter);
+        assert_eq!(env.walls(), [(DVec2::ONE, DVec2::new(4.0, 5.0))]);
+    }
+
+    /// INP-004, AS-04: P converts typed polar values into Cartesian fields
+    /// without rounding: the fields show rounded text and keep the exact
+    /// value, so the point does not move.
+    #[test]
+    fn switching_to_cartesian_keeps_typed_values_exact() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        env.key(&mut input, &mut tool, text("1"));
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        env.key(&mut input, &mut tool, text("30"));
+        let polar = point_at(&env, &mut input, &tool, (5.0, 5.0));
+        env.key(&mut input, &mut tool, KeyInput::SwitchFields);
+        assert_eq!(input.typed.text(Field::X), "0.866");
+        assert_eq!(input.typed.text(Field::Y), "0.500");
+        let exact = DVec2::from_angle(30f64.to_radians());
+        let value = |f| input.typed.value(f, &env.units, &env.nf).unwrap().unwrap();
+        assert_eq!((value(Field::X), value(Field::Y)), (exact.x, exact.y));
+        assert_eq!(point_at(&env, &mut input, &tool, (5.0, 5.0)), polar);
+        // Editing a converted field reads its text again.
+        env.key(&mut input, &mut tool, KeyInput::Backspace);
+        env.key(&mut input, &mut tool, text("2"));
+        assert_eq!(input.typed.value(Field::X, &env.units, &env.nf), Some(Ok(0.862)));
+    }
+
+    /// INP-003, INP-004: before the first point the fields are absolute X
+    /// and Y from the project origin, measured in the storey plane; '3',
+    /// Tab, '4', Enter commits the first point (3, 4). No snap candidate is
+    /// in range, so Tab moves the field.
+    #[test]
+    fn the_first_point_takes_absolute_coordinates() {
+        let mut env = Env::new();
+        env.elevation = 2.8;
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Chain);
+        for key in [text("3"), KeyInput::Tab, text("4")] {
+            assert_eq!(env.key(&mut input, &mut tool, key), Effect::None);
+        }
+        assert_eq!(input.typed.reference, Reference::Absolute(Origin::Project));
+        let point = point_at(&env, &mut input, &tool, (-7.0, 9.0));
+        assert_eq!(point, DVec2::new(3.0, 4.0));
+        assert_eq!(env.ctx(&tool).frame.to_model(point).z, 2.8);
+        assert_eq!(env.key(&mut input, &mut tool, KeyInput::Enter), Effect::None);
+        assert_eq!(tool.points, [DVec2::new(3.0, 4.0)]);
+        assert!(input.typed.is_empty());
+        // The next point is relative again: polar from the first point.
+        assert!(matches!(input.typed.set, FieldSet::Cartesian { .. }));
+        env.key(&mut input, &mut tool, text("2"));
+        assert!(matches!(input.typed.set, FieldSet::Polar { .. }));
+        assert_eq!(point_at(&env, &mut input, &tool, (10.0, 4.0)), DVec2::new(5.0, 4.0));
+    }
+
+    /// INP-003, UI-008: before the first point only a digit, a sign or the
+    /// decimal separator starts typing; other keys stay shortcuts. Once
+    /// typing started, unit letters belong to the value.
+    #[test]
+    fn only_a_value_starts_typing_the_first_point() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Chain);
+        for start in ["3", "-", "+", "−", ".", "3ft"] {
+            assert!(input.starts_typing(&tool, start, &env.nf), "{start}");
+        }
+        for other in ["s", "f", "P", " ", ""] {
+            assert!(!input.starts_typing(&tool, other, &env.nf), "{other:?}");
+            env.key(&mut input, &mut tool, text(other));
+            assert!(input.typed.is_empty(), "{other:?}");
+        }
+        assert!(
+            !input.starts_typing(&ToolState::default(), "3", &env.nf),
+            "Select never types"
+        );
+        env.key(&mut input, &mut tool, text("3"));
+        env.key(&mut input, &mut tool, text("f"));
+        env.key(&mut input, &mut tool, text("t"));
+        assert_eq!(input.typed.text(Field::X), "3ft");
+        assert!(input.captures_keys(&tool));
+    }
+
+    /// INP-004: Shift+P toggles relative and absolute coordinates once the
+    /// step has a point to be relative to; the typed text is read in the
+    /// new reference.
+    #[test]
+    fn shift_p_toggles_relative_and_absolute() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.key(&mut input, &mut tool, KeyInput::SwitchReference);
+        assert_eq!(
+            input.typed.reference,
+            Reference::Absolute(Origin::Project),
+            "the first point has nothing to be relative to"
+        );
+        env.click(&mut input, &mut tool, (1.0, 1.0));
+        env.key(&mut input, &mut tool, KeyInput::SwitchFields);
+        for key in [text("3"), KeyInput::Tab, text("4")] {
+            env.key(&mut input, &mut tool, key);
+        }
+        assert_eq!(input.typed.reference, Reference::Relative);
+        assert_eq!(point_at(&env, &mut input, &tool, (0.0, 0.0)), DVec2::new(4.0, 5.0));
+        env.key(&mut input, &mut tool, KeyInput::SwitchReference);
+        assert_eq!(input.typed.reference, Reference::Absolute(Origin::Project));
+        assert_eq!(point_at(&env, &mut input, &tool, (0.0, 0.0)), DVec2::new(3.0, 4.0));
+        let tracker = input.tracker(DVec2::new(3.0, 4.0), &env.ctx(&tool)).unwrap();
+        assert_eq!(tracker, " X 3_\n▸Y 4_\n Z 0.000 m");
+        env.key(&mut input, &mut tool, KeyInput::SwitchReference);
+        assert_eq!(point_at(&env, &mut input, &tool, (0.0, 0.0)), DVec2::new(4.0, 5.0));
+    }
+
+    /// INP-002, INP-004: the Cartesian set shows ΔX, ΔY and ΔZ (0 in plan
+    /// views); a typed ΔZ leaves a plan-view point in the storey plane.
+    #[test]
+    fn cartesian_tracker_and_planar_dz() {
+        let mut env = Env::new();
+        env.elevation = 3.0;
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (1.0, 1.0));
+        env.key(&mut input, &mut tool, KeyInput::SwitchFields);
+        let tracker = input.tracker(DVec2::new(4.0, 5.0), &env.ctx(&tool)).unwrap();
+        assert_eq!(tracker, "▸ΔX 3.000 m\n ΔY 4.000 m\n ΔZ 0.000 m");
+        for key in [text("3"), KeyInput::Tab, KeyInput::Tab, text("2")] {
+            env.key(&mut input, &mut tool, key);
+        }
+        let tracker = input.tracker(DVec2::new(4.0, 5.0), &env.ctx(&tool)).unwrap();
+        assert_eq!(tracker, " ΔX 3_\n ΔY 4.000 m\n▸ΔZ 2_");
+        let point = point_at(&env, &mut input, &tool, (2.0, 5.0));
+        assert_eq!(point, DVec2::new(4.0, 5.0), "ΔZ does not move the point in plan");
+        assert_eq!(env.ctx(&tool).frame.to_model(point).z, 3.0);
+    }
+
+    /// INP-005: an imperial length typed into the ΔX field of a metric
+    /// project resolves to metres at full precision.
+    #[test]
+    fn imperial_lengths_in_the_dx_field() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        env.key(&mut input, &mut tool, KeyInput::SwitchFields);
+        env.key(&mut input, &mut tool, text("3'-4 1/2\""));
+        assert_eq!(input.typed.text(Field::X), "3'-4 1/2\"");
+        let point = point_at(&env, &mut input, &tool, (0.0, 0.0));
+        assert!((point.x - 1.0287).abs() < 1e-12, "{point}");
+        assert_eq!(point.y, 0.0);
+    }
+
+    /// INP-003, INP-004: Backspace removing the last point brings back the
+    /// first point's absolute X and Y, also after a key chose the fields of
+    /// the later step.
+    #[test]
+    fn backspace_to_the_first_point_restores_absolute_input() {
+        for choose in [KeyInput::Tab, KeyInput::SwitchFields, KeyInput::SwitchReference] {
+            let mut env = Env::new();
+            let mut input = PointInput::default();
+            let mut tool = wall_tool(WallMode::Chain);
+            env.click(&mut input, &mut tool, (1.0, 1.0));
+            env.key(&mut input, &mut tool, choose.clone());
+            env.key(&mut input, &mut tool, KeyInput::Backspace);
+            assert!(tool.points.is_empty());
+            for key in [text("3"), KeyInput::Tab, text("4"), KeyInput::Enter] {
+                assert_eq!(env.key(&mut input, &mut tool, key), Effect::None, "{choose:?}");
+            }
+            assert_eq!(tool.points, [DVec2::new(3.0, 4.0)], "{choose:?}");
+        }
+    }
+
+    /// INP-004: P keeps a lone typed value; the untyped field comes from the
+    /// cursor, as in the resolved point, so the point does not move.
+    #[test]
+    fn switching_fields_completes_a_lone_value_from_the_cursor() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        env.key(&mut input, &mut tool, text("10"));
+        let polar = point_at(&env, &mut input, &tool, (3.0, 4.0));
+        env.key(&mut input, &mut tool, KeyInput::SwitchFields);
+        assert_eq!(
+            (input.typed.text(Field::X), input.typed.text(Field::Y)),
+            ("6.000", "8.000")
+        );
+        assert_eq!(point_at(&env, &mut input, &tool, (3.0, 4.0)), polar);
+        // Back to polar: ΔX alone takes ΔY from the cursor.
+        env.key(&mut input, &mut tool, KeyInput::Tab);
+        for _ in 0..5 {
+            env.key(&mut input, &mut tool, KeyInput::Backspace);
+        }
+        assert_eq!((input.typed.text(Field::X), input.typed.text(Field::Y)), ("6.000", ""));
+        env.key(&mut input, &mut tool, KeyInput::SwitchFields);
+        let d = input
+            .typed
+            .value(Field::Distance, &env.units, &env.nf)
+            .unwrap()
+            .unwrap();
+        assert!((d - 6.0f64.hypot(4.0)).abs() < 1e-12, "{d}");
     }
 }

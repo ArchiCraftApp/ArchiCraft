@@ -11,13 +11,17 @@ pub struct Modifiers {
     pub alt: bool,
 }
 
-/// A key press that point input handles (INP-003): characters go to the
-/// active typed field, Tab moves between fields, Enter commits, Backspace
-/// removes a character or a point and Esc cancels one step.
+/// A key press that point input handles (INP-003, INP-004): characters go
+/// to the active typed field, Tab moves between fields, P switches between
+/// polar and Cartesian fields and Shift+P between relative and absolute
+/// coordinates (provisional keys), Enter commits, Backspace removes a
+/// character or a point and Esc cancels one step.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyInput {
     Text(String),
     Tab,
+    SwitchFields,
+    SwitchReference,
     Enter,
     Backspace,
     Escape,

@@ -1047,7 +1047,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No X/Y/Z display on demand (only distance and angle); no stretch mode at all, so neither total length nor length change is shown or accepted as typed input during stretching.",
+      "gap": "The tracker shows one line per field of the active set: distance and angle, ΔX/ΔY/ΔZ, or absolute X/Y/Z with Z the surface elevation (crates/archicraft-app/src/input/tracker.rs). Missing: X/Y/Z on demand beside the polar fields (a tracker-behaviour preference) and the stretch modes, so neither total length nor length change is shown or accepted as typed input during stretching (archicraft-o76a.2).",
       "depends_on": []
     },
     {
@@ -1057,7 +1057,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Esc cancels one step per press (typed text, then the step in progress, then the selection, then back to the Select tool; PointInput::key and views/plan.rs apply) and Backspace removes one typed character, then one point. Remaining gap: typing is accepted only once the tool has a point, so the first point cannot be typed (Cartesian and absolute fields, archicraft-o76a).",
+      "gap": "Esc cancels one step per press (typed text, then the step in progress, then the selection, then back to the Select tool; PointInput::key and views/plan.rs apply) and Backspace removes one typed character, then one point. The first point is typed too: a digit, sign or decimal separator starts absolute X/Y input without a point (PointInput::starts_typing, also looked ahead by app.rs shortcuts so '3ft' in one frame is not a Fit); tests the_first_point_takes_absolute_coordinates (input/mod.rs) and typing_the_first_point_keeps_shortcuts_until_a_value_starts (tests/ui.rs). Remaining gap: point input exists only in plan views, so nothing can be typed in 3D views (INP-001).",
       "depends_on": []
     },
     {
@@ -1067,7 +1067,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Only relative polar coordinates. Missing: relative Cartesian (dX, dY, dZ) fields, absolute coordinates from the project origin, from the user origin (INP-014) or from a temporarily marked snap point, and a single key switching po…",
+      "gap": "Polar (distance, angle) and Cartesian (ΔX, ΔY, ΔZ) fields, relative or absolute from the project origin (crates/archicraft-app/src/input/typed.rs: FieldSet, Reference, Origin); P switches polar/Cartesian converting typed values exactly, Shift+P relative/absolute (provisional keys); the first point defaults to absolute X/Y. ΔZ is display-only in plan views. Missing: placing the user origin (INP-014, archicraft-k2uv; InputContext::user_origin is the project origin until then) and marking a snap point (InputContext::marked is always None), so Origin::User and Origin::Marked are not reachable yet.",
       "depends_on": []
     },
     {
@@ -1076,7 +1076,7 @@
       "section": "4.6",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-model/src/units.rs:391-424 (parse_length: suffixes mm, cm, m, ft, in, ', \" in any unit setting), units.rs:474-529 (normalises ′ ″ typographic marks, the locale decimal separator and digit groupings), units.rs:560-623 (mixed nu…",
+      "evidence": "Done: typed into every point-input field, regressed in the ΔX field by imperial_lengths_in_the_dx_field (crates/archicraft-app/src/input/mod.rs); crates/archicraft-model/src/units.rs:391-424 (parse_length: suffixes mm, cm, m, ft, in, ', \" in any unit setting), units.rs:474-529 (normalises ′ ″ typographic marks, the locale decimal separator and digit groupings), units.rs:560-623 (mixed nu…",
       "gap": "",
       "depends_on": []
     },
@@ -5617,7 +5617,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "The first point of every element needs a mouse click: typed input requires a previous point (crates/archicraft-app/src/tools/mod.rs:172-173) and absolute coordinates (INP-004) are missing; selection is mouse-only; context-menu-…",
+      "gap": "The first point of an element can be typed as absolute X/Y (INP-003, INP-004), but selection is mouse-only; context-menu-…",
       "depends_on": []
     },
     {
