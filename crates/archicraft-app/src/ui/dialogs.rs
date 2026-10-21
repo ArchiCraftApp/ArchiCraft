@@ -4,7 +4,7 @@
 use archicraft_model::command::StoreyElements;
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use archicraft_model::project::Location;
-use archicraft_model::units::{AngleUnit, LengthUnit, format_length};
+use archicraft_model::units::{AngleUnit, LengthUnit, NumberFormat, format_length};
 use archicraft_model::{Command, Layer, LayerId, MaterialId, ProjectInfo, ProjectSettings, StoreyId};
 use egui::{Context, Id, RichText, Ui};
 
@@ -84,7 +84,7 @@ impl Dialogs {
         self.settings_window(ctx, ws);
         self.shortcuts_window(ctx);
         self.about_window(ctx);
-        self.preferences_window(ctx)
+        self.preferences_window(ctx, &ws.prefs.number_format())
     }
 
     fn storeys_window(&mut self, ctx: &Context, ws: &mut Workspace) {
@@ -532,7 +532,7 @@ impl Dialogs {
                         }
                         ui.end_row();
                         ui.label("Length decimals");
-                        ui.add(egui::DragValue::new(&mut draft.settings.units.length_decimals).range(0..=6));
+                        widgets::integer(ui, &mut draft.settings.units.length_decimals, 0..=6, &nf);
                         ui.end_row();
                         ui.label("Angle unit");
                         let options: Vec<(AngleUnit, String)> =
@@ -548,7 +548,7 @@ impl Dialogs {
                         }
                         ui.end_row();
                         ui.label("Angle decimals");
-                        ui.add(egui::DragValue::new(&mut draft.settings.units.angle_decimals).range(0..=6));
+                        widgets::integer(ui, &mut draft.settings.units.angle_decimals, 0..=6, &nf);
                         ui.end_row();
                         ui.label("Plan cut plane");
                         if let Edited::Changed(v) = widgets::length(
@@ -695,7 +695,9 @@ impl Dialogs {
             });
     }
 
-    fn preferences_window(&mut self, ctx: &Context) -> Option<Preferences> {
+    /// The Preferences window. Its numbers use `nf`, the number format of
+    /// the applied preferences, until OK applies the draft (NFR-L10N-004).
+    fn preferences_window(&mut self, ctx: &Context, nf: &NumberFormat) -> Option<Preferences> {
         let mut draft = self.preferences.take()?;
         let mut open = true;
         let mut result = None;
@@ -709,13 +711,13 @@ impl Dialogs {
                     ui.text_edit_singleline(&mut draft.author);
                     ui.end_row();
                     ui.label("Autosave every (minutes)");
-                    ui.add(egui::DragValue::new(&mut draft.autosave_minutes).range(1..=120));
+                    widgets::integer(ui, &mut draft.autosave_minutes, 1..=120, nf);
                     ui.end_row();
                     ui.label("Backup versions kept");
-                    ui.add(egui::DragValue::new(&mut draft.backups).range(0..=20));
+                    widgets::integer(ui, &mut draft.backups, 0..=20, nf);
                     ui.end_row();
                     ui.label("Undo steps (new projects)");
-                    ui.add(egui::DragValue::new(&mut draft.undo_steps).range(100..=10_000));
+                    widgets::integer(ui, &mut draft.undo_steps, 100..=10_000, nf);
                     ui.end_row();
                     ui.label("Theme");
                     let themes = vec![
@@ -766,17 +768,13 @@ impl Dialogs {
                     .spacing([12.0, 6.0])
                     .show(ui, |ui| {
                         ui.label("Snap radius (points)");
-                        ui.add(egui::DragValue::new(&mut draft.snap_radius).range(2.0..=40.0));
+                        widgets::decimal(ui, &mut draft.snap_radius, 2.0..=40.0, 1, 1.0, nf);
                         ui.end_row();
                         ui.label("Snap grid step (m)");
-                        ui.add(
-                            egui::DragValue::new(&mut draft.snap_step)
-                                .range(0.001..=10.0)
-                                .speed(0.01),
-                        );
+                        widgets::decimal(ui, &mut draft.snap_step, 0.001..=10.0, 3, 0.01, nf);
                         ui.end_row();
                         ui.label("Angle increment (°)");
-                        ui.add(egui::DragValue::new(&mut draft.angle_increment_deg).range(1.0..=90.0));
+                        widgets::decimal(ui, &mut draft.angle_increment_deg, 1.0..=90.0, 1, 1.0, nf);
                         ui.end_row();
                         // INP-020: click-click by default.
                         ui.label("Input mode");
@@ -812,6 +810,7 @@ fn material_editor(ui: &mut Ui, ws: &mut Workspace, material: &Material) {
     let mut m = material.clone();
     let id = Id::new("material-editor").with(material.id);
     let mut commit = false;
+    let nf = ws.prefs.number_format();
     egui::Grid::new(id).num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
         ui.label("Name");
         if let Edited::Changed(name) = widgets::text(ui, id.with("name"), Some(&m.name), 160.0) {
@@ -845,7 +844,7 @@ fn material_editor(ui: &mut Ui, ws: &mut Workspace, material: &Material) {
         ui.end_row();
         ui.label("Opacity");
         let mut opacity = m.opacity;
-        let response = ui.add(egui::Slider::new(&mut opacity, 0.0..=1.0));
+        let response = widgets::slider(ui, &mut opacity, 0.0..=1.0, 2, &nf);
         if response.changed() && !response.dragged() || response.drag_stopped() {
             m.opacity = opacity;
             commit |= opacity != material.opacity;
@@ -854,7 +853,7 @@ fn material_editor(ui: &mut Ui, ws: &mut Workspace, material: &Material) {
         ui.label("Intersection priority")
             .on_hover_text("1–999; higher cuts lower at junctions (WAL-023)");
         let mut priority = m.priority;
-        let response = ui.add(egui::DragValue::new(&mut priority).range(1..=999));
+        let response = widgets::integer(ui, &mut priority, 1..=999, &nf);
         if response.changed() && !response.dragged() || response.drag_stopped() {
             m.priority = priority;
             commit |= priority != material.priority;

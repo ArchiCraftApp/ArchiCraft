@@ -1,7 +1,8 @@
 //! Regression net for the done application requirements (UI-006, UI-007,
 //! STR-003, STR-004, NFR-USE-004, VIEW-002, VIEW-014, WAL-001,
 //! NFR-PORT-005, PRJ-004, NFR-REL-002, PRJ-005, NFR-REL-001, NFR-REL-003,
-//! IFX-001, IFX-002, UND-001, ELM-004, NFR-ACC-005, XCH-008, HW-001, UND-005).
+//! IFX-001, IFX-002, UND-001, ELM-004, NFR-ACC-005, XCH-008, HW-001, UND-005,
+//! STR-010, NFR-L10N-004).
 //!
 //! Every test is named after the requirement it pins, so the traceability
 //! table in docs/testing.md and the status script can find it. The tests run
@@ -19,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use archicraft_app::ArchiCraftApp;
 use archicraft_app::app::{IFCX_EXTENSIONS, with_ifcx_extension};
+use archicraft_app::i18n::os_locale::OsNumberLocale;
 use archicraft_app::input::{InputConsumer, Outcome};
 use archicraft_app::persistence::autosave::{ManualClock, RecoveryInfo, Session, write_autosave};
 use archicraft_app::persistence::prefs::{Preferences, SeparatorChoice};
@@ -31,6 +33,7 @@ use archicraft_ifcx::IfcxFile;
 use archicraft_ifcx::container::Header;
 use archicraft_model::glam::DVec2;
 use archicraft_model::project::Projection;
+use archicraft_model::units::format_length;
 use archicraft_model::{Command, ElementId, ElementKind, StoreyId, ViewId};
 use common::{assert_present, data_dir, harness, harness_at, harness_in, harness_with_clock};
 use egui::accesskit::Role;
@@ -1340,4 +1343,190 @@ fn xch_008_a_saved_file_opens_editable_without_problems() {
         ws.doc.project.element(wall).map(|e| e.name.as_str()),
         Some("Opened wall")
     );
+}
+
+/// Opens the dialog behind the menu entry `entry` of `menu` and waits until
+/// its new window takes clicks.
+fn open_from_menu(h: &mut App, menu: &str, entry: &str) {
+    // The menu bar comes first; the browser may name a section the same.
+    h.query_all_by_label(menu).next().expect("the menu").click();
+    h.run_steps(2);
+    h.get_by_label(entry).click();
+    h.run_steps(4);
+}
+
+/// The number field (DragValue) that shows `value`.
+fn number_field(value: &str) -> By<'_> {
+    By::new().role(Role::SpinButton).value(value)
+}
+
+/// Types `text` into the number field showing `shown` and presses Enter. A
+/// click opens the field for typing with its text selected; it keeps the
+/// SpinButton role while it is edited.
+fn type_into_number_field(h: &mut App, shown: &str, text: &str) {
+    h.get(number_field(shown)).click();
+    h.run_steps(2);
+    assert!(h.get(number_field(shown)).is_focused());
+    h.event(Event::Text(text.into()));
+    h.run_steps(1);
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+}
+
+/// Preferences with the decimal `separator`, so that the tests do not depend
+/// on the number locale of the machine.
+fn prefs_with(separator: SeparatorChoice) -> Preferences {
+    Preferences {
+        decimal_separator: separator,
+        ..Preferences::default()
+    }
+}
+
+/// STR-010, NFR-L10N-004: switching the separator to Comma in Preferences
+/// and pressing OK shows the storey elevations in the project browser with a
+/// comma in the next frame, without a restart.
+#[test]
+fn str_010_the_comma_setting_reaches_the_browser_in_the_next_frame() {
+    let mut h = harness_in(&data_dir("str-010"), prefs_with(SeparatorChoice::Point), 1.0);
+    let elevation = |h: &mut App| {
+        let ws = h.state_mut().workspace();
+        let storey = ws
+            .doc
+            .project
+            .storeys
+            .highest_first()
+            .find(|s| s.elevation != 0.0)
+            .unwrap();
+        (storey.name.clone(), storey.elevation)
+    };
+    let (name, metres) = elevation(&mut h);
+    let shown = |h: &mut App| {
+        let ws = h.state_mut().workspace();
+        format_length(metres, &ws.doc.project.settings.units, &ws.prefs.number_format(), true)
+    };
+    let point = shown(&mut h);
+    assert!(point.contains('.') && !point.contains(','), "{point}");
+    assert!(browser_row_label(&h, &name).contains(&point), "{point}");
+
+    open_from_menu(&mut h, "File", "Preferences…");
+    h.get(By::new().role(Role::ComboBox).value("Point (1.5)")).click();
+    h.run_steps(2);
+    h.get_by_label("Comma (1,5)").click();
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    // The frame that handles the click applies the preferences after the
+    // browser has drawn; the next frame draws it with the comma.
+    h.run_steps(1);
+    h.run_steps(1);
+    let comma = shown(&mut h);
+    assert_eq!(comma, point.replace('.', ","));
+    assert!(browser_row_label(&h, &name).contains(&comma), "{comma}");
+}
+
+/// NFR-L10N-004: the Preferences dialog shows its whole numbers through
+/// NumberFormat (the undo steps with the active digit grouping) and the
+/// autosave field accepts typed values through the same parser: "7,0" under
+/// a decimal comma is 7, while "2,5" is no whole number and keeps the value.
+#[test]
+fn nfr_l10n_004_preference_numbers_follow_the_number_format() {
+    let prefs = Preferences {
+        digit_grouping: true,
+        undo_steps: 10_000,
+        ..prefs_with(SeparatorChoice::Comma)
+    };
+    let mut h = harness_in(&data_dir("nfr-l10n-004-prefs"), prefs, 1.0);
+    let nf = h.state_mut().workspace().prefs.number_format();
+    let undo_steps = nf.format_decimal(10_000.0, 0);
+    assert_eq!(undo_steps.chars().count(), 6, "{undo_steps} is grouped");
+    open_from_menu(&mut h, "File", "Preferences…");
+    h.get(number_field(&undo_steps));
+
+    type_into_number_field(&mut h, "5", "2,5");
+    h.get(number_field("5"));
+    type_into_number_field(&mut h, "5", "7,0");
+    h.get(number_field("7"));
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    assert_eq!(h.state_mut().workspace().prefs.autosave_minutes, 7);
+}
+
+/// NFR-L10N-004, INP-005: typing "2,5" into a length field under the comma
+/// setting stores 2.5 m.
+#[test]
+fn nfr_l10n_004_a_length_typed_with_a_comma_stores_2_5() {
+    let mut h = harness_in(
+        &data_dir("nfr-l10n-004-length"),
+        prefs_with(SeparatorChoice::Comma),
+        1.0,
+    );
+    let shown = {
+        let ws = h.state_mut().workspace();
+        let p = &ws.doc.project;
+        format_length(
+            p.site.location.altitude,
+            &p.settings.units,
+            &ws.prefs.number_format(),
+            false,
+        )
+    };
+    assert!(!shown.contains('.'), "{shown}");
+    open_from_menu(&mut h, "Project", "Project settings…");
+    let field = || By::new().role(Role::TextInput).value(shown.as_str());
+    // The altitude is the first field showing the value; the survey point
+    // follows it.
+    h.query_all(field()).next().expect("the altitude field").click();
+    h.run_steps(1);
+    h.query_all(field())
+        .next()
+        .expect("the altitude field")
+        .type_text("2,5");
+    h.run_steps(1);
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    let altitude = h.state_mut().workspace().doc.project.site.location.altitude;
+    assert_eq!(altitude, 2.5);
+}
+
+/// NFR-L10N-004: under fr-FR the grouping character is a no-break space
+/// (U+202F is mapped to it), which the application's fonts draw, so a grouped
+/// number renders without a replacement glyph.
+#[test]
+fn nfr_l10n_004_a_grouped_number_draws_under_fr_fr() {
+    let prefs = Preferences {
+        decimal_separator: SeparatorChoice::Automatic,
+        digit_grouping: true,
+        ..Preferences::default()
+    };
+    let nf = prefs.number_format_in(&OsNumberLocale::from_tag("fr-FR"));
+    let text = nf.format_decimal(1_234_567.25, 2);
+    assert_eq!(text, "1\u{A0}234\u{A0}567,25");
+    let h = harness("nfr-l10n-004-fr-fr");
+    let drawn = h
+        .ctx
+        .fonts_mut(|fonts| fonts.has_glyphs(&egui::FontId::proportional(14.0), &text));
+    assert!(drawn, "{text:?} has a glyph the fonts lack");
+}
+
+/// NFR-L10N-004: point input filters typed keys through the input alphabet
+/// of the number format, not through a literal character list.
+#[test]
+fn nfr_l10n_004_point_input_has_no_literal_character_list() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let files = [
+        src.join("views/plan.rs"),
+        src.join("input/mod.rs"),
+        src.join("input/typed.rs"),
+    ];
+    for file in files {
+        let text = fs::read_to_string(&file).unwrap();
+        for (n, line) in text.lines().enumerate() {
+            let literal_list = line.contains("\".contains(") || line.contains("is_numeric_input");
+            assert!(!literal_list, "{}:{}: {line}", file.display(), n + 1);
+        }
+        assert!(!text.contains("mcfitn"), "{} lists unit characters", file.display());
+    }
+    let mod_rs = fs::read_to_string(src.join("input/mod.rs")).unwrap();
+    assert!(mod_rs.contains("input_alphabet(ctx.number_format)"));
 }

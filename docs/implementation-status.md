@@ -4,25 +4,25 @@ _Gap analysis of the codebase against docs/SRS.md (567 requirements), generated 
 
 ## Summary
 
-Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust workspace with a command/undo core where every mutation is a serialisable, invertible `Command`; storeys, layers and 25 default materials; straight walls (single/chain/rectangle, L and T junctions) and slabs with holes; a plan view (cut, projected and overhead classes with merged cut fills) and a wgpu 3D view; snapping, angle constraint and typed polar input; an `ifcx_alpha` writer and lenient reader with the full spatial tree, closed meshes, materials, in-file `archicraft::` schema declarations, golden files and a CI conformance run against buildingSMART's ifcx-core and viewer; atomic save with backups, background autosave with crash recovery, local crash reports and preferences. Its exit criterion (a storey with walls and a slab round-trips through IFCX and passes IFX-006 in CI) is met. Of the 567 requirements, 62 are done, 160 partial and 345 missing; of the 314 Must requirements, 58 are done, 118 partial and 138 missing. What comes next is increment 1 (core modeller): the editing area (EDT) has no user-facing command at all, layer structures/profiles (PRF), columns, beams, openings, doors and windows do not exist, and the priority-based junction engine needed for fixtures F2/F6/F7 is absent. Before those element kinds are added, two structural decisions pay off across every later increment: making the element kind, IFC class and tool/default/counter tables extensible instead of closed enums matched in ~15 places, and adding the relation store (host, solid operation, annotation binding) and an incremental geometry evaluation that Appendix F increments 1 to 3 all rely on.
+Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust workspace with a command/undo core where every mutation is a serialisable, invertible `Command`; storeys, layers and 25 default materials; straight walls (single/chain/rectangle, L and T junctions) and slabs with holes; a plan view (cut, projected and overhead classes with merged cut fills) and a wgpu 3D view; snapping, angle constraint and typed polar input; an `ifcx_alpha` writer and lenient reader with the full spatial tree, closed meshes, materials, in-file `archicraft::` schema declarations, golden files and a CI conformance run against buildingSMART's ifcx-core and viewer; atomic save with backups, background autosave with crash recovery, local crash reports and preferences. Its exit criterion (a storey with walls and a slab round-trips through IFCX and passes IFX-006 in CI) is met. Of the 567 requirements, 68 are done, 155 partial and 344 missing; of the 314 Must requirements, 61 are done, 115 partial and 138 missing. What comes next is increment 1 (core modeller): the editing area (EDT) has no user-facing command at all, layer structures/profiles (PRF), columns, beams, openings, doors and windows do not exist, and the priority-based junction engine needed for fixtures F2/F6/F7 is absent. Before those element kinds are added, two structural decisions pay off across every later increment: making the element kind, IFC class and tool/default/counter tables extensible instead of closed enums matched in ~15 places, and adding the relation store (host, solid operation, annotation binding) and an incremental geometry evaluation that Appendix F increments 1 to 3 all rely on.
 
 ## Counts by status and priority
 
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
-| done | 59 | 6 | 1 | 66 |
-| partial | 117 | 35 | 5 | 157 |
+| done | 61 | 6 | 1 | 68 |
+| partial | 115 | 35 | 5 | 155 |
 | missing | 138 | 158 | 48 | 344 |
 | **total** | 314 | 199 | 54 | 567 |
 
-Remaining effort of the 501 open requirements: S 121, M 219, L 136, XL 25.
+Remaining effort of the 499 open requirements: S 119, M 219, L 136, XL 25.
 
 ## Per-section status (done/partial/missing)
 
 | Section | Title | Must | Should | Could | Total |
 |---|---|---|---|---|---:|
 | 4.1 | Project and file management | 3/3/0 | 1/1/4 | 0/1/0 | 13 |
-| 4.2 | Project structure, location and units | 7/5/0 | 0/0/2 | 0/0/1 | 15 |
+| 4.2 | Project structure, location and units | 8/4/0 | 0/0/2 | 0/0/1 | 15 |
 | 4.3 | Workspace and user interface | 1/7/0 | 1/6/1 | 0/0/1 | 17 |
 | 4.4 | Views and navigation | 2/8/8 | 0/2/15 | 0/0/3 | 38 |
 | 4.5 | Plan display and graphic attributes | 0/7/1 | 0/2/7 | 0/1/2 | 20 |
@@ -72,7 +72,7 @@ Remaining effort of the 501 open requirements: S 121, M 219, L 136, XL 25.
 | 6.5 | Portability and compatibility | 2/4/0 | 0/0/0 | 0/0/0 | 6 |
 | 6.6 | Maintainability and testability | 3/2/0 | 0/0/0 | 0/0/0 | 5 |
 | 6.7 | Security and privacy | 2/2/0 | 0/0/0 | 0/0/0 | 4 |
-| 6.8 | Localization and units | 0/3/0 | 0/0/1 | 0/0/0 | 4 |
+| 6.8 | Localization and units | 1/2/0 | 0/0/1 | 0/0/0 | 4 |
 | 6.9 | Accessibility | 0/0/0 | 0/3/0 | 0/0/0 | 3 |
 | 6.10 | Legal | 1/1/0 | 0/1/0 | 0/0/0 | 3 |
 
@@ -212,7 +212,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | STR-007 | S | missing | M | No named reference levels (project zero, sea level, user-defined), no selection of the display/entry datum, no conversion in elevation fields (storey dialog, properties panel) or readouts; storage must stay relative to project ze… |
 | STR-008 | M | done | none | Done. observation: a per-storey override cannot be cleared back to the project default from the UI |
 | STR-009 | M | partial | S | Slope format, area unit and volume unit are not editable from the UI (only via the file); the slope format is not used anywhere yet (no slopes/roofs). Angle precision applies to decimal degrees/gradians only (DMS ignores decimals… |
-| STR-010 | M | partial | S | 'Automatic' follows the operating-system number locale (crates/archicraft-app/src/i18n/os_locale.rs: GetLocaleInfoEx on Windows, NSLocale on macOS, LC_ALL/LC_NUMERIC/LANG or sys-locale through a CLDR table on Linux), including its grouping character; Point and Comma override it without a restart. Open: egui DragValue fields in the dialogs bypass NumberFormat (archicraft-eya.3). |
+| STR-010 | M | done | none | Done: 'Automatic' follows the operating-system number locale (crates/archicraft-app/src/i18n/os_locale.rs: GetLocaleInfoEx on Windows, NSLocale on macOS, LC_ALL/LC_NUMERIC/LANG or sys-locale through a CLDR table on Linux), including its grouping character; Point and Comma override it without a restart, down to the dialogs' number fields (ui/widgets.rs integer, decimal and slider). Pinned by str_010_the_comma_setting_reaches_the_browser_in_the_next_frame (crates/archicraft-app/tests/done_requirements.rs) and the os_locale tests. |
 | STR-011 | M | partial | S | No elevation readout uses the datum (no sea-level-relative display; needs STR-007), and there is no import yet that could consume it. The single-datum rule itself holds in the model. |
 | STR-012 | M | partial | M | 'IFCX export writes it (IFX-070)' is not met: no `SurveyPoint` child node on the site with usd::xformop and epsg<code> eastings/northings/height attributes, no second +Y reference point for true north, no in-file epsg schema decl… |
 | STR-013 | M | done | none | Done: crates/archicraft-model/src/project.rs:75-86 Site and Building with names, 168-169 one of each on Project |
@@ -1000,7 +1000,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | NFR-L10N-001 | M | partial | L | Mechanism in place: Fluent catalogue under crates/archicraft-app/locales/en, the tr! macro and an en-XA pseudo-locale (crates/archicraft-app/src/i18n), with a key-usage test; the About window, the Help menu title, the unit choices of the project settings, the reference-line and IFC class choices and the model messages use it. archicraft-model returns a Message (key and typed arguments, crates/archicraft-model/src/message.rs, rendered by i18n::render in project units) for command labels, the journal, element kind names, command errors, validation (elements, storeys, materials, plan grid), edit-lock reasons, integrity problems, the length and angle parse errors and the names of units, IFC classes and wall reference lines; the status line renders command errors (with their limits in the project units) and parse errors; the project settings show the unit names from the catalogue. archicraft-model is done: it has no user-visible literal left (unit symbols are allowlisted). Still literal: about 300 strings in the app crate; archicraft-ifcx load problems show model errors in their key form. The literal-string lint (crates/archicraft-app/tests/string_lint.rs, syn) fails on new user-visible literals; the files still to migrate are on its PENDING list, which only shrinks. |
 | NFR-L10N-002 | S | missing | M | No German translation; impossible before strings are externalized (NFR-L10N-001). |
 | NFR-L10N-003 | M | partial | S | Slope formats (degrees, percent, ratio) exist only as an unused enum: no format/parse functions, no UI, no consumer (no roof pitch yet). Area and volume units are not selectable in the project-settings dialog (STR-009). parse_ang… |
-| NFR-L10N-004 | M | partial | S | Display and typed input use the selected separator and the locale's grouping character (prefs.rs number_format, units.rs normalize_number_text). Open: the DragValue fields in dialogs.rs and the literal typed-input filter in plan.rs bypass NumberFormat (archicraft-eya.3). |
+| NFR-L10N-004 | M | done | none | Done: display and typed input use the selected separator and the locale's grouping character (prefs.rs number_format, units.rs normalize_number_text and NumberFormat::parse_decimal); the dialogs' number fields go through ui/widgets.rs integer, decimal and slider, and point input filters typed keys through units::input_alphabet (input/mod.rs). Pinned by the nfr_l10n_004_* tests in crates/archicraft-app/tests/done_requirements.rs, typed_keys_follow_the_number_format (input/mod.rs) and parse_decimal_follows_number_format (units.rs). |
 
 ### 6.9 Accessibility
 

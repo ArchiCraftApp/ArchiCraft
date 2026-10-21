@@ -293,6 +293,22 @@ impl NumberFormat {
             None => format!("{sign}{int_part}"),
         }
     }
+
+    /// Parses a plain number typed with this format's decimal separator and
+    /// any digit grouping that [`parse_length`] accepts (NFR-L10N-004).
+    /// Returns `None` for text with a unit, a fraction or a point or comma
+    /// that is neither the separator nor a digit group.
+    pub fn parse_decimal(&self, text: &str) -> Option<f64> {
+        let normalized = normalize_number_text(text, self)?;
+        let s = normalized.trim();
+        let digits = s.strip_prefix(['+', '-']).unwrap_or(s);
+        if !digits.starts_with(|c: char| c.is_ascii_digit() || c == '.')
+            || !digits.chars().all(|c| c.is_ascii_digit() || c == '.')
+        {
+            return None;
+        }
+        s.parse().ok().filter(|v: &f64| v.is_finite())
+    }
 }
 
 fn group_digits(digits: &str, separator: char) -> String {
@@ -902,5 +918,32 @@ mod tests {
         let point = NumberFormat::default();
         assert!(!input_alphabet(&point).contains(','));
         assert!(input_alphabet(&point).contains('.'));
+    }
+    /// NFR-L10N-004: plain numbers in dialog fields parse with the active
+    /// separator and grouping, and reject units, fractions and a foreign
+    /// separator.
+    #[test]
+    fn parse_decimal_follows_number_format() {
+        let comma = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('.'),
+        };
+        assert_eq!(comma.parse_decimal("2,5"), Some(2.5));
+        assert_eq!(comma.parse_decimal(" 10.000 "), Some(10_000.0));
+        assert_eq!(comma.parse_decimal("−0,25"), Some(-0.25));
+        assert_eq!(comma.parse_decimal("2.5"), None);
+        let point = NumberFormat::default();
+        assert_eq!(point.parse_decimal("2.5"), Some(2.5));
+        assert_eq!(point.parse_decimal("+7"), Some(7.0));
+        assert_eq!(point.parse_decimal("2,5"), None);
+        for text in ["", "-", "2 m", "1/2", "4 1/2", "1e3", "inf", "NaN", "2°"] {
+            assert_eq!(point.parse_decimal(text), None, "{text:?}");
+        }
+        let french = NumberFormat {
+            decimal_separator: ',',
+            grouping: Some('\u{A0}'),
+        };
+        assert_eq!(french.parse_decimal("1\u{A0}234,5"), Some(1234.5));
+        assert_eq!(french.parse_decimal("1 234,5"), Some(1234.5));
     }
 }

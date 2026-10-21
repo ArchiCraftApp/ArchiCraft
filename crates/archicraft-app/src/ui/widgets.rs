@@ -1,7 +1,9 @@
 //! Input widgets that edit model values with units (INP-005, ELM-017).
 
 use archicraft_model::units::{NumberFormat, UnitSettings, format_angle, format_length, parse_angle, parse_length};
-use egui::{Id, Response, TextEdit, Ui};
+use egui::emath::Numeric;
+use egui::{DragValue, Id, Response, Slider, TextEdit, Ui};
+use std::ops::RangeInclusive;
 
 /// The result of an edit widget.
 #[derive(Clone, Debug, PartialEq)]
@@ -90,6 +92,67 @@ pub fn angle(
         parse_angle(text, units.angle, nf).map_err(|e| crate::i18n::render(&e.message(), units, nf))
     });
     result
+}
+
+/// A draggable whole number in `range`, shown and typed with `nf`
+/// (NFR-L10N-004, STR-010). Typed text with a fraction is rejected and keeps
+/// the old value.
+pub fn integer<T: Numeric>(ui: &mut Ui, value: &mut T, range: RangeInclusive<T>, nf: &NumberFormat) -> Response {
+    ui.add(
+        DragValue::new(value)
+            .range(range)
+            .custom_formatter(|v, _| nf.format_decimal(v, 0))
+            .custom_parser(|text| nf.parse_decimal(text).filter(|v| v.fract() == 0.0)),
+    )
+}
+
+/// A draggable decimal number in `range` with at most `decimals` decimals,
+/// shown and typed with `nf` (NFR-L10N-004, STR-010). `speed` is the change
+/// per dragged point.
+pub fn decimal<T: Numeric>(
+    ui: &mut Ui,
+    value: &mut T,
+    range: RangeInclusive<T>,
+    decimals: usize,
+    speed: f64,
+    nf: &NumberFormat,
+) -> Response {
+    ui.add(
+        DragValue::new(value)
+            .range(range)
+            .speed(speed)
+            .max_decimals(decimals)
+            .custom_formatter(|v, _| format_trimmed(nf, v, decimals))
+            .custom_parser(|text| nf.parse_decimal(text)),
+    )
+}
+
+/// A slider over `range` whose value is shown and typed with `nf` with at
+/// most `decimals` decimals (NFR-L10N-004).
+pub fn slider(
+    ui: &mut Ui,
+    value: &mut f64,
+    range: RangeInclusive<f64>,
+    decimals: usize,
+    nf: &NumberFormat,
+) -> Response {
+    ui.add(
+        Slider::new(value, range)
+            .max_decimals(decimals)
+            .custom_formatter(|v, _| format_trimmed(nf, v, decimals))
+            .custom_parser(|text| nf.parse_decimal(text)),
+    )
+}
+
+/// `value` with `decimals` decimals, without trailing zeros in the fraction.
+fn format_trimmed(nf: &NumberFormat, value: f64, decimals: usize) -> String {
+    let text = nf.format_decimal(value, decimals);
+    if decimals == 0 {
+        return text;
+    }
+    text.trim_end_matches('0')
+        .trim_end_matches(nf.decimal_separator)
+        .to_owned()
 }
 
 /// Edits a single line of text, committed on Enter or focus loss.
