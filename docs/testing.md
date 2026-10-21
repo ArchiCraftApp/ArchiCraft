@@ -7,14 +7,22 @@ that epic fill in their sections. The commands to run are in the README and in C
 ## Golden files and ARCHICRAFT_BLESS
 
 The IFCX writer's output is pinned by golden files in `crates/archicraft-ifcx/tests/golden/`,
-compared byte for byte by `cargo test -p archicraft-ifcx --test roundtrip`. They change only
-for an intended format change: on a bead labelled `format-change`, regenerate them with
+compared byte for byte by `cargo test -p archicraft-ifcx --test roundtrip`. Each golden file is
+the output of a sample of `archicraft_model::samples::catalogue()` (NFR-MNT-003):
+`catalogue_samples_reproduce_the_golden_files` builds every sample, saves it with its golden
+file's header options and compares bytes, and `golden_files_are_reproduced` opens and saves
+every golden file. The samples are built with the seeded `FixtureBuilder` (below), so their
+identities, and the files of the `reference_models` example, are the same on every run. They
+change only for an intended format change: on a bead labelled `format-change`, regenerate them
+with
 
 ```sh
 ARCHICRAFT_BLESS=1 cargo test -p archicraft-ifcx --test roundtrip
 ```
 
-and review the text diff. `.gitattributes` marks `*.ifcx` as `-text`, so no checkout converts
+and review the text diff; the blessing writes catalogue goldens from the samples. Adding a
+sample is one line in the catalogue (`samples.rs`, `CATALOGUE`) plus the blessing, which creates
+its golden file. `.gitattributes` marks `*.ifcx` as `-text`, so no checkout converts
 their line endings (NFR-PORT-004); they still diff as text.
 
 The damaged files in `crates/archicraft-ifcx/tests/corrupt/` (PRJ-008) are the walls-and-slab
@@ -57,6 +65,27 @@ the `format-change` label, and the pull request shows the regenerated files' dif
 code that changed them; the reviewer checks that every changed byte follows from the intended
 change. Because the golden files are single-line compact JSON, read that diff through the review
 view snapshots below.
+
+## Seeded fixtures and stand-ins
+
+`archicraft_model::samples::FixtureBuilder` builds reproducible projects through commands:
+`FixtureBuilder::new(name)` starts from the default template with version 5 UUIDs under
+`FIXTURE_NAMESPACE` from `<name>/<role>/<n>` (`template::default_metric_project_with` takes the
+identity source), `storey(index)`, `element(storey, kind)` for any registered kind, the
+`wall`/`slab` shorthands and `edit` create or change elements with ids from
+`<name>/<kind code>/<n>`, and `finish()` returns the project. Elements are added with one
+`AddElements` per batch. Two builds of the same fixture are equal, every identity included
+(IFX-010, IFX-011).
+
+`samples::stand_in(n)` is a synthetic stand-in for RM-M and RM-L (SRS 7.3) with exactly `n`
+elements, for the NFR-PERF-006 and VIEW-001 budgets until the reference models exist:
+five 3.0 m storeys per block of 4 m rooms with an exterior wall ring (L corners), interior
+walls in T junctions and one slab per storey, further blocks along +X beyond 5,000 elements,
+padded with free-standing 1 m stubs. `STAND_IN_SIZES` lists 1,000, 5,000 and 20,000. They are
+checked by `cargo test -p archicraft-model --test samples` (exact counts, determinism, all
+three sizes), `-p archicraft-geometry --test stand_ins` (no evaluation problems, L and T
+junctions on every storey) and `-p archicraft-ifcx --test roundtrip` (`stand_in(1_000)` round
+trip; the 5,000 case is `#[ignore]`d, about 0.4 s in the dev profile).
 
 ## Determinism and rounding (IFX-007)
 
@@ -161,9 +190,8 @@ Every entry with a constructor inherits the generic checks:
   byte-identical (IFX-064).
 
 **Adding an entry.** The owner adds `pub fn f1_trapezoidal_wall() -> Project` (or similar) to
-`src/fixtures.rs`, built through commands on `default_metric_project()` like
-`samples.rs`, without clocks or randomness other than element ids, and sets `build:
-Some(f1_trapezoidal_wall)` in the entry. Fixture-specific assertions (the 880/400 of F7, say)
+`src/fixtures.rs`, built with `samples::FixtureBuilder` like `samples.rs`, without clocks or
+randomness, sets `build: Some(f1_trapezoidal_wall)` and `seeded: true` in the entry. Fixture-specific assertions (the 880/400 of F7, say)
 go into `crates/archicraft-model/tests/fixtures.rs` or the owner's own tests. A new non-D.7
 case gets a new `EXTRA` entry. A deliberately invalid case does not belong here; keep it in the
 owner's tests.

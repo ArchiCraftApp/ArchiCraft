@@ -113,7 +113,7 @@ pub const EXTRA: &[Fixture] = &[
         source: "samples::two_storey_shell",
         owner: "regression-and-status",
         increment: 0,
-        seeded: false,
+        seeded: true,
         build: Some(samples::two_storey_shell),
     },
     // The provisional bench model of NFR-PERF-001, held to the generic

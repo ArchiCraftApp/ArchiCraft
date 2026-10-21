@@ -2,12 +2,14 @@
 //! Appendix D.1, D.2 and D.4).
 //!
 //! Creating a project from the template gives every object a new identity
-//! (IFX-011).
+//! (IFX-011). Seeded fixtures pass their own identity source instead
+//! ([`default_metric_project_with`]).
 
 use indexmap::IndexMap;
+use uuid::Uuid;
 
 use crate::element::{IfcClass, Position, TopLink};
-use crate::ids::{BuildingId, MaterialId, ProjectId, SiteId, ViewId};
+use crate::ids::{BuildingId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
 use crate::kinds::{ReferenceLine, SlabReference};
 use crate::layer::Layer;
 use crate::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
@@ -272,11 +274,11 @@ pub const LAYERS: [&str; 11] = [
     "References",
 ];
 
-fn material(entry: &MaterialEntry) -> Material {
+fn material(entry: &MaterialEntry, id: MaterialId) -> Material {
     let (name, code, category, [r, g, b], opacity, priority, pattern) = *entry;
     let color = Rgb::from_u8(r, g, b);
     Material {
-        id: MaterialId::new(),
+        id,
         name: name.to_owned(),
         code: code.to_owned(),
         description: String::new(),
@@ -292,10 +294,33 @@ fn material(entry: &MaterialEntry) -> Material {
     }
 }
 
-/// A new project from the default metric template.
+/// A new project from the default metric template, with random (version 4)
+/// identities (IFX-011).
 pub fn default_metric_project() -> Project {
-    let materials: Vec<Material> = MATERIALS.iter().map(material).collect();
-    let layers: Vec<Layer> = LAYERS.iter().map(|name| Layer::new(*name)).collect();
+    default_metric_project_with(&mut |_| Uuid::new_v4())
+}
+
+/// A new project from the default metric template whose identities come
+/// from `ids`, called once per object with its role: `project`, `site`,
+/// `building`, `storey`, `layer`, `material` and `view`, in a fixed order.
+/// The tool defaults refer to the materials and layers by these identities.
+/// [`crate::samples::FixtureBuilder`] passes name-based (version 5) UUIDs, so
+/// that its fixtures are reproducible.
+pub fn default_metric_project_with(ids: &mut dyn FnMut(&str) -> Uuid) -> Project {
+    let id = ids("project");
+    let site = ids("site");
+    let building = ids("building");
+    let materials: Vec<Material> = MATERIALS
+        .iter()
+        .map(|entry| material(entry, MaterialId::from_uuid(ids("material"))))
+        .collect();
+    let layers: Vec<Layer> = LAYERS
+        .iter()
+        .map(|name| Layer {
+            id: LayerId::from_uuid(ids("layer")),
+            ..Layer::new(*name)
+        })
+        .collect();
     let find_material = |name: &str| {
         materials
             .iter()
@@ -311,8 +336,14 @@ pub fn default_metric_project() -> Project {
             .unwrap_or(layers[0].id)
     };
 
-    let ground = Storey::new("00 Ground floor", 0.0, 3.0);
-    let first = Storey::new("01 First floor", 3.0, 3.0);
+    let ground = Storey {
+        id: StoreyId::from_uuid(ids("storey")),
+        ..Storey::new("00 Ground floor", 0.0, 3.0)
+    };
+    let first = Storey {
+        id: StoreyId::from_uuid(ids("storey")),
+        ..Storey::new("01 First floor", 3.0, 3.0)
+    };
     let ground_id = ground.id;
     let storeys = match StoreyList::new(vec![ground, first], ground_id) {
         Ok(list) => list,
@@ -345,19 +376,19 @@ pub fn default_metric_project() -> Project {
     };
 
     Project {
-        id: ProjectId::new(),
+        id: ProjectId::from_uuid(id),
         info: ProjectInfo {
             name: "Untitled project".to_owned(),
             ..ProjectInfo::default()
         },
         settings: ProjectSettings::default(),
         site: Site {
-            id: SiteId::new(),
+            id: SiteId::from_uuid(site),
             name: "Site".to_owned(),
             location: Location::default(),
         },
         building: Building {
-            id: BuildingId::new(),
+            id: BuildingId::from_uuid(building),
             name: "Building".to_owned(),
         },
         storeys,
@@ -367,12 +398,12 @@ pub fn default_metric_project() -> Project {
         tool_defaults,
         views: vec![
             View3d {
-                id: ViewId::new(),
+                id: ViewId::from_uuid(ids("view")),
                 name: "3D perspective".to_owned(),
                 projection: Projection::Perspective,
             },
             View3d {
-                id: ViewId::new(),
+                id: ViewId::from_uuid(ids("view")),
                 name: "3D parallel".to_owned(),
                 projection: Projection::Parallel,
             },

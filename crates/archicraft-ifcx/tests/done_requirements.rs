@@ -302,13 +302,35 @@ fn ifx_005_every_data_attribute_key_is_declared() {
     }
 }
 
+/// A project created like the application creates one: the template and
+/// the tools' new objects, all with random identities. (The samples use
+/// seeded, name-based identities instead.)
+fn created_like_the_application() -> Project {
+    let mut project = default_metric_project();
+    let mut history = History::default();
+    let ground = project.storeys.ground();
+    let outline = vec![
+        DVec2::ZERO,
+        DVec2::new(10.0, 0.0),
+        DVec2::new(10.0, 8.0),
+        DVec2::new(0.0, 8.0),
+    ];
+    let walls = (0..4)
+        .map(|i| project.new_wall(ground, outline[i], outline[(i + 1) % 4], i as u32))
+        .collect();
+    execute(&mut project, &mut history, Command::AddElements(walls));
+    let slab = project.new_slab(ground, outline, Vec::new(), 0);
+    execute(&mut project, &mut history, Command::AddElements(vec![slab]));
+    project
+}
+
 /// IFX-010: every project, site, building, storey, element and material
 /// node has an RFC 9562 UUID path, version 4 for the objects created here;
 /// Body and Axis sub-nodes have the version 5 UUID of owner and role, which
 /// a wall thickness change does not change.
 #[test]
 fn ifx_010_nodes_have_uuid_paths_and_sub_nodes_name_based_uuids() {
-    let mut project = samples::two_storey_shell();
+    let mut project = created_like_the_application();
     let nodes = nodes_of(&project);
 
     let mut objects: Vec<String> = vec![
@@ -352,7 +374,7 @@ fn ifx_010_nodes_have_uuid_paths_and_sub_nodes_name_based_uuids() {
             axes += 1;
         }
     }
-    assert_eq!(axes, 10, "every wall has an axis");
+    assert_eq!(axes, 4, "every wall has an axis");
 
     let wall = project
         .elements

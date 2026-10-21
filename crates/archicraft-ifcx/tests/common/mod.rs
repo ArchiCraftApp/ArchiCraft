@@ -25,8 +25,9 @@ pub fn save(project: &Project) -> Vec<u8> {
     bytes
 }
 
+/// The sample catalogue's projects (NFR-MNT-003).
 pub fn samples() -> Vec<Project> {
-    vec![samples::storey_with_walls_and_slab(), samples::two_storey_shell()]
+    samples::catalogue().iter().map(|(_, build)| build()).collect()
 }
 
 pub fn edit(project: &Project, change: impl FnOnce(&mut Value)) -> Vec<u8> {
