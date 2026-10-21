@@ -3,11 +3,13 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor, StoreyLinkRef, VerticalLink, plan_bounds_of};
-use crate::element::{IfcClass, TopLink};
+use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, VerticalLink, plan_bounds_of};
+use crate::element::{Element, IfcClass, Position, TopLink};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
+use crate::project::{DefaultsSlot, Project};
 use crate::storey::StoreyList;
+use crate::template::TemplateContext;
 use crate::transform::{PlanTransform, TransformError};
 use crate::validate;
 
@@ -104,6 +106,43 @@ impl Wall {
     }
 }
 
+/// The wall tool's defaults in the template (Appendix D.2): 0.25 m brick on
+/// the exterior walls layer, the reference line on the exterior face, the
+/// top linked to the home storey + 1.
+fn template_defaults(context: &TemplateContext<'_>) -> DefaultsSlot {
+    DefaultsSlot {
+        layer: context.layer("Exterior walls"),
+        position: Position::Exterior,
+        ifc_class: Wall::DESCRIPTOR.default_class,
+        kind: Wall {
+            start: DVec2::ZERO,
+            end: DVec2::X,
+            thickness: 0.25,
+            reference_line: ReferenceLine::Outside,
+            base_offset: 0.0,
+            top: TopLink::Relative {
+                storeys: 1,
+                offset: 0.0,
+            },
+            material: context.material("Brick"),
+        }
+        .into(),
+    }
+}
+
+impl Project {
+    /// A new wall from `start` to `end` on `storey` with the wall tool's
+    /// defaults (ELM-001). `nth` numbers walls created together.
+    pub fn new_wall(&self, storey: StoreyId, start: DVec2, end: DVec2, nth: u32) -> Element {
+        let mut element = self.new_element(KindTag::Wall, storey, nth)
+            .unwrap_or_else(|| unreachable!("walls have template defaults"));
+        if let Some(wall) = element.as_wall_mut() {
+            (wall.start, wall.end) = (start, end);
+        }
+        element
+    }
+}
+
 impl Kind for Wall {
     /// ELM-011: `IfcWall` by default, `IfcFooting` selectable; ELM-019:
     /// names `W-001`, `W-002`, …
@@ -116,6 +155,7 @@ impl Kind for Wall {
         default_class: IfcClass::Wall,
         ifc_classes: &[IfcClass::Wall, IfcClass::Footing],
         has_tool: true,
+        template_defaults: Some(template_defaults),
     };
 
     fn material(&self) -> MaterialId {

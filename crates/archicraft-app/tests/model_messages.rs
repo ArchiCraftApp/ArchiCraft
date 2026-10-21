@@ -119,9 +119,6 @@ fn error_representatives() -> Vec<Message> {
         "model-error-duplicate-material-id",
         "model-error-material-not-found",
         "model-error-replacement-material",
-        "model-error-default-layer-missing",
-        "model-error-default-material-missing",
-        "model-error-default-ifc-class",
         "model-error-tessellation-range",
         "model-error-project-name",
         "model-error-spatial-names",
@@ -181,6 +178,10 @@ fn error_representatives() -> Vec<Message> {
             .count("min", 1)
             .count("max", 999),
         named("model-error-element-invalid").nested("reason", Message::new("model-error-element-name")),
+        Message::new("model-error-default-missing").kind("kind", KindTag::Slab),
+        Message::new("model-error-default-invalid")
+            .kind("kind", KindTag::Wall)
+            .nested("reason", Message::new("model-error-element-layer-missing")),
         Message::new("model-error-hole").nested("reason", Message::new("model-error-polygon-area")),
         named("model-error-element-not-movable"),
         named("model-error-transform-unsupported"),

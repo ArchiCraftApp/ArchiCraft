@@ -38,7 +38,9 @@ use serde::{Deserialize, Serialize};
 use crate::element::{Element, IfcClass};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
+use crate::project::DefaultsSlot;
 use crate::storey::StoreyList;
+use crate::template::TemplateContext;
 use crate::transform::{PlanTransform, TransformError};
 
 mod vertical;
@@ -48,7 +50,7 @@ pub use self::vertical::VerticalLink;
 pub use self::wall::ReferenceLine;
 
 /// Static description of an element kind (ELM-011, ELM-019).
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct KindDescriptor {
     /// Message key of the kind's name as a label, for example
     /// `model-kind-wall` ("Wall") (NFR-L10N-001).
@@ -74,6 +76,11 @@ pub struct KindDescriptor {
     /// Whether a drawing tool creates this kind. The name counters of such
     /// kinds are always written to files.
     pub has_tool: bool,
+    /// The tool's defaults in the template (ELM-001, Appendix D.2), with
+    /// the kind's default class (ELM-011); `None` for a kind without tool
+    /// defaults. Every kind with template defaults has a slot in
+    /// [`crate::project::ToolDefaults`].
+    pub template_defaults: Option<fn(&TemplateContext<'_>) -> DefaultsSlot>,
 }
 
 /// A link from an element to a specific storey by ID (ELM-006). Relative

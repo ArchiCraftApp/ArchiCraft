@@ -3,11 +3,13 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor, plan_bounds_of};
-use crate::element::IfcClass;
+use super::{Kind, KindDescriptor, KindTag, plan_bounds_of};
+use crate::element::{Element, IfcClass, Position};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
+use crate::project::{DefaultsSlot, Project};
 use crate::storey::StoreyList;
+use crate::template::TemplateContext;
 use crate::transform::{PlanTransform, TransformError};
 use crate::validate;
 
@@ -61,6 +63,38 @@ fn transform_ring(ring: &mut [DVec2], transform: &PlanTransform) {
     }
 }
 
+/// The slab tool's defaults in the template (Appendix D.2): 0.20 m
+/// reinforced concrete on the slabs layer, the top at the storey elevation.
+fn template_defaults(context: &TemplateContext<'_>) -> DefaultsSlot {
+    DefaultsSlot {
+        layer: context.layer("Slabs"),
+        position: Position::Undefined,
+        ifc_class: Slab::DESCRIPTOR.default_class,
+        kind: Slab {
+            outline: vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::Y],
+            holes: Vec::new(),
+            thickness: 0.20,
+            reference: SlabReference::Top,
+            offset: 0.0,
+            material: context.material("Reinforced concrete"),
+        }
+        .into(),
+    }
+}
+
+impl Project {
+    /// A new slab with `outline` and `holes` on `storey` with the slab
+    /// tool's defaults (ELM-001). `nth` numbers slabs created together.
+    pub fn new_slab(&self, storey: StoreyId, outline: Vec<DVec2>, holes: Vec<Vec<DVec2>>, nth: u32) -> Element {
+        let mut element = self.new_element(KindTag::Slab, storey, nth)
+            .unwrap_or_else(|| unreachable!("slabs have template defaults"));
+        if let Some(slab) = element.as_slab_mut() {
+            (slab.outline, slab.holes) = (outline, holes);
+        }
+        element
+    }
+}
+
 impl Kind for Slab {
     /// ELM-011: `IfcSlab` by default, `IfcFooting` and `IfcCovering`
     /// selectable; ELM-019: names `SL-001`, `SL-002`, …
@@ -73,6 +107,7 @@ impl Kind for Slab {
         default_class: IfcClass::Slab,
         ifc_classes: &[IfcClass::Slab, IfcClass::Footing, IfcClass::Covering],
         has_tool: true,
+        template_defaults: Some(template_defaults),
     };
 
     fn material(&self) -> MaterialId {

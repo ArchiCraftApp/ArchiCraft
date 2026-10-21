@@ -11,7 +11,7 @@ use std::sync::Arc;
 use archicraft_geometry::plan::{PlanDrawing, polygon_rings};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{NumberFormat, UnitSettings};
-use archicraft_model::{ElementId, Project, StoreyId};
+use archicraft_model::{ElementId, ElementKind, KindTag, Project, StoreyId};
 use egui::epaint::Vertex;
 use egui::{
     Align2, Color32, CursorIcon, Event, FontId, Key, Mesh, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
@@ -822,8 +822,12 @@ fn handle_keys(
                 Key::R if ws.tool.kind == ToolKind::Wall && ws.input.typed.is_empty() && !modifiers.command => {
                     // Cycle the reference-line location (WAL-007).
                     let mut defaults = ws.doc.project.tool_defaults.clone();
-                    defaults.wall.reference_line = defaults.wall.reference_line.next();
-                    let label = tr!(defaults.wall.reference_line.label_key());
+                    let Some(ElementKind::Wall(wall)) = defaults.get_mut(KindTag::Wall).map(|slot| &mut slot.kind)
+                    else {
+                        continue;
+                    };
+                    wall.reference_line = wall.reference_line.next();
+                    let label = tr!(wall.reference_line.label_key());
                     if ws.execute(archicraft_model::Command::SetToolDefaults(defaults)) {
                         ws.info(format!("Wall reference line: {label}"));
                     }

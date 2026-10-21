@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use archicraft_ifcx::ReadOutcome;
 use archicraft_ifcx::validate::{Problem, Severity};
 use archicraft_model::material::Rgb;
+use archicraft_model::template::{TemplateContext, template_tool_defaults};
 use archicraft_model::{KindTag, Position, Project};
 use serde_json::{Value, json};
 
@@ -230,6 +231,72 @@ fn missing_tool_defaults_are_repaired_from_the_template() {
         .filter(|p| p.message.contains("tool defaults"))
         .count();
     assert_eq!(tool_problems, 1, "{:#?}", outcome.problems);
+}
+
+/// PRJ-008, ELM-001: a tool defaults member that names no tool is ignored
+/// and a missing slot gets the template's defaults, each reported once as a
+/// warning; the other slots load as written.
+#[test]
+fn unknown_and_missing_tool_defaults_slots_are_reported() {
+    let base = reference_model();
+    let bytes = edit(&base, |v| {
+        let defaults = project_attr(v)["toolDefaults"].as_object_mut().unwrap();
+        defaults.remove("slab");
+        defaults.insert("column".into(), json!({"thickness": 0.3}));
+    });
+    let outcome = archicraft_ifcx::load(&bytes).unwrap();
+    let p = &outcome.project;
+    let template = template_tool_defaults(&TemplateContext::new(&p.materials, &p.layers));
+    assert_eq!(p.tool_defaults.get(KindTag::Slab), template.get(KindTag::Slab));
+    assert_eq!(
+        p.tool_defaults.get(KindTag::Slab),
+        base.tool_defaults.get(KindTag::Slab)
+    );
+    assert_eq!(
+        p.tool_defaults.get(KindTag::Wall),
+        base.tool_defaults.get(KindTag::Wall)
+    );
+
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    let root = root_path(&value);
+    problem(&outcome, &root, &["tool defaults repaired", "“column”", "ignored"]);
+    problem(
+        &outcome,
+        &root,
+        &["tool defaults repaired", "“slab” is missing", "template"],
+    );
+    let tool_problems: Vec<&Problem> = outcome
+        .problems
+        .iter()
+        .filter(|p| p.message.contains("tool defaults"))
+        .collect();
+    assert_eq!(tool_problems.len(), 2, "{:#?}", outcome.problems);
+    assert!(tool_problems.iter().all(|p| p.severity == Severity::Warning));
+}
+
+/// ELM-011, PRJ-008: a tool default class the kind does not allow is
+/// replaced by the template's and reported.
+#[test]
+fn a_tool_default_class_the_kind_does_not_allow_is_repaired() {
+    let base = reference_model();
+    let bytes = edit(&base, |v| {
+        project_attr(v)["toolDefaults"]["wall"]["ifcClass"] = json!("IfcCovering");
+    });
+    let outcome = archicraft_ifcx::load(&bytes).unwrap();
+    let wall = outcome.project.tool_defaults.get(KindTag::Wall).unwrap();
+    assert_eq!(wall, base.tool_defaults.get(KindTag::Wall).unwrap());
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    let p = problem(
+        &outcome,
+        &root_path(&value),
+        &[
+            "tool defaults repaired",
+            "IfcCovering is not an allowed class",
+            "“wall”",
+            "IfcWall",
+        ],
+    );
+    assert_eq!(p.severity, Severity::Warning);
 }
 
 /// PRJ-008: invalid counters are repaired to the number of elements of their

@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::command::{Command, History};
 use crate::element::{Element, ElementKind, KindTag, Position};
 use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
-use crate::kinds::{ReferenceLine, Slab, Wall};
+use crate::kinds::ReferenceLine;
 use crate::project::Project;
 use crate::storey::Storey;
 use crate::template::default_metric_project_with;
@@ -143,17 +143,13 @@ impl FixtureBuilder {
     pub fn element(&mut self, storey: StoreyId, kind: impl Into<ElementKind>) -> ElementId {
         let kind = kind.into();
         let tag = kind.tag();
-        let defaults = &self.project.tool_defaults;
-        let (layer, position, ifc_class) = if tag == KindTag::Wall {
-            (defaults.wall.layer, defaults.wall.position, defaults.wall.ifc_class)
-        } else if tag == KindTag::Slab {
-            (defaults.slab.layer, defaults.slab.position, defaults.slab.ifc_class)
-        } else {
-            (
+        let (layer, position, ifc_class) = match self.project.tool_defaults.get(tag) {
+            Some(slot) => (slot.layer, slot.position, slot.ifc_class),
+            None => (
                 self.project.layers[0].id,
                 Position::Undefined,
                 tag.descriptor().default_class,
-            )
+            ),
         };
         let nth = self.pending_per_kind.entry(tag).or_default();
         let name = self.project.next_element_name(tag, *nth);
@@ -167,6 +163,7 @@ impl FixtureBuilder {
             ifc_class,
             position,
             locked: false,
+            snap_excluded: false,
             kind,
         });
         id
@@ -174,30 +171,13 @@ impl FixtureBuilder {
 
     /// A wall from `start` to `end` with the wall tool's defaults.
     pub fn wall(&mut self, storey: StoreyId, start: DVec2, end: DVec2) -> ElementId {
-        let d = &self.project.tool_defaults.wall;
-        let wall = Wall {
-            start,
-            end,
-            thickness: d.thickness,
-            reference_line: d.reference_line,
-            base_offset: d.base_offset,
-            top: d.top,
-            material: d.material,
-        };
+        let wall = self.project.new_wall(storey, start, end, 0).kind;
         self.element(storey, wall)
     }
 
     /// A slab over `outline` with `holes` and the slab tool's defaults.
     pub fn slab(&mut self, storey: StoreyId, outline: Vec<DVec2>, holes: Vec<Vec<DVec2>>) -> ElementId {
-        let d = &self.project.tool_defaults.slab;
-        let slab = Slab {
-            outline,
-            holes,
-            thickness: d.thickness,
-            reference: d.reference,
-            offset: d.offset,
-            material: d.material,
-        };
+        let slab = self.project.new_slab(storey, outline, holes, 0).kind;
         self.element(storey, slab)
     }
 
