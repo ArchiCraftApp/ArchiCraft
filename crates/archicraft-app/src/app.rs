@@ -794,6 +794,7 @@ impl ArchiCraftApp {
                 Request::ZoomTo(ids) if ids.is_empty() => self.zoom_pane(self.ws.active_pane, None),
                 Request::ZoomTo(ids) => self.zoom_pane(self.ws.active_pane, Some(ids)),
                 Request::Settings => self.dialogs.settings = true,
+                Request::SavePreferences => self.save_prefs(),
             }
         }
     }
