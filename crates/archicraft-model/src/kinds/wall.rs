@@ -209,6 +209,10 @@ impl Kind for Wall {
         self.change_link(|link| link.unlink_storey(home, storeys, storey))
     }
 
+    fn fix_top(&mut self, height: f64) -> bool {
+        self.change_link(|link| link.fix_top(height))
+    }
+
     /// The corners of the unjoined footprint: both faces at both ends.
     fn plan_bounds(&self) -> Option<(DVec2, DVec2)> {
         let normal = self.direction().perp();

@@ -148,6 +148,10 @@ impl Kind for Dummy {
         self.link.unlink_storey(home, storeys, storey)
     }
 
+    fn fix_top(&mut self, height: f64) -> bool {
+        self.link.fix_top(height)
+    }
+
     fn parts(&self) -> Vec<PartSpec> {
         Vec::new()
     }

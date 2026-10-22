@@ -706,13 +706,13 @@ fn tool_defaults_reject_a_slab_offset_beyond_the_limit() {
 }
 
 /// ELM-006, STR-004: a default top linked to a deleted storey that would
-/// become a height of zero gets the template defaults of its kind back, so
-/// the defaults stay valid and editable.
+/// become a height of zero is replaced by the height of the remaining ground
+/// storey; the rest of the slot stays, and the defaults stay valid and
+/// editable.
 #[test]
 fn deleting_a_storey_keeps_the_tool_defaults_valid() {
     let mut p = default_metric_project();
     let mut h = History::default();
-    let template = p.tool_defaults.clone();
     let ground = p.storeys.ground();
     let mut defaults = p.tool_defaults.clone();
     let wall = defaults.get_mut(KindTag::Wall).unwrap();
@@ -721,7 +721,7 @@ fn deleting_a_storey_keeps_the_tool_defaults_valid() {
         offset: 0.0,
     };
     wall_of(wall).thickness = 0.3;
-    h.execute(&mut p, Command::SetToolDefaults(defaults)).unwrap();
+    h.execute(&mut p, Command::SetToolDefaults(defaults.clone())).unwrap();
 
     h.execute(
         &mut p,
@@ -731,7 +731,9 @@ fn deleting_a_storey_keeps_the_tool_defaults_valid() {
         },
     )
     .unwrap();
-    assert_eq!(p.tool_defaults, template);
+    // The first floor, 3 m high, is the ground storey now.
+    wall_of(defaults.get_mut(KindTag::Wall).unwrap()).top = TopLink::Fixed { height: 3.0 };
+    assert_eq!(p.tool_defaults, defaults);
     let mut thicker = p.tool_defaults.clone();
     wall_of(thicker.get_mut(KindTag::Wall).unwrap()).thickness = 0.365;
     h.execute(&mut p, Command::SetToolDefaults(thicker)).unwrap();
@@ -739,7 +741,7 @@ fn deleting_a_storey_keeps_the_tool_defaults_valid() {
     h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
 }
 
-/// ELM-006, STR-004: deleting a storey rewrites every tools defaults slot
+/// ELM-006, STR-004: deleting a storey rewrites every tool defaults slot
 /// whose top is linked to it, of every kind, to a fixed height; undo
 /// restores the links.
 #[cfg(feature = "test-kinds")]
@@ -779,7 +781,7 @@ fn deleting_a_storey_unlinks_every_defaults_slot() {
     )
     .unwrap();
     // The upper storey was 3 m above the ground storey: the tops stay 3.5 m
-    // above the base.
+    // above the base (3.0 + 0.5 is exact in binary, so `==` is safe).
     let fixed = TopLink::Fixed { height: 3.5 };
     let mut after = p.tool_defaults.clone();
     assert_eq!(wall_of(after.get_mut(KindTag::Wall).unwrap()).top, fixed);
@@ -792,6 +794,83 @@ fn deleting_a_storey_unlinks_every_defaults_slot() {
         defaults.get(KindTag::Slab),
         "the slab slot has no storey link"
     );
+
+    h.undo(&mut p).unwrap();
+    assert_eq!(p.tool_defaults, defaults);
+}
+
+/// ELM-006, ELM-001: when deleting a storey would leave a defaults slot
+/// with an invalid fixed height (here a top linked to the basement, below
+/// the base on the ground storey), only the top is replaced, by a fixed
+/// height of one ground storey; the slot's other fields stay, and a kind
+/// without template defaults (the dummy) keeps its slot.
+#[cfg(feature = "test-kinds")]
+#[test]
+fn deleting_a_storey_resets_only_an_invalid_defaults_top() {
+    use archicraft_model::kinds::{Dummy, VerticalLink};
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let basement = Storey::new("-01 Basement", 0.0, 2.6);
+    let basement_id = basement.id;
+    let g = ground(&p);
+    h.execute(
+        &mut p,
+        Command::InsertStorey {
+            reference: g,
+            above: false,
+            storey: basement,
+        },
+    )
+    .unwrap();
+    let linked = TopLink::Storey {
+        storey: basement_id,
+        offset: 0.5,
+    };
+    let mut defaults = p.tool_defaults.clone();
+    let wall_slot = defaults.get_mut(KindTag::Wall).unwrap();
+    let other_layer = p.layers.iter().find(|l| l.id != wall_slot.layer).unwrap().id;
+    wall_slot.layer = other_layer;
+    let w = wall_of(wall_slot);
+    w.thickness = 0.37;
+    w.top = linked;
+    let mut dummy = Dummy::new(DVec2::ZERO, DVec2::ONE, p.materials[1].id);
+    dummy.link = VerticalLink {
+        base_offset: 0.2,
+        top: linked,
+    };
+    dummy.parts = true;
+    defaults.insert(DefaultsSlot {
+        layer: p.layers[1].id,
+        position: archicraft_model::Position::Undefined,
+        ifc_class: KindTag::Dummy.descriptor().default_class,
+        kind: dummy.into(),
+    });
+    h.execute(&mut p, Command::SetToolDefaults(defaults.clone())).unwrap();
+
+    h.execute(
+        &mut p,
+        Command::DeleteStorey {
+            storey: basement_id,
+            elements: StoreyElements::Delete,
+        },
+    )
+    .unwrap();
+    // The ground storey is 3 m high.
+    let reset = TopLink::Fixed { height: 3.0 };
+    let mut expected = defaults.clone();
+    wall_of(expected.get_mut(KindTag::Wall).unwrap()).top = reset;
+    match &mut expected.get_mut(KindTag::Dummy).unwrap().kind {
+        ElementKind::Dummy(d) => d.link.top = reset,
+        other => panic!("not a dummy slot: {other:?}"),
+    }
+    assert_eq!(p.tool_defaults, expected, "only the tops change");
+    // Setting the defaults checks every slot.
+    let mut edited = p.tool_defaults.clone();
+    wall_of(edited.get_mut(KindTag::Wall).unwrap()).thickness = 0.4;
+    h.execute(&mut p, Command::SetToolDefaults(edited))
+        .expect("the reset slots are valid");
+    h.undo(&mut p).unwrap();
 
     h.undo(&mut p).unwrap();
     assert_eq!(p.tool_defaults, defaults);

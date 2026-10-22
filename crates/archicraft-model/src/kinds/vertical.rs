@@ -96,4 +96,11 @@ impl VerticalLink {
         self.top = TopLink::Fixed { height: top - bottom };
         true
     }
+
+    /// Replaces the top by the fixed height `height` above the base
+    /// (ELM-006). Always returns `true`: every vertical link has a top.
+    pub fn fix_top(&mut self, height: f64) -> bool {
+        self.top = TopLink::Fixed { height };
+        true
+    }
 }

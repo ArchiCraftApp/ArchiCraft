@@ -22,7 +22,6 @@ use crate::material::Material;
 use crate::message::Message;
 use crate::project::{DefaultsSlot, Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
 use crate::storey::{MAX_CUT_PLANE_HEIGHT, Storey, StoreyList};
-use crate::template::TemplateContext;
 use crate::tolerance::near_zero;
 use crate::transform::{PlanTransform, TransformError};
 use crate::validate::{self, MAX_DECIMALS};
@@ -534,19 +533,24 @@ fn plan_delete_storey(project: &Project, storey: StoreyId, mode: StoreyElements)
         }
     }
     // ELM-006: default tops linked to the storey become fixed heights above
-    // the ground storey, like the elements' tops. A slot that this makes
-    // invalid (a height of zero or less) gets its kind's template defaults.
+    // the ground storey, like the elements' tops. Where that height is
+    // invalid (zero or less, or above the maximum), only the top changes, to
+    // the height of the remaining ground storey; the rest of the slot stays
+    // (ELM-001).
     let ground = project.storeys.ground();
+    let fallback = list
+        .get(list.ground())
+        .map_or(validate::MIN_HEIGHT, |s| s.height)
+        .clamp(validate::MIN_HEIGHT, validate::MAX_HEIGHT);
     let defaults: ToolDefaults = project
         .tool_defaults
         .iter()
-        .filter_map(|(kind, slot)| {
+        .map(|(kind, slot)| {
             let mut slot = slot.clone();
-            if !slot.kind.unlink_storey(ground, &project.storeys, storey) || check_slot(project, kind, &slot).is_ok() {
-                return Some(slot);
+            if slot.kind.unlink_storey(ground, &project.storeys, storey) && check_slot(project, kind, &slot).is_err() {
+                slot.kind.fix_top(fallback);
             }
-            let template = kind.descriptor().template_defaults?;
-            Some(template(&TemplateContext::new(&project.materials, &project.layers)))
+            slot
         })
         .collect();
     if defaults != project.tool_defaults {
