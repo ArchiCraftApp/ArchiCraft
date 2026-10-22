@@ -212,6 +212,7 @@ class Repo:
             "scripts/check-legal.sh": "#!/bin/sh\n",
             "scripts/bench-demo.sh": "#!/bin/sh\n",
             "scripts/tests/test_unnamed.py": "",
+            "scripts/tests/test_status.py": "",
             "scripts/other-tool.sh": "#!/bin/sh\n",
         }
         for path, text in files.items():
@@ -379,10 +380,10 @@ class CheckTest(StatusTest):
     def test_a_python_test_file_counts_only_under_a_tests_directory(self):
         test_py = "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_demo_case(self):\n        pass\n"
         self.repo.write("scripts/tests/test_demo.py", test_py)
-        self.repo.write("scripts/loop/test_stray.py", test_py)
+        self.repo.write("scripts/tools/test_stray.py", test_py)
         self.edit("STR-001", evidence="Done: scripts/tests/test_demo.py")
         self.assertEqual(self.check()[0], 0)
-        self.edit("STR-001", evidence="Done: scripts/loop/test_stray.py")
+        self.edit("STR-001", evidence="Done: scripts/tools/test_stray.py")
         self.assert_check_fails("STR-001: done row names no test or CI guard")
 
     def test_only_scripts_a_workflow_runs_count_as_guards(self):
@@ -424,6 +425,25 @@ class CheckTest(StatusTest):
         ):
             self.edit("NFR-LEG-002", evidence=f"Done. Guarded by {evidence}.")
             self.assert_check_fails("NFR-LEG-002: done row names no test or CI guard")
+
+    def test_tests_of_the_traceability_and_the_loop_are_no_evidence(self):
+        """A test of the status script or of the loop guards the traceability, not a requirement:
+        a done row naming only such a test fails the check (archicraft-ei1u)."""
+        self.repo.write(status.TESTING_PATH, UNTRACED_TESTING)
+        self.repo.write("scripts/tests/test_status.py", "class T:\n    def test_check_passes_on_the_committed_state(self):\n        pass\n")
+        self.repo.write("scripts/loop/tests/test_loop.py", "def test_land_refuses_a_push_to_main():\n    pass\n")
+        for evidence in (
+            "test_check_passes_on_the_committed_state",
+            "scripts/tests/test_status.py",
+            "test_land_refuses_a_push_to_main",
+            "scripts/loop/tests/test_loop.py",
+        ):
+            self.edit("NFR-LEG-002", evidence=f"Done. Guarded by {evidence}.")
+            self.assert_check_fails("NFR-LEG-002: done row names no test or CI guard")
+        # Any other Python test still counts.
+        self.repo.write("scripts/tests/test_unnamed.py", "def test_no_unreviewed_trademarks():\n    pass\n")
+        self.edit("NFR-LEG-002", evidence="Done. Guarded by test_no_unreviewed_trademarks.")
+        self.assertEqual(self.check()[0], 0)
 
     def test_only_the_items_of_steps_are_steps(self):
         workflow = """jobs:

@@ -65,6 +65,9 @@ CHECK_ACTION = re.compile(r"EmbarkStudios/cargo-deny-action@")
 # none either.
 GUARD_WORKFLOWS = ("ci.yml", "conformance-matrix.yml", "fuzz.yml", "macos.yml", "windows.yml")
 STATUS_JOB = "Implementation status"
+# Python tests that guard the traceability or the loop itself, not a requirement: their test_
+# methods and files are no done-row evidence.
+NO_EVIDENCE_TESTS = ("scripts/tests/test_status.py", "scripts/loop/")
 
 
 class StatusError(Exception):
@@ -227,7 +230,7 @@ def find_checks(root):
 def test_names(root):
     """Names of the Rust test functions (marked #[test] or #[<crate>::test]) and Python test
     methods in the repository, and the repository-relative test files under a tests/ directory
-    that hold them."""
+    that hold them. The NO_EVIDENCE_TESTS count neither."""
     names, files = set(), set()
     test_attr = re.compile(r"\s*#\[(?:\w+::)?test\b")
     fn = re.compile(r"\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([a-z_][a-z0-9_]*)")
@@ -247,6 +250,8 @@ def test_names(root):
         if found and "tests" in path.relative_to(root).parts:
             files.add(path.relative_to(root).as_posix())
     for path in (root / "scripts").rglob("test_*.py"):
+        if path.relative_to(root).as_posix().startswith(NO_EVIDENCE_TESTS):
+            continue
         found = re.findall(r"^\s*def (test_\w+)", path.read_text(encoding="utf-8"), re.M)
         names.update(found)
         if found and "tests" in path.relative_to(root).parts:
