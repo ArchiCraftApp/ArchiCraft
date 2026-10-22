@@ -102,6 +102,8 @@ fn command_ids_are_pinned() {
             "view.orbit",
             "view.reference-lines",
             "view.problems",
+            "view.place-user-origin",
+            "view.reset-user-origin",
             "tool.select",
             "tool.wall",
             "tool.slab",
@@ -167,6 +169,8 @@ fn command_of(action: Action) -> &'static str {
         Action::SwitchPlan3d => "view.switch-plan-3d",
         Action::OrbitMode => "view.orbit",
         Action::ToggleReferenceLines => "view.reference-lines",
+        Action::PlaceUserOrigin => "view.place-user-origin",
+        Action::ResetUserOrigin => "view.reset-user-origin",
         Action::Storeys => "project.storeys",
         Action::Layers => "project.layers",
         Action::Materials => "project.materials",
@@ -178,7 +182,7 @@ fn command_of(action: Action) -> &'static str {
     }
 }
 
-/// UI-008, HW-003: the registry carries all 31 actions with the 23 default
+/// UI-008, HW-003: the registry carries all 33 actions with the 23 default
 /// shortcuts they have today as first binding, and the scopes keep today's
 /// rules: the commands that work while typing are TextSafe, and the
 /// single-key shortcuts and Ctrl+Tab, which stay off while a tool is

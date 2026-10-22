@@ -1067,7 +1067,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Polar (distance, angle) and Cartesian (ΔX, ΔY, ΔZ) fields, relative or absolute from the project origin (crates/archicraft-app/src/input/typed.rs: FieldSet, Reference, Origin); P switches polar/Cartesian converting typed values exactly, Shift+P relative/absolute (provisional keys); the first point defaults to absolute X/Y. ΔZ is display-only in plan views. Missing: placing the user origin (INP-014, archicraft-k2uv; InputContext::user_origin is the project origin until then) and marking a snap point (InputContext::marked is always None), so Origin::User and Origin::Marked are not reachable yet.",
+      "gap": "Polar (distance, angle) and Cartesian (ΔX, ΔY, ΔZ) fields, relative or absolute (crates/archicraft-app/src/input/typed.rs: FieldSet, Reference, Origin); absolute input is measured from the project origin, or from the user origin along its axes once one is placed (INP-014: InputContext::absolute and base in crates/archicraft-app/src/input/mod.rs; test absolute_input_is_measured_from_the_user_origin). P switches polar/Cartesian converting typed values exactly, Shift+P relative/absolute (provisional keys); the first point defaults to absolute X/Y. ΔZ is display-only in plan views. Missing: marking a snap point (InputContext::marked is always None), so Origin::Marked is not reachable yet.",
       "depends_on": []
     },
     {
@@ -1194,10 +1194,10 @@
       "id": "INP-014",
       "priority": "M",
       "section": "4.6",
-      "status": "missing",
-      "remaining_effort": "M",
-      "evidence": "",
-      "gap": "Whole requirement: placeable/rotatable user origin, coordinate display and entry relative to it, reset to project origin.",
+      "status": "done",
+      "remaining_effort": "none",
+      "evidence": "Done: View > Place user origin and the plan context menu start the UserOriginTool consumer (crates/archicraft-app/src/tools/user_origin.rs), which takes the origin point, then a point on the X axis or a typed angle (Enter keeps rotation 0), and suspends the tool meanwhile (Workspace::active_consumer, crates/archicraft-app/src/workspace.rs). The result is the session-level InputFrames::user_origin, a Frame2d { origin, rotation } (crates/archicraft-app/src/input/surface.rs) shared by all plan views; it changes nothing in the model, creates no undo step, is not written to IFCX and is reset when the document is replaced. View > Reset user origin and the context menu restore the project origin. Once placed, absolute input and the tracker's absolute X/Y are measured from it along its axes (InputContext::user_origin and absolute(), crates/archicraft-app/src/input/mod.rs; tracker.rs), the plan view-control bar shows the cursor X/Y relative to it (ui/shell.rs status_bar) and the plan draws its rotated axes next to the project origin (views/plan.rs draw_user_origin). Tests: a_frame_round_trips_plane_points (input/surface.rs), absolute_input_is_measured_from_the_user_origin and the_tracker_measures_absolute_xy_from_the_user_origin (input/mod.rs), the_user_origin_takes_two_steps (tools/user_origin.rs), placing_the_user_origin_changes_no_model and placing_the_user_origin_can_be_left (workspace.rs), the_user_origin_changes_the_coordinate_readout (crates/archicraft-app/tests/ui.rs). The 3D working plane gets its own frame with 3D point input (INP-015); a per-view user origin belongs to saved views.",
+      "gap": "",
       "depends_on": []
     },
     {

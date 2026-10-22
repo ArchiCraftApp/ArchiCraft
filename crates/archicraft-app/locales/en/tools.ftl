@@ -18,3 +18,13 @@ tracker-y = Y
 tracker-z = Z
 tracker-total = L
 tracker-change = ΔL
+
+## Placing the user origin (INP-014): the prompts of its two steps and, as
+## prompt-user-origin-key-*, the key hints shown after them.
+
+prompt-user-origin-point = User origin: click the new origin
+prompt-user-origin-direction = User origin: click a point on the X axis or type its angle
+prompt-user-origin-key-coordinates = types the coordinates
+prompt-user-origin-key-keep-rotation = keeps the axes unrotated
+prompt-user-origin-key-constrain = constrains angles
+prompt-user-origin-key-cancel = cancels the step

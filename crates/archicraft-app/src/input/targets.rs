@@ -567,7 +567,7 @@ pub(crate) mod tests {
             angle_increment_deg: 45.0,
             snap_step: 0.0,
             frame: SurfaceFrame::plan(0.0),
-            user_origin: DVec2::ZERO,
+            user_origin: crate::input::Frame2d::default(),
             marked: None,
         };
         input.resolve(cursor, Modifiers::default(), &ctx)

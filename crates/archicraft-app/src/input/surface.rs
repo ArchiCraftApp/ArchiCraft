@@ -39,6 +39,35 @@ impl SurfaceFrame {
     }
 }
 
+/// A 2D frame on a working plane: an origin and the rotation of its X axis
+/// from the plane's X axis, in radians. The user origin is one (INP-014);
+/// the default is the plane's own origin and axes.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Frame2d {
+    pub origin: DVec2,
+    pub rotation: f64,
+}
+
+impl Frame2d {
+    /// Whether this is not the default frame: a user origin is placed
+    /// (INP-014).
+    pub fn is_placed(&self) -> bool {
+        *self != Frame2d::default()
+    }
+
+    /// The coordinates of a plane point in this frame:
+    /// R(−rotation)·(p − origin).
+    pub fn to_local(&self, p: DVec2) -> DVec2 {
+        DVec2::from_angle(-self.rotation).rotate(p - self.origin)
+    }
+
+    /// The plane point of coordinates in this frame, the inverse of
+    /// [`Frame2d::to_local`].
+    pub fn from_local(&self, p: DVec2) -> DVec2 {
+        self.origin + DVec2::from_angle(self.rotation).rotate(p)
+    }
+}
+
 /// What a view offers point input: the mapping between screen pixels (+Y
 /// down) and its working plane. Screen positions are plain `DVec2` pixels, so
 /// point input stays independent of the windowing toolkit.
@@ -85,6 +114,39 @@ mod tests {
         fn frame(&self) -> SurfaceFrame {
             self.frame
         }
+    }
+
+    /// INP-014: a frame maps plane points to its coordinates and back within
+    /// 1e-12; rotated by 90° at (10, 10), its X axis points along the plane's
+    /// Y axis.
+    #[test]
+    fn a_frame_round_trips_plane_points() {
+        let frames = [
+            Frame2d::default(),
+            Frame2d {
+                origin: DVec2::new(10.0, 10.0),
+                rotation: 90f64.to_radians(),
+            },
+            Frame2d {
+                origin: DVec2::new(-3.25, 1234.5),
+                rotation: -2.1,
+            },
+        ];
+        for frame in frames {
+            for p in [
+                DVec2::ZERO,
+                DVec2::new(1.0, 0.0),
+                DVec2::new(-7.5, 3.125),
+                DVec2::new(1e3, -2e3),
+            ] {
+                assert!(frame.from_local(frame.to_local(p)).distance(p) < 1e-12, "{frame:?} {p}");
+                assert!(frame.to_local(frame.from_local(p)).distance(p) < 1e-12, "{frame:?} {p}");
+            }
+        }
+        let rotated = frames[1];
+        assert!(rotated.from_local(DVec2::X).distance(DVec2::new(10.0, 11.0)) < 1e-12);
+        assert!(rotated.to_local(DVec2::new(10.0, 11.0)).distance(DVec2::X) < 1e-12);
+        assert_eq!(Frame2d::default().to_local(DVec2::new(3.0, 4.0)), DVec2::new(3.0, 4.0));
     }
 
     /// INP-001: a surface on a plane elevated to z = 3 and rotated by 30°

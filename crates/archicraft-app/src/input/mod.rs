@@ -26,7 +26,7 @@ pub use consumer::{CursorState, Expect, InputConsumer, KeyHint, Outcome, Preview
 pub use keys::{KeyInput, Modifiers};
 pub use pointer::{InputMode, PointerEvent};
 pub use snap::{Snap, SnapKind, SnapLevel, candidates, snap};
-pub use surface::{SurfaceFrame, ViewSurface};
+pub use surface::{Frame2d, SurfaceFrame, ViewSurface};
 pub use targets::{IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
 pub use tracker::TrackerLine;
 pub use typed::{Field, FieldSet, Origin, Reference, TypedInput, Value, starts_value};
@@ -85,9 +85,9 @@ pub struct InputContext<'a> {
     pub angle_increment_deg: f64,
     pub snap_step: f64,
     pub frame: SurfaceFrame,
-    /// The user origin on the working plane (INP-014): the project origin
-    /// until the user origin can be placed (archicraft-k2uv).
-    pub user_origin: DVec2,
+    /// The user origin on the working plane (INP-014); the default frame,
+    /// the plane's own origin and axes, while none is placed.
+    pub user_origin: Frame2d,
     /// The temporarily marked snap point absolute coordinates can be
     /// measured from (INP-004); none until points can be marked.
     pub marked: Option<DVec2>,
@@ -99,18 +99,32 @@ impl InputContext<'_> {
         self.expects.origin(self.previous)
     }
 
-    /// The point typed coordinates are measured from (INP-004).
-    fn base(&self, reference: Reference) -> Option<DVec2> {
-        match reference {
-            Reference::Relative => self.origin(),
-            Reference::Absolute(Origin::Project) => Some(self.frame.to_plane(DVec3::ZERO)),
-            Reference::Absolute(Origin::User) => Some(self.user_origin),
-            Reference::Absolute(Origin::Marked) => self.marked,
+    /// The origin absolute coordinates are measured from: the user origin
+    /// once placed, otherwise the project origin (INP-004, INP-014).
+    pub fn absolute(&self) -> Origin {
+        if self.user_origin.is_placed() {
+            Origin::User
+        } else {
+            Origin::Project
         }
     }
 
-    /// The direction typed angles are measured from: the reference
-    /// direction in a relative angle step, otherwise the X axis.
+    /// The frame typed coordinates are measured in (INP-004): the origin of
+    /// the step or an absolute origin, with the plane's axes, or the user
+    /// origin with its rotation (INP-014).
+    fn base(&self, reference: Reference) -> Option<Frame2d> {
+        let at = |origin| Frame2d { origin, rotation: 0.0 };
+        match reference {
+            Reference::Relative => self.origin().map(at),
+            Reference::Absolute(Origin::Project) => Some(at(self.frame.to_plane(DVec3::ZERO))),
+            Reference::Absolute(Origin::User) => Some(self.user_origin),
+            Reference::Absolute(Origin::Marked) => self.marked.map(at),
+        }
+    }
+
+    /// The direction typed angles are measured from, in the frame of
+    /// [`InputContext::base`]: the reference direction in a relative angle
+    /// step, otherwise the frame's X axis.
     fn base_angle(&self, reference: Reference) -> f64 {
         match (reference, self.expects) {
             (Reference::Relative, Expect::Angle { centre }) => self
@@ -127,6 +141,7 @@ impl InputContext<'_> {
             self.origin().is_none(),
             matches!(self.expects, Expect::Angle { .. }),
             self.tracker,
+            self.absolute(),
         );
     }
 }
@@ -197,7 +212,7 @@ impl PointInput {
         let mut typed = self.typed.clone();
         ctx.follow(&mut typed);
         let base = match (&typed.set, ctx.tracker.stretch()) {
-            (FieldSet::Stretch { .. }, Some((base, _, _))) => base,
+            (FieldSet::Stretch { .. }, Some((origin, _, _))) => Frame2d { origin, rotation: 0.0 },
             _ => ctx.base(typed.reference)?,
         };
         let lines = tracker::lines(&typed, base, ctx.base_angle(typed.reference), point, ctx);
@@ -286,9 +301,10 @@ impl PointInput {
         resolved
     }
 
-    /// The typed values applied from their base point (INP-002, INP-003,
-    /// INP-004): an empty field takes its value from the cursor (a typed ΔX
-    /// with the cursor's ΔY, a typed distance with the cursor's angle). A
+    /// The typed values applied in their base frame (INP-002, INP-003,
+    /// INP-004, INP-014): an empty field takes its value from the cursor (a
+    /// typed ΔX with the cursor's ΔY, a typed distance with the cursor's
+    /// angle); absolute values from the user origin are along its axes. A
     /// stretch takes the typed total length or length change along its
     /// direction, the active field first. `None` when a value does not
     /// parse or the base point is unknown.
@@ -298,19 +314,26 @@ impl PointInput {
         let base = ctx.base(typed.reference);
         match typed.set {
             FieldSet::Polar { .. } => {
-                let (base, offset) = base.map(|b| (b, cursor - b))?;
+                let (base, offset) = base.map(|b| (b, b.to_local(cursor)))?;
                 let angle = value(Field::Angle)?.map_or(offset.to_angle(), |a| ctx.base_angle(typed.reference) + a);
-                let distance = value(Field::Distance)?.unwrap_or(offset.length());
-                Some(base + DVec2::from_angle(angle) * distance)
+                // A direction or angle step needs only the angle: with the
+                // cursor on its centre, a unit distance keeps a typed angle.
+                let only_angle = matches!(ctx.expects, Expect::Direction { .. } | Expect::Angle { .. });
+                let distance = match value(Field::Distance)? {
+                    Some(distance) => distance,
+                    None if only_angle && coincident(offset, DVec2::ZERO) => 1.0,
+                    None => offset.length(),
+                };
+                Some(base.from_local(DVec2::from_angle(angle) * distance))
             }
             FieldSet::Cartesian { .. } => {
-                let (base, offset) = base.map(|b| (b, cursor - b))?;
+                let (base, offset) = base.map(|b| (b, b.to_local(cursor)))?;
                 // A plan view's working plane is the storey plane: planar
                 // consumers ignore ΔZ until the 3D working plane exists.
                 value(Field::Z)?;
                 let x = value(Field::X)?.unwrap_or(offset.x);
                 let y = value(Field::Y)?.unwrap_or(offset.y);
-                Some(base + DVec2::new(x, y))
+                Some(base.from_local(DVec2::new(x, y)))
             }
             FieldSet::Stretch { .. } => {
                 let (base, dir, length) = ctx.tracker.stretch()?;
@@ -365,14 +388,17 @@ impl PointInput {
             }
             KeyInput::SwitchFields if step => {
                 let reference = self.typed.reference;
-                let cursor = self.cursor.zip(ctx.base(reference)).map(|((c, _), base)| c - base);
+                let cursor = self
+                    .cursor
+                    .zip(ctx.base(reference))
+                    .map(|((c, _), base)| base.to_local(c));
                 self.typed
                     .switch_set(ctx.base_angle(reference), cursor, ctx.units, ctx.number_format);
                 Effect::None
             }
             // The first point has nothing to be relative to.
             KeyInput::SwitchReference if step && origin.is_some() => {
-                self.typed.switch_reference();
+                self.typed.switch_reference(ctx.absolute());
                 Effect::None
             }
             KeyInput::Enter if step => {
@@ -745,6 +771,7 @@ mod tests {
         nf: NumberFormat,
         elevation: f64,
         tracker_xyz: bool,
+        user_origin: Frame2d,
     }
 
     impl Env {
@@ -760,6 +787,7 @@ mod tests {
                 nf: NumberFormat::default(),
                 elevation: 0.0,
                 tracker_xyz: false,
+                user_origin: Frame2d::default(),
             }
         }
 
@@ -782,7 +810,7 @@ mod tests {
                 angle_increment_deg: 45.0,
                 snap_step: 0.0,
                 frame: SurfaceFrame::plan(self.elevation),
-                user_origin: DVec2::ZERO,
+                user_origin: self.user_origin,
                 marked: None,
             }
         }
@@ -1632,6 +1660,97 @@ mod tests {
         env.key(&mut input, &mut tool, KeyInput::SwitchFields);
         let tracker = input.tracker(DVec2::new(4.0, 5.0), &env.ctx(&tool)).unwrap();
         assert!(tracker.ends_with(" X 400.0 cm\n Y 500.0 cm\n Z 300.0 cm"), "{tracker}");
+    }
+
+    /// The user origin at (10, 10) with its X axis rotated by 90°.
+    fn rotated_user_origin() -> Frame2d {
+        Frame2d {
+            origin: DVec2::new(10.0, 10.0),
+            rotation: 90f64.to_radians(),
+        }
+    }
+
+    /// INP-014, INP-004: with the user origin at (10, 10) rotated by 90°,
+    /// absolute input is measured from it along its axes: the first point
+    /// typed as (1, 0) is the model point (10, 11), and Shift+P on a later
+    /// point switches to absolute coordinates from the user origin, polar
+    /// ones too. Reset to the default frame, (1, 0) is (1, 0) again.
+    #[test]
+    fn absolute_input_is_measured_from_the_user_origin() {
+        let mut env = Env::new();
+        env.user_origin = rotated_user_origin();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Chain);
+        for key in [text("1"), KeyInput::Tab, text("0")] {
+            env.key(&mut input, &mut tool, key);
+        }
+        assert_eq!(input.typed.reference, Reference::Absolute(Origin::User));
+        let point = point_at(&env, &mut input, &tool, (-7.0, 9.0));
+        assert!(point.distance(DVec2::new(10.0, 11.0)) < 1e-12, "{point}");
+        env.key(&mut input, &mut tool, KeyInput::Enter);
+        assert_eq!(tool.points.len(), 1);
+        assert!(tool.points[0].distance(DVec2::new(10.0, 11.0)) < 1e-12);
+
+        // Polar absolute from the user origin: 2 m at 90° from its X axis.
+        env.key(&mut input, &mut tool, KeyInput::SwitchReference);
+        assert_eq!(input.typed.reference, Reference::Absolute(Origin::User));
+        for key in [text("2"), KeyInput::Tab, text("90")] {
+            env.key(&mut input, &mut tool, key);
+        }
+        let point = point_at(&env, &mut input, &tool, (0.0, 0.0));
+        assert!(point.distance(DVec2::new(8.0, 10.0)) < 1e-12, "{point}");
+        // Cartesian absolute from the user origin, switched exactly.
+        env.key(&mut input, &mut tool, KeyInput::SwitchFields);
+        let point = point_at(&env, &mut input, &tool, (0.0, 0.0));
+        assert!(point.distance(DVec2::new(8.0, 10.0)) < 1e-12, "{point}");
+        // Relative input does not rotate with the user origin.
+        env.key(&mut input, &mut tool, KeyInput::SwitchReference);
+        assert_eq!(input.typed.reference, Reference::Relative);
+
+        env.user_origin = Frame2d::default();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Chain);
+        for key in [text("1"), KeyInput::Tab, text("0")] {
+            env.key(&mut input, &mut tool, key);
+        }
+        assert_eq!(input.typed.reference, Reference::Absolute(Origin::Project));
+        assert_eq!(point_at(&env, &mut input, &tool, (-7.0, 9.0)), DVec2::new(1.0, 0.0));
+    }
+
+    /// INP-014, INP-002: the tracker's absolute X and Y are measured from the
+    /// user origin along its axes, as fields and as the X/Y/Z on demand,
+    /// which are not repeated; the polar fields are unaffected.
+    #[test]
+    fn the_tracker_measures_absolute_xy_from_the_user_origin() {
+        let mut env = Env::new();
+        env.elevation = 3.0;
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        let tracker = |env: &Env, input: &PointInput, tool: &ToolState, p: (f64, f64)| {
+            input.tracker(DVec2::new(p.0, p.1), &env.ctx(tool)).unwrap()
+        };
+        // The point (8, 13) is (3, 2) from (10, 10) along axes rotated by 90°.
+        assert_eq!(
+            tracker(&env, &input, &tool, (8.0, 13.0)),
+            "▸X 8.000 m\n Y 13.000 m\n Z 3.000 m"
+        );
+        env.user_origin = rotated_user_origin();
+        assert_eq!(
+            tracker(&env, &input, &tool, (8.0, 13.0)),
+            "▸X 3.000 m\n Y 2.000 m\n Z 3.000 m"
+        );
+        env.tracker_xyz = true;
+        assert_eq!(
+            tracker(&env, &input, &tool, (8.0, 13.0)),
+            "▸X 3.000 m\n Y 2.000 m\n Z 3.000 m",
+            "absolute X/Y/Z input shows them once"
+        );
+        env.click(&mut input, &mut tool, (5.0, 9.0));
+        assert_eq!(
+            tracker(&env, &input, &tool, (8.0, 13.0)),
+            "▸d 5.000 m\n a 53.13°\n X 3.000 m\n Y 2.000 m\n Z 3.000 m",
+            "the polar fields are unaffected"
+        );
     }
 
     /// INP-002: a stretch opens in total-length mode, so the tracker shows the

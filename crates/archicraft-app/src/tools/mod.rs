@@ -6,6 +6,7 @@
 //! Tools are point-input consumers (`InputConsumer`, INP-001).
 
 mod slab;
+mod user_origin;
 mod wall;
 
 use archicraft_model::glam::DVec2;
@@ -15,6 +16,7 @@ use archicraft_model::{Command, Element, ElementKind, KindTag, Project, StoreyId
 use crate::input::{Expect, InputConsumer, KeyHint, Outcome, Preview, Resolved, StepSpec};
 
 pub use slab::SlabMode;
+pub use user_origin::UserOriginTool;
 pub use wall::WallMode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -42,5 +42,8 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             .menu("view", 2, 1)
             .bind(Binding::primary(Key::P).shift())
             .scope(Scope::TextSafe),
+        // INP-014: the user origin of the plan views.
+        view("view.place-user-origin").menu("view", 3, 0),
+        view("view.reset-user-origin").menu("view", 3, 1),
     ]
 }
