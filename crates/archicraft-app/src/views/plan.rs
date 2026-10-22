@@ -1263,6 +1263,65 @@ mod tests {
         );
     }
 
+    /// INP-024, INP-009: only area elements offer centroids, so on the
+    /// 11.5 cm interior wall of two_storey_shell, at fit-to-window zoom in a
+    /// 1000 by 700 pixel plan with the default 8 pixel radius, hovering the
+    /// middle of its east face snaps to the face midpoint, although the
+    /// wall's cut centroid would lie within the radius.
+    #[test]
+    fn a_thin_walls_face_midpoint_is_not_hidden_by_its_centroid() {
+        use archicraft_geometry::geo::Centroid;
+        use archicraft_geometry::plan::polygon_rings;
+        use archicraft_model::samples;
+
+        use crate::document::Document;
+        use crate::persistence::prefs::Preferences;
+
+        let project = samples::two_storey_shell();
+        let storey = project.storeys.ground();
+        let mut ws = Workspace::new(Document::new(project, 10), Preferences::default());
+        ws.select_tool(ToolKind::Wall);
+        let plan = ws.doc.plan(storey);
+        let (min, max) = plan.bounds().unwrap();
+        let rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 700.0));
+        let mut camera = Camera2d::default();
+        camera.fit(rect, min, max);
+        let surface = PlanSurface {
+            camera,
+            rect,
+            elevation: 0.0,
+        };
+
+        let interior = (ws.doc.project.elements_on(storey))
+            .find(|e| {
+                e.as_wall()
+                    .is_some_and(|w| w.start == DVec2::new(5.0, 0.0) && w.end == DVec2::new(5.0, 6.0))
+            })
+            .unwrap()
+            .id;
+        let cut = &plan.element(interior).unwrap().cut[0];
+        let ring = polygon_rings(cut).remove(0);
+        let east = |p: &DVec2| (p.x - 5.0575).abs() < 1e-9;
+        let face = (0..ring.len())
+            .map(|i| [ring[i], ring[(i + 1) % ring.len()]])
+            .filter(|[a, b]| east(a) && east(b))
+            .max_by(|[a, b], [c, d]| a.distance(*b).total_cmp(&c.distance(*d)))
+            .unwrap();
+        let midpoint = (face[0] + face[1]) / 2.0;
+        let centroid = cut.centroid().unwrap();
+
+        assert_eq!(ws.prefs.snap_radius, 8.0);
+        let input = PlanInput::new(&mut ws, storey, &surface, 6.0);
+        let ctx = input.ctx(&ws.doc.project, ws.frames, &ws.active_consumer, &ws.tool);
+        let wall_centroid = DVec2::new(centroid.x(), centroid.y());
+        assert!(midpoint.distance(wall_centroid) < ctx.radius, "{} m", ctx.radius);
+        let resolved = ws.input.resolve(midpoint, Modifiers::default(), &ctx);
+        let found = &resolved.candidates;
+        assert!(found.iter().all(|s| s.kind != SnapKind::Centroid), "{found:?}");
+        assert_eq!(resolved.snap.kind, SnapKind::Midpoint, "{found:?}");
+        assert!(resolved.snap.point.distance(midpoint) < 1e-9, "{resolved:?}");
+    }
+
     /// INP-010: the hovered edge's division points are drawn as ticks
     /// across it, one per point: three for four equal parts.
     #[test]

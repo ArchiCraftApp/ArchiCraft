@@ -159,6 +159,56 @@ fn the_plan_view_labels_a_centroid_snap() {
     assert!(label.ends_with("\ncentroid"), "{label}");
 }
 
+/// INP-024, INP-009: centroids come only from area elements, so in the
+/// plan view of two_storey_shell, fitted to the window with the default
+/// 8 pixel radius, hovering the middle of the 11.5 cm interior wall's east
+/// face draws the midpoint glyph, labelled 'midpoint', although the wall's
+/// cut centroid lies within the radius.
+#[test]
+fn the_plan_view_snaps_to_a_thin_walls_face_midpoint() {
+    use archicraft_geometry::geo::Centroid;
+    use archicraft_geometry::plan::polygon_rings;
+
+    let mut harness = wall_tool_on_two_storey_shell("face-midpoint");
+    let (storey, pos) = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.active_storey;
+        let interior = (ws.doc.project.elements_on(storey))
+            .find(|e| {
+                e.as_wall()
+                    .is_some_and(|w| w.start == DVec2::new(5.0, 0.0) && w.end == DVec2::new(5.0, 6.0))
+            })
+            .unwrap()
+            .id;
+        let plan = ws.doc.plan(storey);
+        let cut = &plan.element(interior).unwrap().cut[0];
+        let ring = polygon_rings(cut).remove(0);
+        let east = |p: &DVec2| (p.x - 5.0575).abs() < 1e-9;
+        let face = (0..ring.len())
+            .map(|i| [ring[i], ring[(i + 1) % ring.len()]])
+            .filter(|[a, b]| east(a) && east(b))
+            .max_by(|[a, b], [c, d]| a.distance(*b).total_cmp(&c.distance(*d)))
+            .unwrap();
+        let midpoint = (face[0] + face[1]) / 2.0;
+        let centroid = cut.centroid().unwrap();
+        let state = &ws.plan_views[&storey];
+        let radius = f64::from(ws.prefs.snap_radius) / state.camera.scale;
+        assert_eq!(ws.prefs.snap_radius, 8.0);
+        assert!(
+            midpoint.distance(DVec2::new(centroid.x(), centroid.y())) < radius,
+            "{radius} m"
+        );
+        (storey, state.camera.to_screen(state.last_rect, midpoint))
+    };
+    harness.hover_at(pos);
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let state = &ws.plan_views[&storey];
+    assert_eq!(state.glyph, Some((SnapKind::Midpoint, CursorState::Normal)));
+    let label = state.label.clone().unwrap_or_default();
+    assert!(label.ends_with("\nmidpoint"), "{label}");
+}
+
 /// INP-010, INP-008: with four equal parts chosen in the preferences, the
 /// plan view of two_storey_shell hovers the south wall, draws ticks at its
 /// three division points and snaps to the one near the cursor with the
