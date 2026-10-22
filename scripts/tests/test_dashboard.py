@@ -143,6 +143,23 @@ class OpenPullRequests(unittest.TestCase):
         # the PR shows once, with its needs_you reason.
         self.assertEqual(view["needs_you"], WAITS)
 
+    def test_a_failed_user_review_check_run_without_a_failed_status_is_a_failing_check(self):
+        """When the job "User review check" fails before ci-user-review.sh posts the "User review"
+        status (git fetch or gh api failing under set -e), the required status never arrives and
+        the PR never merges: the run counts as a failing check, also next to a passed status."""
+        run = {"__typename": "CheckRun", "name": "User review check", "workflowName": "User review",
+               "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-10-21T10:01:00Z"}
+        passed = {"__typename": "StatusContext", "context": "User review", "state": "SUCCESS",
+                  "startedAt": "2026-10-21T09:00:00Z"}
+        for rollup in (GREEN + [run], GREEN + [run, passed]):
+            with self.subTest(statuses=len(rollup) - 2):
+                checks = dashboard.summarize_checks(rollup)
+                self.assertEqual((checks["fail"], checks["failing"]), (1, ["User review check"]))
+        # A failed status beside the failed run still means waiting for the review.
+        errored = dict(passed, state="ERROR", startedAt="2026-10-21T10:02:00Z")
+        checks = dashboard.summarize_checks(GREEN + [run, errored])
+        self.assertEqual((checks["fail"], checks["failing"]), (0, []))
+
     def test_a_failed_queue_query_leaves_the_pr_list_working(self):
         """Without the merge-queue answer the PRs still show, and none is reported as stuck."""
         listed = [{k: v for k, v in open_pr(7).items() if k != "queue"},
