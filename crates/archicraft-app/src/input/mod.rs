@@ -25,13 +25,15 @@ use archicraft_model::{Command, Project, StoreyId};
 
 pub use constrain::constrain;
 pub use consumer::{CursorState, Expect, InputConsumer, KeyHint, Outcome, Preview, StepSpec, TrackerMode};
-pub use division::{Curve, DivisionMode, DivisionScope, EQUAL_PARTS, InputSettings, MAX_DIVISION_POINTS, divide};
+pub use division::{
+    Chain, Curve, DivisionMode, DivisionScope, EQUAL_PARTS, Hovered, InputSettings, MAX_DIVISION_POINTS, divide,
+};
 pub use guide::{Guide, GuideOrigin, GuideShape};
 pub use keys::{KeyInput, Modifiers};
 pub use pointer::{InputMode, PointerEvent};
 pub use snap::{ArcTarget, Snap, SnapKind, SnapLevel, candidates, snap};
 pub use surface::{Frame2d, SurfaceFrame, ViewSurface};
-pub use targets::{IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
+pub use targets::{EdgeKey, HOVER_HYSTERESIS, IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
 pub use tracker::TrackerLine;
 pub use typed::{Field, FieldSet, Origin, Reference, TypedInput, Value, starts_value};
 
@@ -47,6 +49,9 @@ pub struct Resolved {
     pub candidates: Vec<Snap>,
     /// The guides shown with the point (INP-006, INP-007).
     pub guides: Vec<Guide>,
+    /// The edge under the cursor with the division points of the active
+    /// mode and scope, drawn as ticks (INP-010).
+    pub hovered: Option<Hovered>,
 }
 
 /// Everything point input needs to resolve a point on one view's working
@@ -64,6 +69,8 @@ pub struct InputContext<'a> {
     pub previous: Option<DVec2>,
     /// The guides shown, snap targets of the guide levels (INP-009).
     pub guides: &'a [Guide],
+    /// The division mode and scope of hovered edges (INP-010).
+    pub input: InputSettings,
     /// What the consumer's current step expects.
     pub expects: Expect,
     /// How the consumer's current step reports and takes values (INP-002).
@@ -249,17 +256,18 @@ impl PointInput {
                 kind: SnapKind::Constrained,
             })
         };
+        let kept = self.last.as_ref().and_then(|r| r.hovered.as_ref()).map(|h| h.key);
+        let hovered = ctx.targets.hover(cursor, ctx.radius, kept, ctx.input);
         let candidates = match typed.or_else(constrained) {
             Some(s) => vec![s],
-            None => candidates(
-                ctx.targets,
-                ctx.pending,
-                cursor,
-                ctx.radius,
-                ctx.snap_step,
-                ctx.previous,
-                ctx.guides,
-            ),
+            None => {
+                let beyond = snap::Beyond {
+                    pending: ctx.pending,
+                    guides: ctx.guides,
+                    hovered: hovered.as_ref(),
+                };
+                snap::candidates_with(ctx.targets, &beyond, cursor, ctx.radius, ctx.snap_step, ctx.previous)
+            }
         };
         let stretch = ctx
             .tracker
@@ -294,6 +302,7 @@ impl PointInput {
             snap: s,
             candidates,
             guides: Vec::new(),
+            hovered,
         };
         self.last = Some(resolved.clone());
         resolved
@@ -825,6 +834,7 @@ mod tests {
                 pending: &self.pending,
                 previous: consumer.reference_point(),
                 guides: &[],
+                input: InputSettings::default(),
                 expects: consumer.step().map_or(Expect::Point, |s| s.expects),
                 tracker: consumer.step().map_or(TrackerMode::Relative, |s| s.tracker),
                 tracker_xyz: self.tracker_xyz,

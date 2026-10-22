@@ -17,17 +17,26 @@
 //! layer, provide none; locked elements stay snappable while they reject
 //! edits (INP-017). A whole source, such as a linked reference model, can
 //! be switched off with [`SnapIndex::set_source_excluded`].
+//!
+//! Edges come in chains: a wall's reference line, a slab's outline, a cut
+//! ring. [`SnapIndex::hover`] finds the edge under the cursor and divides
+//! the stretch the division scope gives (INP-010).
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use archicraft_geometry::plan::{PlanDrawing, PlanElement, outline_centroid, polygon_rings};
 use archicraft_model::glam::DVec2;
-use archicraft_model::tolerance::Welder;
+use archicraft_model::tolerance::{Welder, coincident};
 use archicraft_model::{Element, ElementId, MODEL_TOLERANCE, Project, StoreyId};
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
 
-use super::snap::{ArcTarget, Snap, SnapKind, closest_on_segment};
+use super::division::{Chain, DivisionMode, DivisionScope, Hovered, InputSettings};
+use super::snap::{ArcTarget, Snap, SnapKind, closest_on_segment, segment_intersection};
+
+/// How far beyond the snap radius a hovered edge stays hovered, as a
+/// multiple of the radius (INP-010).
+pub const HOVER_HYSTERESIS: f64 = 1.5;
 
 /// What a snap target belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -68,6 +77,16 @@ struct TargetKey {
     class: SourceClass,
 }
 
+/// An edge of the index (INP-010): its owner, the owner's source that gave
+/// it and its number there. It names the same edge across revisions while
+/// the owner's sources give their edges in the same order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct EdgeKey {
+    pub owner: TargetOwner,
+    source: u8,
+    index: u32,
+}
+
 /// A node in the index, with its kind within the node level.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct IndexedPoint {
@@ -76,11 +95,26 @@ struct IndexedPoint {
     key: TargetKey,
 }
 
-/// An edge in the index.
+/// An edge in the index, with the number of its chain within its source.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct IndexedEdge {
     edge: [DVec2; 2],
     key: TargetKey,
+    chain: u32,
+}
+
+impl IndexedEdge {
+    fn edge_key(&self) -> EdgeKey {
+        EdgeKey {
+            owner: self.key.owner,
+            source: self.key.source,
+            index: self.key.index,
+        }
+    }
+
+    fn distance(&self, p: DVec2) -> f64 {
+        closest_on_segment(p, self.edge).distance(p)
+    }
 }
 
 /// An arc or a circle in the index.
@@ -143,6 +177,7 @@ pub struct TargetSink {
     points: Vec<IndexedPoint>,
     edges: Vec<IndexedEdge>,
     arcs: Vec<IndexedArc>,
+    chains: u32,
 }
 
 impl TargetSink {
@@ -181,9 +216,29 @@ impl TargetSink {
         self.point(class, SnapKind::Centroid, point);
     }
 
+    /// An edge that is a chain of its own, such as a wall's reference line.
     pub fn edge(&mut self, class: SourceClass, edge: [DVec2; 2]) {
+        let chain = self.next_chain();
+        self.chain_edge(class, edge, chain);
+    }
+
+    /// The edges of a closed ring, one chain (INP-010): a slab's outline or
+    /// a cut ring.
+    pub fn ring(&mut self, class: SourceClass, ring: &[DVec2]) {
+        let chain = self.next_chain();
+        for i in 0..ring.len() {
+            self.chain_edge(class, [ring[i], ring[(i + 1) % ring.len()]], chain);
+        }
+    }
+
+    fn next_chain(&mut self) -> u32 {
+        self.chains += 1;
+        self.chains - 1
+    }
+
+    fn chain_edge(&mut self, class: SourceClass, edge: [DVec2; 2], chain: u32) {
         let key = self.key(self.edges.len(), class);
-        self.edges.push(IndexedEdge { edge, key });
+        self.edges.push(IndexedEdge { edge, key, chain });
     }
 
     /// A circle or an arc: its centre and its tangent points from the
@@ -203,9 +258,9 @@ pub trait SnapSource {
     fn targets(&self, sink: &mut TargetSink);
 }
 
-/// A wall's reference line and a slab's outline centroid (INP-024): they
-/// come from the model, so they come before the points computed for the
-/// plan.
+/// A wall's reference line, a slab's outline centroid (INP-024) and its
+/// outline and holes as rings (INP-010): they come from the model, so they
+/// come before the points computed for the plan.
 impl SnapSource for Element {
     fn owner(&self) -> TargetOwner {
         TargetOwner::Element(self.id)
@@ -217,8 +272,13 @@ impl SnapSource for Element {
             sink.node(SourceClass::ReferenceLine, wall.end);
             sink.edge(SourceClass::ReferenceLine, [wall.start, wall.end]);
         }
-        if let Some(centroid) = self.as_slab().and_then(|s| outline_centroid(&s.outline, &s.holes)) {
-            sink.centroid(SourceClass::Outline, centroid);
+        if let Some(slab) = self.as_slab() {
+            if let Some(centroid) = outline_centroid(&slab.outline, &slab.holes) {
+                sink.centroid(SourceClass::Outline, centroid);
+            }
+            for ring in std::iter::once(&slab.outline).chain(&slab.holes) {
+                sink.ring(SourceClass::Outline, ring);
+            }
         }
     }
 }
@@ -234,10 +294,10 @@ impl SnapSource for PlanElement {
     fn targets(&self, sink: &mut TargetSink) {
         for polygon in &self.cut {
             for ring in polygon_rings(polygon) {
-                for i in 0..ring.len() {
-                    sink.node(SourceClass::Cut, ring[i]);
-                    sink.edge(SourceClass::Cut, [ring[i], ring[(i + 1) % ring.len()]]);
+                for &p in &ring {
+                    sink.node(SourceClass::Cut, p);
                 }
+                sink.ring(SourceClass::Cut, &ring);
             }
         }
         let lines = (self.projected.iter().map(|s| (SourceClass::Projected, s)))
@@ -279,6 +339,9 @@ impl OwnerTargets {
         }
         for p in &self.points {
             p.kind.hash(&mut h);
+        }
+        for e in &self.edges {
+            e.chain.hash(&mut h);
         }
         for IndexedArc { arc, key } in &self.arcs {
             (key.source, key.index, key.class).hash(&mut h);
@@ -421,6 +484,7 @@ impl SnapIndex {
                 points: Vec::new(),
                 edges: Vec::new(),
                 arcs: Vec::new(),
+                chains: 0,
             };
             source.targets(&mut sink);
             order.insert((owner, targets.sources), position as u32);
@@ -557,6 +621,110 @@ impl SnapIndex {
         found.sort_by_key(|a| self.rank(&a.key));
         found.into_iter().map(|a| a.arc).collect()
     }
+
+    /// The edge named `key`, unless it is gone or its owner is excluded.
+    fn edge(&self, key: EdgeKey) -> Option<&IndexedEdge> {
+        if self.excluded.contains(&key.owner) {
+            return None;
+        }
+        let edges = &self.owners.get(&key.owner)?.edges;
+        edges.iter().find(|e| e.edge_key() == key)
+    }
+
+    /// The edge under the cursor (INP-010): the edge `kept` from the last
+    /// position while the cursor stays within [`HOVER_HYSTERESIS`] times
+    /// `radius` of it, otherwise the edge nearest the cursor within
+    /// `radius`; of edges equally near within the model tolerance, such as
+    /// a wall's reference line and the slab outline on it, the first in
+    /// source order.
+    fn hovered_edge(&self, cursor: DVec2, radius: f64, kept: Option<EdgeKey>) -> Option<&IndexedEdge> {
+        let kept = kept.and_then(|key| self.edge(key));
+        if let Some(edge) = kept.filter(|e| e.distance(cursor) <= HOVER_HYSTERESIS * radius) {
+            return Some(edge);
+        }
+        let reach = radius + MODEL_TOLERANCE;
+        let near: Vec<(&IndexedEdge, f64)> = (self.trees.edges)
+            .locate_within_distance(cursor.to_array(), reach * reach)
+            .map(|e| (e, e.distance(cursor)))
+            .filter(|(_, d)| *d <= radius)
+            .collect();
+        let nearest = near.iter().map(|(_, d)| *d).fold(f64::INFINITY, f64::min);
+        (near.into_iter())
+            .filter(|(_, d)| *d <= nearest + MODEL_TOLERANCE)
+            .map(|(e, _)| e)
+            .min_by_key(|e| self.rank(&e.key))
+    }
+
+    /// The hovered edge at `cursor` and the division points of `settings`'
+    /// mode on the stretch its scope gives (INP-010): the edge itself, its
+    /// part around the cursor between intersections with other owners'
+    /// edges, or the owner's whole chain. `kept` is the edge hovered at the
+    /// last position, which the cursor keeps within [`HOVER_HYSTERESIS`]
+    /// times `radius`. Only this one stretch is divided, into at most
+    /// [`super::MAX_DIVISION_POINTS`] points.
+    pub fn hover(&self, cursor: DVec2, radius: f64, kept: Option<EdgeKey>, settings: InputSettings) -> Option<Hovered> {
+        let edge = self.hovered_edge(cursor, radius, kept)?;
+        let span = match settings.scope {
+            DivisionScope::BetweenNodes => Chain::segment(edge.edge),
+            DivisionScope::BetweenIntersections => Chain::segment(self.between_intersections(edge, cursor)),
+            DivisionScope::WholeElement => self.chain_of(edge),
+        };
+        let mode = settings.division.sanitized();
+        Some(Hovered {
+            key: edge.edge_key(),
+            edge: edge.edge,
+            points: span.divide(mode, cursor),
+            span,
+            kind: if mode == DivisionMode::Half {
+                SnapKind::Midpoint
+            } else {
+                SnapKind::Division
+            },
+        })
+    }
+
+    /// The part of `edge` around the cursor's projection between its
+    /// intersections with the edges of other owners, the pairwise
+    /// intersection of snapping restricted to this edge (INP-010).
+    fn between_intersections(&self, edge: &IndexedEdge, cursor: DVec2) -> [DVec2; 2] {
+        let [a, b] = edge.edge;
+        let along = |p: DVec2| super::Curve::Segment(edge.edge).parameter(p);
+        let at = along(cursor);
+        let (mut from, mut to) = (0.0_f64, 1.0_f64);
+        let crossing = (self.trees.edges)
+            .locate_in_envelope_intersecting(&edge.envelope())
+            .filter(|other| other.key.owner != edge.key.owner)
+            .filter_map(|other| segment_intersection(edge.edge, other.edge));
+        for t in crossing.map(along) {
+            if t <= at {
+                from = from.max(t);
+            } else {
+                to = to.min(t);
+            }
+        }
+        [a + (b - a) * from, a + (b - a) * to]
+    }
+
+    /// The whole chain `edge` belongs to (INP-010): all edges of its owner's
+    /// source with its chain number, in order.
+    fn chain_of(&self, edge: &IndexedEdge) -> Chain {
+        let edges: Vec<[DVec2; 2]> = (self.owners.get(&edge.key.owner))
+            .map(|t| &t.edges[..])
+            .unwrap_or_default()
+            .iter()
+            .filter(|e| e.key.source == edge.key.source && e.chain == edge.chain)
+            .map(|e| e.edge)
+            .collect();
+        let (Some(first), Some(last)) = (edges.first(), edges.last()) else {
+            return Chain::segment(edge.edge);
+        };
+        let closed = edges.len() > 2 && coincident(last[1], first[0]);
+        let mut points: Vec<DVec2> = edges.iter().map(|e| e[0]).collect();
+        if !closed {
+            points.push(last[1]);
+        }
+        Chain { points, closed }
+    }
 }
 
 #[cfg(test)]
@@ -571,8 +739,8 @@ pub(crate) mod tests {
     use crate::document::Document;
     use crate::input::snap::{ArcTarget, Targets, collect, segment_intersection};
     use crate::input::{
-        Expect, InputContext, Modifiers, PointInput, Resolved, Snap, SnapKind, SnapLevel, SurfaceFrame, TrackerMode,
-        candidates, snap,
+        DivisionMode, DivisionScope, Expect, InputContext, Modifiers, PointInput, Resolved, Snap, SnapKind, SnapLevel,
+        SurfaceFrame, TrackerMode, candidates, snap,
     };
     use crate::persistence::prefs::Preferences;
     use crate::workspace::Workspace;
@@ -631,6 +799,9 @@ pub(crate) mod tests {
                 }
                 if let Some(slab) = element.as_slab() {
                     nodes.extend(outline_centroid(&slab.outline, &slab.holes).map(centroid));
+                    for ring in std::iter::once(&slab.outline).chain(&slab.holes) {
+                        edges.extend((0..ring.len()).map(|i| [ring[i], ring[(i + 1) % ring.len()]]));
+                    }
                 }
             }
             for element in &plan.elements {
@@ -667,14 +838,25 @@ pub(crate) mod tests {
                 point,
                 kind: SnapKind::Node,
             }));
-            let near: Vec<[DVec2; 2]> = (self.edges.iter().copied())
-                .filter(|e| closest_on_segment(cursor, *e).distance(cursor) <= radius)
+            let distance = |e: &[DVec2; 2]| closest_on_segment(cursor, *e).distance(cursor);
+            let near: Vec<[DVec2; 2]> = (self.edges.iter().copied()).filter(|e| distance(e) <= radius).collect();
+            // The hovered edge in the default settings: the first of the
+            // nearest edges, divided at its midpoint (INP-010).
+            let nearest = near.iter().map(distance).fold(f64::INFINITY, f64::min);
+            let divisions: Vec<Snap> = (near.iter())
+                .find(|e| distance(e) <= nearest + MODEL_TOLERANCE)
+                .map(|[a, b]| Snap {
+                    point: (*a + *b) / 2.0,
+                    kind: SnapKind::Midpoint,
+                })
+                .into_iter()
                 .collect();
             let targets = Targets {
                 nodes: &nodes,
                 edges: &near,
                 arcs: &[],
                 guides: &[],
+                divisions: &divisions,
             };
             collect(&targets, cursor, radius, grid, previous)
         }
@@ -717,6 +899,7 @@ pub(crate) mod tests {
             pending: &[],
             previous: None,
             guides: &[],
+            input: ws.prefs.input,
             expects: Expect::Point,
             tracker: TrackerMode::Relative,
             tracker_xyz: false,
@@ -1185,6 +1368,136 @@ pub(crate) mod tests {
             assert_candidates(&found, &[(kind, point)]);
             assert_eq!((kind.level(), kind.label()), (Some(SnapLevel::Node), label));
         }
+    }
+
+    /// The division points `resolved` shows, which must be on a hovered edge.
+    fn ticks(resolved: &Resolved) -> &[DVec2] {
+        &resolved.hovered.as_ref().expect("an edge is hovered").points
+    }
+
+    fn assert_points(found: &[DVec2], expected: &[DVec2]) {
+        assert_eq!(found.len(), expected.len(), "{found:?} is not {expected:?}");
+        for (f, e) in found.iter().zip(expected) {
+            assert!(f.distance(*e) < 1e-9, "{found:?} is not {expected:?}");
+        }
+    }
+
+    /// INP-010: with the cursor near a wall's reference line, away from its
+    /// nodes, the hovered edge is that line with exactly the active mode's
+    /// division points: three for four equal parts. Switching the mode
+    /// replaces them; the edge stays hovered up to 1.5 times the snap radius
+    /// from it, and beyond that the ticks disappear.
+    #[test]
+    fn hovering_an_edge_shows_the_active_modes_division_points() {
+        let project = default_metric_project();
+        let storey = project.storeys.ground();
+        let line = [DVec2::ZERO, DVec2::new(4.0, 0.0)];
+        let wall = project.new_wall(storey, line[0], line[1], 0);
+        let mut ws = workspace(project);
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+        let mut input = PointInput::default();
+        ws.prefs.input.division = DivisionMode::Equal(4);
+        let cursor = DVec2::new(1.3, -0.05);
+        let resolved = resolve(&mut ws, &mut input, storey, cursor);
+        let hovered = resolved.hovered.clone().unwrap();
+        assert_eq!(hovered.edge, line);
+        assert_eq!(hovered.kind, SnapKind::Division);
+        assert_points(ticks(&resolved), &[1.0, 2.0, 3.0].map(|x| DVec2::new(x, 0.0)));
+
+        ws.prefs.input.division = DivisionMode::Percent(25.0);
+        let resolved = resolve(&mut ws, &mut input, storey, cursor);
+        assert_points(ticks(&resolved), &[DVec2::new(1.0, 0.0)]);
+        ws.prefs.input.division = DivisionMode::Half;
+        let resolved = resolve(&mut ws, &mut input, storey, cursor);
+        assert_points(ticks(&resolved), &[DVec2::new(2.0, 0.0)]);
+        assert_eq!(resolved.hovered.unwrap().kind, SnapKind::Midpoint);
+
+        // The radius is 0.2: hovered from 0.25 only when hovered before.
+        let farther = DVec2::new(1.3, -0.25);
+        assert!(resolve(&mut ws, &mut input, storey, farther).hovered.is_some());
+        let fresh = resolve(&mut ws, &mut PointInput::default(), storey, farther);
+        assert_eq!(fresh.hovered, None, "not hovered from scratch");
+        let beyond = resolve(&mut ws, &mut input, storey, DVec2::new(1.3, -0.31));
+        assert_eq!(beyond.hovered, None, "beyond 1.5 times the radius");
+        assert!(resolve(&mut ws, &mut input, storey, farther).hovered.is_none());
+    }
+
+    fn scope(division: DivisionMode, scope: DivisionScope) -> crate::input::InputSettings {
+        crate::input::InputSettings { division, scope }
+    }
+
+    /// INP-010: on the ground storey of two_storey_shell, between nodes
+    /// divides only the hovered south reference line; between intersections
+    /// divides its part on the cursor's side of x = 5, where the interior
+    /// wall's reference line meets it; the whole element divides a cut
+    /// ring or, with the walls switched off, the ground slab's whole
+    /// 42 m perimeter.
+    #[test]
+    fn the_scope_limits_the_division_points() {
+        let mut ws = workspace(samples::two_storey_shell());
+        let ground = ws.doc.project.storeys.ground();
+        let index = ws.snap_index(ground);
+        let south = [DVec2::ZERO, DVec2::new(12.0, 0.0)];
+        let at = |x: f64| DVec2::new(x, 0.0);
+        let hover = |index: &SnapIndex, cursor: DVec2, settings| index.hover(cursor, 0.2, None, settings).unwrap();
+
+        let nodes = hover(&index, DVec2::new(2.0, -0.05), InputSettings::default());
+        assert_eq!(nodes.edge, south);
+        assert!(!nodes.span.closed);
+        assert_points(&nodes.span.points, &south);
+        assert_points(&nodes.points, &[at(6.0)]);
+
+        let between = scope(DivisionMode::Half, DivisionScope::BetweenIntersections);
+        let west = hover(&index, DVec2::new(2.0, -0.05), between);
+        assert_eq!(west.edge, south);
+        assert_points(&west.span.points, &[at(0.0), at(5.0)]);
+        assert_points(&west.points, &[at(2.5)]);
+        let east = hover(&index, DVec2::new(8.0, -0.05), between);
+        assert_points(&east.span.points, &[at(5.0), at(12.0)]);
+        assert_points(&east.points, &[at(8.5)]);
+        let thirds = scope(DivisionMode::Equal(3), DivisionScope::BetweenIntersections);
+        assert_points(
+            &hover(&index, DVec2::new(1.0, -0.05), thirds).points,
+            &[at(5.0 / 3.0), at(10.0 / 3.0)],
+        );
+
+        let whole = scope(DivisionMode::Equal(3), DivisionScope::WholeElement);
+        let line = hover(&index, DVec2::new(2.0, -0.05), whole);
+        assert!(!line.span.closed, "a reference line is its own chain");
+        assert_points(&line.span.points, &south);
+        let inner_face = hover(&index, DVec2::new(3.0, 0.3), whole);
+        assert!(inner_face.span.closed);
+        assert_eq!(inner_face.span.points.len(), 4, "the south wall's cut ring");
+        assert_eq!(inner_face.points.len(), 2);
+
+        let mut slab_only = (*index).clone();
+        for wall in ws.doc.project.elements_on(ground).filter(|e| e.as_wall().is_some()) {
+            slab_only.set_source_excluded(TargetOwner::Element(wall.id), true);
+        }
+        let perimeter = hover(&slab_only, DVec2::new(3.0, -0.05), whole);
+        assert!(perimeter.span.closed);
+        assert!((perimeter.span.length() - 42.0).abs() < 1e-9);
+        assert_points(&perimeter.points, &[DVec2::new(12.0, 2.0), DVec2::new(5.0, 9.0)]);
+    }
+
+    /// INP-010: the hovered edge is kept by its owner and number, so it
+    /// survives an incremental update of the index that adds another wall.
+    #[test]
+    fn the_hovered_edge_is_named_across_revisions() {
+        let mut ws = workspace(samples::two_storey_shell());
+        let ground = ws.doc.project.storeys.ground();
+        let mut input = PointInput::default();
+        let cursor = DVec2::new(2.0, -0.05);
+        let before = resolve(&mut ws, &mut input, ground, cursor).hovered.unwrap();
+        let wall = ws
+            .doc
+            .project
+            .new_wall(ground, DVec2::new(20.0, 20.0), DVec2::new(24.0, 20.0), 9);
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+        // From 0.25, within 1.5 times the radius: kept only by its key.
+        let kept = resolve(&mut ws, &mut input, ground, DVec2::new(2.0, -0.25)).hovered;
+        assert_eq!(kept.map(|h| h.key), Some(before.key));
+        assert_eq!(ws.snap_index(ground).stats().full_builds, 1, "updated in place");
     }
 
     /// The average time of `count` resolves at seeded cursor positions in
