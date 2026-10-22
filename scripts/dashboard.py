@@ -168,16 +168,19 @@ USER_REVIEW = "User review"
 USER_REVIEW_CHECK = "User review check"
 
 
-def rollup_user_review(rollup):
-    """The state of the newest "User review" status in a PR's statusCheckRollup, or None. gh
-    exports a status's time as "startedAt"; "createdAt" is the fallback, as in summarize_checks()."""
-    def started(c):
-        return c.get("startedAt") or c.get("createdAt") or ""
+def check_time(c):
+    """The time a statusCheckRollup entry is ordered by: gh exports a check run's and a status's
+    time as "startedAt"; "createdAt" is the fallback. rollup_user_review() and summarize_checks()
+    both use it, so their orderings cannot drift."""
+    return c.get("startedAt") or c.get("createdAt") or ""
 
+
+def rollup_user_review(rollup):
+    """The state of the newest "User review" status in a PR's statusCheckRollup, or None."""
     latest = None
     for c in rollup or []:
         if (c.get("name") or c.get("context")) == USER_REVIEW:
-            if latest is None or started(c) >= started(latest):
+            if latest is None or check_time(c) >= check_time(latest):
                 latest = c
     return (latest or {}).get("state")
 
@@ -194,7 +197,7 @@ def summarize_checks(rollup):
         name = c.get("name") or c.get("context") or "?"
         if name == USER_REVIEW or (name == USER_REVIEW_CHECK and waits):
             continue
-        started = c.get("startedAt") or c.get("createdAt") or ""
+        started = check_time(c)
         if name not in latest or started > latest[name][0]:
             latest[name] = (started, c)
     summary = {"pass": 0, "fail": 0, "pending": 0, "skipped": 0, "failing": [], "running": []}
