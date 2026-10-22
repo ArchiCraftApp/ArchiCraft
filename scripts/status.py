@@ -60,6 +60,11 @@ IDENT = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
 GUARD_PATH = re.compile(r"(?<![\w./-])((?:scripts|conformance)/[\w./-]*[\w])")
 TEST_COMMAND = re.compile(r"\bcargo\s+(?:\+\S+\s+)?(?:test|nextest|clippy|fmt|fuzz\s+run)\b")
 CHECK_ACTION = re.compile(r"EmbarkStudios/cargo-deny-action@")
+# The workflows that check the code; the others announce changes, report the user's review or
+# package releases and guard no requirement. The job that checks the traceability itself guards
+# none either.
+GUARD_WORKFLOWS = ("ci.yml", "conformance-matrix.yml", "fuzz.yml", "macos.yml", "windows.yml")
+STATUS_JOB = "Implementation status"
 
 
 class StatusError(Exception):
@@ -305,10 +310,16 @@ def workflow_jobs(text):
 def ci_guards(root):
     """The scripts the workflows' run: steps call, and the names of the guard steps and of the
     jobs that have one. A guard step calls a guard script or a test command (cargo test, nextest,
-    clippy, fmt, fuzz run) or uses a check action (cargo-deny). Comments in run: do not count."""
+    clippy, fmt, fuzz run) or uses a check action (cargo-deny). Comments in run: do not count.
+    Only the GUARD_WORKFLOWS count, without the STATUS_JOB."""
     guards, names = set(), set()
-    for path in sorted((root / ".github" / "workflows").glob("*.yml")):
+    for name in GUARD_WORKFLOWS:
+        path = root / ".github" / "workflows" / name
+        if not path.is_file():
+            continue
         for job, steps in workflow_jobs(path.read_text(encoding="utf-8")):
+            if job == STATUS_JOB:
+                continue
             guarded = False
             for st in steps:
                 run = re.sub(r"(?m)(?:^|(?<=\s))#.*", "", st["run"])
