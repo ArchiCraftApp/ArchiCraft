@@ -130,13 +130,15 @@ QUEUE_QUERY = """query($owner: String!, $name: String!) {
 def collect_prs():
     open_prs = run_json(["gh", "pr", "list", "--state", "open", "--limit", "50",
                          "--json", OPEN_FIELDS], cwd=ROOT)
-    # Without the queue's answer the PRs still show; their queue state is then "unknown".
+    # Without the queue's answer the PRs still show; their queue state is then "unknown" and the
+    # failure goes into "queue_error", which refresh() shows among the page's errors.
+    queue_error = None
     try:
         answer = run_json(["gh", "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}",
                            "-f", f"query={QUEUE_QUERY}"], cwd=ROOT)
         queue = {n["number"]: n for n in answer["data"]["repository"]["pullRequests"]["nodes"]}
-    except (RuntimeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
-        queue = None
+    except (RuntimeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as e:
+        queue, queue_error = None, str(e) or type(e).__name__
     for p in open_prs:
         if queue is not None:
             p["queue"] = queue.get(p["number"])
@@ -144,6 +146,7 @@ def collect_prs():
         "open": open_prs,
         "all": run_json(["gh", "pr", "list", "--state", "all", "--limit", "300",
                          "--json", ALL_FIELDS], cwd=ROOT),
+        "queue_error": queue_error,
     }
 
 
@@ -152,8 +155,19 @@ def pr_bead(p):
     return m.group(1) if m else None
 
 
-# The status land.sh posts on a PR that waits for the user's review: not a check of the code.
+# The status scripts/loop/ci-user-review.sh (from .github/workflows/user-review.yml) posts on a PR
+# that waits for the user's review: not a check of the code.
 USER_REVIEW = "User review"
+
+
+def rollup_user_review(rollup):
+    """The state of the newest "User review" status in a PR's statusCheckRollup, or None."""
+    latest = None
+    for c in rollup or []:
+        if (c.get("name") or c.get("context")) == USER_REVIEW:
+            if latest is None or (c.get("createdAt") or "") >= (latest.get("createdAt") or ""):
+                latest = c
+    return (latest or {}).get("state")
 
 
 def summarize_checks(rollup):
@@ -191,10 +205,17 @@ def pr_queue_state(p):
     scripts/loop/pr-state.sh: GitHub clears autoMergeRequest when the queue takes a PR in and when
     it drops one, so only the queue entry, the newest queue event and the status "User review"
     tell a queued, a dropped and a waiting PR apart. States: queued, waits-for-user, auto-merge,
-    left-queue, open, and unknown when the queue query failed (no "queue" key)."""
+    left-queue, open, and unknown when the queue query failed (no "queue" key).
+
+    Without the queue's answer, the "User review" status comes from the statusCheckRollup, so a PR
+    that waits for the user still does; an auto-merge PR stays "auto-merge" even if it is queued,
+    and every other PR is "unknown"."""
     if "queue" not in p:
-        return {"state": "auto-merge" if p.get("autoMergeRequest") else "unknown",
-                "position": None, "reason": None}
+        if rollup_user_review(p.get("statusCheckRollup")) in ("FAILURE", "ERROR"):
+            fallback = "waits-for-user"
+        else:
+            fallback = "auto-merge" if p.get("autoMergeRequest") else "unknown"
+        return {"state": fallback, "position": None, "reason": None}
     q = p.get("queue") or {}
     event = ((q.get("timelineItems") or {}).get("nodes") or [None])[-1] or {}
     commit = ((q.get("commits") or {}).get("nodes") or [None])[-1] or {}
@@ -1361,6 +1382,8 @@ def run_sweep():
 # --- refresh loop and server -------------------------------------------------------------
 
 RAW = {}
+# The page's errors entry for a failed merge-queue query (collect_prs()'s "queue_error").
+QUEUE_ERROR = "merge queue"
 STATE = {"generated": None, "errors": {}}
 LOCK = threading.Lock()
 REFRESH = threading.Event()
@@ -1378,6 +1401,8 @@ def refresh(interval):
                 RAW[k] = fut.result()  # a failing source keeps its last good data
             except Exception as e:
                 errors[k] = str(e)
+    if (RAW.get("prs") or {}).get("queue_error"):
+        errors[QUEUE_ERROR] = RAW["prs"]["queue_error"]
     now = time.time()
     view = assemble(RAW, now)
     SNAPSHOTS.record(view, now)
@@ -1775,7 +1800,9 @@ function render(s) {
   const scroll = scrollY;  // charts are drawn after a layout pass; keep the reader's place
   const open = new Set([...document.querySelectorAll("details[open]")].map(d => d.dataset.key));
   const out = [];
-  for (const [k, v] of Object.entries(s.errors || {})) out.push(`<div class="err"><b>${esc(k)}</b> could not be read, showing its last good data: ${esc(v)}</div>`);
+  for (const [k, v] of Object.entries(s.errors || {})) out.push(k === "merge queue"
+    ? `<div class="err"><b>${esc(k)}</b> could not be read, open PRs show their queue state as unknown: ${esc(v)}</div>`
+    : `<div class="err"><b>${esc(k)}</b> could not be read, showing its last good data: ${esc(v)}</div>`);
   const c = s.counts || {}, snaps = s.history?.snapshots, agents = s.agents || [];
   const working = agents.filter(a => a.state === "working").length, live = agents.filter(a => a.state !== "ended").length;
   const k = (n, l, key, cls="") => `<div class="kpi"><b class="${cls}">${n ?? 0}</b><span>${l}</span>${spark(snaps, key)}</div>`;
