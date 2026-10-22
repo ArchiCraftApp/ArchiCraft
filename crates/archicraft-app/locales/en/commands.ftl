@@ -57,6 +57,10 @@ cmd-view-reference-lines-label = Show wall reference lines
 cmd-view-reference-lines-desc = Show or hide the reference lines of walls in the plan.
 cmd-view-problems-label = Problems
 cmd-view-problems-desc = Show or hide the list of problems in the model and the loaded file.
+cmd-view-place-user-origin-label = Place user origin
+cmd-view-place-user-origin-desc = Click an origin and the direction of its X axis to show and type plan coordinates from them.
+cmd-view-reset-user-origin-label = Reset user origin
+cmd-view-reset-user-origin-desc = Measure coordinates from the project origin again.
 
 ## Design
 

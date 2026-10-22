@@ -535,6 +535,8 @@ impl ArchiCraftApp {
                 self.ws.prefs.show_reference_lines = !self.ws.prefs.show_reference_lines;
                 self.save_prefs();
             }
+            Action::PlaceUserOrigin => self.ws.place_user_origin(),
+            Action::ResetUserOrigin => self.ws.reset_user_origin(),
             Action::Storeys => self.dialogs.storeys = true,
             Action::Layers => self.dialogs.layers = true,
             Action::Materials => self.dialogs.materials = true,
@@ -560,9 +562,9 @@ impl ArchiCraftApp {
                     egui::Event::Text(text) => Some(text),
                     _ => None,
                 })
-                .is_some_and(|text| self.ws.input.starts_typing(&self.ws.tool, text, &nf))
+                .is_some_and(|text| self.ws.input.starts_typing(self.ws.consumer(), text, &nf))
         });
-        let drawing = starts_typing || self.ws.input.captures_keys(&self.ws.tool);
+        let drawing = starts_typing || self.ws.input.captures_keys(self.ws.consumer());
         let mut triggered = ctx.input_mut(|i| {
             Action::consume_shortcuts(i, |action| {
                 (!typing || action.works_while_typing())

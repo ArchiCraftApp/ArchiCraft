@@ -30,6 +30,8 @@ pub enum Action {
     SwitchPlan3d,
     OrbitMode,
     ToggleReferenceLines,
+    PlaceUserOrigin,
+    ResetUserOrigin,
     Storeys,
     Layers,
     Materials,
@@ -41,7 +43,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 31] = [
+    pub const ALL: [Action; 33] = [
         Action::New,
         Action::Open,
         Action::Save,
@@ -65,6 +67,8 @@ impl Action {
         Action::SwitchPlan3d,
         Action::OrbitMode,
         Action::ToggleReferenceLines,
+        Action::PlaceUserOrigin,
+        Action::ResetUserOrigin,
         Action::Storeys,
         Action::Layers,
         Action::Materials,
@@ -100,6 +104,8 @@ impl Action {
             Action::SwitchPlan3d => "Switch between plan and 3D",
             Action::OrbitMode => "Orbit mode",
             Action::ToggleReferenceLines => "Show wall reference lines",
+            Action::PlaceUserOrigin => "Place user origin",
+            Action::ResetUserOrigin => "Reset user origin",
             Action::Storeys => "Storeys…",
             Action::Layers => "Layers…",
             Action::Materials => "Materials…",

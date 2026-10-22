@@ -5,10 +5,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use archicraft_model::project::Projection;
+use archicraft_model::units::format_length;
 use egui::{Button, RichText, Ui};
 
 use super::actions::Action;
-use crate::input::{InputConsumer, InputMode};
+use crate::input::InputMode;
 use crate::tools::ToolKind;
 use crate::tr;
 use crate::views::camera::ViewPreset;
@@ -98,6 +99,14 @@ pub fn menu_bar(ui: &mut Ui, ws: &Workspace, problems_open: bool) -> (Option<Act
                 action = Some(Action::Problems);
                 ui.close();
             }
+            ui.separator();
+            item(ui, Action::PlaceUserOrigin, true, &mut action);
+            item(
+                ui,
+                Action::ResetUserOrigin,
+                ws.frames.user_origin.is_placed(),
+                &mut action,
+            );
             #[cfg(feature = "perf")]
             crate::perf::menu_item(ui);
         });
@@ -174,7 +183,7 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Opti
     let mut action = None;
     ui.horizontal(|ui| {
         // The prompt of the step in progress (INP-001, NFR-USE-003).
-        let prompt = ws.tool.step().map_or_else(
+        let prompt = ws.consumer().step().map_or_else(
             || {
                 "Click an element to select it, Shift-click to add or remove, drag a rectangle to select several \
                  · Tab cycles overlapping elements"
@@ -259,6 +268,16 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Opti
                         action = Some(Action::PreviousZoom);
                     }
                     if let Some(state) = ws.plan_views.get(&storey) {
+                        // INP-014: the cursor's X and Y from the user origin,
+                        // along its axes.
+                        if let Some(cursor) = state.cursor {
+                            let p = ws.frames.user_origin.to_local(cursor);
+                            let units = &ws.doc.project.settings.units;
+                            let nf = ws.prefs.number_format();
+                            let x = format_length(p.x, units, &nf, true);
+                            let y = format_length(p.y, units, &nf, true);
+                            ui.label(RichText::new(format!("X {x}  Y {y}")).small().monospace());
+                        }
                         // NFR-L10N-004: digit grouping applies to the zoom too.
                         let scale = ws.prefs.number_format().format_decimal(state.camera.scale, 0);
                         ui.label(RichText::new(format!("{scale} pt/m")).small().weak());

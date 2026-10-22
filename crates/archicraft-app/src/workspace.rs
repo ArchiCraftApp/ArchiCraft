@@ -8,9 +8,9 @@ use std::time::Instant;
 use archicraft_model::{Command, CommandError, ElementId, Message, StoreyId, ViewId};
 
 use crate::document::Document;
-use crate::input::{PointInput, SnapIndex};
+use crate::input::{Frame2d, InputConsumer, PointInput, SnapIndex};
 use crate::persistence::prefs::Preferences;
-use crate::tools::{ToolKind, ToolState};
+use crate::tools::{ToolKind, ToolState, UserOriginTool};
 use crate::views::plan::PlanViewState;
 use crate::views::render3d::{GpuScene, Renderer3d};
 use crate::views::view3d::View3dState;
@@ -41,6 +41,51 @@ pub enum Request {
     Settings,
 }
 
+/// The frames point input measures in, shared by all plan views: session
+/// state, not written to IFCX and reset when the document is replaced
+/// (INP-014).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct InputFrames {
+    /// The user origin; the default frame is the project origin.
+    pub user_origin: Frame2d,
+}
+
+/// The consumer taking the points of the plan views (INP-001): the active
+/// tool, or a transient consumer that suspends it until it is done.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Consumer {
+    #[default]
+    Tool,
+    /// Placing the user origin (INP-014).
+    UserOrigin(UserOriginTool),
+}
+
+impl Consumer {
+    /// The consumer itself, `tool` while no transient consumer is active.
+    pub fn get<'a>(&'a self, tool: &'a ToolState) -> &'a dyn InputConsumer {
+        match self {
+            Consumer::Tool => tool,
+            Consumer::UserOrigin(origin) => origin,
+        }
+    }
+
+    /// The consumer itself to feed points and keys to.
+    pub fn get_mut<'a>(&'a mut self, tool: &'a mut ToolState) -> &'a mut dyn InputConsumer {
+        match self {
+            Consumer::Tool => tool,
+            Consumer::UserOrigin(origin) => origin,
+        }
+    }
+
+    /// The storey the input in progress started on.
+    pub fn storey(&self, tool: &ToolState) -> Option<StoreyId> {
+        match self {
+            Consumer::Tool => tool.storey,
+            Consumer::UserOrigin(origin) => origin.storey,
+        }
+    }
+}
+
 /// The key of the uploaded 3D scene: model revision and highlighted elements.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct SceneKey {
@@ -66,6 +111,10 @@ pub struct Workspace {
     pub doc: Document,
     pub prefs: Preferences,
     pub tool: ToolState,
+    /// The consumer taking points: the tool or a transient one (INP-001).
+    pub active_consumer: Consumer,
+    /// The user origin and later frames of point input (INP-014).
+    pub frames: InputFrames,
     /// Point input for the active tool: typed values and the last cursor
     /// position (INP-001).
     pub input: PointInput,
@@ -96,6 +145,8 @@ impl Workspace {
             doc,
             prefs,
             tool: ToolState::default(),
+            active_consumer: Consumer::Tool,
+            frames: InputFrames::default(),
             input: PointInput::default(),
             selection: HashSet::new(),
             hover: None,
@@ -118,6 +169,7 @@ impl Workspace {
     pub fn replace_document(&mut self, doc: Document) {
         self.doc = doc;
         self.reset_input();
+        self.frames = InputFrames::default();
         self.selection.clear();
         self.hover = None;
         self.plan_views.clear();
@@ -150,6 +202,7 @@ impl Workspace {
     /// Switches to the tool `kind`, discarding the input in progress. An open
     /// wall chain keeps its walls (UND-003).
     pub fn select_tool(&mut self, kind: ToolKind) {
+        self.active_consumer = Consumer::Tool;
         self.end_chain();
         self.tool.select(kind);
         self.input = PointInput::default();
@@ -163,10 +216,58 @@ impl Workspace {
         }
     }
 
-    /// Discards the points and typed values of the input in progress.
+    /// Discards the points and typed values of the input in progress,
+    /// also of a transient consumer.
     pub fn reset_input(&mut self) {
+        self.active_consumer = Consumer::Tool;
         self.tool.reset();
         self.input = PointInput::default();
+    }
+
+    /// The consumer taking points now (INP-001).
+    pub fn consumer(&self) -> &dyn InputConsumer {
+        self.active_consumer.get(&self.tool)
+    }
+
+    /// Whether the plan views take points rather than select: a drawing
+    /// tool or a transient consumer is active.
+    pub fn takes_points(&self) -> bool {
+        self.active_consumer != Consumer::Tool || self.tool.kind != ToolKind::Select
+    }
+
+    /// Starts placing the user origin (INP-014). The tool and its points
+    /// wait until the origin is placed or the placing is cancelled.
+    pub fn place_user_origin(&mut self) {
+        self.active_consumer = Consumer::UserOrigin(UserOriginTool::default());
+        self.input = PointInput::default();
+    }
+
+    /// Resets the user origin to the project origin (INP-014). Nothing in
+    /// the model changes, so there is no undo step.
+    pub fn reset_user_origin(&mut self) {
+        self.frames.user_origin = Frame2d::default();
+        self.info("User origin reset to the project origin");
+    }
+
+    /// Ends a transient consumer and goes back to the tool.
+    pub fn end_consumer(&mut self) {
+        if self.active_consumer != Consumer::Tool {
+            self.active_consumer = Consumer::Tool;
+            self.input = PointInput::default();
+        }
+    }
+
+    /// Takes the result of a transient consumer that is done: the placed
+    /// user origin becomes the frame of absolute input and display
+    /// (INP-014).
+    pub fn settle_consumer(&mut self) {
+        if let Consumer::UserOrigin(tool) = &self.active_consumer
+            && let Some(frame) = tool.placed()
+        {
+            self.frames.user_origin = frame;
+            self.end_consumer();
+            self.info("User origin placed");
+        }
     }
 
     pub fn info(&mut self, text: impl Into<String>) {
@@ -311,7 +412,7 @@ mod tests {
     use archicraft_model::template::default_metric_project;
 
     use super::*;
-    use crate::input::InputConsumer;
+    use crate::input::{Effect, InputContext, KeyInput, Modifiers, SnapIndex, SurfaceFrame};
 
     /// UND-003: switching to the slab tool with three pending chain points
     /// keeps the chain: its two walls are created as one undo step.
@@ -337,5 +438,139 @@ mod tests {
         assert_eq!(walls, 2);
         ws.undo();
         assert!(ws.doc.project.elements.is_empty(), "the chain is one undo step");
+    }
+
+    /// Feeds `key` to the workspace's consumer, as a plan view does, with
+    /// the cursor at (20, 0).
+    fn key(ws: &mut Workspace, key: KeyInput) -> Effect {
+        key_at(ws, key, DVec2::new(20.0, 0.0))
+    }
+
+    /// Feeds `key` with the cursor at `cursor`.
+    fn key_at(ws: &mut Workspace, key: KeyInput, cursor: DVec2) -> Effect {
+        let targets = SnapIndex::default();
+        let units = ws.doc.project.settings.units.clone();
+        let nf = ws.prefs.number_format();
+        let consumer = ws.active_consumer.get(&ws.tool);
+        let step = consumer.step();
+        let ctx = InputContext {
+            project: &ws.doc.project,
+            storey: ws.active_storey,
+            targets: &targets,
+            pending: &[],
+            previous: consumer.reference_point(),
+            guides: &[],
+            expects: step.as_ref().map_or(crate::input::Expect::Point, |s| s.expects),
+            tracker: step.map_or(crate::input::TrackerMode::Relative, |s| s.tracker),
+            tracker_xyz: false,
+            radius: 0.1,
+            drag_threshold: 0.06,
+            units: &units,
+            number_format: &nf,
+            angle_increment_deg: 45.0,
+            snap_step: 0.0,
+            frame: SurfaceFrame::plan(0.0),
+            user_origin: ws.frames.user_origin,
+            marked: None,
+        };
+        ws.input.resolve(cursor, Modifiers::default(), &ctx);
+        let effect = ws.input.key(key, ws.active_consumer.get_mut(&mut ws.tool), &ctx);
+        ws.settle_consumer();
+        effect
+    }
+
+    /// INP-014: placing the user origin through the workspace suspends the
+    /// wall tool, takes the origin (10, 10) and the typed angle 90, sets the
+    /// frame and goes back to the tool; the project revision does not change
+    /// and there is no undo step. A second origin is typed from the first;
+    /// Enter on its second step keeps rotation 0. Reset restores the default
+    /// frame, the project origin.
+    #[test]
+    fn placing_the_user_origin_changes_no_model() {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        ws.select_tool(ToolKind::Wall);
+        let revision = ws.doc.project.revision;
+        ws.place_user_origin();
+        assert!(ws.takes_points());
+        assert!(matches!(ws.active_consumer, Consumer::UserOrigin(_)));
+        for k in ["10", "\t", "10", "\n", "90", "\n"] {
+            let k = match k {
+                "\t" => KeyInput::Tab,
+                "\n" => KeyInput::Enter,
+                text => KeyInput::Text(text.into()),
+            };
+            assert_eq!(key(&mut ws, k), Effect::None);
+        }
+        assert_eq!(ws.active_consumer, Consumer::Tool);
+        assert_eq!(ws.tool.kind, ToolKind::Wall);
+        let frame = ws.frames.user_origin;
+        assert_eq!(frame.origin, DVec2::new(10.0, 10.0));
+        assert!((frame.rotation - 90f64.to_radians()).abs() < 1e-12);
+        assert_eq!(ws.doc.project.revision, revision);
+        assert!(!ws.doc.history.can_undo());
+
+        ws.place_user_origin();
+        for k in [KeyInput::Text("3".into()), KeyInput::Tab, KeyInput::Text("4".into())] {
+            key(&mut ws, k);
+        }
+        key(&mut ws, KeyInput::Enter);
+        assert_eq!(key(&mut ws, KeyInput::Enter), Effect::None, "Enter keeps rotation 0");
+        // The new origin was typed from the user origin placed before: (3, 4)
+        // along its axes rotated by 90° from (10, 10).
+        let frame = ws.frames.user_origin;
+        assert!(frame.origin.distance(DVec2::new(6.0, 13.0)) < 1e-12, "{frame:?}");
+        assert_eq!(frame.rotation, 0.0);
+
+        ws.reset_user_origin();
+        assert_eq!(ws.frames.user_origin, Frame2d::default());
+        assert_eq!(ws.doc.project.revision, revision);
+
+        ws.frames.user_origin.origin = DVec2::ONE;
+        ws.replace_document(Document::new(default_metric_project(), 100));
+        assert_eq!(ws.frames, InputFrames::default(), "session state");
+    }
+
+    /// INP-014: a typed angle on the second step sets the rotation also with
+    /// the cursor on the origin, where the cursor gives no distance.
+    #[test]
+    fn a_typed_angle_with_the_cursor_on_the_origin() {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        ws.place_user_origin();
+        let origin = DVec2::new(2.0, 3.0);
+        for k in [
+            KeyInput::Text("2".into()),
+            KeyInput::Tab,
+            KeyInput::Text("3".into()),
+            KeyInput::Enter,
+        ] {
+            key_at(&mut ws, k, origin);
+        }
+        assert!(matches!(ws.active_consumer, Consumer::UserOrigin(_)));
+        for k in [KeyInput::Text("30".into()), KeyInput::Enter] {
+            assert_eq!(key_at(&mut ws, k, origin), Effect::None);
+        }
+        assert_eq!(ws.active_consumer, Consumer::Tool);
+        let frame = ws.frames.user_origin;
+        assert_eq!(frame.origin, origin);
+        assert!((frame.rotation - 30f64.to_radians()).abs() < 1e-12, "{frame:?}");
+    }
+
+    /// INP-003, INP-014: Esc with nothing to cancel ends placing the user
+    /// origin, as the plan's Esc ladder does; switching tools and cancelling
+    /// the input end it too.
+    #[test]
+    fn placing_the_user_origin_can_be_left() {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        ws.place_user_origin();
+        assert_eq!(key(&mut ws, KeyInput::Escape), Effect::NothingToCancel);
+        ws.end_consumer();
+        assert_eq!(ws.active_consumer, Consumer::Tool);
+        ws.place_user_origin();
+        ws.select_tool(ToolKind::Slab);
+        assert_eq!(ws.active_consumer, Consumer::Tool);
+        assert_eq!(ws.tool.kind, ToolKind::Slab);
+        ws.place_user_origin();
+        ws.reset_input();
+        assert_eq!(ws.active_consumer, Consumer::Tool, "Cancel input ends it");
     }
 }

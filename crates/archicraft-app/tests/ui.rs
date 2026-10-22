@@ -11,6 +11,7 @@ use archicraft_app::i18n::{self, Localizer};
 use archicraft_app::input::{Field, InputConsumer, InputMode};
 use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::{ToolKind, WallMode};
+use archicraft_app::workspace::Consumer;
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_length};
@@ -20,7 +21,7 @@ use common::{assert_present, data_dir, harness, harness_in};
 use egui::accesskit::Role;
 use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;
-use egui_kittest::kittest::{By, Queryable};
+use egui_kittest::kittest::{By, NodeT, Queryable};
 
 #[test]
 fn main_window_has_the_parts_of_ui_001() {
@@ -889,4 +890,159 @@ fn the_slope_widget_shows_the_slope_format_and_commits_typed_slopes() {
     h.run();
     assert!((h.state() - 0.5f64.atan()).abs() < 1e-12, "{}", h.state());
     h.get(field("50.00 %"));
+}
+
+/// The view-control bar's readout of the cursor at `pos` in the plan, from
+/// the user origin (INP-014).
+fn readout_at(harness: &mut Harness<'static, ArchiCraftApp>, pos: egui::Pos2) -> String {
+    harness.hover_at(pos);
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let cursor = ws.plan_views[&ws.active_storey]
+        .cursor
+        .expect("the pointer is over the plan");
+    let p = ws.frames.user_origin.to_local(cursor);
+    let units = &ws.doc.project.settings.units;
+    let nf = ws.prefs.number_format();
+    format!(
+        "X {}  Y {}",
+        format_length(p.x, units, &nf, true),
+        format_length(p.y, units, &nf, true)
+    )
+}
+
+/// INP-014, INP-004: the View menu lists 'Place user origin' and 'Reset user
+/// origin'; placing it with two clicks in the plan, the origin and a point
+/// on its X axis, changes the view-control bar's X/Y readout of the same
+/// cursor position and leaves the model unchanged; resetting it brings the
+/// readout from the project origin back.
+#[test]
+fn the_user_origin_changes_the_coordinate_readout() {
+    let mut harness = harness("user-origin");
+    let revision = harness.state_mut().workspace().doc.project.revision;
+    let centre = {
+        let ws = harness.state_mut().workspace();
+        ws.plan_views[&ws.active_storey].last_rect.center()
+    };
+    let probe = centre + egui::vec2(-60.0, 45.0);
+    let from_project = readout_at(&mut harness, probe);
+    assert_present(&harness, &from_project);
+
+    let open_view_menu = |harness: &mut Harness<'static, ArchiCraftApp>| {
+        // The menu bar is above the browser, which has a "View" header too.
+        harness
+            .query_all_by_label("View")
+            .min_by(|a, b| a.rect().min.y.total_cmp(&b.rect().min.y))
+            .unwrap()
+            .click();
+        harness.run_steps(2);
+    };
+    open_view_menu(&mut harness);
+    assert_present(&harness, "Place user origin");
+    assert_present(&harness, "Reset user origin");
+    harness.get_by_label("Place user origin").click();
+    harness.run_steps(2);
+    assert_present(
+        &harness,
+        "User origin: click the new origin · 0–9 types the coordinates · Esc cancels the step",
+    );
+    click_at(&mut harness, centre + egui::vec2(40.0, -30.0));
+    assert_present(
+        &harness,
+        "User origin: click a point on the X axis or type its angle · Enter keeps the axes unrotated \
+         · Shift constrains angles · Esc cancels the step",
+    );
+    click_at(&mut harness, centre + egui::vec2(40.0, -130.0));
+    let frame = harness.state_mut().workspace().frames.user_origin;
+    assert!(
+        (frame.rotation - 90f64.to_radians()).abs() < 1e-9,
+        "the X axis points up the screen: {frame:?}"
+    );
+
+    let from_user = readout_at(&mut harness, probe);
+    assert_ne!(from_user, from_project);
+    assert_present(&harness, &from_user);
+    assert!(harness.query_all_by_label(&from_project).next().is_none());
+    assert_eq!(harness.state_mut().workspace().doc.project.revision, revision);
+
+    open_view_menu(&mut harness);
+    harness.get_by_label("Reset user origin").click();
+    harness.run_steps(2);
+    assert_eq!(readout_at(&mut harness, probe), from_project);
+    assert_present(&harness, &from_project);
+}
+
+/// Right-clicks at `pos` in the plan view.
+fn right_click_at(harness: &mut Harness<'static, ArchiCraftApp>, pos: egui::Pos2) {
+    harness.hover_at(pos);
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(Event::PointerButton {
+            pos,
+            button: PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    harness.run_steps(2);
+}
+
+/// INP-014: the plan's context menu offers 'Place user origin' and, once one
+/// is placed, 'Reset user origin'. While the origin is being placed, the
+/// menu over a wall offers only the origin items and 'Cancel input': it
+/// neither selects the wall nor offers to delete it, and 'Cancel input' goes
+/// back to the tool.
+#[test]
+fn the_plan_context_menu_places_the_user_origin() {
+    let mut harness = harness("user-origin-menu");
+    let wall_at = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.active_storey;
+        let wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+        let state = &ws.plan_views[&storey];
+        state.camera.to_screen(state.last_rect, DVec2::new(2.0, 0.0))
+    };
+    harness.run_steps(2);
+    let empty = wall_at + egui::vec2(0.0, -120.0);
+
+    right_click_at(&mut harness, empty);
+    assert!(
+        !harness.get_by_label("Place user origin").accesskit_node().is_disabled(),
+        "placing is always offered"
+    );
+    assert!(
+        harness.get_by_label("Reset user origin").accesskit_node().is_disabled(),
+        "nothing to reset before an origin is placed"
+    );
+    harness.get_by_label("Place user origin").click();
+    harness.run_steps(2);
+    assert_present(
+        &harness,
+        "User origin: click the new origin · 0–9 types the coordinates · Esc cancels the step",
+    );
+
+    right_click_at(&mut harness, wall_at);
+    assert_present(&harness, "Cancel input");
+    assert!(harness.query_by_label("Delete").is_none());
+    assert!(harness.state_mut().workspace().selection.is_empty());
+    harness.get_by_label("Cancel input").click();
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    assert_eq!(ws.active_consumer, Consumer::Tool);
+    assert!(ws.selection.is_empty());
+    assert_eq!(ws.tool.kind, ToolKind::Select);
+
+    // Placed with two clicks, the origin can be reset from the menu.
+    right_click_at(&mut harness, empty);
+    harness.get_by_label("Place user origin").click();
+    harness.run_steps(2);
+    click_at(&mut harness, empty);
+    click_at(&mut harness, empty + egui::vec2(60.0, 0.0));
+    assert!(harness.state_mut().workspace().frames.user_origin.is_placed());
+    right_click_at(&mut harness, empty);
+    assert!(!harness.get_by_label("Reset user origin").accesskit_node().is_disabled());
+    harness.get_by_label("Reset user origin").click();
+    harness.run_steps(2);
+    assert!(!harness.state_mut().workspace().frames.user_origin.is_placed());
 }

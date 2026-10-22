@@ -193,23 +193,24 @@ pub struct TypedInput {
 
 impl Default for TypedInput {
     fn default() -> Self {
-        Self::for_step(true, false, TrackerMode::Relative)
+        Self::for_step(true, false, TrackerMode::Relative, Origin::Project)
     }
 }
 
 impl TypedInput {
     /// The fields a step starts with: a stretch takes the field of its
     /// tracker mode, the first point of a step sequence absolute X and Y
-    /// from the project origin, later points a relative distance and angle;
-    /// an angle step types the angle first.
-    pub fn for_step(first: bool, angle_first: bool, tracker: TrackerMode) -> Self {
+    /// from `absolute` (the user origin once placed, INP-014, otherwise the
+    /// project origin), later points a relative distance and angle; an
+    /// angle step types the angle first.
+    pub fn for_step(first: bool, angle_first: bool, tracker: TrackerMode, absolute: Origin) -> Self {
         let stretch = tracker.stretch().is_some();
         let (set, reference, field) = if stretch && matches!(tracker, TrackerMode::TotalLength { .. }) {
             (FieldSet::stretch(), Reference::Relative, Field::Total)
         } else if stretch {
             (FieldSet::stretch(), Reference::Relative, Field::Change)
         } else if first {
-            (FieldSet::cartesian(), Reference::Absolute(Origin::Project), Field::X)
+            (FieldSet::cartesian(), Reference::Absolute(absolute), Field::X)
         } else if angle_first {
             (FieldSet::polar(), Reference::Relative, Field::Angle)
         } else {
@@ -227,11 +228,16 @@ impl TypedInput {
     /// Takes the step's defaults unless a value is typed or a key chose the
     /// fields for this kind of step. Removing the last point (Backspace)
     /// brings back the first point's absolute X and Y; a stretch step and
-    /// any other step never share their fields.
-    pub fn follow_step(&mut self, first: bool, angle_first: bool, tracker: TrackerMode) {
+    /// any other step never share their fields. Absolute coordinates from
+    /// the project or the user origin follow `absolute`, the origin absolute
+    /// input is measured from now (INP-004, INP-014).
+    pub fn follow_step(&mut self, first: bool, angle_first: bool, tracker: TrackerMode, absolute: Origin) {
         let stretch = matches!(self.set, FieldSet::Stretch { .. });
         if self.is_empty() && (!self.chosen || self.first != first || stretch != tracker.stretch().is_some()) {
-            *self = Self::for_step(first, angle_first, tracker);
+            *self = Self::for_step(first, angle_first, tracker, absolute);
+        }
+        if let Reference::Absolute(Origin::Project | Origin::User) = self.reference {
+            self.reference = Reference::Absolute(absolute);
         }
     }
 
@@ -341,14 +347,14 @@ impl TypedInput {
     }
 
     /// Switches between relative and absolute coordinates (INP-004). The
-    /// typed text stays and is read in the new reference. A stretch length
-    /// has no reference.
-    pub fn switch_reference(&mut self) {
+    /// typed text stays and is read in the new reference, absolute from
+    /// `absolute`. A stretch length has no reference.
+    pub fn switch_reference(&mut self, absolute: Origin) {
         if let FieldSet::Stretch { .. } = self.set {
             return;
         }
         self.reference = match self.reference {
-            Reference::Relative => Reference::Absolute(Origin::Project),
+            Reference::Relative => Reference::Absolute(absolute),
             Reference::Absolute(_) => Reference::Relative,
         };
         self.chosen = true;

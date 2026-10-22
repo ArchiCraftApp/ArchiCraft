@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use archicraft_geometry::plan::{PlanDrawing, polygon_rings};
-use archicraft_model::glam::{DVec2, DVec3};
+use archicraft_model::glam::DVec2;
 use archicraft_model::units::{NumberFormat, UnitSettings};
 use archicraft_model::{ElementId, ElementKind, KindTag, Project, StoreyId};
 use egui::epaint::Vertex;
@@ -20,12 +20,12 @@ use egui::{
 
 use super::camera::{Camera2d, ZoomHistory};
 use crate::input::{
-    Effect, Expect, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput, PointerEvent, Resolved,
-    SnapIndex, SnapKind, SurfaceFrame, TrackerMode, ViewSurface,
+    Effect, Expect, Frame2d, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput, PointerEvent,
+    Resolved, SnapIndex, SnapKind, SurfaceFrame, TrackerMode, ViewSurface,
 };
 use crate::tools::{ToolKind, ToolState};
 use crate::tr;
-use crate::workspace::{Pane, Request, Workspace};
+use crate::workspace::{Consumer, InputFrames, Pane, Request, Workspace};
 
 /// Per-view state of a plan view.
 #[derive(Clone, Debug)]
@@ -41,6 +41,9 @@ pub struct PlanViewState {
     last_record: f64,
     /// The tracker text drawn last frame (INP-002).
     pub tracker: Option<String>,
+    /// The plane point under the pointer last frame, for the coordinate
+    /// readout of the view-control bar (INP-014).
+    pub cursor: Option<DVec2>,
 }
 
 impl Default for PlanViewState {
@@ -54,6 +57,7 @@ impl Default for PlanViewState {
             pick: None,
             last_record: 0.0,
             tracker: None,
+            cursor: None,
         }
     }
 }
@@ -134,7 +138,8 @@ impl ViewSurface for PlanSurface {
 
 /// What a plan view gives point input besides the consumer's step: the snap
 /// targets of the storey, the tool's points entered so far and the settings,
-/// from which each step's context is built (INP-001).
+/// from which each step's context is built (INP-001). The consumer is the
+/// tool or a transient consumer such as placing the user origin.
 struct PlanInput {
     storey: StoreyId,
     frame: SurfaceFrame,
@@ -153,7 +158,7 @@ impl PlanInput {
     /// `click_distance` is how far in points the pointer moves before a
     /// press becomes a drag.
     fn new(ws: &mut Workspace, storey: StoreyId, surface: &PlanSurface, click_distance: f32) -> Self {
-        let pending = if on_storey(&ws.tool, storey) {
+        let pending = if ws.active_consumer == Consumer::Tool && on_storey(ws.tool.storey, storey) {
             ws.tool.points.clone()
         } else {
             Vec::new()
@@ -173,17 +178,25 @@ impl PlanInput {
         }
     }
 
-    /// The context of the tool's current step. Points entered on another
-    /// storey are no reference in this view.
-    fn ctx<'a>(&'a self, project: &'a Project, tool: &ToolState) -> InputContext<'a> {
-        let here = on_storey(tool, self.storey);
-        let step = tool.step().filter(|_| here);
+    /// The context of the current step of the active consumer, the tool or
+    /// a transient one, with the user origin of `frames` (INP-014). Points
+    /// entered on another storey are no reference in this view.
+    fn ctx<'a>(
+        &'a self,
+        project: &'a Project,
+        frames: InputFrames,
+        active: &Consumer,
+        tool: &ToolState,
+    ) -> InputContext<'a> {
+        let here = on_storey(active.storey(tool), self.storey);
+        let consumer = active.get(tool);
+        let step = consumer.step().filter(|_| here);
         InputContext {
             project,
             storey: self.storey,
             targets: &self.targets,
             pending: &self.pending,
-            previous: tool.reference_point().filter(|_| here),
+            previous: consumer.reference_point().filter(|_| here),
             guides: &[],
             expects: step.as_ref().map_or(Expect::Point, |s| s.expects),
             tracker: step.as_ref().map_or(TrackerMode::Relative, |s| s.tracker),
@@ -195,15 +208,16 @@ impl PlanInput {
             angle_increment_deg: self.angle_increment_deg,
             snap_step: self.snap_step,
             frame: self.frame,
-            user_origin: self.frame.to_plane(DVec3::ZERO),
+            user_origin: frames.user_origin,
             marked: None,
         }
     }
 }
 
-/// Whether the tool's input started on `storey` or has not started.
-fn on_storey(tool: &ToolState, storey: StoreyId) -> bool {
-    tool.storey.is_none_or(|s| s == storey)
+/// Whether the input that started on `started` (none: not started) is on
+/// `storey`.
+fn on_storey(started: Option<StoreyId>, storey: StoreyId) -> bool {
+    started.is_none_or(|s| s == storey)
 }
 
 fn screen(p: Pos2) -> DVec2 {
@@ -330,6 +344,20 @@ fn draw_grid(painter: &egui::Painter, rect: Rect, camera: &Camera2d, palette: &P
     );
 }
 
+/// The user origin (INP-014): its X and Y axes with its rotation, dashed
+/// and with a ring at the origin to tell it from the project origin.
+fn draw_user_origin(painter: &egui::Painter, rect: Rect, camera: &Camera2d, frame: Frame2d) {
+    let o = camera.to_screen(rect, frame.origin);
+    let (sin, cos) = frame.rotation.sin_cos();
+    // Screen Y points down.
+    let x = egui::vec2(cos as f32, -sin as f32) * 28.0;
+    let y = egui::vec2(-sin as f32, -cos as f32) * 28.0;
+    for (axis, color) in [(x, Color32::from_rgb(210, 60, 60)), (y, Color32::from_rgb(60, 160, 60))] {
+        painter.extend(Shape::dashed_line(&[o, o + axis], Stroke::new(1.5, color), 4.0, 3.0));
+    }
+    painter.circle_stroke(o, 4.0, Stroke::new(1.2, Color32::from_rgb(210, 60, 60)));
+}
+
 fn element_outline(
     painter: &egui::Painter,
     rect: Rect,
@@ -445,6 +473,10 @@ fn draw_plan(
             *id,
             Stroke::new(HIGHLIGHT_WIDTH, palette.selection),
         );
+    }
+    // The user origin next to the project origin (INP-014).
+    if ws.frames.user_origin.is_placed() {
+        draw_user_origin(painter, rect, camera, ws.frames.user_origin);
     }
 }
 
@@ -572,10 +604,11 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     let pointer = response.hover_pos();
     let cursor_world = pointer.and_then(|p| surface.to_plane(screen(p)));
     let pick_tolerance = 4.0 / camera.scale;
-    let drawing_tool = ws.tool.kind != ToolKind::Select;
+    let drawing_tool = ws.takes_points();
     let selecting = !drawing_tool || ui.input(|i| i.modifiers.command);
     let mods = ui.input(|i| modifiers(i.modifiers));
     // Only the view under the cursor or taking the keys needs snap targets.
+    state.cursor = cursor_world;
     let input = (drawing_tool && (cursor_world.is_some() || active)).then(|| {
         let click_distance = ui.ctx().options(|o| o.input_options.max_click_dist);
         PlanInput::new(ws, storey, &surface, click_distance)
@@ -657,10 +690,11 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         ];
         for (_, event, world) in events.into_iter().filter(|(happened, ..)| *happened) {
             let Some(world) = world else { continue };
-            let ctx = input.ctx(&ws.doc.project, &ws.tool);
+            let ctx = input.ctx(&ws.doc.project, ws.frames, &ws.active_consumer, &ws.tool);
+            let consumer = ws.active_consumer.get_mut(&mut ws.tool);
             let effect = ws
                 .input
-                .pointer(event, ws.prefs.input_mode, world, mods, &mut ws.tool, &ctx);
+                .pointer(event, ws.prefs.input_mode, world, mods, consumer, &ctx);
             apply(ws, effect);
         }
     }
@@ -672,7 +706,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
             .filter(|_| !selecting)
             .zip(input.as_ref())
             .map(|(world, input)| {
-                let ctx = input.ctx(&ws.doc.project, &ws.tool);
+                let ctx = input.ctx(&ws.doc.project, ws.frames, &ws.active_consumer, &ws.tool);
                 let resolved = ws.input.resolve(world, mods, &ctx);
                 let tracker = ws.input.tracker(resolved.point, &ctx);
                 (resolved, tracker)
@@ -728,7 +762,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     }
     if let (Some((resolved, tracker)), Some(p)) = (resolved, pointer) {
         let target = camera.to_screen(rect, resolved.point);
-        for (ring, closed) in ws.tool.preview(&ws.doc.project, &resolved).outlines {
+        for (ring, closed) in ws.consumer().preview(&ws.doc.project, &resolved).outlines {
             let points: Vec<Pos2> = ring.iter().map(|q| camera.to_screen(rect, *q)).collect();
             let stroke = Stroke::new(1.5, palette.preview);
             if closed {
@@ -783,10 +817,12 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
 }
 
 /// Runs what a key, click or double-click asks for. Esc that found nothing
-/// to cancel goes on down the ladder: the selection, then the drawing tool
-/// (INP-003).
+/// to cancel goes on down the ladder: a transient consumer, the selection,
+/// then the drawing tool (INP-003). A transient consumer that is done hands
+/// over its result (INP-014).
 fn apply(ws: &mut Workspace, effect: Effect) {
     match effect {
+        Effect::NothingToCancel if ws.active_consumer != Consumer::Tool => ws.end_consumer(),
         Effect::None => {}
         Effect::Execute(command) => {
             ws.execute(command);
@@ -795,6 +831,7 @@ fn apply(ws: &mut Workspace, effect: Effect) {
         Effect::NothingToCancel if !ws.selection.is_empty() => ws.selection.clear(),
         Effect::NothingToCancel => ws.select_tool(ToolKind::Select),
     }
+    ws.settle_consumer();
 }
 
 /// Translates the frame's key events into point input (INP-003) and handles
@@ -818,9 +855,7 @@ fn handle_keys(
                 modifiers,
                 ..
             } => match key {
-                Key::Tab
-                    if ws.input.captures_keys(&ws.tool) || (ws.tool.kind != ToolKind::Select && ws.input.cycles()) =>
-                {
+                Key::Tab if ws.input.captures_keys(ws.consumer()) || (ws.takes_points() && ws.input.cycles()) => {
                     KeyInput::Tab
                 }
                 Key::Tab => {
@@ -835,7 +870,7 @@ fn handle_keys(
                     continue;
                 }
                 // INP-004: provisional keys; Problems is Ctrl+Shift+P.
-                Key::P if !modifiers.command && ws.tool.step().is_some() => {
+                Key::P if !modifiers.command && ws.consumer().step().is_some() => {
                     if modifiers.shift {
                         KeyInput::SwitchReference
                     } else {
@@ -845,7 +880,12 @@ fn handle_keys(
                 Key::Enter => KeyInput::Enter,
                 Key::Backspace => KeyInput::Backspace,
                 Key::Escape => KeyInput::Escape,
-                Key::R if ws.tool.kind == ToolKind::Wall && ws.input.typed.is_empty() && !modifiers.command => {
+                Key::R
+                    if ws.active_consumer == Consumer::Tool
+                        && ws.tool.kind == ToolKind::Wall
+                        && ws.input.typed.is_empty()
+                        && !modifiers.command =>
+                {
                     // Cycle the reference-line location (WAL-007).
                     let mut defaults = ws.doc.project.tool_defaults.clone();
                     let Some(ElementKind::Wall(wall)) = defaults.get_mut(KindTag::Wall).map(|slot| &mut slot.kind)
@@ -865,8 +905,8 @@ fn handle_keys(
         };
         let effect = match input {
             Some(input) => {
-                let ctx = input.ctx(&ws.doc.project, &ws.tool);
-                ws.input.key(key, &mut ws.tool, &ctx)
+                let ctx = input.ctx(&ws.doc.project, ws.frames, &ws.active_consumer, &ws.tool);
+                ws.input.key(key, ws.active_consumer.get_mut(&mut ws.tool), &ctx)
             }
             None if key == KeyInput::Escape => Effect::NothingToCancel,
             None => Effect::None,
@@ -875,7 +915,32 @@ fn handle_keys(
     }
 }
 
+/// The plan's context menu. The user origin items come first, above the
+/// input and selection items; while a transient consumer takes points, the
+/// hovered element is not selected (INP-014).
 fn context_menu(ui: &mut Ui, ws: &mut Workspace) {
+    if ui.button("Place user origin").clicked() {
+        ws.place_user_origin();
+        ui.close();
+    }
+    if ui
+        .add_enabled(
+            ws.frames.user_origin.is_placed(),
+            egui::Button::new("Reset user origin"),
+        )
+        .clicked()
+    {
+        ws.reset_user_origin();
+        ui.close();
+    }
+    ui.separator();
+    if ws.active_consumer != Consumer::Tool {
+        if ui.button("Cancel input").clicked() {
+            ws.end_consumer();
+            ui.close();
+        }
+        return;
+    }
     if ws.tool.is_drawing() {
         if ui.button("Finish").clicked() {
             ws.input = PointInput::default();
@@ -991,7 +1056,7 @@ mod tests {
         for (pixels, found) in [(8.0, false), (16.0, true)] {
             ws.prefs.snap_radius = pixels;
             let input = PlanInput::new(&mut ws, storey, &surface, 6.0);
-            let ctx = input.ctx(&ws.doc.project, &ws.tool);
+            let ctx = input.ctx(&ws.doc.project, ws.frames, &ws.active_consumer, &ws.tool);
             assert_eq!(ctx.radius, f64::from(pixels) * surface.model_per_pixel());
             let resolved = ws.input.resolve(cursor, Modifiers::default(), &ctx);
             let node = resolved
