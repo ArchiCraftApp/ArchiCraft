@@ -11,9 +11,10 @@
 // test before the other checks, so the step runs offline and says so when it does not. A
 // request for a localhost path the harness does not serve fails the test the same way.
 //
-// One case is not step (b2): "broken copy: a copy that does not parse" runs check.ts, steps (a)
-// and (b1), on a cut-off copy of a golden file, since a file that does not parse never reaches
-// the viewer. It checks that both steps fail on that file with its JSON parse error.
+// One case is not step (b2): "broken copy: a copy that does not parse, in steps (a) and (b1)"
+// runs check.ts, steps (a) and (b1), on a cut-off copy of a golden file, since a file that does
+// not parse never reaches the viewer. It checks that both steps fail on that file with its JSON
+// parse error.
 
 import { expect, test, type Page } from "@playwright/test";
 import { spawnSync } from "child_process";
