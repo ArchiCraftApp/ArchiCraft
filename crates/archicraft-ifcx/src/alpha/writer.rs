@@ -307,10 +307,10 @@ fn curve_attribute(points: &[DVec3]) -> Value {
 }
 
 /// `usd::xformop` translating by `t`: a row-major 4×4 matrix with the
-/// translation in the fourth row (IFX-031). Every placement goes through
-/// here, so the translation is a coordinate rounded to 10⁻⁶ m like mesh and
-/// curve points (IFX-007); the exact value stays in the `archicraft::`
-/// parameter it comes from (NFR-ACC-002).
+/// translation in the fourth row (IFX-031). Every placement (the storey
+/// elevation today, its only caller) goes through here, so the translation
+/// is a coordinate rounded to 10⁻⁶ m like mesh and curve points (IFX-007);
+/// the exact value stays in its `archicraft::` parameter (NFR-ACC-002).
 fn transform(t: DVec3) -> Value {
     let row = [round_coordinate(t.x), round_coordinate(t.y), round_coordinate(t.z)];
     json!({"transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [row[0], row[1], row[2], 1.0]]})
