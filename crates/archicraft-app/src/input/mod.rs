@@ -9,6 +9,7 @@
 mod constrain;
 mod consumer;
 mod division;
+mod guide;
 mod keys;
 mod pointer;
 mod snap;
@@ -25,6 +26,7 @@ use archicraft_model::{Command, Project, StoreyId};
 pub use constrain::constrain;
 pub use consumer::{CursorState, Expect, InputConsumer, KeyHint, Outcome, Preview, StepSpec, TrackerMode};
 pub use division::{Curve, DivisionMode, DivisionScope, EQUAL_PARTS, InputSettings, MAX_DIVISION_POINTS, divide};
+pub use guide::{Guide, GuideOrigin, GuideShape};
 pub use keys::{KeyInput, Modifiers};
 pub use pointer::{InputMode, PointerEvent};
 pub use snap::{ArcTarget, Snap, SnapKind, SnapLevel, candidates, snap};
@@ -32,13 +34,6 @@ pub use surface::{Frame2d, SurfaceFrame, ViewSurface};
 pub use targets::{IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
 pub use tracker::TrackerLine;
 pub use typed::{Field, FieldSet, Origin, Reference, TypedInput, Value, starts_value};
-
-/// A guide line shown while resolving a point; inference guides (INP-011)
-/// fill these.
-#[derive(Clone, Debug, PartialEq)]
-pub enum GuideShape {
-    Line([DVec2; 2]),
-}
 
 /// A cursor position resolved by point input: the point a commit takes, how
 /// it was found and what is shown around it.
@@ -50,7 +45,8 @@ pub struct Resolved {
     /// precedence (INP-009); Tab cycles through them. A typed or
     /// constrained point is the only one, a free point has none.
     pub candidates: Vec<Snap>,
-    pub guides: Vec<GuideShape>,
+    /// The guides shown with the point (INP-006, INP-007).
+    pub guides: Vec<Guide>,
 }
 
 /// Everything point input needs to resolve a point on one view's working
@@ -67,7 +63,7 @@ pub struct InputContext<'a> {
     /// The consumer's reference point on this storey.
     pub previous: Option<DVec2>,
     /// The guides shown, snap targets of the guide levels (INP-009).
-    pub guides: &'a [GuideShape],
+    pub guides: &'a [Guide],
     /// What the consumer's current step expects.
     pub expects: Expect,
     /// How the consumer's current step reports and takes values (INP-002).

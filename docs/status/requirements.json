@@ -1097,7 +1097,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Directions are measured from the X axis only (no construction grid to orient from); the alternative 'hold cursor on the nearest guide, including vertical guides in 3D' is missing (no guides, no 3D input); constrained mode bypasse…",
+      "gap": "Directions are measured from the X axis only by constrain (crates/archicraft-app/src/input/constrain.rs:9; no construction grid to orient from); the constrained branch of PointInput::resolve (crates/archicraft-app/src/input/mod.rs:235) bypasses snapping, so nothing snaps along the constrained direction. The guide geometry the alternative needs exists (GuideShape lines, rays, segments, circles and arcs with intersect, project and clip; GuideOrigin; crates/archicraft-app/src/input/guide.rs:40), and snapping meets guides with edges, arcs and other guides (collect, crates/archicraft-app/src/input/snap.rs:329), but Shift does not yet hold the cursor on the nearest guide, and vertical guides in 3D are missing (no 3D input).",
       "depends_on": []
     },
     {

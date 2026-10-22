@@ -30,7 +30,7 @@ use archicraft_model::MODEL_TOLERANCE;
 use archicraft_model::glam::DVec2;
 use archicraft_model::tolerance::{coincident, is_parallel};
 
-use super::GuideShape;
+use super::guide::{Guide, GuideShape};
 use super::targets::SnapIndex;
 
 /// The seven levels of snap precedence (INP-009), best first.
@@ -292,7 +292,7 @@ pub fn candidates(
     radius: f64,
     grid_step: f64,
     previous: Option<DVec2>,
-    guides: &[GuideShape],
+    guides: &[Guide],
 ) -> Vec<Snap> {
     let mut nodes = index.targets_near(cursor, radius);
     nodes.extend(pending.iter().map(|&point| Snap {
@@ -301,10 +301,10 @@ pub fn candidates(
     }));
     let near = index.edges_near(cursor, radius);
     let arcs = index.arcs_near(cursor, radius);
-    let guides: Vec<[DVec2; 2]> = guides
+    let guides: Vec<GuideShape> = guides
         .iter()
-        .map(|GuideShape::Line(line)| *line)
-        .filter(|line| closest_on_segment(cursor, *line).distance(cursor) <= radius)
+        .map(|g| g.shape)
+        .filter(|shape| shape.distance(cursor) <= radius)
         .collect();
     let targets = Targets {
         nodes: &nodes,
@@ -321,7 +321,7 @@ pub(super) struct Targets<'a> {
     pub nodes: &'a [Snap],
     pub edges: &'a [[DVec2; 2]],
     pub arcs: &'a [ArcTarget],
-    pub guides: &'a [[DVec2; 2]],
+    pub guides: &'a [GuideShape],
 }
 
 /// The candidates among the `targets`, which lie within `radius` of the
@@ -375,13 +375,16 @@ pub(super) fn collect(
             add(SnapKind::Tangent, t);
         }
     }
+    let others = (near.iter().map(|e| GuideShape::Segment(*e)))
+        .chain(arcs.iter().map(|a| GuideShape::Arc(*a)))
+        .collect::<Vec<_>>();
     for (i, g) in guides.iter().enumerate() {
-        for other in near.iter().chain(&guides[i + 1..]) {
-            if let Some(p) = segment_intersection(*g, *other) {
+        for other in others.iter().chain(&guides[i + 1..]) {
+            for p in g.intersect(other) {
                 add(SnapKind::GuideIntersection, p);
             }
         }
-        add(SnapKind::Guide, closest_on_segment(cursor, *g));
+        add(SnapKind::Guide, g.project(cursor));
     }
     if grid_step > 0.0 {
         add(SnapKind::Grid, (cursor / grid_step).round() * grid_step);
@@ -397,6 +400,7 @@ mod tests {
     use archicraft_model::{Command, History};
 
     use super::*;
+    use crate::input::GuideOrigin;
     use crate::input::targets::tests::index_of;
 
     #[test]
@@ -518,7 +522,10 @@ mod tests {
                 [v(0.2, -0.6), v(0.6, -0.6)],
             ],
         );
-        let guides = [GuideShape::Line([v(0.7, -5.0), v(0.7, 5.0)])];
+        let guides = [Guide::new(
+            GuideShape::Segment([v(0.7, -5.0), v(0.7, 5.0)]),
+            GuideOrigin::Persistent,
+        )];
         let cursor = v(0.02, -0.03);
         let found = candidates(&targets, &[], cursor, 1.0, 0.25, None, &guides);
         let expected = [
@@ -553,6 +560,43 @@ mod tests {
             ]
         );
         assert_eq!(snap(&targets, &[], cursor, 1.0, 0.25, None).kind, SnapKind::Node);
+    }
+
+    /// INP-009: every guide shape meets the edges and arcs near the cursor
+    /// and the other guides at guide-intersection level, and the cursor
+    /// projected onto it is a point on a guide.
+    #[test]
+    fn every_guide_shape_snaps() {
+        let line = GuideShape::line(v(0.0, 0.0), v(1.0, 0.0));
+        let ray = GuideShape::ray(v(0.6, 0.0), v(0.0, 1.0));
+        let circle = GuideShape::Circle {
+            centre: v(0.0, 0.0),
+            radius: 0.5,
+        };
+        let edge = [v(-0.4, -1.0), v(-0.4, 0.6)];
+        let arc = ArcTarget::circle(v(0.3, -0.8), 1.0);
+        let guides = [line, ray, circle];
+        let targets = Targets {
+            nodes: &[],
+            edges: &[edge],
+            arcs: &[arc],
+            guides: &guides,
+        };
+        let cursor = v(0.05, 0.1);
+        let found = collect(&targets, cursor, 1.0, 0.0, None);
+        let has = |kind: SnapKind, point: DVec2| found.iter().any(|s| s.kind == kind && s.point.distance(point) < 1e-9);
+        for point in [
+            v(-0.4, 0.0), // line × edge
+            v(0.6, 0.0),  // line × ray
+            v(0.5, 0.0),  // line × circle guide
+            v(-0.4, 0.3), // circle guide × edge
+            v(-0.3, 0.0), // line × arc
+        ] {
+            assert!(has(SnapKind::GuideIntersection, point), "{point} missing in {found:?}");
+        }
+        assert!(has(SnapKind::Guide, v(0.05, 0.0)), "on the line: {found:?}");
+        let on_circle = cursor.normalize() * 0.5;
+        assert!(has(SnapKind::Guide, on_circle), "on the circle guide: {found:?}");
     }
 
     /// INP-009: the kinds are ordered by level, then by their rank within
