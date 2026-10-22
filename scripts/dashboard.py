@@ -136,6 +136,12 @@ def collect_prs():
     try:
         answer = run_json(["gh", "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}",
                            "-f", f"query={QUEUE_QUERY}"], cwd=ROOT)
+        errors = answer.get("errors") if isinstance(answer, dict) else None
+        if errors and not ((answer.get("data") or {}).get("repository")):
+            # A GraphQL error comes back as an answer without the repository: report GitHub's
+            # messages instead of failing on the missing data.
+            raise RuntimeError("gh api graphql: " + "; ".join(
+                str(e.get("message") if isinstance(e, dict) else e) for e in errors))
         queue = {n["number"]: n for n in answer["data"]["repository"]["pullRequests"]["nodes"]}
     except (RuntimeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as e:
         queue, queue_error = None, str(e) or type(e).__name__
@@ -161,11 +167,15 @@ USER_REVIEW = "User review"
 
 
 def rollup_user_review(rollup):
-    """The state of the newest "User review" status in a PR's statusCheckRollup, or None."""
+    """The state of the newest "User review" status in a PR's statusCheckRollup, or None. gh
+    exports a status's time as "startedAt"; "createdAt" is the fallback, as in summarize_checks()."""
+    def started(c):
+        return c.get("startedAt") or c.get("createdAt") or ""
+
     latest = None
     for c in rollup or []:
         if (c.get("name") or c.get("context")) == USER_REVIEW:
-            if latest is None or (c.get("createdAt") or "") >= (latest.get("createdAt") or ""):
+            if latest is None or started(c) >= started(latest):
                 latest = c
     return (latest or {}).get("state")
 

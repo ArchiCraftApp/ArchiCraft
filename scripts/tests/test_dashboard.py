@@ -116,7 +116,7 @@ class OpenPullRequests(unittest.TestCase):
         """ci-user-review.sh's failed "User review" status shows as waiting for the review, not as
         failing CI."""
         rollup = GREEN + [{"__typename": "StatusContext", "context": "User review", "state": "FAILURE",
-                           "createdAt": "2026-10-21T10:01:00Z"}]
+                           "startedAt": "2026-10-21T10:01:00Z"}]
         view = dashboard.open_pr_view(open_pr(review="FAILURE", checks=rollup))
         checks = view["checks"]
         self.assertEqual((checks["fail"], checks["failing"]), (0, []))
@@ -152,19 +152,35 @@ class OpenPullRequests(unittest.TestCase):
         self.assertIn("HTTP 502", prs["queue_error"])
         # A GraphQL answer with errors and no data counts as failed as well.
         with mock.patch.object(dashboard, "run_json", lambda cmd, cwd=None, timeout=60:
-                               {"data": None, "errors": [{"message": "x"}]}
+                               {"data": {"repository": None},
+                                "errors": [{"message": "Could not resolve to a Repository"},
+                                           {"message": "Rate limit exceeded"}]}
                                if cmd[:3] == ["gh", "api", "graphql"] else listed):
             prs = dashboard.collect_prs()
         self.assertEqual(dashboard.open_pr_view(prs["open"][0])["queue"]["state"], "unknown")
-        self.assertTrue(prs["queue_error"])
+        # GitHub's own messages, not a Python error about the missing data.
+        self.assertIn("Could not resolve to a Repository", prs["queue_error"])
+        self.assertIn("Rate limit exceeded", prs["queue_error"])
+        self.assertNotIn("NoneType", prs["queue_error"])
+        # An answer with no data at all, or an empty answer, fails the same way.
+        for answer, message in (({"data": None, "errors": [{"message": "Bad credentials"}]},
+                                 "Bad credentials"), ([], "")):
+            with self.subTest(answer=answer), mock.patch.object(
+                    dashboard, "run_json", lambda cmd, cwd=None, timeout=60, a=answer:
+                    a if cmd[:3] == ["gh", "api", "graphql"] else listed):
+                prs = dashboard.collect_prs()
+                self.assertEqual([p["number"] for p in prs["open"]], [7, 9])
+                self.assertTrue(prs["queue_error"])
+                self.assertIn(message, prs["queue_error"])
 
     def test_without_the_queue_answer_a_failed_user_review_still_waits_for_the_user(self):
         """The fallback reads the "User review" status from the PR's statusCheckRollup, so a PR that
         waits for the user's review stays in Needs you when the queue query failed."""
-        rollup = GREEN + [{"__typename": "StatusContext", "context": "User review", "state": "SUCCESS",
-                           "createdAt": "2026-10-21T09:00:00Z"},
-                          {"__typename": "StatusContext", "context": "User review", "state": "FAILURE",
-                           "createdAt": "2026-10-21T10:01:00Z"}]
+        # gh exports a StatusContext's time as "startedAt"; the rollup's order is not the time order.
+        rollup = GREEN + [{"__typename": "StatusContext", "context": "User review", "state": "FAILURE",
+                           "startedAt": "2026-10-21T10:01:00Z"},
+                          {"__typename": "StatusContext", "context": "User review", "state": "SUCCESS",
+                           "startedAt": "2026-10-21T09:00:00Z"}]
         for auto_merge in (False, True):
             with self.subTest(auto_merge=auto_merge):
                 pr = {k: v for k, v in open_pr(checks=rollup, auto_merge=auto_merge).items() if k != "queue"}
@@ -173,10 +189,17 @@ class OpenPullRequests(unittest.TestCase):
                 self.assertEqual(view["status"]["text"], "waiting for your review")
                 self.assertEqual(view["needs_you"], WAITS)
         # The newest User review status decides: a later success no longer waits.
-        passed = rollup + [{"__typename": "StatusContext", "context": "User review", "state": "SUCCESS",
-                            "createdAt": "2026-10-21T11:00:00Z"}]
+        passed = [{"__typename": "StatusContext", "context": "User review", "state": "SUCCESS",
+                   "startedAt": "2026-10-21T11:00:00Z"}] + rollup
         pr = {k: v for k, v in open_pr(checks=passed).items() if k != "queue"}
         self.assertEqual(dashboard.open_pr_view(pr)["queue"]["state"], "unknown")
+        # The time decides, not the position: the newest status may come last as well.
+        self.assertEqual(dashboard.rollup_user_review(list(reversed(passed))), "SUCCESS")
+        # A status with only "createdAt" still sorts by it.
+        self.assertEqual(dashboard.rollup_user_review(
+            [{"context": "User review", "state": "FAILURE", "createdAt": "2026-10-21T10:00:00Z"},
+             {"context": "User review", "state": "SUCCESS", "createdAt": "2026-10-21T09:00:00Z"}]),
+            "FAILURE")
 
     def test_a_failed_queue_query_shows_in_the_page_errors(self):
         """refresh() turns collect_prs()'s queue_error into an entry of the page's errors."""
