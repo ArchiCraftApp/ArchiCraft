@@ -25,7 +25,7 @@ use crate::storey::{MAX_CUT_PLANE_HEIGHT, Storey, StoreyList};
 use crate::template::TemplateContext;
 use crate::tolerance::near_zero;
 use crate::transform::{PlanTransform, TransformError};
-use crate::validate;
+use crate::validate::{self, MAX_DECIMALS};
 
 /// What happens to the elements of a storey that is deleted (STR-004).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -673,9 +673,6 @@ fn check_slot(project: &Project, kind: KindTag, slot: &DefaultsSlot) -> Result<(
     validate::validate_prototype(project, &prototype).map_err(invalid_slot)?;
     Ok(())
 }
-
-/// Largest number of decimals the length and angle display may use.
-const MAX_DECIMALS: u8 = 8;
 
 fn check_settings(settings: &ProjectSettings) -> Result<(), CommandError> {
     if !settings.cut_plane_height.is_finite() || settings.cut_plane_height.abs() > MAX_CUT_PLANE_HEIGHT {

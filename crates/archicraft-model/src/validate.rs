@@ -34,6 +34,8 @@ pub const MAX_HEIGHT: f64 = 1000.0;
 pub const MAX_OFFSET: f64 = 1000.0;
 /// Largest number of storeys a wall top may be linked across.
 pub const MAX_LINKED_STOREYS: usize = 200;
+/// Largest number of decimals the length and angle display may use.
+pub const MAX_DECIMALS: u8 = 8;
 
 /// Most points a slab may have in its outline and holes together. The
 /// self-intersection and hole checks grow with the square of the points, so
