@@ -412,13 +412,98 @@ attributes and their fields) and frequent values. Extend it when the format gain
 
 **Corpus.** `scripts/fuzz-corpus.sh` seeds `fuzz/corpus/<target>/` with both reference models
 (written by the `reference_models` example), the golden files, every corrupt fixture of
-`crates/archicraft-ifcx/tests/corrupt/` and four R2 examples (Hello Wall, the PCERT sample
-scene's architecture model, Tekla House, the ACCA building), plus typed lengths and angles
-for `units_parse`. The R2 examples are fetched from IFC5-development at the commit
-`conformance/run.sh` pins, through the blob-filtered clone in `conformance/.ifc5`, and never
-committed (NFR-LEG-003); the script keeps the list of example paths. Existing corpus entries
-stay, so later runs build on earlier ones. The output (`fuzz/target/`, `fuzz/corpus/`,
-`fuzz/artifacts/`, `fuzz/coverage/`) is git-ignored: `git status` is clean after a run.
+`crates/archicraft-ifcx/tests/corrupt/`, the hand-crafted seeds of the `fuzz_seeds` example
+(below) and four R2 examples (Hello Wall, the PCERT sample scene's architecture model, Tekla
+House, the ACCA building), plus typed lengths and angles for `units_parse`. The R2 examples are
+fetched from IFC5-development at the commit `conformance/run.sh` pins, through the
+blob-filtered clone in `conformance/.ifc5`, and never committed (NFR-LEG-003); the script keeps
+the list of example paths. Existing corpus entries stay, so later runs build on earlier ones.
+The output (`fuzz/target/`, `fuzz/corpus/`, `fuzz/artifacts/`, `fuzz/coverage/`) is
+git-ignored: `git status` is clean after a run.
+
+Random mutation rarely builds a large structure, puts an extreme number into a field or leaves
+a field out, so `crates/archicraft-ifcx/examples/fuzz_seeds.rs` writes 108 such seeds, each
+the golden file `walls-and-slab.ifcx` changed:
+
+- `stress-*`: the shapes of the first campaign's hand-crafted inputs (**Campaigns** below), at
+  sizes within the fuzz runs' limits since its fixes: a slab outline of 999 points (just below
+  the limit) and one of 32,003 points (finding 1, now skipped before the quadratic checks), the
+  ground storey listed 5,000 times among the building's children (finding 2), a slab of 999
+  points listed 20,000 times among its storey's children (finding 3, 1.1 MB), 2,000 storeys,
+  500 walls meeting at one point and a grid of 100 by 100 crossing walls. The input of finding
+  4, 400 slabs of 999 points, is left out: it still takes 50 s through `ifcx_load` (**Memory**
+  below, archicraft-91jj), beyond the 10 s time-out, so every run would report it.
+- `extreme-<node>-<attribute>-<value>`: every number of one ArchiCraft attribute of one node
+  (the attributes of the 8 nodes whose ArchiCraft data holds numbers: the project, two storeys,
+  four walls and the slab) replaced by one of eleven values: 0, −0.0, −1, 10⁻¹², 10¹⁵, the
+  largest `u32`, 2⁵³ + 1, the smallest `i64`, the largest and the lowest finite `f64` and the
+  smallest subnormal (88 seeds). The first campaign replaced the numbers one at a time (3,330
+  files); one seed per attribute and value keeps the corpus small, and mutation varies single
+  numbers from there.
+- `coverage-*`: damaged or unusual records that reach the reader branches the other seeds
+  miss (**Coverage check** below).
+
+Each seed is shorter than `-max_len`. The example's tests (`cargo test -p archicraft-ifcx
+--example fuzz_seeds`, part of the workspace tests) open every seed along the `ifcx_load` path
+within the 10 s time-out, check that each stress seed opens as the campaign's fix intends (the
+slab beyond the limit skipped, each further listing reported), that each `extreme-*` seed holds
+its value and that each coverage seed reaches its branches. Through the AddressSanitizer build
+of `ifcx_load` the slowest seeds, the 2,000 storeys and the 500 walls, take 0.5 s each and at
+most 242 MB. The large seeds slow each execution down but reach more coverage. Two minutes of
+each target on a fresh corpus (2026-10-22), from the 27 files without the hand-crafted seeds,
+with the `extreme-*` and `coverage-*` seeds, and with all of them: `ifcx_validate` ran 234, 198
+and 169 inputs a second and reached `cov` 4,032 / `ft` 13,233, 3,975 / 13,230 and 4,035 /
+14,277; `ifcx_load` ran 260, 228 and 158 inputs a second and reached 8,055 / 22,827, 8,517 /
+25,473 and 8,773 / 26,724. The rates depend on the host's load: repeated while the host was
+busy (load about 18 on 16 cores), `ifcx_load` ran about 80 inputs a second on all three corpora
+and reached 7,601 / 18,603, 8,223 / 22,643 and 8,553 / 25,215. The nightly job keeps the seeds:
+each night starts from the previous night's corpus, minimised to one input per coverage
+feature, and `scripts/fuzz-corpus.sh` adds the seeds again, so a night runs about a third fewer
+inputs per target than without them. Should the nightly coverage stall, smaller stress seeds
+are the lever: their sizes matter only for the time-out, and the regression tests pin what the
+fixes do.
+
+**Coverage check.** `cargo +nightly fuzz coverage ifcx_load [<corpus dir>]` runs every file of
+the corpus (`fuzz/corpus/ifcx_load/` by default) through a build instrumented for source-based
+coverage and writes `fuzz/coverage/ifcx_load/coverage.profdata`; it needs `rustup component add
+llvm-tools-preview --toolchain nightly`. The nightly toolchain's `llvm-cov report` and
+`llvm-cov show -show-line-counts-or-regions` over that profile and the binary
+`fuzz/target/<host triple>/coverage/<host triple>/release/ifcx_load` count the lines and
+regions each file reaches. The check of archicraft-4ehi (2026-10-22, `8a39980` with the change,
+macOS 27 on Apple silicon, nightly 1.101.0), over the seeded corpus, without inputs from
+earlier runs:
+
+| Corpus | Files | `alpha/reader.rs` lines | regions | reader, writer, migration and `validate.rs`, lines |
+|---|---|---|---|---|
+| reference models, golden files, corrupt fixtures, R2 examples | 27 | 79.4 % (183 of 890 missed) | 80.5 % | 78.3 % |
+| and the `stress-*` and `extreme-*` seeds | 122 | 82.4 % (157 missed) | 83.7 % | 80.3 % |
+| and the `coverage-*` seeds | 135 | 99.0 % (9 missed) | 97.3 % | 90.3 % |
+
+The reader branches the corpus missed, and the seeds added for them:
+
+| Missed in `crates/archicraft-ifcx/src/alpha/reader.rs` | Seed |
+|---|---|
+| an optional field present: a material's cut-fill `background`, a layer's and an element's `snapExcluded`, a storey's `cutPlaneHeight` | `coverage-optional-fields-present` |
+| `planGrid` and `groundStorey` absent | `coverage-optional-fields-absent` |
+| the top links `fixed`, `storey` and an unknown one; the reference lines `inside`, `custom` and an unknown one; a point of three coordinates | `coverage-wall-variants` |
+| a material that is not an object, one without a UUID and one with a blank name; a layer without a UUID; an auxiliary grid spacing above the main one; a location that is not an object; tool defaults with an unknown tool, a slot that is not an object, a missing material and a class the tool does not allow | `coverage-damaged-project-records` |
+| an element whose ArchiCraft data is not an object, one of an unknown kind, one without a name, one with a class and one with a material that do not fit; holes that are no list; a wall and a slab without parameters or with unreadable points; a child without ArchiCraft data and one that does not exist; two paths of the same identity (differing in case) | `coverage-damaged-elements` |
+| a storey without a name and without ArchiCraft data | `coverage-damaged-storey` |
+| a storey list the model rejects, and the elements and other children of the lost storeys | `coverage-storeys-unreadable` |
+| a building without storeys | `coverage-no-storeys` |
+| a project without site, building, views, materials and layers; a header data version that is no number | `coverage-bare-project` |
+| a format version newer than this build's, an unreadable one and an older one without a migration | `coverage-format-version-newer`, `-unreadable`, `-older` |
+| project data that is not an object | `coverage-project-not-object` |
+
+The 9 lines still missed cannot run in the fuzz build: the reading of kinds other than walls
+and slabs (the test-only kind of `archicraft-model`'s `test-kinds` feature is not in it), the
+reading of a migrated file (`MIGRATIONS` is empty until format 2) and the `unreachable!` of a
+single default storey. `llvm-cov` counts lines and regions, not branches. The other modules
+were not part of the check; most of what they miss lies off the path of `ifcx_load`: the
+migration steps (none exist yet), the file-size check of `load_path` (the targets take bytes),
+the writer's tree form (`write`, `to_bytes`) and parts of the schema check (inherited schemas,
+the `Blob` type). Repeat the check when the reader gains branches, and add seeds to
+`fuzz_seeds` for what the corpus misses.
 
 **Local run.** Install the tools once, seed, then run a target for some minutes (10 when
 left out):
@@ -492,6 +577,8 @@ input that takes longer than 10 s or one that needs more than 2 GB of memory (th
 | 2026-10-20 | `1fb633c`, archicraft-lnow rebased onto `1c7ec92` | same | `ifcx_load` | 10 min | 797,724 | 9,002 / 33,193 | 1,187 MB | none |
 | 2026-10-20 | same | same | `ifcx_validate` | 10 min | 2,015,437 | 4,125 / 18,063 | 1,240 MB | none |
 | 2026-10-20 | same | same | `units_parse` | 10 min | 4,095,227 | 716 / 2,909 | 1,620 MB | none |
+| 2026-10-22 | `8a39980` with archicraft-4ehi, on the seeded corpus without earlier runs | same | `ifcx_load` | 10 min | 76,502 | 9,100 / 32,605 | 1,400 MB | none |
+| 2026-10-22 | same | same | `ifcx_validate` | 10 min | 68,307 | 4,332 / 16,683 | 1,399 MB | none |
 
 The first campaign (archicraft-lnow) started with a 15-minute exploratory round of each target
 in fork mode (`-fork`, findings ignored so that one does not stop the others; about 1.1 M,
@@ -529,8 +616,11 @@ units grammar changed on `main` during the campaign (archicraft-eya.1), so `unit
 ran on that commit. Rebasing the fixes onto it (the model's errors had become localized
 messages, archicraft-9w3.1) changed only how the slab limit is reported, so each target ran
 another 10 minutes on the rebased commit. The hand-crafted inputs were not added to the
-seeded corpus, and coverage was not checked with `cargo fuzz coverage`; both are
-archicraft-4ehi.
+seeded corpus then, and coverage was not checked with `cargo fuzz coverage`; archicraft-4ehi
+did both (**Corpus** above). Its 10-minute runs of the IFCX targets, both at once, started from
+the newly seeded corpus and found nothing; they ran far fewer executions than the runs above,
+which started from a corpus grown by earlier runs and without the large seeds (**Corpus**), on
+a host busy with other work.
 
 **Memory.** A valid file can need far more memory to save or open than its size suggests, and
 exhausting memory is a denial of service (NFR-SEC-003), so saving and opening are measured on

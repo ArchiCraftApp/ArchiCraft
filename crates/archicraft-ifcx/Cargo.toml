@@ -40,6 +40,12 @@ jsonschema.workspace = true
 name = "archicraft_schema"
 test = true
 
+# Runs the example's unit tests (every fuzz seed opens and reaches what it
+# was made for) with `cargo test`.
+[[example]]
+name = "fuzz_seeds"
+test = true
+
 [[bench]]
 name = "ifcx"
 harness = false
