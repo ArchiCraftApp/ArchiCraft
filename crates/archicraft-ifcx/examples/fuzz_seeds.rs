@@ -7,8 +7,8 @@
 //! seeds them through this example. Every seed is the golden file
 //! `walls-and-slab.ifcx`, changed:
 //!
-//! - `stress-*`: large structures — a slab outline at the point limit and far
-//!   above it, a storey or a slab listed thousands of times, thousands of
+//! - `stress-*`: large structures — a slab outline within the point limit and
+//!   far above it, a storey or a slab listed thousands of times, thousands of
 //!   storeys, many walls meeting at one point or crossing;
 //! - `extreme-<node>-<attribute>-<value>`: every number of one ArchiCraft
 //!   attribute of one node replaced by one extreme value;
@@ -145,8 +145,9 @@ fn stress() -> Vec<(String, Value)> {
         edit(&mut file);
         seeds.push((format!("stress-{name}"), file));
     };
-    // MAX_SLAB_POINTS: just below the limit, every check runs on the outline;
-    // far above it (finding 1, a 16 s time-out), the slab is skipped before.
+    // MAX_SLAB_POINTS: within the limit (1,000 at the campaign, 10,000 since
+    // archicraft-91jj), every check runs on the outline; far above it
+    // (finding 1, a 16 s time-out), the slab is skipped before.
     seed("slab-outline-999-points", &|f| {
         node(f, "SL-001")["attributes"]["archicraft::slab"]["outline"] = comb(999);
     });
