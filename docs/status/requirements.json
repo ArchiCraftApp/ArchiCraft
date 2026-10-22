@@ -1057,7 +1057,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Esc cancels one step per press (typed text, then the step in progress, then the selection, then back to the Select tool; PointInput::key and views/plan.rs apply) and Backspace removes one typed character, then one point. The first point is typed too: a digit, sign or decimal separator starts absolute X/Y input without a point (PointInput::starts_typing, also looked ahead by app.rs shortcuts so '3ft' in one frame is not a Fit); tests the_first_point_takes_absolute_coordinates (input/mod.rs) and typing_the_first_point_keeps_shortcuts_until_a_value_starts (tests/ui.rs). Remaining gap: point input exists only in plan views, so nothing can be typed in 3D views (INP-001).",
+      "gap": "Esc cancels one step per press (typed text, then the step in progress, then the selection, then back to the Select tool; PointInput::key and views/plan.rs apply) and Backspace removes one typed character, then one point. The first point is typed too: a digit, sign, opening parenthesis (INP-022) or decimal separator starts absolute X/Y input without a point (PointInput::starts_typing, also looked ahead by app.rs shortcuts so '3ft' in one frame is not a Fit); tests the_first_point_takes_absolute_coordinates (input/mod.rs) and typing_the_first_point_keeps_shortcuts_until_a_value_starts (tests/ui.rs). Remaining gap: point input exists only in plan views, so nothing can be typed in 3D views (INP-001).",
       "depends_on": []
     },
     {
