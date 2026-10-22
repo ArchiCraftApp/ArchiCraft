@@ -399,27 +399,33 @@ fn grid_vector(map: &Object, key: &str, valid: fn(DVec2) -> bool) -> Result<DVec
 /// The drafting grid of the plan views (INP-013). A missing `planGrid` is no
 /// problem: files written before it existed get the default grid. Inside a
 /// present grid, each invalid field is reported and falls back to its default.
+///
+/// An auxiliary spacing larger than the main spacing is reported only when
+/// both were read from the file, and then both take their defaults. When one
+/// of them fell back, its problem is already reported, and the auxiliary
+/// spacing is clamped to the main spacing so that the grid stays valid.
 fn read_plan_grid(settings: &Object, report: &mut Report) -> PlanGrid {
     let defaults = PlanGrid::default();
     let Ok(map) = object(settings, "planGrid") else {
         return defaults;
     };
+    let snap_step = report.or(grid_vector(map, "snapStep", valid_grid_spacing), defaults.snap_step);
+    let snap_enabled = report.or(boolean(map, "snapEnabled"), defaults.snap_enabled);
+    let main_spacing = grid_vector(map, "mainSpacing", valid_grid_spacing);
+    let auxiliary_spacing = grid_vector(map, "auxiliarySpacing", valid_grid_spacing);
+    let spacings_read = main_spacing.is_ok() && auxiliary_spacing.is_ok();
     let mut grid = PlanGrid {
-        snap_step: report.or(grid_vector(map, "snapStep", valid_grid_spacing), defaults.snap_step),
-        snap_enabled: report.or(boolean(map, "snapEnabled"), defaults.snap_enabled),
-        main_spacing: report.or(
-            grid_vector(map, "mainSpacing", valid_grid_spacing),
-            defaults.main_spacing,
-        ),
-        auxiliary_spacing: report.or(
-            grid_vector(map, "auxiliarySpacing", valid_grid_spacing),
-            defaults.auxiliary_spacing,
-        ),
+        snap_step,
+        snap_enabled,
+        main_spacing: report.or(main_spacing, defaults.main_spacing),
+        auxiliary_spacing: report.or(auxiliary_spacing, defaults.auxiliary_spacing),
         rotation: report.or(real(map, "rotation"), defaults.rotation),
         origin: report.or(grid_vector(map, "origin", valid_grid_origin), defaults.origin),
         visible: report.or(boolean(map, "visible"), defaults.visible),
     };
-    if grid.auxiliary_spacing.cmpgt(grid.main_spacing).any() {
+    if !spacings_read {
+        grid.auxiliary_spacing = grid.auxiliary_spacing.min(grid.main_spacing);
+    } else if grid.auxiliary_spacing.cmpgt(grid.main_spacing).any() {
         report.warn("“auxiliarySpacing” is larger than “mainSpacing”; the default spacings are used");
         grid.main_spacing = defaults.main_spacing;
         grid.auxiliary_spacing = defaults.auxiliary_spacing;

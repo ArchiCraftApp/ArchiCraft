@@ -56,6 +56,7 @@ impl Default for Tessellation {
 pub struct PlanGrid {
     /// Steps of the invisible snap grid along its X and Y axes, in metres.
     pub snap_step: DVec2,
+    /// Whether points snap to the snap grid.
     pub snap_enabled: bool,
     /// Spacing of the main lines of the construction grid, in metres.
     pub main_spacing: DVec2,
