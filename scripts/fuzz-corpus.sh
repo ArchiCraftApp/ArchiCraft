@@ -4,6 +4,8 @@
 # - both reference models, written by the reference_models example;
 # - the golden files, crates/archicraft-ifcx/tests/golden/*.ifcx;
 # - every corrupt fixture, crates/archicraft-ifcx/tests/corrupt/*.ifcx;
+# - the hand-crafted seeds (stress inputs, extreme numbers, reader branches the other seeds
+#   miss), written by the fuzz_seeds example;
 # - the R2 examples (Hello Wall, PCERT sample scene, Tekla House, ACCA building) from
 #   buildingSMART IFC5-development at the commit conformance/run.sh pins. They are fetched,
 #   never committed (NFR-LEG-003): the blob-filtered clone in conformance/.ifc5 downloads
@@ -48,6 +50,10 @@ for f in crates/archicraft-ifcx/tests/golden/*.ifcx; do
 done
 for f in crates/archicraft-ifcx/tests/corrupt/*.ifcx; do
     seed "corrupt-$(basename "$f")" "$f"
+done
+cargo run --quiet --locked -p archicraft-ifcx --example fuzz_seeds -- "$tmp/seeds" >/dev/null
+for f in "$tmp"/seeds/*.ifcx; do
+    seed "$(basename "$f")" "$f"
 done
 
 if [ ! -d "$ifc5/.git" ]; then
