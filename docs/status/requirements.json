@@ -36,7 +36,7 @@
       "section": "4.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/persistence/prefs.rs:36 autosave_minutes (default 5 at 69, clamped to 1–120 at 129), editable in Preferences (crates/archicraft-app/src/ui/dialogs.rs:682-683). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
+      "evidence": "Done: crates/archicraft-app/src/persistence/prefs.rs:36 autosave_minutes (default 5 at 72, clamped to 1–120 at 133 in Preferences::sanitized), editable in Preferences (crates/archicraft-app/src/ui/dialogs.rs:682-683). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -76,7 +76,7 @@
       "section": "4.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: the reader loads every valid part and reports each skipped or repaired record as “<record> skipped: …” or “<record> repaired: …” at the project, site, building, storey or element node (crates/archicraft-ifcx/src/alpha/reader.rs:97 Report::skipped and 103 Report::repaired; module docs list the optional fields whose absence is no problem); the app shows the report on opening. Referential-integrity repairs beyond the reader stay with NFR-REL-004. The fixtures the epic names: `a_layer_record_that_is_not_an_object_is_skipped_and_reported`, `malformed_view_records_are_skipped_and_reported`, `missing_tool_defaults_are_repaired_from_the_template`, `invalid_counters_are_repaired_and_reported` (crates/archicraft-ifcx/tests/corrupt.rs, seventeen committed fixtures under tests/corrupt/). Regression check: Test: `no_record_disappears_silently` and one test per fixture (corrupt.rs: `crates/archicraft-ifcx/tests/corrupt.rs`); `a_damaged_file_opens_with_the_load_report` (ui.rs: `crates/archicraft-app/tests/ui.rs`); also `invalid_elements_are_skipped_and_reported`, `missing_references_are_repaired_and_reported` (roundtrip.rs)",
+      "evidence": "Done: the reader loads every valid part and reports each skipped or repaired record as “<record> skipped: …” or “<record> repaired: …” at the project, site, building, storey or element node (crates/archicraft-ifcx/src/alpha/reader.rs:104 Report::skipped and 110 Report::repaired; module docs list the optional fields whose absence is no problem); the app shows the report on opening. Referential-integrity repairs beyond the reader stay with NFR-REL-004. The fixtures the epic names: `a_layer_record_that_is_not_an_object_is_skipped_and_reported`, `malformed_view_records_are_skipped_and_reported`, `missing_tool_defaults_are_repaired_from_the_template`, `invalid_counters_are_repaired_and_reported` (crates/archicraft-ifcx/tests/corrupt.rs, seventeen committed fixtures under tests/corrupt/). Regression check: Test: `no_record_disappears_silently` and one test per fixture (corrupt.rs: `crates/archicraft-ifcx/tests/corrupt.rs`); `a_damaged_file_opens_with_the_load_report` (ui.rs: `crates/archicraft-app/tests/ui.rs`); also `invalid_elements_are_skipped_and_reported`, `missing_references_are_repaired_and_reported` (roundtrip.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -336,7 +336,7 @@
       "section": "4.3",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/app.rs:117 default_tree and 864 Behavior show the open views as egui_tiles tabs, 378 open_pane reopens a closed one from the browser, and 427 cycle_tab steps through them on view.next-tab and view.previous-tab (Ctrl+Tab and Ctrl+Shift+Tab, crates/archicraft-app/src/commands/view.rs:29 and 33; shortcuts are matched most modifiers first, so Ctrl+Shift+Tab no longer runs next tab). Regression check: Test: `ui_006_views_are_tabs_with_next_and_previous_tab_shortcuts` (app)",
+      "evidence": "Done: crates/archicraft-app/src/app.rs:117 default_tree and 866 Behavior show the open views as egui_tiles tabs, 378 open_pane reopens a closed one from the browser, and 427 cycle_tab steps through them on view.next-tab and view.previous-tab (Ctrl+Tab and Ctrl+Shift+Tab, crates/archicraft-app/src/commands/view.rs:29 and 33; shortcuts are matched most modifiers first, so Ctrl+Shift+Tab no longer runs next tab). Regression check: Test: `ui_006_views_are_tabs_with_next_and_previous_tab_shortcuts` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -346,7 +346,7 @@
       "section": "4.3",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/app.rs:983 shows the views as one egui_tiles tree, so dragging a tab beside another puts two or more views side by side; every view shows the workspace's one selection (crates/archicraft-app/src/workspace.rs:72), which the 3D views take through SceneKey::of (54). There is no explicit split command and the split is not persisted (UI-004). Regression check: Test: `ui_007_plan_and_3d_side_by_side_share_the_selection` (app)",
+      "evidence": "Done: crates/archicraft-app/src/app.rs:985 (tree.ui) shows the views as one egui_tiles tree, so dragging a tab beside another puts two or more views side by side; every view shows the workspace's one selection (crates/archicraft-app/src/workspace.rs:121 Workspace::selection), which the 3D views take through SceneKey::of (99). There is no explicit split command and the split is not persisted (UI-004). Regression check: Test: `ui_007_plan_and_3d_side_by_side_share_the_selection` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -546,7 +546,7 @@
       "section": "4.4",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/views/plan.rs:518-553 pans by middle-button drag (550) and two-finger scroll (529) and zooms about the cursor by wheel (536) and pinch (541); crates/archicraft-app/src/app.rs:484 runs fit to window, 485 zoom to selection and 491 previous/next zoom over crates/archicraft-app/src/views/camera.rs:68 ZoomHistory (73 ZOOM_STEPS = 50). Observation: a Point-unit wheel without modifier always pans, so a smooth-scrolling mouse cannot zoom without Cmd/Ctrl. Shift+F runs zoom to selection (it ran fit to window before shortcuts were matched most modifiers first). Regression check: Test: `view_014_plan_navigation_pans_zooms_and_fits` (app), `zoom_history_keeps_20_steps` (camera.rs); also `plan_round_trip_and_zoom_anchor`, `zoom_history` (camera.rs)",
+      "evidence": "Done: crates/archicraft-app/src/views/plan.rs:521 ui pans by middle-button drag (587-588) and two-finger scroll (565-566) and zooms about the cursor by wheel (573) and pinch (578); crates/archicraft-app/src/app.rs:484 runs fit to window, 485 zoom to selection and 491 previous/next zoom over crates/archicraft-app/src/views/camera.rs:68 ZoomHistory (73 ZOOM_STEPS = 50). Observation: a Point-unit wheel without modifier always pans, so a smooth-scrolling mouse cannot zoom without Cmd/Ctrl. Shift+F runs zoom to selection (it ran fit to window before shortcuts were matched most modifiers first). Regression check: Test: `view_014_plan_navigation_pans_zooms_and_fits` (app), `zoom_history_keeps_20_steps` (camera.rs); also `plan_round_trip_and_zoom_anchor`, `zoom_history` (camera.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -2597,7 +2597,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Layer structures measured perpendicular to the roof plane; reference-surface choice (bottom, top, top of core) for the pivot elevation; multi-part body per skin (writer already emits one child per BodyPart, writer.rs:372-382, IFX…",
+      "gap": "Layer structures measured perpendicular to the roof plane; reference-surface choice (bottom, top, top of core) for the pivot elevation; multi-part body per skin (writer already emits one child per BodyPart, writer.rs:486-494, IFX…",
       "depends_on": []
     },
     {
@@ -3007,7 +3007,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Writer writes only Body/Axis children (writer.rs:361-406), no Void child, no usd::usdgeom::visibility, no type nodes or inherits.type (IFX-050/051); every element is a direct storey child (writer.rs:300-308) so hosted children (I…",
+      "gap": "Writer writes only Body/Axis children (writer.rs:486-503), no Void child, no usd::usdgeom::visibility, no type nodes or inherits.type (IFX-050/051); every element is a direct storey child (writer.rs:432-441) so hosted children (I…",
       "depends_on": []
     },
     {
@@ -3147,7 +3147,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "IfcClass lacks IfcCurtainWall/IfcMember/IfcPlate (element.rs:10-14); writer has no compound-part children with their own class (IFX-016; writer.rs:361-406 writes Body/Axis only); reader ignores non-storey children (reader.rs:854-…",
+      "gap": "IfcClass lacks IfcCurtainWall/IfcMember/IfcPlate (element.rs:15-23); writer has no compound-part children with their own class (IFX-016; writer.rs:486-503 writes Body/Axis only); reader ignores non-storey children (reader.rs:854-…",
       "depends_on": []
     },
     {
@@ -3587,7 +3587,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No IfcRailing class or part writing (IfcClass closed, element.rs:10-32; writer parts unclassed, writer.rs:361-385).",
+      "gap": "No IfcRailing class or part writing (IfcClass closed, element.rs:15-23; writer parts unclassed, writer.rs:486-494).",
       "depends_on": []
     },
     {
@@ -4436,7 +4436,7 @@
       "section": "4.30",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Cameras live in per-view state, not the model: Camera2d/Camera3d views/camera.rs:13-62, 102-",
+      "evidence": "Done: navigation changes only per-view state outside the model. A plan view's camera and its previous/next zoom history are PlanViewState.camera and .zoom_history (crates/archicraft-app/src/views/plan.rs:32 PlanViewState, kept in Workspace::plan_views) with Camera2d and ZoomHistory (crates/archicraft-app/src/views/camera.rs:13 Camera2d, 68 ZoomHistory); a 3D view's camera is View3dState.camera (crates/archicraft-app/src/views/view3d.rs:15 View3dState, kept in Workspace::views_3d) with Camera3d (camera.rs:102). Pan, zoom, fit, orbit and previous/next zoom change these cameras directly and execute no Command, so History records no step. Regression check: Test: `und_005_navigation_creates_no_undo_steps` (crates/archicraft-app/tests/done_requirements.rs).",
       "gap": "",
       "depends_on": []
     },
@@ -4486,7 +4486,7 @@
       "section": "5.2.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-ifcx/src/container.rs:10 (IfcxFile with header/imports/schemas/data), 22 (Header fields). Regression check: Test: `ifx_001_output_is_utf8_json_with_header_imports_schemas_and_data` (ifcx), `ifx_001_save_adds_the_ifcx_extension` (app); also `container_matches_the_ifcx_json_schema` (roundtrip.rs)",
+      "evidence": "Done: crates/archicraft-ifcx/src/container.rs:21 (IfcxFile with header/imports/schemas/data), 114 (Header fields). Regression check: Test: `ifx_001_output_is_utf8_json_with_header_imports_schemas_and_data` (ifcx), `ifx_001_save_adds_the_ifcx_extension` (app); also `container_matches_the_ifcx_json_schema` (roundtrip.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -4526,7 +4526,7 @@
       "section": "5.2.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-ifcx/src/validate.rs:247 check_attributes (undeclared attribute = error), 176 check_value (value check per data type as in ifcx-core). Regression check: Test: `ifx_005_every_data_attribute_key_is_declared` (ifcx); also `written_files_validate_without_problems`, `schema_violations_are_reported` (roundtrip.rs)",
+      "evidence": "Done: crates/archicraft-ifcx/src/validate.rs:270 check_attributes (undeclared attribute = error), 197 check_value (value check per data type as in ifcx-core). Regression check: Test: `ifx_005_every_data_attribute_key_is_declared` (ifcx); also `written_files_validate_without_problems`, `schema_violations_are_reported` (roundtrip.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -4556,7 +4556,7 @@
       "section": "5.2.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Preferences → 'Indented IFCX (human-readable)' (crates/archicraft-app/src/persistence/prefs.rs:58 indented_ifcx, default compact at 80; crates/archicraft-app/src/ui/dialogs.rs:725 in preferences_window); crates/archicraft-app/src/app.rs:299 passes it to Document::to_bytes for Save, Save as and the IFX-062 overwrite. Autosaves stay compact (crates/archicraft-app/src/persistence/autosave.rs:134 write_autosave). The reference_models example writes every model compact and indented (`<name>-indented.ifcx`), so CI and the gate run conformance on both layouts. No per-save choice in the native file dialog (rfd has no custom controls). The indented layout round-trips: `indented_output_round_trips_to_the_golden_bytes` (crates/archicraft-ifcx/tests/determinism.rs); streamed, it has the bytes of the whole document formatted at once: `saving_node_by_node_writes_the_bytes_of_the_whole_document` (same file). Regression check: Test: `indented_ifcx_defaults_to_compact_and_persists` (prefs.rs), `indented_save_reads_back_and_leaves_compact_saves_unchanged` (document.rs), `autosaves_are_compact` (autosave.rs), `preferences_offer_indented_ifcx_output` (tests/ui.rs); conformance (CI and gate) on the `<name>-indented.ifcx` reference models",
+      "evidence": "Done: Preferences → 'Indented IFCX (human-readable)' (crates/archicraft-app/src/persistence/prefs.rs:61 indented_ifcx, default compact at 84; crates/archicraft-app/src/ui/dialogs.rs:725 in preferences_window); crates/archicraft-app/src/app.rs:299 passes it to Document::to_bytes for Save, Save as and the IFX-062 overwrite. Autosaves stay compact (crates/archicraft-app/src/persistence/autosave.rs:134 write_autosave). The reference_models example writes every model compact and indented (`<name>-indented.ifcx`), so CI and the gate run conformance on both layouts. No per-save choice in the native file dialog (rfd has no custom controls). The indented layout round-trips: `indented_output_round_trips_to_the_golden_bytes` (crates/archicraft-ifcx/tests/determinism.rs); streamed, it has the bytes of the whole document formatted at once: `saving_node_by_node_writes_the_bytes_of_the_whole_document` (same file). Regression check: Test: `indented_ifcx_defaults_to_compact_and_persists` (prefs.rs), `indented_save_reads_back_and_leaves_compact_saves_unchanged` (document.rs), `autosaves_are_compact` (autosave.rs), `preferences_offer_indented_ifcx_output` (tests/ui.rs); conformance (CI and gate) on the `<name>-indented.ifcx` reference models",
       "gap": "",
       "depends_on": []
     },
@@ -4787,7 +4787,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No splitting of large bodies into closed Body_<n> sub-solids (the writer writes a part of any size, writer.rs:372-381); sharing vertices across smooth edges is not needed until curved/free-form solids exist",
+      "gap": "No splitting of large bodies into closed Body_<n> sub-solids (the writer writes a part of any size, writer.rs:486-494); sharing vertices across smooth edges is not needed until curved/free-form solids exist",
       "depends_on": []
     },
     {
@@ -4966,7 +4966,7 @@
       "section": "5.2.9",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-ifcx/src/lib.rs:79 (load). Regression check: Test: `ifx_080_xch_008_every_element_of_an_opened_file_accepts_update_elements` (ifcx)",
+      "evidence": "Done: crates/archicraft-ifcx/src/lib.rs:84 (load). Regression check: Test: `ifx_080_xch_008_every_element_of_an_opened_file_accepts_update_elements` (ifcx)",
       "gap": "",
       "depends_on": []
     },
@@ -4996,7 +4996,7 @@
       "section": "5.2.9",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-ifcx/src/validate.rs:32-74 (Problem with severity and node path), 244-248 (schema violations), 272-276 (cycles, depth), 305-319 (unknown references), 138-145 (unresolved imports)",
+      "evidence": "Done: crates/archicraft-ifcx/src/validate.rs:45 Problem (severity at 36 Severity and the affected node path), 143 SchemaSet::for_file (unresolved imports, named by their URI), 270 check_attributes (attributes that violate their schema), 293 roots (composition cycles and nesting depth), 340 dangling_references (references to unknown nodes); the reader stays lenient and still opens the file (crates/archicraft-ifcx/src/alpha/reader.rs). Regression check: Test: `ifx_083_composition_and_validation_problems_name_the_node_and_the_file_still_opens` (crates/archicraft-ifcx/tests/done_requirements.rs); also `cycles_are_detected`, `schema_violations_are_reported` (roundtrip.rs).",
       "gap": "",
       "depends_on": []
     },
@@ -5016,7 +5016,7 @@
       "section": "5.2.10",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: a release writes exactly one version, crates/archicraft-ifcx/src/alpha/writer.rs:30 IFCX_VERSION = ifcx_alpha (written into the header at 323), and crates/archicraft-ifcx/src/lib.rs:79 load dispatches on header.ifcxVersion through ADAPTERS (65). Only one IFCX version has ever been written; earlier ArchiCraft format steps within it are upgraded on load (IFX-091). Regression check: Test: `ifx_090_one_written_version_and_load_dispatches_on_it` (ifcx); also `malformed_input_is_rejected_without_panicking` (roundtrip.rs) and tests/formats.rs (all tests)",
+      "evidence": "Done: a release writes exactly one version, crates/archicraft-ifcx/src/alpha/writer.rs:30 IFCX_VERSION = ifcx_alpha (written into the header at 323), and crates/archicraft-ifcx/src/lib.rs:84 load dispatches on header.ifcxVersion through ADAPTERS (67). Only one IFCX version has ever been written; earlier ArchiCraft format steps within it are upgraded on load (IFX-091). Regression check: Test: `ifx_090_one_written_version_and_load_dispatches_on_it` (ifcx); also `malformed_input_is_rejected_without_panicking` (roundtrip.rs) and tests/formats.rs (all tests)",
       "gap": "",
       "depends_on": []
     },
@@ -5036,7 +5036,7 @@
       "section": "5.3",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-ifcx/src/lib.rs:79-82 (load dispatches on header.ifcxVersion through ADAPTERS, 65). Regression check: Test: `ifx_080_xch_008_every_element_of_an_opened_file_accepts_update_elements` (ifcx), `ifx_090_one_written_version_and_load_dispatches_on_it` (ifcx), `xch_008_a_saved_file_opens_editable_without_problems` (app)",
+      "evidence": "Done: crates/archicraft-ifcx/src/lib.rs:84 (load dispatches on header.ifcxVersion through ADAPTERS, 67). Regression check: Test: `ifx_080_xch_008_every_element_of_an_opened_file_accepts_update_elements` (ifcx), `ifx_090_one_written_version_and_load_dispatches_on_it` (ifcx), `xch_008_a_saved_file_opens_editable_without_problems` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -5046,7 +5046,7 @@
       "section": "5.4",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Plan: middle-button drag pans crates/archicraft-app/src/views/plan.rs:427-433, wheel zooms about the cursor plan.rs:404-418, secondary-button context menu plan.rs:634,728-780. 3D: middle drag pans, Shift+middle orbits crate…",
+      "evidence": "Done: plan navigation in crates/archicraft-app/src/views/plan.rs:521 ui: a middle-button drag pans (Camera2d::pan at 587-590), the scroll wheel zooms about the cursor (Event::MouseWheel at 561-575, Camera2d::zoom_at), and the secondary button opens the plan context menu (response.context_menu at 815, plan.rs:921 context_menu). 3D navigation in crates/archicraft-app/src/views/view3d.rs:102 ui: a middle-button drag pans, Shift and a middle-button drag orbit (153-159, Camera3d::pan and Camera3d::orbit), the wheel zooms about the cursor (Event::MouseWheel at 129-146, Camera3d::zoom_at), and the secondary button opens the 3D context menu (response.context_menu at 258). Regression check: Test: `hw_001_middle_button_and_wheel_navigate_and_the_secondary_button_opens_context_menus` (crates/archicraft-app/tests/done_requirements.rs); also `view_014_plan_navigation_pans_zooms_and_fits` (app).",
       "gap": "",
       "depends_on": []
     },
@@ -5156,7 +5156,7 @@
       "section": "6.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: the two hardware classes are recorded in docs/technology-choices.md:137-158 \"Hardware classes\": minimum and reference each have a Mac (fixed model) and a Windows laptop chosen by criteria, Linux is the current Ubuntu LTS (26.04) on each Windows laptop; this closes SRS O-15 on the project's side (the SRS row awaits its owner), and README.md:64 \"System requirements\" publishes the classes. docs/performance/README.md:79-107 holds the measurement protocol (every target on the reference class unless it names the minimum class) and 108 the results convention `<YYYY-MM-DD>-<machine id>.md`, first file docs/performance/2026-10-20-dev-mbp-m3max.md. The CI job \"Bench regression gate\" (.github/workflows/ci.yml:125) compares the criterion benches of the merge base and the pull request, publishes the table and the reports per run and fails on a regression above 20 % (scripts/bench-gate.py). Tracked elsewhere: measuring the targets on the bought machines is AS-07 (increment 4), publishing the classes with every release is NFR-PORT-006. Regression check: Bench regression gate: \"Tests of the bench gate\" (`scripts/tests/test_bench_gate.py`) and \"Benches on the merge base and on this commit\" (`scripts/bench-gate.py`); the recorded classes (docs/technology-choices.md, \"Hardware classes\", and README \"System requirements\") by the inspection per release in docs/test-plan/release-checklist.md, item 4",
+      "evidence": "Done: the two hardware classes are recorded in docs/technology-choices.md:137-158 \"Hardware classes\": minimum and reference each have a Mac (fixed model) and a Windows laptop chosen by criteria, Linux is the current Ubuntu LTS (26.04) on each Windows laptop; this closes SRS O-15 on the project's side (the SRS row awaits its owner), and README.md:66 \"System requirements\" publishes the classes. docs/performance/README.md:79-107 holds the measurement protocol (every target on the reference class unless it names the minimum class) and 108 the results convention `<YYYY-MM-DD>-<machine id>.md`, first file docs/performance/2026-10-20-dev-mbp-m3max.md. The CI job \"Bench regression gate\" (.github/workflows/ci.yml:125) compares the criterion benches of the merge base and the pull request, publishes the table and the reports per run and fails on a regression above 20 % (scripts/bench-gate.py). Tracked elsewhere: measuring the targets on the bought machines is AS-07 (increment 4), publishing the classes with every release is NFR-PORT-006. Regression check: Bench regression gate: \"Tests of the bench gate\" (`scripts/tests/test_bench_gate.py`) and \"Benches on the merge base and on this commit\" (`scripts/bench-gate.py`); the recorded classes (docs/technology-choices.md, \"Hardware classes\", and README \"System requirements\") by the inspection per release in docs/test-plan/release-checklist.md, item 4",
       "gap": "",
       "depends_on": []
     },
@@ -5256,7 +5256,7 @@
       "section": "6.2",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Default 5 min, configurable 1–120: crates/archicraft-app/src/persistence/prefs.rs:36,69,129 and crates/archicraft-app/src/ui/dialogs.rs:682-683. Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
+      "evidence": "Done: Default 5 min, configurable 1–120: crates/archicraft-app/src/persistence/prefs.rs:36 autosave_minutes, 72 (default), 133 (clamp) and crates/archicraft-app/src/ui/dialogs.rs:682-683 (preferences_window). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -5266,7 +5266,7 @@
       "section": "6.2",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Previous version copied to .bak, older ones rotated to .bak2…, count from preferences (default 1, 0–20): crates/archicraft-app/src/persistence/mod.rs:52-63, 88-96; crates/archicraft-app/src/persistence/prefs.rs:38,70,130. Regression check: Test: `prj_005_nfr_rel_001_nfr_rel_003_saves_are_atomic_with_configurable_backups` (app); also `atomic_save_keeps_backups` (persistence/mod.rs)",
+      "evidence": "Done: Previous version copied to .bak, older ones rotated to .bak2…, count from preferences (default 1, 0–20): crates/archicraft-app/src/persistence/mod.rs:55 backup_path, 88-96 (the rotation in 70 save_atomically); crates/archicraft-app/src/persistence/prefs.rs:38 backups, 73 (default), 134 (limit). Regression check: Test: `prj_005_nfr_rel_001_nfr_rel_003_saves_are_atomic_with_configurable_backups` (app); also `atomic_save_keeps_backups` (persistence/mod.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -5326,7 +5326,7 @@
       "section": "6.3",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: model half: input is parsed at full double precision in any unit incl. imperial fractions down to 1/64\": crates/archicraft-model/src/units.rs:547 parse_length, 646 normalize_number_text, 357 format_feet_inches (fractions of 1/2^precision, at most 1/64). IFCX half: archicraft:: parameters are written at shortest round-trip precision (crates/archicraft-ifcx/src/json.rs:221 write_number), and only mesh, curve and placement coordinates are rounded to 10⁻⁶ m (crates/archicraft-ifcx/src/alpha/writer.rs:292, 301 and 314). Regression check: model half: Test: `nfr_acc_002_input_resolves_0_1_mm_and_1_64_inch_at_full_precision`; also `display_rounding_does_not_lose_typed_precision` and `parses_imperial_fractions` (units.rs); IFCX half: Test: `nfr_acc_002_parameters_keep_round_trip_precision_and_only_coordinates_are_rounded` (ifcx); also `storey_placements_are_rounded_and_storey_parameters_are_not` (determinism.rs)",
+      "evidence": "Done: model half: input is parsed at full double precision in any unit incl. imperial fractions down to 1/64\": crates/archicraft-model/src/units.rs:551 parse_length, 663 normalize_number_text, 361 format_feet_inches (fractions of 1/2^precision, at most 1/64). IFCX half: archicraft:: parameters are written at shortest round-trip precision (crates/archicraft-ifcx/src/json.rs:221 write_number), and only mesh, curve and placement coordinates are rounded to 10⁻⁶ m (crates/archicraft-ifcx/src/alpha/writer.rs:292, 301 and 314). Regression check: model half: Test: `nfr_acc_002_input_resolves_0_1_mm_and_1_64_inch_at_full_precision`; also `display_rounding_does_not_lose_typed_precision` and `parses_imperial_fractions` (units.rs); IFCX half: Test: `nfr_acc_002_parameters_keep_round_trip_precision_and_only_coordinates_are_rounded` (ifcx); also `storey_placements_are_rounded_and_storey_parameters_are_not` (determinism.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -5356,7 +5356,7 @@
       "section": "6.3",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Display formatting rounds to the project's unit and decimals only at output: crates/archicraft-model/src/units.rs:328 format_length and 379 format_angle (UnitSettings.length_decimals/angle_decimals). Regression check: Test: `nfr_acc_005_values_are_rounded_only_for_display` (model), `nfr_acc_005_property_fields_round_only_the_display` (app); also `formats_lengths` (units.rs)",
+      "evidence": "Done: Display formatting rounds to the project's unit and decimals only at output: crates/archicraft-model/src/units.rs:332 format_length and 383 format_angle (UnitSettings.length_decimals/angle_decimals). Regression check: Test: `nfr_acc_005_values_are_rounded_only_for_display` (model), `nfr_acc_005_property_fields_round_only_the_display` (app); also `formats_lengths` (units.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -5396,7 +5396,7 @@
       "section": "6.4",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: deleting elements asks nothing (crates/archicraft-app/src/workspace.rs:261 delete_selection executes an undoable command, UND-001); the only questions before a model change are the storey deletion prompt (crates/archicraft-app/src/ui/dialogs.rs:207 delete_storey_window) and the unsaved-changes prompt (crates/archicraft-app/src/app.rs:322 guard, shown at 654). The permitted one-time notice with 'do not show again' for conversions (SOL-004, ROF-009, STA-048) has no infrastructure yet because those conversions do not exist; re-inspect when they arrive. Regression check: Test: `str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask` (app)",
+      "evidence": "Done: deleting elements asks nothing (crates/archicraft-app/src/workspace.rs:362 delete_selection executes an undoable command, UND-001); the only questions before a model change are the storey deletion prompt (crates/archicraft-app/src/ui/dialogs.rs:207 delete_storey_window) and the unsaved-changes prompt (crates/archicraft-app/src/app.rs:322 guard, shown by 646 prompts). The permitted one-time notice with 'do not show again' for conversions (SOL-004, ROF-009, STA-048) has no infrastructure yet because those conversions do not exist; re-inspect when they arrive. Regression check: Test: `str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -5516,7 +5516,7 @@
       "section": "6.6",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: the model and geometry crates do not depend on archicraft-ifcx (scripts/check-layering.sh:21, CI job Repository guards, docs/testing.md); the crate carries the workspace version (0.1.0) and the IFCX version is expressed by the adapter name (ifcx_alpha in crates/archicraft-ifcx/src/lib.rs:65 ADAPTERS) plus IFX-090 dispatch. Regression check: Repository guards: \"Layering of the headless crates (NFR-MNT-002, NFR-MNT-004)\" and \"Negative self-test of the guards\"",
+      "evidence": "Done: the model and geometry crates do not depend on archicraft-ifcx (scripts/check-layering.sh:21, CI job Repository guards, docs/testing.md); the crate carries the workspace version (0.1.0) and the IFCX version is expressed by the adapter name (ifcx_alpha in crates/archicraft-ifcx/src/lib.rs:67 ADAPTERS) plus IFX-090 dispatch. Regression check: Repository guards: \"Layering of the headless crates (NFR-MNT-002, NFR-MNT-004)\" and \"Negative self-test of the guards\"",
       "gap": "",
       "depends_on": []
     },
@@ -5656,7 +5656,7 @@
       "section": "6.10",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: scripts/check-legal.sh:20-23 finds the reference product's and its maker's names outside scripts/legal-allowlist.txt, and 57 the tracked images, library parts and templates outside scripts/asset-allowlist.txt; it runs in the CI job Repository guards with a negative self-test (docs/testing.md). The inspection of what no script catches (images, templates, library parts and UI text copied from the reference product) is item 5 of docs/test-plan/release-checklist.md. Keep the untracked 'Archicad KB scraper' corpus (.gitignore:9) out of the repository; product-name trademark check (O-17) is a separate open issue. Regression check: Repository guards: \"No unreviewed trademarks or third-party assets (NFR-LEG-002)\" (`scripts/check-legal.sh`) and \"Negative self-test of the guards\"; the inspection per release in docs/test-plan/release-checklist.md, item 5",
+      "evidence": "Done: scripts/check-legal.sh:20-23 finds the reference product's and its maker's names outside scripts/legal-allowlist.txt, and 58 the tracked images, library parts and templates outside scripts/asset-allowlist.txt; it runs in the CI job Repository guards with a negative self-test (docs/testing.md). The inspection of what no script catches (images, templates, library parts and UI text copied from the reference product) is item 5 of docs/test-plan/release-checklist.md. Keep the untracked 'Archicad KB scraper' corpus (.gitignore:9) out of the repository; product-name trademark check (O-17) is a separate open issue. Regression check: Repository guards: \"No unreviewed trademarks or third-party assets (NFR-LEG-002)\" (`scripts/check-legal.sh`) and \"Negative self-test of the guards\"; the inspection per release in docs/test-plan/release-checklist.md, item 5",
       "gap": "",
       "depends_on": []
     },
