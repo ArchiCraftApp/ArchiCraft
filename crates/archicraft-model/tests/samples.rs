@@ -11,7 +11,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::Dummy;
 use archicraft_model::samples::{self, CatalogueEntry, FIXTURE_NAMESPACE, FixtureBuilder, STAND_IN_SIZES};
 use archicraft_model::template::{default_metric_project, default_metric_project_with};
-use archicraft_model::{ElementId, IfcClass, KindTag, Position, Project};
+use archicraft_model::{ElementId, IfcClass, KindTag, Position, PredefinedType, Project};
 use uuid::Uuid;
 
 /// Every identity of a project: spatial structure, resources, elements and
@@ -208,6 +208,29 @@ fn samples_are_valid() {
         .as_slab()
         .unwrap();
     assert_eq!(upper.holes.len(), 1);
+}
+
+/// IFX-024: the two-storey shell's ground slab is a base slab and its upper
+/// slab a floor, so the reference models carry predefined types; the other
+/// sample carries none.
+#[test]
+fn the_shells_slabs_carry_predefined_types() {
+    let p = samples::two_storey_shell();
+    let types: Vec<(&str, Option<PredefinedType>)> = p
+        .elements
+        .values()
+        .filter(|e| e.predefined_type.is_some() || e.tag() == KindTag::Slab)
+        .map(|e| (e.name.as_str(), e.predefined_type))
+        .collect();
+    assert_eq!(
+        types,
+        [
+            ("SL-001", Some(PredefinedType::BaseSlab)),
+            ("SL-002", Some(PredefinedType::Floor))
+        ]
+    );
+    let p = samples::storey_with_walls_and_slab();
+    assert!(p.elements.values().all(|e| e.predefined_type.is_none()));
 }
 
 /// NFR-PERF-006, VIEW-001: a stand-in has exactly the requested number of

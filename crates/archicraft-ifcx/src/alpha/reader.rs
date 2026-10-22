@@ -44,8 +44,8 @@ use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, Unit
 use archicraft_model::validate::{valid_grid_origin, valid_grid_spacing, validate_element};
 use archicraft_model::{
     BuildingId, Element, ElementId, ElementKind, IfcClass, KindTag, Layer, LayerId, MaterialId, PlanGrid, Position,
-    Project, ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab, SlabReference, Storey, StoreyId,
-    StoreyList, TopLink, ViewId, Wall,
+    PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab, SlabReference,
+    Storey, StoreyId, StoreyList, TopLink, ViewId, Wall,
 };
 use indexmap::IndexMap;
 use serde_json::value::RawValue;
@@ -271,6 +271,23 @@ fn top_link(map: &Object) -> Result<TopLink, Message> {
             offset: value,
         }),
         other => Err(about("ifcx-field-unknown-value", "link").text("value", other)),
+    }
+}
+
+/// The optional `predefinedType` of an element or a tool's defaults
+/// (IFX-024). A literal this version does not know, or a type that `kind`
+/// does not offer with `class`, is reported and left out.
+fn predefined_type(map: &Object, kind: KindTag, class: IfcClass, report: &mut Report<'_>) -> Option<PredefinedType> {
+    let predefined = report.optional(map, "predefinedType", |m, key| code(m, key, PredefinedType::from_code))?;
+    if kind.predefined_types(class).contains(&predefined) {
+        Some(predefined)
+    } else {
+        report.repaired(
+            Message::new("ifcx-predefined-type-not-offered")
+                .text("type", predefined.code())
+                .text("class", class.code()),
+        );
+        None
     }
 }
 
@@ -723,7 +740,8 @@ fn read_tool_defaults(
 
 /// One tool's defaults, with `default`'s values for invalid fields and its
 /// placeholder geometry (ELM-001). A class the kind does not allow is
-/// replaced by the default's (ELM-011).
+/// replaced by the default's (ELM-011), and a predefined type the class does
+/// not offer is left out (IFX-024).
 fn read_defaults_slot(
     map: &Object,
     default: &DefaultsSlot,
@@ -763,6 +781,7 @@ fn read_defaults_slot(
         );
         ifc_class = default.ifc_class;
     }
+    let predefined_type = predefined_type(map, kind, ifc_class, report);
     let mut payload = match &default.kind {
         ElementKind::Wall(w) => Wall {
             thickness: report.or(real(map, "thickness"), w.thickness),
@@ -787,6 +806,7 @@ fn read_defaults_slot(
         layer,
         position: report.or(code(map, "position", Position::from_code), default.position),
         ifc_class,
+        predefined_type,
         kind: payload,
     }
 }
@@ -951,6 +971,7 @@ fn read_element<A: AttributeValue>(
             default_class
         }
     };
+    let predefined_type = predefined_type(common, kind, ifc_class, &mut report);
     let material_of = |attr: &Object, report: &mut Report<'_>| {
         let id = report.or(
             uuid(attr, "material").map(MaterialId::from_uuid),
@@ -1038,6 +1059,7 @@ fn read_element<A: AttributeValue>(
         storey,
         layer,
         ifc_class,
+        predefined_type,
         position: report.or(code(common, "position", Position::from_code), Position::default()),
         locked: report.or(boolean(common, "locked"), false),
         snap_excluded: report.optional(common, "snapExcluded", boolean).unwrap_or(false),

@@ -352,6 +352,14 @@ pub fn validate_prototype(project: &Project, element: &Element) -> Result<Elemen
             .text("class", element.ifc_class.code())
             .kind("kind", element.tag()));
     }
+    // IFX-024: the type must be one the kind offers with the class.
+    if let Some(predefined) = element.predefined_type
+        && !element.tag().predefined_types(element.ifc_class).contains(&predefined)
+    {
+        return Err(Message::new("model-error-predefined-type-not-allowed")
+            .nested("type", Message::new(predefined.label_key()))
+            .text("class", element.ifc_class.code()));
+    }
     let element = Element {
         kind: element.kind.validate(&project.storeys)?,
         ..element.clone()

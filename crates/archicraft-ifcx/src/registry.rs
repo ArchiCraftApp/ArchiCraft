@@ -52,4 +52,32 @@ mod tests {
         assert!(bundled(IFC_PROP).unwrap().schemas.contains_key("bsi::ifc::prop::Name"));
         assert!(bundled(USD).unwrap().schemas.contains_key("usd::usdgeom::mesh"));
     }
+
+    /// IFX-024, O-6: the pinned ifc@v5a and prop@v5a schemas have no
+    /// standard attribute for predefined types, neither as an attribute of
+    /// its own nor as a member of `bsi::ifc::class`, so ArchiCraft keeps
+    /// them in its own namespace only. When a newer pin declares one, this
+    /// test fails: write the type with the standard attribute too (IFX-024).
+    #[test]
+    fn the_pinned_schemas_have_no_predefined_type_attribute() {
+        for uri in [IFC_CORE, IFC_PROP] {
+            let file = bundled(uri).unwrap();
+            for key in file.schemas.keys() {
+                assert!(!key.to_lowercase().contains("predefined"), "{uri} declares {key}");
+            }
+            let (_, text) = FILES.iter().find(|(u, _)| *u == uri).unwrap();
+            assert!(
+                !text.to_lowercase().contains("predefined"),
+                "{uri} mentions a predefined type"
+            );
+        }
+        let class = &bundled(IFC_CORE).unwrap().schemas["bsi::ifc::class"];
+        let members: Vec<&str> = class["value"]["objectRestrictions"]["values"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(members, ["code", "uri"]);
+    }
 }

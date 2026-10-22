@@ -107,6 +107,7 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-element-layer-missing",
     "model-error-element-material-missing",
     "model-error-ifc-class-not-allowed",
+    "model-error-predefined-type-not-allowed",
     "model-error-vertical-extent",
     "model-error-top-below-base",
     // Storeys (storey.rs).
@@ -174,13 +175,20 @@ pub const ALL_KEYS: &[&str] = &[
     "model-reference-line-center",
     "model-reference-line-inside",
     "model-reference-line-custom",
+    // Predefined types (PredefinedType::label_key).
+    "model-predefined-type-floor",
+    "model-predefined-type-roof",
+    "model-predefined-type-landing",
+    "model-predefined-type-base-slab",
+    "model-predefined-type-pad-footing",
+    "model-predefined-type-strip-footing",
 ];
 
 /// Every argument name a [`Message`] of this crate uses. Names are
 /// `&'static str`, so reading a message back (from a journal, for example)
 /// maps the name onto this list.
 pub const ARG_NAMES: &[&str] = &[
-    "count", "kind", "min", "max", "name", "reason", "class", "lower", "upper", "layer", "text",
+    "count", "kind", "min", "max", "name", "reason", "class", "lower", "upper", "layer", "text", "type",
 ];
 
 /// A typed argument of a [`Message`].

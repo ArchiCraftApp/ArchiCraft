@@ -36,6 +36,7 @@ crates/archicraft-model/src/kinds/wall.rs::Wall | "Wall" | KindDescriptor::node_
 crates/archicraft-model/src/kinds/slab.rs::Slab | "Slab" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Slab_1a2b3c4d (file format)
 crates/archicraft-model/src/kinds/dummy.rs::Dummy | "Dummy" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Dummy_1a2b3c4d (file format, test builds only)
 crates/archicraft-model/src/element.rs::IfcClass::code | * | keyword table: IFC class names written to IFCX (bsi::ifc::class)
+crates/archicraft-model/src/element.rs::PredefinedType::code | * | keyword table: IFC 4.3 predefined-type literals written to IFCX (archicraft::element.predefinedType, IFX-024)
 crates/archicraft-model/src/material.rs::MaterialCategory::code | * | keyword table: IFC material category codes written to IFCX
 
 # Unit symbols: international symbols appended to formatted numbers (STR-009,

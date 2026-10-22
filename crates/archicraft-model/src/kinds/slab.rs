@@ -4,7 +4,7 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
 use super::{Kind, KindDescriptor, KindTag, plan_bounds_of};
-use crate::element::{Element, IfcClass, Position};
+use crate::element::{Element, IfcClass, Position, PredefinedType};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
 use crate::project::{DefaultsSlot, Project};
@@ -70,6 +70,7 @@ fn template_defaults(context: &TemplateContext<'_>) -> DefaultsSlot {
         layer: context.layer("Slabs"),
         position: Position::Undefined,
         ifc_class: Slab::DESCRIPTOR.default_class,
+        predefined_type: None,
         kind: Slab {
             outline: vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::Y],
             holes: Vec::new(),
@@ -106,6 +107,7 @@ impl Kind for Slab {
         name_prefix: "SL",
         default_class: IfcClass::Slab,
         ifc_classes: &[IfcClass::Slab, IfcClass::Footing, IfcClass::Covering],
+        predefined_types: PredefinedType::for_class,
         has_tool: true,
         template_defaults: Some(template_defaults),
     };

@@ -12,7 +12,7 @@ use glam::DVec2;
 use uuid::Uuid;
 
 use crate::command::{Command, History};
-use crate::element::{Element, ElementKind, KindTag, Position};
+use crate::element::{Element, ElementKind, KindTag, Position, PredefinedType};
 use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
 use crate::kinds::ReferenceLine;
 use crate::project::Project;
@@ -137,18 +137,19 @@ impl FixtureBuilder {
     }
 
     /// Creates an element of any registered kind on `storey`. Walls and
-    /// slabs get the layer, position and IFC class of their tool defaults
-    /// (ELM-001); other kinds get their default IFC class, the first layer
+    /// slabs get the layer, position, IFC class and predefined type of their
+    /// tool defaults (ELM-001); other kinds get their default IFC class, the first layer
     /// and an undefined position, like [`crate::kinds`]' test kind.
     pub fn element(&mut self, storey: StoreyId, kind: impl Into<ElementKind>) -> ElementId {
         let kind = kind.into();
         let tag = kind.tag();
-        let (layer, position, ifc_class) = match self.project.tool_defaults.get(tag) {
-            Some(slot) => (slot.layer, slot.position, slot.ifc_class),
+        let (layer, position, ifc_class, predefined_type) = match self.project.tool_defaults.get(tag) {
+            Some(slot) => (slot.layer, slot.position, slot.ifc_class, slot.predefined_type),
             None => (
                 self.project.layers[0].id,
                 Position::Undefined,
                 tag.descriptor().default_class,
+                None,
             ),
         };
         let nth = self.pending_per_kind.entry(tag).or_default();
@@ -161,6 +162,7 @@ impl FixtureBuilder {
             storey,
             layer,
             ifc_class,
+            predefined_type,
             position,
             locked: false,
             snap_excluded: false,
@@ -274,7 +276,8 @@ pub fn storey_with_walls_and_slab() -> Project {
 }
 
 /// A two-storey shell: exterior walls on both storeys, an interior wall in a
-/// T junction, a ground slab and an upper floor slab with a stair opening.
+/// T junction, a ground slab (a base slab) and an upper floor slab with a
+/// stair opening (a floor) (IFX-024).
 pub fn two_storey_shell() -> Project {
     let mut b = FixtureBuilder::new("two-storey-shell").titled("Two-storey shell");
     let ground = b.storey(0);
@@ -290,9 +293,11 @@ pub fn two_storey_shell() -> Project {
         b.commit();
     }
 
-    b.slab(ground, outline.clone(), Vec::new());
+    let base = b.slab(ground, outline.clone(), Vec::new());
+    b.edit(base, |e| e.predefined_type = Some(PredefinedType::BaseSlab));
     let stair_hole = rectangle(DVec2::new(6.0, 1.0), DVec2::new(9.0, 2.2));
-    b.slab(upper, outline, vec![stair_hole]);
+    let floor = b.slab(upper, outline, vec![stair_hole]);
+    b.edit(floor, |e| e.predefined_type = Some(PredefinedType::Floor));
     b.finish()
 }
 

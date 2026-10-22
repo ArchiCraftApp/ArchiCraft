@@ -13,12 +13,12 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
-| done | 67 | 8 | 1 | 76 |
+| done | 68 | 8 | 1 | 77 |
 | partial | 111 | 35 | 6 | 152 |
-| missing | 136 | 156 | 47 | 339 |
+| missing | 135 | 156 | 47 | 338 |
 | **total** | 314 | 199 | 54 | 567 |
 
-Remaining effort of the 491 open requirements: S 115, M 215, L 136, XL 25.
+Remaining effort of the 490 open requirements: S 115, M 214, L 136, XL 25.
 
 <!-- status:end counts -->
 
@@ -62,7 +62,7 @@ Remaining effort of the 491 open requirements: S 115, M 215, L 136, XL 25.
 | 4.31 | Preferences | 0/2/0 | 0/2/0 | 0/0/0 | 4 |
 | 5.2.1 | File structure and conformance | 3/3/0 | 1/0/0 | 1/0/0 | 8 |
 | 5.2.2 | Identity and tree structure | 3/3/2 | 0/0/0 | 0/0/0 | 8 |
-| 5.2.3 | Semantics | 3/0/1 | 1/0/0 | 0/1/0 | 6 |
+| 5.2.3 | Semantics | 4/0/0 | 1/0/0 | 0/1/0 | 6 |
 | 5.2.4 | Geometry and placement | 3/3/1 | 0/1/1 | 0/0/0 | 9 |
 | 5.2.5 | Materials and appearance | 1/1/0 | 0/1/0 | 0/0/1 | 4 |
 | 5.2.6 | Types | 0/0/0 | 0/0/2 | 0/0/0 | 2 |
@@ -831,7 +831,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | IFX-021 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:392 writes bsi::ifc::prop::Name on the project, 408 on the site, 427 on the building, 444 on every storey and 505 on every element, and 394 the project description as bsi::ifc::prop::Description. Elements have no description field in the model yet; when ELM adds one it must be written as bsi::ifc::prop::Description. Regression check: Test: `ifx_021_names_everywhere_and_the_project_description` (ifcx) |
 | IFX-022 | S | done | none | Done: crates/archicraft-model/src/element.rs:64 Position, 86 is_external() (None when undefined). Regression check: Test: `ifx_022_is_external_follows_the_known_position` (ifcx) |
 | IFX-023 | C | partial | M | Compute Height/Width/Length/Depth/NetVolume/NetArea/NetSideArea/CrossSectionArea per element kind from the evaluated geometry and write them with the prop@v5a attributes |
-| IFX-024 | M | missing | M | Add predefined-type fields to the model (slab type, footing type), expose them in the UI, declare and write them in the archicraft namespace, read them back; add a standard attribute when the registry provides one (O-6) |
+| IFX-024 | M | done | none | Done: PredefinedType (crates/archicraft-model/src/element.rs:67) holds the IFC 4.3 literals of IfcSlabTypeEnum (FLOOR, ROOF, LANDING, BASESLAB) and IfcFootingTypeEnum (PAD_FOOTING, STRIP_FOOTING); PredefinedType::for_class (element.rs:118) gives the types per class and the descriptor hook KindDescriptor::predefined_types (crates/archicraft-model/src/kinds/mod.rs:78) the types per kind; Element::predefined_type and DefaultsSlot::predefined_type are optional, and validate_prototype rejects a type the class does not offer (crates/archicraft-model/src/validate.rs:355), for elements and tool defaults. The type is stored in the ArchiCraft namespace as archicraft::element.predefinedType and as predefinedType of the wall and slab tool defaults, declared as an optional enumeration (crates/archicraft-ifcx/src/alpha/schema.rs:116, 131, 147, 275), written only when set (crates/archicraft-ifcx/src/alpha/writer.rs:114, 532) and read back with an unknown or not offered literal reported and left out (crates/archicraft-ifcx/src/alpha/reader.rs:280). The properties panel offers the class's types and drops a type the new class does not offer (crates/archicraft-app/src/ui/properties.rs:458, 486). The pinned ifc@v5a and prop@v5a schemas have no standard attribute for predefined types (O-6 open); the registry test fails once a pin declares one. Regression check: Test: `predefined_types_follow_the_ifc_class`, `update_elements_rejects_a_type_the_class_does_not_offer`, `add_elements_rejects_a_type_the_class_does_not_offer`, `tool_defaults_reject_a_type_the_class_does_not_offer` (predefined_types.rs: `crates/archicraft-model/tests/predefined_types.rs`); `predefined_types_round_trip`, `an_unknown_predefined_type_loads_with_one_warning_and_no_type`, `a_predefined_type_the_class_does_not_offer_loads_with_one_warning`, `defaults_slots_with_predefined_types_round_trip` (roundtrip.rs: `crates/archicraft-ifcx/tests/roundtrip.rs`); `the_pinned_schemas_have_no_predefined_type_attribute` (registry.rs); `a_slab_offers_its_predefined_types_and_a_wall_none`, `changing_the_class_clears_a_type_the_new_class_does_not_offer`, `a_predefined_type_in_the_strip_updates_the_slab_defaults_slot` (ui.rs: `crates/archicraft-app/tests/ui.rs`) |
 | IFX-025 | M | done | none | Done: crates/archicraft-geometry/src/evaluate.rs:184 extrudes a slab's outline together with its holes into one body mesh, and crates/archicraft-ifcx/src/alpha/writer.rs:478 write_element writes only the body parts and the axis as children, no IfcOpeningElement and no Void. Semantic openings with Void children for doors, windows and openings are covered by IFX-036. Regression check: Test: `ifx_025_slab_holes_are_geometry_not_openings` (ifcx) |
 
 ### 5.2.4 Geometry and placement

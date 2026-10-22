@@ -689,6 +689,7 @@ fn check_slot(project: &Project, kind: KindTag, slot: &DefaultsSlot) -> Result<(
         storey: project.storeys.ground(),
         layer: slot.layer,
         ifc_class: slot.ifc_class,
+        predefined_type: slot.predefined_type,
         position: slot.position,
         locked: false,
         snap_excluded: false,

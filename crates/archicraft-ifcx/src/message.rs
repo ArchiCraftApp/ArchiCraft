@@ -117,6 +117,7 @@ pub const ALL_KEYS: &[&str] = &[
     "ifcx-element-data-not-object",
     "ifcx-element-layer-missing",
     "ifcx-element-class-unsupported",
+    "ifcx-predefined-type-not-offered",
     "ifcx-element-material-missing",
     "ifcx-parameters-missing",
     "ifcx-holes-left-out",

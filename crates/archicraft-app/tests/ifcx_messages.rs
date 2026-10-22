@@ -158,6 +158,9 @@ fn representatives() -> Vec<Message> {
         Message::new("ifcx-storeys-unreadable").nested("reason", Message::new("model-error-no-storeys")),
         text("ifcx-storey-lost", "name"),
         text("ifcx-element-class-unsupported", "default"),
+        Message::new("ifcx-predefined-type-not-offered")
+            .text("type", "FLOOR")
+            .text("class", "IfcWall"),
         text("ifcx-element-material-missing", "name"),
         Message::new("ifcx-parameters-missing").kind("kind", KindTag::Wall),
         nested("ifcx-holes-left-out", "reason"),

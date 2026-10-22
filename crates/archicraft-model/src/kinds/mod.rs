@@ -35,7 +35,7 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use crate::element::{Element, IfcClass};
+use crate::element::{Element, IfcClass, PredefinedType};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
 use crate::project::DefaultsSlot;
@@ -73,6 +73,9 @@ pub struct KindDescriptor {
     /// The IFC classes selectable for this kind, including the default
     /// (ELM-011).
     pub ifc_classes: &'static [IfcClass],
+    /// The predefined types an element of this kind may carry with a class
+    /// (IFX-024); [`PredefinedType::for_class`] unless the kind narrows it.
+    pub predefined_types: fn(IfcClass) -> &'static [PredefinedType],
     /// Whether a drawing tool creates this kind. The name counters of such
     /// kinds are always written to files.
     pub has_tool: bool,
@@ -410,6 +413,12 @@ impl KindTag {
     /// IFC classes selectable for this kind (ELM-011).
     pub fn ifc_classes(self) -> &'static [IfcClass] {
         self.descriptor().ifc_classes
+    }
+
+    /// The predefined types an element of this kind offers with `class`
+    /// (IFX-024).
+    pub fn predefined_types(self, class: IfcClass) -> &'static [PredefinedType] {
+        (self.descriptor().predefined_types)(class)
     }
 }
 

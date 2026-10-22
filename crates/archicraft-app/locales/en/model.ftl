@@ -131,6 +131,7 @@ model-error-home-storey-missing = The element's home storey does not exist.
 model-error-element-layer-missing = The element's layer does not exist.
 model-error-element-material-missing = The element's material does not exist.
 model-error-ifc-class-not-allowed = { $class } is not an allowed IFC class for a { $kind }.
+model-error-predefined-type-not-allowed = { $type } is not a predefined type of { $class }.
 model-error-vertical-extent = The element's vertical extent cannot be determined.
 model-error-top-below-base = The top of the element must be above its base.
 
@@ -211,3 +212,12 @@ model-reference-line-outside = Exterior face
 model-reference-line-center = Centre
 model-reference-line-inside = Interior face
 model-reference-line-custom = Custom offset
+
+## Predefined types of IFC classes (IFX-024).
+
+model-predefined-type-floor = Floor
+model-predefined-type-roof = Roof
+model-predefined-type-landing = Landing
+model-predefined-type-base-slab = Base slab
+model-predefined-type-pad-footing = Pad footing
+model-predefined-type-strip-footing = Strip footing

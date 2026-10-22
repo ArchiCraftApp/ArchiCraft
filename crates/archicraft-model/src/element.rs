@@ -58,6 +58,77 @@ impl IfcClass {
     }
 }
 
+/// What IFC 4.x expresses as the predefined type of an element's class
+/// (IFX-024), for example a slab that is a floor or a footing that is a
+/// strip. The codes are the IFC 4.3 enumeration literals (IfcSlabTypeEnum,
+/// IfcFootingTypeEnum), so that a future standard attribute can carry them
+/// verbatim (O-6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PredefinedType {
+    Floor,
+    Roof,
+    Landing,
+    BaseSlab,
+    PadFooting,
+    StripFooting,
+}
+
+impl PredefinedType {
+    pub const ALL: [PredefinedType; 6] = [
+        PredefinedType::Floor,
+        PredefinedType::Roof,
+        PredefinedType::Landing,
+        PredefinedType::BaseSlab,
+        PredefinedType::PadFooting,
+        PredefinedType::StripFooting,
+    ];
+
+    /// The IFC 4.3 enumeration literal, written as
+    /// `archicraft::element.predefinedType` (IFX-024).
+    pub fn code(self) -> &'static str {
+        match self {
+            PredefinedType::Floor => "FLOOR",
+            PredefinedType::Roof => "ROOF",
+            PredefinedType::Landing => "LANDING",
+            PredefinedType::BaseSlab => "BASESLAB",
+            PredefinedType::PadFooting => "PAD_FOOTING",
+            PredefinedType::StripFooting => "STRIP_FOOTING",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|t| t.code() == code)
+    }
+
+    /// Message key of the type's name in choices (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
+        match self {
+            PredefinedType::Floor => "model-predefined-type-floor",
+            PredefinedType::Roof => "model-predefined-type-roof",
+            PredefinedType::Landing => "model-predefined-type-landing",
+            PredefinedType::BaseSlab => "model-predefined-type-base-slab",
+            PredefinedType::PadFooting => "model-predefined-type-pad-footing",
+            PredefinedType::StripFooting => "model-predefined-type-strip-footing",
+        }
+    }
+
+    /// The types IFC 4.3 defines for `class` that ArchiCraft offers
+    /// (IFX-024): floor, roof, landing and base slab for `IfcSlab`, pad and
+    /// strip for `IfcFooting`, none for the other classes.
+    pub fn for_class(class: IfcClass) -> &'static [PredefinedType] {
+        match class {
+            IfcClass::Slab => &[
+                PredefinedType::Floor,
+                PredefinedType::Roof,
+                PredefinedType::Landing,
+                PredefinedType::BaseSlab,
+            ],
+            IfcClass::Footing => &[PredefinedType::PadFooting, PredefinedType::StripFooting],
+            _ => &[],
+        }
+    }
+}
+
 /// Position of an element relative to the building envelope (ELM-012),
 /// written as `IsExternal` when known (IFX-022).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -137,6 +208,9 @@ pub struct Element {
     pub storey: StoreyId,
     pub layer: LayerId,
     pub ifc_class: IfcClass,
+    /// One of the types the kind offers for `ifc_class`, or none (IFX-024).
+    #[serde(default)]
+    pub predefined_type: Option<PredefinedType>,
     pub position: Position,
     /// Locked elements reject edits (ELM-013).
     pub locked: bool,
