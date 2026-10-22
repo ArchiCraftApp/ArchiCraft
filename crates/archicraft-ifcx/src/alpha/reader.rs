@@ -19,6 +19,12 @@
 //! `planGrid` (files from before INP-013) and the `snapExcluded` flag of
 //! elements and layers, written only when set (INP-017). Their absence is
 //! no problem.
+//!
+//! An opened file holds its attribute values as raw JSON text
+//! ([`crate::validate::parse_raw`]); the reader parses the attributes it
+//! reads, element by element, and drops each tree once the element is read
+//! (NFR-SEC-003). It never reads the `usd::` geometry, which is evaluated
+//! again from the parameters (IFX-010).
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -40,13 +46,14 @@ use archicraft_model::{
     StoreyList, TopLink, ViewId, Wall,
 };
 use indexmap::IndexMap;
+use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use super::migrate::{self, Migration};
 use super::schema::{self, FORMAT_VERSION};
 use super::writer::IFCX_VERSION;
-use crate::container::IfcxFile;
+use crate::container::{AttributeValue, IfcxFile};
 use crate::validate::{self, FlatNode, Problem};
 
 /// A project read from a file, with everything worth reporting.
@@ -252,15 +259,21 @@ fn reference_line(map: &Object) -> Result<ReferenceLine, String> {
     }
 }
 
-fn class_code(node: &FlatNode) -> Option<&str> {
-    node.attributes.get("bsi::ifc::class")?.get("code")?.as_str()
+/// The attribute `id` of `node` as a tree, parsed if it is raw text. `None`
+/// when it is absent, or when it cannot be parsed, which validation reports.
+fn attribute<'n, A: AttributeValue>(node: &'n FlatNode<A>, id: &str) -> Option<Cow<'n, Value>> {
+    node.attributes.get(id)?.value().ok()
 }
 
-fn name(node: &FlatNode) -> Option<String> {
-    node.attributes
-        .get("bsi::ifc::prop::Name")
-        .and_then(Value::as_str)
+fn class_code<A: AttributeValue>(node: &FlatNode<A>) -> Option<String> {
+    attribute(node, "bsi::ifc::class")?
+        .get("code")?
+        .as_str()
         .map(str::to_owned)
+}
+
+fn name<A: AttributeValue>(node: &FlatNode<A>) -> Option<String> {
+    attribute(node, "bsi::ifc::prop::Name")?.as_str().map(str::to_owned)
 }
 
 fn node_uuid(path: &str, report: &mut Report<'_>) -> Uuid {
@@ -271,16 +284,16 @@ fn node_uuid(path: &str, report: &mut Report<'_>) -> Uuid {
 }
 
 /// Children of `node` whose class is `class`, in order.
-fn children_with_class<'n>(
-    nodes: &'n IndexMap<String, FlatNode>,
-    node: &FlatNode,
+fn children_with_class<'n, A: AttributeValue>(
+    nodes: &'n IndexMap<String, FlatNode<A>>,
+    node: &FlatNode<A>,
     class: &str,
-) -> Vec<(&'n String, &'n FlatNode)> {
+) -> Vec<(&'n String, &'n FlatNode<A>)> {
     node.children
         .values()
         .flatten()
         .filter_map(|path| nodes.get_key_value(path.as_str()))
-        .filter(|(_, n)| class_code(n) == Some(class))
+        .filter(|(_, n)| class_code(n).as_deref() == Some(class))
         .collect()
 }
 
@@ -733,9 +746,9 @@ fn read_defaults_slot(
     }
 }
 
-fn read_storeys(
-    nodes: &IndexMap<String, FlatNode>,
-    building: &FlatNode,
+fn read_storeys<A: AttributeValue>(
+    nodes: &IndexMap<String, FlatNode<A>>,
+    building: &FlatNode<A>,
     problems: &mut Vec<Problem>,
 ) -> Vec<(Storey, Vec<String>)> {
     let mut storeys = Vec::new();
@@ -757,8 +770,8 @@ fn read_storeys(
             report.repaired("it has no name; “Storey” is used");
             "Storey".into()
         });
-        let attr = node.attributes.get(schema::STOREY).and_then(Value::as_object);
-        let Some(attr) = attr else {
+        let attr = attribute(node, schema::STOREY);
+        let Some(attr) = attr.as_deref().and_then(Value::as_object) else {
             report.repaired("it has no ArchiCraft data; elevation 0 and height 3 m are assumed");
             let storey = Storey {
                 id,
@@ -852,19 +865,22 @@ fn storey_list(
 }
 
 /// Names an element node in reports, by its name if it has one.
-fn element_record(path: &str, node: &FlatNode) -> String {
+fn element_record<A: AttributeValue>(path: &str, node: &FlatNode<A>) -> String {
     format!("element {}", name(node).as_deref().unwrap_or(path))
 }
 
-fn read_element(
+/// Reads the element at `path`. Its attributes are parsed here and dropped
+/// when it is read (NFR-SEC-003).
+fn read_element<A: AttributeValue>(
     project: &Project,
     path: &str,
-    node: &FlatNode,
+    node: &FlatNode<A>,
     storey: StoreyId,
     problems: &mut Vec<Problem>,
 ) -> Option<Element> {
     let mut report = Report::new(problems, path, element_record(path, node));
-    let Some(common) = node.attributes.get(schema::ELEMENT).and_then(Value::as_object) else {
+    let common = attribute(node, schema::ELEMENT);
+    let Some(common) = common.as_deref().and_then(Value::as_object) else {
         report.skipped("its ArchiCraft data is not an object");
         return None;
     };
@@ -888,7 +904,7 @@ fn read_element(
     }
     // ELM-011: a class the kind does not allow falls back to its default.
     let default_class = kind.descriptor().default_class;
-    let ifc_class = match class_code(node).and_then(IfcClass::from_code) {
+    let ifc_class = match class_code(node).as_deref().and_then(IfcClass::from_code) {
         Some(c) if kind.ifc_classes().contains(&c) => c,
         _ => {
             report.repaired(format!("unsupported IFC class; {} is used", default_class.code()));
@@ -912,7 +928,8 @@ fn read_element(
     };
     let element_kind = match kind {
         KindTag::Wall => {
-            let Some(attr) = node.attributes.get(schema::WALL).and_then(Value::as_object) else {
+            let attr = attribute(node, schema::WALL);
+            let Some(attr) = attr.as_deref().and_then(Value::as_object) else {
                 report.skipped("wall parameters are missing");
                 return None;
             };
@@ -942,7 +959,8 @@ fn read_element(
             })
         }
         KindTag::Slab => {
-            let Some(attr) = node.attributes.get(schema::SLAB).and_then(Value::as_object) else {
+            let attr = attribute(node, schema::SLAB);
+            let Some(attr) = attr.as_deref().and_then(Value::as_object) else {
                 report.skipped("slab parameters are missing");
                 return None;
             };
@@ -995,21 +1013,41 @@ fn read_element(
     }
 }
 
-/// Reads a document written by ArchiCraft, after migrating it from an
-/// earlier ArchiCraft format (IFX-062, IFX-091). Fails only if the file holds
-/// no ArchiCraft project at all.
-pub fn read(file: &IfcxFile) -> Result<ReadOutcome, Problem> {
+/// Reads a document written by ArchiCraft, opened with raw attribute values
+/// ([`validate::parse_raw`]), after migrating it from an earlier ArchiCraft
+/// format (IFX-062, IFX-091). Fails only if the file holds no ArchiCraft
+/// project at all. Not generic, so that it is the `fn` pointer of the
+/// adapter table ([`crate::Adapter::read`]).
+pub fn read(file: &IfcxFile<&RawValue>) -> Result<ReadOutcome, Problem> {
     read_with(file, migrate::MIGRATIONS, FORMAT_VERSION)
 }
 
 /// [`read`] with another migration chain up to format `current`, so that
-/// tests can run synthetic migrations.
-pub(crate) fn read_with(file: &IfcxFile, migrations: &[Migration], current: u32) -> Result<ReadOutcome, Problem> {
+/// tests can run synthetic migrations, and for either type of attribute
+/// value.
+pub(crate) fn read_with<A: AttributeValue>(
+    file: &IfcxFile<A>,
+    migrations: &[Migration],
+    current: u32,
+) -> Result<ReadOutcome, Problem> {
     let mut problems = Vec::new();
-    let mut file = Cow::Borrowed(file);
-    let migrated_from = migrate::upgrade(&mut file, migrations, current, &mut problems);
-    problems.extend(validate::validate(&file));
-    let nodes = validate::flatten(&file);
+    match migrate::upgrade(file, migrations, current, &mut problems) {
+        Some((migrated, from)) => read_migrated(&migrated, Some(from), current, problems),
+        None => read_migrated(file, None, current, problems),
+    }
+}
+
+/// Reads `file`, at format `current` or not migratable to it; `problems`
+/// holds the migration's reports.
+fn read_migrated<A: AttributeValue>(
+    file: &IfcxFile<A>,
+    migrated_from: Option<u32>,
+    current: u32,
+    mut problems: Vec<Problem>,
+) -> Result<ReadOutcome, Problem> {
+    // Flattened once, for validation and reading.
+    let nodes = validate::flatten(file);
+    problems.extend(validate::validate_flattened(file, &nodes, &[]));
 
     let Some((root_path, root)) = nodes.iter().find(|(_, n)| n.attributes.contains_key(schema::PROJECT)) else {
         return Err(Problem::error(
@@ -1017,7 +1055,8 @@ pub(crate) fn read_with(file: &IfcxFile, migrations: &[Migration], current: u32)
             "this IFCX file holds no ArchiCraft project; opening IFCX files from other tools is not supported yet",
         ));
     };
-    let Some(project_attr) = root.attributes.get(schema::PROJECT).and_then(Value::as_object) else {
+    let project_attr = attribute(root, schema::PROJECT);
+    let Some(project_attr) = project_attr.as_deref().and_then(Value::as_object) else {
         return Err(Problem::error(
             Some(root_path),
             "the ArchiCraft project data is not an object",
@@ -1027,9 +1066,8 @@ pub(crate) fn read_with(file: &IfcxFile, migrations: &[Migration], current: u32)
     let mut root_report = Report::new(&mut problems, root_path, "project");
     let project_id = ProjectId::from_uuid(node_uuid(root_path, &mut root_report));
     data.info.name = name(root).unwrap_or_else(|| "Untitled project".into());
-    data.info.description = root
-        .attributes
-        .get("bsi::ifc::prop::Description")
+    data.info.description = attribute(root, "bsi::ifc::prop::Description")
+        .as_deref()
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
