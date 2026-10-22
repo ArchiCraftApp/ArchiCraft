@@ -591,10 +591,12 @@ ArchiCraft attributes of a golden file replaced in turn by extreme values (3,330
 found four problems:
 
 1. *Time-out:* a slab outline of 32,003 points (324 KB) took 16 s to open, because the
-   self-intersection checks of `validate_ring` grow with the square of the points. Fixed:
+   self-intersection checks of `validate_ring` grew with the square of the points. Fixed:
    `MAX_SLAB_POINTS` limits a slab to 1,000 points in its outline and holes together, checked
-   before those checks run; the slab is skipped with a message. Regression:
-   `slab-outline-1003-points.ifcx`.
+   before those checks run; the slab is skipped with a message. Since archicraft-91jj the
+   checks are a sweep line (`crates/archicraft-model/src/validate/sweep.rs`) and the limit is
+   the 10,000 points of SRS Appendix D.9. Regression: `slab-outline-10003-points.ifcx`, one
+   tooth of a comb above the limit (`slab-outline-1003-points.ifcx` before).
 2. *Out of memory:* a storey listed 5,000 times among the building's children (260 KB) was
    read once per listing; saving the 5,000 storeys needed more than 2 GB. Fixed: the reader
    reads a storey once and reports each further listing. Regression:
@@ -680,10 +682,13 @@ limit with archicraft-4rrc.1 alone, in its second `load` (of the saved 52.6 MB).
 archicraft-4rrc.2 the input runs through with `-rss_limit_mb=2048`
 (`fuzz/target/aarch64-apple-darwin/release/ifcx_load -rss_limit_mb=2048 <input>`, built by
 `cargo +nightly fuzz build`): peak RSS 1,285 MB, 50 s. That is longer than the 10 s time-out of
-the fuzz runs: in a release build, opening the input takes 2.7 s and opening the saved file
+the fuzz runs: in a release build, opening the input took 2.7 s and opening the saved file
 3.2 s, nearly all of it validating the 400 slabs of 999 points (99 % of the reader's samples
-in `validate_ring`), whose self-intersection checks grow with the square of the points
-(archicraft-91jj replaces them with a sweep-line check).
+in `validate_ring`), whose self-intersection checks grew with the square of the points.
+archicraft-91jj made them a sweep line: in a release build opening the input now takes 0.3 s
+and opening the saved file 0.8 s (2026-10-22, Apple M-series). Through the fuzz target the
+input still takes 45 s, with validation about an eighth of the samples; the rest is reading,
+evaluating and saving the 52.6 MB under AddressSanitizer (archicraft-tuy0).
 
 **Licences.** The fuzz crate is outside the workspace, so `cargo deny` does not list it;
 this paragraph is its entry in the licence inventory (NFR-LEG-001). Beyond the ArchiCraft
@@ -720,13 +725,18 @@ in `limits.rs`, and `crates/archicraft-ifcx/tests/parse.rs`). Opening and saving
 multiple of the file's size in memory, so a large valid file does not exhaust it (Fuzzing,
 **Memory**).
 
-D.9 also limits a slab to 10,000 points in its outline and holes together. The code still
-caps it at 1,000 (`MAX_SLAB_POINTS` in `crates/archicraft-model/src/validate.rs`, because the
-self-intersection checks grow with the square of the points) until archicraft-91jj raises it
-with a sweep-line check. Beyond D.9, two bounds keep a small crafted file from stalling the
-reader (found by the first fuzz campaign, Fuzzing): a storey that the building lists more than
-once is read once, the further listings reported, and so is an element listed more than once in
-one storey or several.
+D.9 also limits a slab to 10,000 points in its outline and holes together (`MAX_SLAB_POINTS`
+in `crates/archicraft-model/src/validate.rs`), checked before the polygon checks. Those are a
+sweep line that tests a few pairs of edges per point (`validate/sweep.rs`), so a slab at the
+limit validates in about 10 ms in a release build, whatever its shape
+(`slabs_at_the_point_limit_validate_quickly`, `the_sweep_tests_a_few_pairs_of_edges_per_point`;
+the test holds each slab to 100 ms only in a release build, `cargo test --release -p
+archicraft-model --lib validate`, and to 250 ms in the gate's and CI's test builds),
+and agrees with testing every pair of edges (`rings_validate_as_with_every_pair_of_edges_tested`,
+`slabs_validate_as_with_every_pair_of_edges_tested`). Beyond D.9, two bounds keep a small
+crafted file from stalling the reader (found by the first fuzz campaign, Fuzzing): a storey
+that the building lists more than once is read once, the further listings reported, and so is
+an element listed more than once in one storey or several.
 
 **No execution.** File content only ever becomes data: the reader has no `eval`, loads no
 plugins or libraries and spawns no processes, and nothing in a file selects code to run.

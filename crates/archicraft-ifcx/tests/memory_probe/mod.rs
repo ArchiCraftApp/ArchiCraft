@@ -89,8 +89,8 @@ const WALLS_AND_SLAB: &[u8] = include_bytes!("../golden/walls-and-slab.ifcx");
 /// The input of archicraft-4rrc: the golden file `walls-and-slab.ifcx` with
 /// `slabs` more slabs on its ground storey, each a copy of SL-001 with a new
 /// path and an outline of 999 points (a comb of 249 teeth, valid and just
-/// below `MAX_SLAB_POINTS`). The fuzz finding used 400 slabs (3.3 MB); saved
-/// with their meshes they make a file of about 52 MB.
+/// below the point limit of the time, 1,000). The fuzz finding used 400 slabs
+/// (3.3 MB); saved with their meshes they make a file of about 52 MB.
 pub fn many_slabs(slabs: usize) -> Vec<u8> {
     let mut file: Value = serde_json::from_slice(WALLS_AND_SLAB).expect("the golden file is JSON");
     let data = file["data"].as_array_mut().expect("a data list");

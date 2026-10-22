@@ -1,8 +1,9 @@
 //! Measures the memory of saving and opening a large project (NFR-SEC-003,
 //! archicraft-4rrc), for the record in docs/testing.md (Fuzzing).
 //!
-//! The input is that of the fuzz finding: valid slabs at the point limit,
-//! whose meshes make the saved file about 15 times larger than the input.
+//! The input is that of the fuzz finding: valid slabs of 999 points (the
+//! point limit was 1,000 then), whose meshes make the saved file about 15
+//! times larger than the input.
 //! Each command prints every phase's peak heap, counted by a global
 //! allocator, next to the heap held before the phase. Run each command in a
 //! release build under `/usr/bin/time -l` (macOS) or `/usr/bin/time -v`

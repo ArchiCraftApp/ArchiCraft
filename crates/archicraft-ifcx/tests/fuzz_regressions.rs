@@ -94,21 +94,22 @@ fn the_regression_corpus_holds_the_malformed_inputs() {
     }
 }
 
-/// NFR-SEC-003: a slab of more than `MAX_SLAB_POINTS` points stalled the
-/// open path in the first fuzz campaign (docs/testing.md, Fuzzing): the
-/// self-intersection checks grow with the square of the points, and 32,003
-/// took 16 s. Such a slab is now skipped with a message naming the limit,
-/// before those checks run, and the rest of the project opens.
+/// NFR-SEC-003, SLB-003: a slab outline of 32,003 points stalled the open
+/// path in the first fuzz campaign (docs/testing.md, Fuzzing), because the
+/// self-intersection checks then grew with the square of the points. A slab
+/// of more than `MAX_SLAB_POINTS` (10,000) points is skipped with a message
+/// naming the limit, before those checks run, and the rest of the project
+/// opens; here the outline has one tooth more than the comb at the limit.
 #[test]
 fn a_slab_with_too_many_points_is_skipped_with_a_message() {
-    let bytes = std::fs::read(regression_dir().join("slab-outline-1003-points.ifcx")).unwrap();
+    let bytes = std::fs::read(regression_dir().join("slab-outline-10003-points.ifcx")).unwrap();
     let outcome = archicraft_ifcx::load(&bytes).unwrap();
     assert_eq!(outcome.project.elements.len(), 4, "only the four walls are left");
     assert!(
         outcome
             .problems
             .iter()
-            .any(|p| p.message.contains("SL-001") && p.message.contains("model-error-slab-points(max=1000)")),
+            .any(|p| p.message.contains("SL-001") && p.message.contains("model-error-slab-points(max=10000)")),
         "{:?}",
         outcome.problems
     );
@@ -139,8 +140,8 @@ fn a_storey_listed_three_times_is_read_once() {
 /// read and validated once per listing, found when reviewing the first fuzz
 /// campaign: a slab of 999 points listed 20,000 times (1 MB) took longer than
 /// the 10 s time-out. An element is now read once and each further listing
-/// is reported; here the slab is above the point limit, so reading it again
-/// would report the limit again.
+/// is reported; here the slab (10,003 points) is above the point limit, so
+/// reading it again would report the limit again.
 #[test]
 fn an_element_listed_three_times_is_read_once() {
     let bytes = std::fs::read(regression_dir().join("slab-listed-three-times.ifcx")).unwrap();
