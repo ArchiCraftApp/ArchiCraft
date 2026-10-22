@@ -452,6 +452,33 @@ fn saving_node_by_node_writes_the_bytes_of_the_whole_document() {
     }
 }
 
+#[test]
+fn each_element_node_comes_right_before_its_sub_nodes_in_child_order() {
+    // NFR-SEC-003: `save` emits an element node first and then each body and
+    // the axis node as it builds them, so an element's sub-nodes follow it
+    // directly, in the order of its children.
+    for project in common::samples() {
+        let geometry = ModelGeometry::evaluate(&project);
+        let data = write(&project, &geometry, &options()).file.data;
+        let elements: std::collections::HashSet<String> = project.elements.keys().map(ToString::to_string).collect();
+        let mut checked = 0;
+        for (index, node) in data.iter().enumerate() {
+            if !elements.contains(&node.path) {
+                continue;
+            }
+            let children: Vec<&str> = node.children.values().flatten().map(String::as_str).collect();
+            let following: Vec<&str> = data[index + 1..]
+                .iter()
+                .take(children.len())
+                .map(|n| n.path.as_str())
+                .collect();
+            assert_eq!(following, children, "{}: {}", project.info.name, node.path);
+            checked += 1;
+        }
+        assert_eq!(checked, project.elements.len(), "{}", project.info.name);
+    }
+}
+
 fn wall_on(project: &mut Project, start: DVec2, end: DVec2, thickness: f64) -> ElementId {
     let mut history = History::default();
     let ground = project.storeys.ground();
