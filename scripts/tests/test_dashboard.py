@@ -196,16 +196,37 @@ class OpenPullRequests(unittest.TestCase):
         self.assertIn("Could not resolve to a Repository", prs["queue_error"])
         self.assertIn("Rate limit exceeded", prs["queue_error"])
         self.assertNotIn("NoneType", prs["queue_error"])
-        # An answer with no data at all, or an empty answer, fails the same way.
+        # An answer with no data at all, or an empty answer, fails the same way: the PRs still
+        # show, without a queue state, and the failure is reported.
         for answer, message in (({"data": None, "errors": [{"message": "Bad credentials"}]},
-                                 "Bad credentials"), ([], "")):
+                                 "Bad credentials"), ([], None)):
             with self.subTest(answer=answer), mock.patch.object(
                     dashboard, "run_json", lambda cmd, cwd=None, timeout=60, a=answer:
                     a if cmd[:3] == ["gh", "api", "graphql"] else listed):
                 prs = dashboard.collect_prs()
                 self.assertEqual([p["number"] for p in prs["open"]], [7, 9])
+                self.assertEqual(dashboard.open_pr_view(prs["open"][0])["queue"]["state"],
+                                 "unknown")
                 self.assertTrue(prs["queue_error"])
-                self.assertIn(message, prs["queue_error"])
+                if message:
+                    self.assertIn(message, prs["queue_error"])
+
+    def test_checks_and_the_user_review_status_order_by_the_same_time(self):
+        """check_time() is the one ordering of rollup entries: startedAt, else createdAt. The "User
+        review" status and the other checks both pick their newest entry by it."""
+        self.assertEqual(dashboard.check_time({"startedAt": "b", "createdAt": "a"}), "b")
+        self.assertEqual(dashboard.check_time({"createdAt": "a"}), "a")
+        self.assertEqual(dashboard.check_time({}), "")
+        # One entry carries only createdAt, the newer one only startedAt: both readers agree.
+        review = [{"context": "User review", "state": "FAILURE", "createdAt": "2026-10-21T10:00:00Z"},
+                  {"context": "User review", "state": "SUCCESS", "startedAt": "2026-10-21T10:05:00Z"}]
+        self.assertEqual(dashboard.rollup_user_review(review), "SUCCESS")
+        build = [{"name": "build", "status": "COMPLETED", "conclusion": "FAILURE",
+                  "createdAt": "2026-10-21T10:00:00Z"},
+                 {"name": "build", "status": "COMPLETED", "conclusion": "SUCCESS",
+                  "startedAt": "2026-10-21T10:05:00Z"}]
+        self.assertEqual(dashboard.summarize_checks(build)["pass"], 1)
+        self.assertEqual(dashboard.summarize_checks(build)["fail"], 0)
 
     def test_without_the_queue_answer_a_failed_user_review_still_waits_for_the_user(self):
         """The fallback reads the "User review" status from the PR's statusCheckRollup, so a PR that
