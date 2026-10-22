@@ -655,11 +655,18 @@ const LOCALE_GROUPINGS: [char; 4] = ['\u{A0}', '\u{202F}', '\'', '’'];
 /// Replaces typographic marks and the locale decimal separator with their
 /// ASCII forms, and removes digit grouping. A grouping character counts only
 /// between digits of the integer part and before a group of exactly three
-/// digits; apostrophes are feet, inch or minute marks once the text uses that
-/// syntax, even when an apostrophe is the active grouping. When the active
-/// grouping is a space, a typed plain space groups digits too. Returns `None` when a point or comma is neither the decimal
-/// separator nor a digit group, so `2.5` under a decimal comma is an error
-/// rather than a different number.
+/// digits. When the active grouping is a space, a typed plain space groups
+/// digits too.
+///
+/// Apostrophes are feet, inch or minute marks once the text uses that
+/// syntax, that is once it contains a `"`, `″`, `”` or `°`, even when an
+/// apostrophe is the active grouping. Any `°` counts, not only
+/// degrees-minutes-seconds input, so `1’234°` under Swiss grouping is an
+/// error rather than 1234 degrees.
+///
+/// Returns `None` when a point or comma is neither the decimal separator nor
+/// a digit group, so `2.5` under a decimal comma is an error rather than a
+/// different number.
 fn normalize_number_text(text: &str, nf: &NumberFormat) -> Option<String> {
     let chars: Vec<char> = text.chars().collect();
     let marks_syntax = chars.iter().any(|c| matches!(c, '"' | '″' | '”' | '°'));
@@ -717,6 +724,8 @@ pub struct InputAlphabet {
 }
 
 impl InputAlphabet {
+    /// Whether `c` may be typed into a length or angle field: an ASCII digit
+    /// or one of the characters [`input_alphabet`] collected.
     pub fn contains(&self, c: char) -> bool {
         c.is_ascii_digit() || self.chars.contains(&c)
     }
@@ -973,6 +982,27 @@ mod tests {
         };
         assert!(parse_length("1,2,3", LengthUnit::Meter, &point).is_err());
         assert!(parse_length("2,5", LengthUnit::Meter, &point).is_err());
+        let comma_ungrouped = NumberFormat {
+            decimal_separator: ',',
+            grouping: None,
+        };
+        assert!(parse_length("2.5", LengthUnit::Meter, &comma_ungrouped).is_err());
+        assert_eq!(parse_length("2,5", LengthUnit::Meter, &comma_ungrouped), Ok(2.5));
+    }
+
+    /// NFR-L10N-004: a `°` makes apostrophes minute marks, so they no longer
+    /// group digits even under Swiss grouping.
+    #[test]
+    fn degree_sign_stops_apostrophe_grouping() {
+        let swiss = NumberFormat {
+            decimal_separator: '.',
+            grouping: Some('’'),
+        };
+        for text in ["1’234°", "1'234°"] {
+            assert!(parse_angle(text, AngleUnit::DecimalDegrees, &swiss).is_err(), "{text}");
+        }
+        let v = parse_angle("1’234", AngleUnit::DecimalDegrees, &swiss).unwrap();
+        assert!((v.to_degrees() - 1234.0).abs() < 1e-9);
     }
 
     /// INP-005, NFR-L10N-004: feet-inches syntax keeps its marks with grouping on.
