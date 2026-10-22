@@ -455,6 +455,13 @@ fn newer_format_versions_are_flagged() {
     assert_eq!(loaded.migrated_from, None);
 }
 
+/// NFR-REL-007: malformed input is rejected with an error, not a panic.
+///
+/// These eight inputs are also the first files of the fuzz-regression
+/// corpus, `tests/fuzz-regressions/` (`empty.ifcx` to `unknown-version.ifcx`),
+/// and `the_regression_corpus_holds_the_malformed_inputs`
+/// (tests/fuzz_regressions.rs) pins those files to these bytes: change an
+/// input here, there and in the corpus together.
 #[test]
 fn malformed_input_is_rejected_without_panicking() {
     let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
