@@ -14,11 +14,12 @@ failed=0
 # --- fixture: a tiny repository with the loop scripts and a stub bd --------------------------
 mkdir -p "$repo/scripts" "$work/bin" "$repo/crates/demo/src" "$repo/crates/demo/tests/golden" "$repo/docs"
 cp -R "$src" "$repo/scripts/loop"
-# The gate's layering step runs the repository guard next to the loop scripts.
-cp "$src/../check-layering.sh" "$repo/scripts/"
+# The gate's layering step runs the repository guard next to the loop scripts, its status step the
+# status script (docs/testing.md, "Implementation status") on the fixture's one requirement.
+cp "$src/../check-layering.sh" "$src/../status.py" "$repo/scripts/"
 cat >"$work/bin/bd" <<'EOF'
 #!/usr/bin/env bash
-# Stub: bd show <id> --json answers from FAKE_BD_STATUS and FAKE_BD_LABELS; list, children
+# Stub: bd show <id> --json answers from FAKE_BD_STATUS, FAKE_BD_LABELS and FAKE_BD_NOTES; list, children
 # and close work on the JSON array in FAKE_BD_DB (closed ids go to FAKE_BD_DB.closed; close
 # refuses the ids listed in FAKE_BD_REFUSE, as bd does for a blocked bead); update and unclaim
 # go to FAKE_BD_LOG.
@@ -27,7 +28,8 @@ case "$1" in
     update | unclaim) [ -z "${FAKE_BD_LOG:-}" ] || echo "$*" >>"$FAKE_BD_LOG" ;;
     show)
         jq -n --arg id "$2" --arg s "${FAKE_BD_STATUS:-in_progress}" --arg l "${FAKE_BD_LABELS:-}" \
-            '[{id: $id, status: $s, issue_type: "task", labels: ($l | split(",") | map(select(. != "")))}]'
+            --arg n "${FAKE_BD_NOTES:-}" \
+            '[{id: $id, status: $s, issue_type: "task", labels: ($l | split(",") | map(select(. != ""))), notes: $n}]'
         ;;
     list)
         label="" status=""
@@ -137,6 +139,14 @@ git config user.name selftest
 echo 'pub fn demo() {}' >crates/demo/src/lib.rs
 echo '{}' >crates/demo/tests/golden/a.ifcx
 echo '# doc' >docs/a.md
+mkdir -p docs/status
+printf '## 3 Requirements\n\n### 3.1 Demo\n\n- **DEM-001** · M · A demo requirement.\n' >docs/SRS.md
+echo '# Testing' >docs/testing.md
+jq -n '{requirements: [{id: "DEM-001", priority: "M", section: "3.1", status: "missing", remaining_effort: "S",
+    evidence: "", gap: "Not started.", depends_on: []}]}' >docs/status/requirements.json
+printf '<!-- status:begin %s -->\n<!-- status:end %s -->\n' counts counts sections sections requirements requirements \
+    >docs/implementation-status.md
+python3 scripts/status.py generate
 git add -A && git commit -qm init
 # shellcheck source=lib.sh
 source scripts/loop/lib.sh
@@ -429,7 +439,7 @@ for f in scripts/package-macos.sh .codex/hooks.json .cursor/hooks.json CLAUDE.md
     mkdir -p "$(dirname "$f")" && echo '# minor fix' >"$f"
     stamp gate.ok
     check "code commit after a fix to $f and a new gate" deny "$(hook guard-bash "$(bash_input 'git commit -am x')")"
-    rm -f "$f"
+    git checkout -q -- "$f" 2>/dev/null || rm -f "$f" # docs/SRS.md is the status fixture's
 done
 echo '# minor fix' >README.md
 stamp gate.ok
@@ -575,6 +585,32 @@ expect "gate on a loop change in a loop bead" pass "$got"
 git checkout -q -- scripts/loop/sweep.sh
 out="$(gate "")" && got=pass || got=fail
 expect "gate on a feature bead without loop changes" pass "$got"
+
+# --- gate: the implementation status, as CI's Implementation status job checks it ---------------
+# A hand edit of the generated tables reached main because neither the gate nor a required check
+# ran the status script (archicraft-gkrd, archicraft-erpe).
+reset_state
+sed -i.bak 's/| Not started\. |/| Done by hand. |/' docs/implementation-status.md && rm docs/implementation-status.md.bak
+out="$(gate "")" && got=pass || got=fail
+expect "gate on a hand edit of the generated status tables" fail "$got"
+expect "gate fails only the status step" 1 "$(grep -c '^GATE FAIL: status$' <<<"$out")"
+expect "gate says the tables differ from requirements.json" 1 \
+    "$(grep -c '| status check: docs/implementation-status\.md: the generated tables differ from docs/status/requirements\.json' <<<"$out")"
+python3 scripts/status.py generate
+out="$(gate "")" && got=pass || got=fail
+expect "gate after status.py generate" pass "$got"
+# merge-check reads the SRS line that land.sh writes into the PR body from the bead's notes: the
+# IDs with a row, not the scenario ID AS-03.
+out="$(FAKE_BD_NOTES='SRS: DEM-001, AS-03. More notes.' gate "")" && got=pass || got=fail
+expect "gate on a bead whose SRS line names a row it does not change" fail "$got"
+expect "gate names the unchanged row, not the scenario without one" "1 0" \
+    "$(grep -c '| status merge-check: DEM-001: listed on an SRS line but its row did not change$' <<<"$out") $(
+        grep -c 'AS-03' <<<"$out")"
+sed -i.bak 's/"Not started\."/"Started."/' docs/status/requirements.json && rm docs/status/requirements.json.bak
+python3 scripts/status.py generate
+out="$(FAKE_BD_NOTES='SRS: DEM-001, AS-03. More notes.' gate "")" && got=pass || got=fail
+expect "gate on a bead that changes the row its SRS line names" pass "$got"
+reset_state
 
 # --- ci-check ----------------------------------------------------------------------------------
 reset_state
@@ -792,6 +828,13 @@ expect "scenario and decision ids with a one-letter prefix or two digits" "AS-03
     "$(srs 'SRS: AS-03, D-11 (decision), O-07/WAL-020.')"
 expect "SRS ids only as whole words" "D-11" "$(srs 'SRS: D-11 with ISO-8601 dates, WAL-0200, UTF-8, xWAL-020.')"
 expect "notes without SRS ids" "" "$(srs 'No requirements. Mentions WAL-020 only in passing.')"
+# The PR's SRS line names only IDs with a status row (the fixture has DEM-001), since merge-check
+# fails on a listed ID without one (archicraft-erpe).
+srs_lines() { printf '%b' "$1" | loop_srs_lines | paste -sd '|' -; }
+expect "the PR's SRS line has the IDs with a row, the others go on an Also cites line" \
+    "SRS: DEM-001|Also cites: AS-03, D-11, O-07" "$(srs_lines 'SRS: AS-03, DEM-001, D-11 (decision), O-07.')"
+expect "no SRS line for notes that cite only IDs without a row" "Also cites: AS-03" "$(srs_lines 'SRS: AS-03.')"
+expect "no PR lines for notes without SRS ids" "" "$(srs_lines 'No requirements. Mentions DEM-001 only in passing.')"
 printf '%s\n' 'Intro' '## Acceptance criteria' '- ok' '```bash' '# a comment' '```' '### Detail' '## Findings' \
     >"$work/review.md"
 expect "review headings nest below the PR body's level-2 heading" \
@@ -854,6 +897,16 @@ expect "the user merges it past the failing status and the queue" 1 \
 commit_on bead/archicraft-lp09-setup scripts/loop/setup-github.sh .github/workflows/ci.yml
 land loop >/dev/null
 expect "a PR that changes setup-github.sh tells the user to run it after the merge" "1. Review|2. Merge|3. After" "$(steps)"
+# A PR that auto-merges needs that step too: its new required check counts only once the user ran
+# the script (archicraft-erpe).
+commit_on bead/archicraft-lp10-setup scripts/loop/setup-github.sh
+out="$(land loop)"
+expect "land.sh turns on auto-merge for a PR that changes setup-github.sh and no workflow" \
+    "pr merge $pr --auto --squash" "$(merge_calls)"
+expect "a PR that auto-merges and changes setup-github.sh tells the user to run it after the merge" "1. After" "$(steps)"
+FAKE_BD_NOTES='SRS: DEM-001, AS-03. More notes.' land loop >/dev/null
+expect "the PR body lists the bead's IDs with a row on its SRS line" "SRS: DEM-001|Also cites: AS-03" \
+    "$(grep -E '^(SRS|Also cites):' "$FAKE_GH_BODY" | paste -sd '|' -)"
 git switch -q bead/archicraft-fe01-feature
 land "" >/dev/null
 expect "a PR that auto-merges has no steps for the user" "" "$(steps)"
@@ -1004,6 +1057,13 @@ expect "every required check reports on a merge group" "" "$(grep -vx 'User revi
     while IFS= read -r c; do grep -qxF "$c	" <<<"$ci_jobs" || echo "$c"; done | paste -sd ',' -)"
 expect "a required check that is no CI job counts as missing" "Test (windows-latest)" \
     "$(printf 'Test (windows-latest)\nLoop policy\n' | while IFS= read -r c; do grep -qxF "$c	" <<<"$ci_jobs" || echo "$c"; done)"
+# The other way round: every CI job that runs on a merge group is required, or a PR whose job fails
+# merges anyway. The Implementation status job was not, and PRs #140, #141 and #143 merged with it
+# failing (archicraft-erpe).
+expect "the ruleset requires the Implementation status job" 1 "$(grep -cx 'Implementation status' <<<"$required")"
+expect "every CI job that runs on a merge group is a required check" "" \
+    "$(awk -F '\t' '$2 == "" { print $1 }' <<<"$ci_jobs" |
+        while IFS= read -r j; do grep -qxF "$j" <<<"$required" || echo "$j"; done | paste -sd ',' -)"
 expect "main merges through the merge queue, squashed, each PR's group green" "SQUASH ALLGREEN" \
     "$(jq -r '.rules[] | select(.type == "merge_queue") | .parameters | "\(.merge_method) \(.grouping_strategy)"' <<<"$ruleset")"
 expect "the queue tests PRs on main, so they need not be up to date" false \

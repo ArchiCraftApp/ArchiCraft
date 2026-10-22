@@ -96,6 +96,25 @@ loop_self_check() {
 }
 step loop-guardrails loop_self_check
 
+# What CI's Implementation status job checks (docs/testing.md, "Implementation status"), on the
+# working tree before the PR exists: the generated tables match docs/status/requirements.json,
+# and merge-check, against the fork point, finds a changed row for every ID of the SRS line that
+# land.sh writes into the PR body from the bead's notes, and no done row regressed (archicraft-erpe).
+if command -v python3 >/dev/null; then
+    status_check() {
+        local body rc=0
+        body="$(mktemp "${TMPDIR:-/tmp}/loop-srs.XXXXXX")"
+        [ -n "$bead" ] && loop_bead_json "$bead" | jq -r '.notes // ""' | loop_srs_lines >"$body"
+        python3 scripts/status.py check || rc=1
+        python3 scripts/status.py merge-check --base "$(git merge-base "$(loop_base)" HEAD)" --body-file "$body" || rc=1
+        rm -f "$body"
+        return "$rc"
+    }
+    step status status_check
+else
+    skip status "python3 is not installed; CI runs it"
+fi
+
 if grep -Eq '^(crates/archicraft-ifcx/|conformance/)' <<<"$changed"; then
     if command -v node >/dev/null; then
         conformance() {

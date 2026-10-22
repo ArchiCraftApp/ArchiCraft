@@ -26,7 +26,9 @@ set -euo pipefail
 # The required checks: the CI job names in .github/workflows/ci.yml, each of which runs on
 # merge_group too, and the commit status "User review" that user-review.yml posts on the PR's head
 # and on the merge group's. A required check that does not report on a merge group keeps the queue
-# waiting until check_response_timeout_minutes and then drops the PR (selftest.sh checks the list).
+# waiting until check_response_timeout_minutes and then drops the PR, and a CI job that runs there
+# but is not required lets a PR merge with it failing, as "Implementation status" did before
+# archicraft-erpe (selftest.sh checks both ways).
 required=(
     "Test (ubuntu-24.04)"
     "Format and clippy"
@@ -34,6 +36,7 @@ required=(
     "Licences and sources"
     "Loop policy"
     "Repository guards"
+    "Implementation status"
     "User review"
 )
 # GitHub Actions, the app that reports all of them (the classic protection pinned them to it too).
@@ -119,7 +122,7 @@ for i in 0 1; do
         gh api -X POST "repos/$repo/rulesets" --input - <<<"$ruleset" >/dev/null
     fi
 done
-echo "  ruleset main: the merge queue (squash), the six CI checks (Linux) and the status User review"
+echo "  ruleset main: the merge queue (squash), the $((${#required[@]} - 1)) CI checks (Linux) and the status User review"
 echo "  ruleset main history: no deletion and no force push of main, for admins too"
 
 # Only now that the rulesets protect main: the classic protection would keep a second list of
