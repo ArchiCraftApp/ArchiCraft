@@ -147,7 +147,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs, crates/archicraft-app/src/ui/dialogs.rs:37, derives Default), so by default changing a height moves only the next storey (StoreyList::set_height, crates/archicraft-model/src/storey.rs:303), the SRS alternative, instead of shifting all storeys above. One checkbox governs both edits, so the SRS defaults (height: shift the storeys above; elevation: keep them and change the height of the storey below) cannot both apply at once; the choice is a sticky dialog toggle, not a per-edit choice, and it resets on restart.",
+      "gap": "The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs, crates/archicraft-app/src/ui/dialogs.rs:37, derives Default), so by default changing a height moves only the next storey (StoreyList::set_height, crates/archicraft-model/src/storey.rs:303), the SRS alternative, instead of shifting all storeys above. One checkbox governs both edits, so the SRS defaults (height: shift the storeys above; elevation: keep them and change the height of the storey below) cannot both apply at once; the choice is a sticky dialog toggle, not a per-edit choice, and it resets on restart. Elevation and height changes that would leave a storey-linked element lower than 1 mm are refused with a message naming it (NFR-REL-005).",
       "depends_on": []
     },
     {
@@ -857,7 +857,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Pens, line types, fills, layer structures (PRF-001) and profiles (PRF-004) do not exist as attributes. Only materials meet the requirement: Material has a stable id, name, short code and description (crates/archicraft-model/src/material.rs:143), and deleting one requires a replacement (plan_delete_material, crates/archicraft-model/src/command.rs:547). FillPattern is a closed enum (crates/archicraft-model/src/material.rs:95) serialised as an IFCX enum restriction (cutFill pattern in project, crates/archicraft-ifcx/src/alpha/schema.rs:157), not an ID-referenced resource with a name, short code and description, so fills cannot be added, renamed or deleted with a replacement. Views reference no attributes.",
+      "gap": "Pens, line types, fills, layer structures (PRF-001) and profiles (PRF-004) do not exist as attributes. Only materials meet the requirement: Material has a stable id, name, short code and description (crates/archicraft-model/src/material.rs:143), and deleting one requires a replacement (plan_delete_material, crates/archicraft-model/src/command.rs:596). FillPattern is a closed enum (crates/archicraft-model/src/material.rs:95) serialised as an IFCX enum restriction (cutFill pattern in project, crates/archicraft-ifcx/src/alpha/schema.rs:157), not an ID-referenced resource with a name, short code and description, so fills cannot be added, renamed or deleted with a replacement. Views reference no attributes.",
       "depends_on": []
     },
     {
@@ -1137,7 +1137,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Plan views only: no snapping in 3D views (INP-016). The centroids of cut polygons (PlanElement::centroids, crates/archicraft-geometry/src/plan.rs) and of slab outlines are node-level snap targets (crates/archicraft-app/src/input/targets.rs) with their own glyph in the plan view (snap_glyph, crates/archicraft-app/src/views/plan.rs:493).",
+      "gap": "Plan views only: no snapping in 3D views (INP-016). The centroids of cut polygons (PlanElement::centroids, crates/archicraft-geometry/src/plan.rs:227) and of slab outlines are node-level snap targets (crates/archicraft-app/src/input/targets.rs) with their own glyph in the plan view (snap_glyph, crates/archicraft-app/src/views/plan.rs:493).",
       "depends_on": []
     },
     {
@@ -1377,7 +1377,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Move exists only as a model command (Command::MoveElements, crates/archicraft-model/src/command.rs:44): no tool, menu item, shortcut, drag or context-menu entry invokes it, so there is no live preview and no INP-001 point input for the vector in the app; point input supports the needed steps (Expect, crates/archicraft-app/src/input/consumer.rs:34), exercised only by test stubs. Rotate and mirror exist as PlanTransform (crates/archicraft-model/src/transform.rs:21) with per-kind hooks (Kind::transform, crates/archicraft-model/src/kinds/mod.rs:139), but no command applies them. Vertical move (signed ΔZ changing base_offset/offset) has no command: MoveElements takes a plan vector only.",
+      "gap": "Move exists only as a model command (Command::MoveElements, crates/archicraft-model/src/command.rs:45): no tool, menu item, shortcut, drag or context-menu entry invokes it, so there is no live preview and no INP-001 point input for the vector in the app; point input supports the needed steps (Expect, crates/archicraft-app/src/input/consumer.rs:34), exercised only by test stubs. Rotate and mirror exist as PlanTransform (crates/archicraft-model/src/transform.rs:21) with per-kind hooks (Kind::transform, crates/archicraft-model/src/kinds/mod.rs:139), but no command applies them. Vertical move (signed ΔZ changing base_offset/offset) has no command: MoveElements takes a plan vector only.",
       "depends_on": []
     },
     {
@@ -1677,7 +1677,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Absolute elevation is not shown anywhere: the properties show only the wall's Base offset and the slab's Elevation offset relative to the home storey (geometry_fields, crates/archicraft-app/src/ui/properties.rs:214, fields at lines 278 and 417), and derived (crates/archicraft-app/src/ui/properties.rs:506) shows length, area and volume only. Changing the home storey in the properties always relinks, keeping the absolute position (selection_only_fields, crates/archicraft-app/src/ui/properties.rs:542, calling relink_to_storey, crates/archicraft-model/src/command.rs:449); there is no choice to keep the offset instead, which would move the element with the new storey.",
+      "gap": "Absolute elevation is not shown anywhere: the properties show only the wall's Base offset and the slab's Elevation offset relative to the home storey (geometry_fields, crates/archicraft-app/src/ui/properties.rs:214, fields at lines 278 and 417), and derived (crates/archicraft-app/src/ui/properties.rs:506) shows length, area and volume only. Changing the home storey in the properties always relinks, keeping the absolute position (selection_only_fields, crates/archicraft-app/src/ui/properties.rs:542, calling relink_to_storey, crates/archicraft-model/src/command.rs:497); there is no choice to keep the offset instead, which would move the element with the new storey.",
       "depends_on": []
     },
     {
@@ -1697,7 +1697,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No vertical move exists: MoveElements (crates/archicraft-model/src/command.rs:44) translates in plan only, and the UI has no move, drag or elevate tool at all (move, rotate and stretch are test stubs), so nothing offers re-association after a move. Editing Base offset or Elevation offset in the properties panel (crates/archicraft-app/src/ui/properties.rs:278 and 417) does not trigger an offer either. No bulk 're-associate selection with storeys by elevation' command. Building blocks exist: StoreyList::storey_at_elevation (crates/archicraft-model/src/storey.rs:141) finds the storey for an elevation, and relink_to_storey (crates/archicraft-model/src/command.rs:449) changes the home storey without moving the element.",
+      "gap": "No vertical move exists: MoveElements (crates/archicraft-model/src/command.rs:45) translates in plan only, and the UI has no move, drag or elevate tool at all (move, rotate and stretch are test stubs), so nothing offers re-association after a move. Editing Base offset or Elevation offset in the properties panel (crates/archicraft-app/src/ui/properties.rs:278 and 417) does not trigger an offer either. No bulk 're-associate selection with storeys by elevation' command. Building blocks exist: StoreyList::storey_at_elevation (crates/archicraft-model/src/storey.rs:141) finds the storey for an elevation, and relink_to_storey (crates/archicraft-model/src/command.rs:497) changes the home storey without moving the element.",
       "depends_on": []
     },
     {
@@ -1737,7 +1737,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "IfcClass (crates/archicraft-model/src/element.rs:15) has only IfcWall, IfcSlab, IfcFooting, IfcCovering and IfcBuildingElementProxy: no IfcBeam, IfcMember, IfcColumn and none of the rest of the Appendix D.5 list for free-form solids, objects and imported elements (those kinds do not exist yet). For walls and slabs the requirement is met: the class defaults from the KindDescriptor, is selectable among the kind's classes in the properties (classification_fields, crates/archicraft-app/src/ui/properties.rs:442), is checked by validate_prototype (crates/archicraft-model/src/validate.rs:310) and for tool defaults by SetToolDefaults (check_slot, crates/archicraft-model/src/command.rs:602), and the reader downgrades an unknown or disallowed class to the kind default with a repair report (read_element, crates/archicraft-ifcx/src/alpha/reader.rs:880; read_defaults_slot, crates/archicraft-ifcx/src/alpha/reader.rs:688).",
+      "gap": "IfcClass (crates/archicraft-model/src/element.rs:15) has only IfcWall, IfcSlab, IfcFooting, IfcCovering and IfcBuildingElementProxy: no IfcBeam, IfcMember, IfcColumn and none of the rest of the Appendix D.5 list for free-form solids, objects and imported elements (those kinds do not exist yet). For walls and slabs the requirement is met: the class defaults from the KindDescriptor, is selectable among the kind's classes in the properties (classification_fields, crates/archicraft-app/src/ui/properties.rs:442), is checked by validate_prototype (crates/archicraft-model/src/validate.rs:310) and for tool defaults by SetToolDefaults (check_slot, crates/archicraft-model/src/command.rs:651), and the reader downgrades an unknown or disallowed class to the kind default with a repair report (read_element, crates/archicraft-ifcx/src/alpha/reader.rs:880; read_defaults_slot, crates/archicraft-ifcx/src/alpha/reader.rs:688).",
       "depends_on": []
     },
     {
@@ -1767,7 +1767,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No ghosted handles: no element handles exist at all, and a locked selection is outlined like any other (draw_plan, crates/archicraft-app/src/views/plan.rs:402, selection loop at line 474). On hover only name and kind are shown (crates/archicraft-app/src/views/plan.rs:877). The lock cause is known (Project::edit_lock_reason, crates/archicraft-model/src/project.rs:358, tells element lock from layer lock) but reaches the user only as a status-line error when an edit is rejected; the properties strip says just 'The selected elements are locked.' (crates/archicraft-app/src/ui/properties.rs:644). Rejecting moves, deletion and parameter changes of locked elements works (plan_update_elements, crates/archicraft-model/src/command.rs:382).",
+      "gap": "No ghosted handles: no element handles exist at all, and a locked selection is outlined like any other (draw_plan, crates/archicraft-app/src/views/plan.rs:402, selection loop at line 474). On hover only name and kind are shown (crates/archicraft-app/src/views/plan.rs:877). The lock cause is known (Project::edit_lock_reason, crates/archicraft-model/src/project.rs:358, tells element lock from layer lock) but reaches the user only as a status-line error when an edit is rejected; the properties strip says just 'The selected elements are locked.' (crates/archicraft-app/src/ui/properties.rs:644). Rejecting moves, deletion and parameter changes of locked elements works (plan_update_elements, crates/archicraft-model/src/command.rs:430).",
       "depends_on": []
     },
     {
@@ -1807,7 +1807,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Range checks work: values are validated when committed (validate_element, crates/archicraft-model/src/validate.rs:299) and rejected with an explanation in the status line. Dependent values do not update live while editing: fields parse and commit only on Enter or focus loss (committed_text, crates/archicraft-app/src/ui/widgets.rs:24), so an invalid value is also flagged only after the commit, and the derived rows (derived, crates/archicraft-app/src/ui/properties.rs:506) refresh only after the command has run. No kind with dependent parameters (stairs, STA) exists yet, so nothing is recomputed live.",
+      "gap": "Range checks work: values are validated when committed (validate_element, crates/archicraft-model/src/validate.rs:299) and rejected with an explanation in the status line, and a storey move that would leave a linked wall lower than 1 mm is rejected with a message naming it (NFR-REL-005). Dependent values do not update live while editing: fields parse and commit only on Enter or focus loss (committed_text, crates/archicraft-app/src/ui/widgets.rs:24), so an invalid value is also flagged only after the commit, and the derived rows (derived, crates/archicraft-app/src/ui/properties.rs:506) refresh only after the command has run. No kind with dependent parameters (stairs, STA) exists yet, so nothing is recomputed live.",
       "depends_on": []
     },
     {
@@ -2237,7 +2237,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No inclined top or bottom plane: Slab (crates/archicraft-model/src/kinds/slab.rs:43) has only outline, holes, thickness, reference and offset, and evaluate_element (crates/archicraft-geometry/src/evaluate.rs:153) builds slabs with extrude (crates/archicraft-geometry/src/extrude.rs:21), which only extrudes between two horizontal planes. Missing: plane parameters for the top and an optional independent bottom (pitch and direction or a three-point plane) for sloped constant-thickness and tapered slabs, validation, geometry that bounds the prism by these planes, properties fields, and IFCX schema/writer/reader attributes (element_attributes, crates/archicraft-ifcx/src/alpha/writer.rs:263). Plan display should keep working, since plan_drawing (crates/archicraft-geometry/src/plan.rs:111) slices the meshes and projects TriMesh::up_facing_outline (crates/archicraft-geometry/src/mesh.rs:193).",
+      "gap": "No inclined top or bottom plane: Slab (crates/archicraft-model/src/kinds/slab.rs:43) has only outline, holes, thickness, reference and offset, and evaluate_element (crates/archicraft-geometry/src/evaluate.rs:154) builds slabs with extrude (crates/archicraft-geometry/src/extrude.rs:21), which only extrudes between two horizontal planes. Missing: plane parameters for the top and an optional independent bottom (pitch and direction or a three-point plane) for sloped constant-thickness and tapered slabs, validation, geometry that bounds the prism by these planes, properties fields, and IFCX schema/writer/reader attributes (element_attributes, crates/archicraft-ifcx/src/alpha/writer.rs:263). Plan display should keep working, since plan_drawing (crates/archicraft-geometry/src/plan.rs:111) slices the meshes and projects TriMesh::up_facing_outline (crates/archicraft-geometry/src/mesh.rs:193).",
       "depends_on": []
     },
     {
@@ -2427,7 +2427,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No layer structures: Project (crates/archicraft-model/src/project.rs:302) holds visibility layers (LAY-001) and materials only, and Command (crates/archicraft-model/src/command.rs:39) and Edit (crates/archicraft-model/src/command.rs:653) have add/update/delete only for those. Missing: a named layer structure resource with ordered skins (material, thickness, role core/finish/other; at least one core skin; 48 or more skins), its Add/Update/Delete commands and edits, an editor dialog, a choice of thickness or structure on Wall (crates/archicraft-model/src/kinds/wall.rs:66) and Slab (crates/archicraft-model/src/kinds/slab.rs:43) (roofs need ROF-001), multi-part bodies with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:23; IFX-017 Skin_n), IFCX schema/writer/reader, and update propagation (PRF-002).",
+      "gap": "No layer structures: Project (crates/archicraft-model/src/project.rs:302) holds visibility layers (LAY-001) and materials only, and Command (crates/archicraft-model/src/command.rs:40) and Edit (crates/archicraft-model/src/command.rs:702) have add/update/delete only for those. Missing: a named layer structure resource with ordered skins (material, thickness, role core/finish/other; at least one core skin; 48 or more skins), its Add/Update/Delete commands and edits, an editor dialog, a choice of thickness or structure on Wall (crates/archicraft-model/src/kinds/wall.rs:66) and Slab (crates/archicraft-model/src/kinds/slab.rs:43) (roofs need ROF-001), multi-part bodies with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:23; IFX-017 Skin_n), IFCX schema/writer/reader, and update propagation (PRF-002).",
       "depends_on": []
     },
     {
@@ -2677,7 +2677,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No opening element kind exists: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:361) has only Wall and Slab, Element (crates/archicraft-model/src/element.rs:132) has no host field, Project (crates/archicraft-model/src/project.rs:302) has no host relation, and IfcClass (crates/archicraft-model/src/element.rs:15) has no OpeningElement. Missing: the opening kind with exactly one host (wall, slab, roof; roofs need ROF-001) and a position relative to it, moving with the host (MoveElements, crates/archicraft-model/src/command.rs:44, moves only the listed ids), deletion with the host (plan_delete_elements, crates/archicraft-model/src/command.rs:353), void subtraction in the host geometry, and IFCX writing as an IfcOpeningElement with a Void child (IFX-017, IFX-025) and reading.",
+      "gap": "No opening element kind exists: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:361) has only Wall and Slab, Element (crates/archicraft-model/src/element.rs:132) has no host field, Project (crates/archicraft-model/src/project.rs:302) has no host relation, and IfcClass (crates/archicraft-model/src/element.rs:15) has no OpeningElement. Missing: the opening kind with exactly one host (wall, slab, roof; roofs need ROF-001) and a position relative to it, moving with the host (MoveElements, crates/archicraft-model/src/command.rs:45, moves only the listed ids), deletion with the host (plan_delete_elements, crates/archicraft-model/src/command.rs:401), void subtraction in the host geometry, and IFCX writing as an IfcOpeningElement with a Void child (IFX-017, IFX-025) and reading.",
       "depends_on": []
     },
     {
@@ -2767,7 +2767,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No opening element exists (OPN-001 missing), so no reveal or end faces are generated. Bodies are single-material parts (BodyPart, crates/archicraft-geometry/src/evaluate.rs:23; walls and slabs get one part named Body in evaluate_element, crates/archicraft-geometry/src/evaluate.rs:153), Material has no per-face override (crates/archicraft-model/src/material.rs:143), and no layer structures or skins exist (PRF-001). Needs the faces an opening cuts emitted as separate parts or tagged faces whose material defaults to the cut element's (or cut skin's) material, a per-opening override for reveal and end faces, and handling of faces that coincide with a skin boundary.",
+      "gap": "No opening element exists (OPN-001 missing), so no reveal or end faces are generated. Bodies are single-material parts (BodyPart, crates/archicraft-geometry/src/evaluate.rs:23; walls and slabs get one part named Body in evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154), Material has no per-face override (crates/archicraft-model/src/material.rs:143), and no layer structures or skins exist (PRF-001). Needs the faces an opening cuts emitted as separate parts or tagged faces whose material defaults to the cut element's (or cut skin's) material, a per-opening override for reveal and end faces, and handling of faces that coincide with a skin boundary.",
       "depends_on": []
     },
     {
@@ -2807,7 +2807,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No Door or Window element kinds (the kinds! registry lists only wall and slab, crates/archicraft-model/src/kinds/mod.rs:361), no host relation on Element (crates/archicraft-model/src/element.rs:132), no tool (ToolKind has Select, Wall, Slab, crates/archicraft-app/src/tools/mod.rs:23). Workspace::error (crates/archicraft-app/src/workspace.rs:281) is usable for the 'no host under pointer' feedback. Needs hosted-element data (host wall id, position along the wall, vertical position per DW-007), the storey taken from the host, moving with it (plan_transform_elements, crates/archicraft-model/src/command.rs:416, moves only the listed elements) and cascading deletion (plan_delete_elements, crates/archicraft-model/src/command.rs:353, removes only the listed ids).",
+      "gap": "No Door or Window element kinds (the kinds! registry lists only wall and slab, crates/archicraft-model/src/kinds/mod.rs:361), no host relation on Element (crates/archicraft-model/src/element.rs:132), no tool (ToolKind has Select, Wall, Slab, crates/archicraft-app/src/tools/mod.rs:23). Workspace::error (crates/archicraft-app/src/workspace.rs:281) is usable for the 'no host under pointer' feedback. Needs hosted-element data (host wall id, position along the wall, vertical position per DW-007), the storey taken from the host, moving with it (plan_transform_elements, crates/archicraft-model/src/command.rs:464, moves only the listed elements) and cascading deletion (plan_delete_elements, crates/archicraft-model/src/command.rs:401, removes only the listed ids).",
       "depends_on": []
     },
     {
@@ -2897,7 +2897,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No host cutting at all: walls are one extruded prism with one material (Wall.material, crates/archicraft-model/src/kinds/wall.rs:74; evaluate_element, crates/archicraft-geometry/src/evaluate.rs:153), there are no skins (PRF-001) and archicraft-geometry has no 3D Boolean operations. Needs a void solid per unit subtracted from every skin part of the host, re-evaluation of the host when the unit or the host changes (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:64, evaluates each element on its own and would need the hosted units of each wall), and the host restored when the unit is deleted.",
+      "gap": "No host cutting at all: walls are one extruded prism with one material (Wall.material, crates/archicraft-model/src/kinds/wall.rs:74; evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154), there are no skins (PRF-001) and archicraft-geometry has no 3D Boolean operations. Needs a void solid per unit subtracted from every skin part of the host, re-evaluation of the host when the unit or the host changes (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:64, evaluates each element on its own and would need the hosted units of each wall), and the host restored when the unit is deleted.",
       "depends_on": []
     },
     {
@@ -3047,7 +3047,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No grid model (no curtain wall kind, CW-001). Needs per axis a list of column or row sizes, a distribution mode (fixed sizes, best fit ending exactly at the segment end, number of divisions), per-item locks in the flexible modes with the rule that at least one column and one row stay flexible, enforced in Kind::validate (crates/archicraft-model/src/kinds/mod.rs:133), which validate_element (crates/archicraft-model/src/validate.rs:299) calls from Command::plan (crates/archicraft-model/src/command.rs:168); D.2 default grid 1.50 x 3.00 m.",
+      "gap": "No grid model (no curtain wall kind, CW-001). Needs per axis a list of column or row sizes, a distribution mode (fixed sizes, best fit ending exactly at the segment end, number of divisions), per-item locks in the flexible modes with the rule that at least one column and one row stay flexible, enforced in Kind::validate (crates/archicraft-model/src/kinds/mod.rs:133), which validate_element (crates/archicraft-model/src/validate.rs:299) calls from Command::plan (crates/archicraft-model/src/command.rs:169); D.2 default grid 1.50 x 3.00 m.",
       "depends_on": []
     },
     {
@@ -3057,7 +3057,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No frame-class resource. The material resource is the template for named project-wide definitions: Command::AddMaterial/UpdateMaterial/DeleteMaterial with a replacement (crates/archicraft-model/src/command.rs:81, plan_delete_material at :547), Project::materials (crates/archicraft-model/src/project.rs:310), Dialogs::materials_window (crates/archicraft-app/src/ui/dialogs.rs:388) and the IFCX records material_record (crates/archicraft-ifcx/src/alpha/writer.rs:178) and read_material (crates/archicraft-ifcx/src/alpha/reader.rs:301). Missing: a FrameClass type (name, width, depth, offset to the glazing plane, material), the four template defaults boundary/corner/mullion/transom (D.2: 0.05 x 0.15 m aluminium), a guard against removing boundary and corner classes, commands, a dialog and IFCX records. Needs the CW-001 curtain wall to use them.",
+      "gap": "No frame-class resource. The material resource is the template for named project-wide definitions: Command::AddMaterial/UpdateMaterial/DeleteMaterial with a replacement (crates/archicraft-model/src/command.rs:82, plan_delete_material at :596), Project::materials (crates/archicraft-model/src/project.rs:310), Dialogs::materials_window (crates/archicraft-app/src/ui/dialogs.rs:388) and the IFCX records material_record (crates/archicraft-ifcx/src/alpha/writer.rs:178) and read_material (crates/archicraft-ifcx/src/alpha/reader.rs:301). Missing: a FrameClass type (name, width, depth, offset to the glazing plane, material), the four template defaults boundary/corner/mullion/transom (D.2: 0.05 x 0.15 m aluminium), a guard against removing boundary and corner classes, commands, a dialog and IFCX records. Needs the CW-001 curtain wall to use them.",
       "depends_on": []
     },
     {
@@ -3157,7 +3157,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No stair element exists. The kind registry lists only wall and slab (kinds! invocation, crates/archicraft-model/src/kinds/mod.rs:361; adding a kind is one module plus one line), ToolKind has Select/Wall/Slab only (crates/archicraft-app/src/tools/mod.rs:23), and evaluate_element returns UnsupportedKind for other kinds (crates/archicraft-geometry/src/evaluate.rs:153). Needs a Stair payload (baseline with at least two nodes, width, home storey, top storey link and bottom/top offsets, reusable from VerticalLink at crates/archicraft-model/src/kinds/vertical.rs:21, and a STA-005 rule set), the rise/going solver (STA-004 to STA-011), a generator for steps, landings and supports re-run on every revision, a stair tool and IFCX records. The D.2 stair defaults are still pending in crates/archicraft-model/tests/defaults.rs:153.",
+      "gap": "No stair element exists. The kind registry lists only wall and slab (kinds! invocation, crates/archicraft-model/src/kinds/mod.rs:361; adding a kind is one module plus one line), ToolKind has Select/Wall/Slab only (crates/archicraft-app/src/tools/mod.rs:23), and evaluate_element returns UnsupportedKind for other kinds (crates/archicraft-geometry/src/evaluate.rs:154). Needs a Stair payload (baseline with at least two nodes, width, home storey, top storey link and bottom/top offsets, reusable from VerticalLink at crates/archicraft-model/src/kinds/vertical.rs:21, and a STA-005 rule set), the rise/going solver (STA-004 to STA-011), a generator for steps, landings and supports re-run on every revision, a stair tool and IFCX records. The D.2 stair defaults are still pending in crates/archicraft-model/tests/defaults.rs:153.",
       "depends_on": []
     },
     {
@@ -3737,7 +3737,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No solid-operation relations exist (SOL-020), so none of this is possible: select related targets or operators, show which elements modify an element (properties panel, crates/archicraft-app/src/ui/properties.rs), remove relations against all targets, all operators or only the other selected elements, and restore the unmodified target geometry when an operator is deleted. Command::DeleteElements (crates/archicraft-model/src/command.rs:41, plan_delete_elements at :353) only removes the elements and has no relations to clean up.",
+      "gap": "No solid-operation relations exist (SOL-020), so none of this is possible: select related targets or operators, show which elements modify an element (properties panel, crates/archicraft-app/src/ui/properties.rs), remove relations against all targets, all operators or only the other selected elements, and restore the unmodified target geometry when an operator is deleted. Command::DeleteElements (crates/archicraft-model/src/command.rs:42, plan_delete_elements at :401) only removes the elements and has no relations to clean up.",
       "depends_on": []
     },
     {
@@ -4287,7 +4287,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No warning when a new element is placed on a hidden or locked layer: Project::new_element (crates/archicraft-model/src/project.rs:407) takes the layer from the tool defaults, ToolState::complete (crates/archicraft-app/src/tools/mod.rs:219) and ToolState::chain_walls (crates/archicraft-app/src/tools/mod.rs:146) build AddElements without looking at that layer, and Workspace::execute (crates/archicraft-app/src/workspace.rs:300) only reports the result. plan_add_elements (crates/archicraft-model/src/command.rs:332) accepts additions to hidden and locked layers silently, so the new element vanishes or cannot be edited without a message. Named layers, visibility and lock flags, and the edit lock (Project::edit_lock_reason, crates/archicraft-model/src/project.rs:358) exist.",
+      "gap": "No warning when a new element is placed on a hidden or locked layer: Project::new_element (crates/archicraft-model/src/project.rs:407) takes the layer from the tool defaults, ToolState::complete (crates/archicraft-app/src/tools/mod.rs:219) and ToolState::chain_walls (crates/archicraft-app/src/tools/mod.rs:146) build AddElements without looking at that layer, and Workspace::execute (crates/archicraft-app/src/workspace.rs:300) only reports the result. plan_add_elements (crates/archicraft-model/src/command.rs:380) accepts additions to hidden and locked layers silently, so the new element vanishes or cannot be edited without a message. Named layers, visibility and lock flags, and the edit lock (Project::edit_lock_reason, crates/archicraft-model/src/project.rs:358) exist.",
       "depends_on": []
     },
     {
@@ -4637,7 +4637,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Only a single \"Body\" part is ever produced (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:153, for walls and slabs); Skin_1 to Skin_n parts for layer structures (PRF-001), Frame/Panel/Glazing parts (doors, windows, curtain walls) and Void children for openings (IFX-036, OPN-001) are not generated because these do not exist. Axis children are written for walls. The writer path is generic and needs little change once multi-part bodies exist: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) already writes one child per BodyPart under its name with its material; Void children need a new path (invisible mesh).",
+      "gap": "Only a single \"Body\" part is ever produced (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154, for walls and slabs); Skin_1 to Skin_n parts for layer structures (PRF-001), Frame/Panel/Glazing parts (doors, windows, curtain walls) and Void children for openings (IFX-036, OPN-001) are not generated because these do not exist. Axis children are written for walls. The writer path is generic and needs little change once multi-part bodies exist: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) already writes one child per BodyPart under its name with its material; Void children need a new path (invisible mesh).",
       "depends_on": []
     },
     {
@@ -4737,7 +4737,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Only wall L and T junction cleanup exists (footprints, crates/archicraft-geometry/src/wall.rs:236); nodes of three or more walls and crossings stay square. Layer-structure intersections (PRF-001), openings and hosted doors/windows (OPN-001), trims to roofs and slabs, solid operations and beam junctions are not in the geometry crate yet, as these elements and operations do not exist; slab holes are cut by extrusion (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:153). The writer needs no change: it writes the bodies that ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:64) produces.",
+      "gap": "Only wall L and T junction cleanup exists (footprints, crates/archicraft-geometry/src/wall.rs:236); nodes of three or more walls and crossings stay square. Layer-structure intersections (PRF-001), openings and hosted doors/windows (OPN-001), trims to roofs and slabs, solid operations and beam junctions are not in the geometry crate yet, as these elements and operations do not exist; slab holes are cut by extrusion (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154). The writer needs no change: it writes the bodies that ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:64) produces.",
       "depends_on": []
     },
     {
@@ -5277,7 +5277,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Hosts and types do not exist in the model yet, so those checks are absent. Storeys, layers and materials are checked while reading: an unknown layer or material falls back to the first one and is reported, and an empty material or layer list gets a default (read_element, crates/archicraft-ifcx/src/alpha/reader.rs:880). A wall whose top-linked storey is missing is still skipped, not repaired (validate_element at reader.rs:1013 rejects it through <Wall as Kind>::validate, crates/archicraft-model/src/kinds/wall.rs:169). A deterministic repair, for example to a fixed height as unlink_storey does when a storey is deleted, is missing. A wall whose top ends below its base is skipped the same way.",
+      "gap": "Hosts and types do not exist in the model yet, so those checks are absent. Storeys, layers and materials are checked while reading: an unknown layer or material falls back to the first one and is reported (read_element, crates/archicraft-ifcx/src/alpha/reader.rs:880), and an empty material or layer list gets a default (read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1098 and 1116). A wall whose top-linked storey is missing is still skipped, not repaired (validate_element at reader.rs:1013 rejects it through <Wall as Kind>::validate, crates/archicraft-model/src/kinds/wall.rs:169). A deterministic repair, for example to a fixed height as unlink_storey does when a storey is deleted, is missing. A wall whose top ends below its base is skipped the same way.",
       "depends_on": []
     },
     {
@@ -5287,7 +5287,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "SetStoreyElevation and SetStoreyHeight (Command::plan, crates/archicraft-model/src/command.rs:168, via storey_edit at command.rs:325) check only the storey spacing (StoreyList::set_elevation, crates/archicraft-model/src/storey.rs:275; set_height at :303), not the elements whose extent depends on the storeys. Moving a storey down can put a linked wall's top below its base. The command succeeds, and the wall then fails geometry evaluation (GeometryError::InvalidExtent, crates/archicraft-geometry/src/evaluate.rs:160) and appears only in the problems panel, with no rejection or explanation. Element edits are validated (validate_element, crates/archicraft-model/src/validate.rs:299: polygons, thickness, extent). Boolean operations do not exist yet.",
+      "gap": "Storey edits (insert, delete, elevation, height) refuse to leave an element whose top is linked to a storey lower than the 1 mm minimum height, naming the element (check_linked_heights, crates/archicraft-model/src/command.rs:344; tests storey_moves_refuse_to_drop_linked_walls_below_the_minimum_height and inserting_or_deleting_a_storey_refuses_to_drop_linked_walls_below_the_minimum_height in crates/archicraft-model/tests/commands.rs). Still open: storey edits do not check the 1000 m maximum height (MAX_HEIGHT, crates/archicraft-model/src/validate.rs:32) of linked elements, and Boolean operations, whose failures must be rejected, do not exist yet.",
       "depends_on": []
     },
     {

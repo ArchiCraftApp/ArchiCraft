@@ -79,6 +79,11 @@ model-error-transform-unsupported = { $name } cannot be transformed like this.
 model-error-duplicate-storey-id = A storey with this ID already exists.
 model-error-move-target-same = Choose another storey to move the elements to.
 model-error-target-storey-not-found = The target storey does not exist.
+model-error-linked-element-too-low = { $count ->
+        [0] { $name } would be less than { $min } high.
+        [one] { $name } and { $count_text } other element would be less than { $min } high.
+       *[other] { $name } and { $count_text } other elements would be less than { $min } high.
+    }
 model-error-duplicate-layer-id = A layer with this ID already exists.
 model-error-layer-not-found = The layer does not exist.
 model-error-layer-name = A layer needs a name.

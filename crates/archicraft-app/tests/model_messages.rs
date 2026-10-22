@@ -185,6 +185,9 @@ fn error_representatives() -> Vec<Message> {
             .nested("reason", Message::new("model-error-element-layer-missing")),
         Message::new("model-error-hole").nested("reason", Message::new("model-error-polygon-area")),
         named("model-error-element-not-movable"),
+        named("model-error-linked-element-too-low")
+            .count("count", 1)
+            .length("min", 0.001),
         named("model-error-transform-unsupported"),
         named("model-error-element-locked"),
         named("model-error-layer-locked").text("layer", "Walls"),
@@ -391,6 +394,26 @@ fn model_errors_render_in_english_with_project_units() {
         .kind("kind", KindTag::Wall);
     assert_eq!(render(&class), "IfcCovering is not an allowed IFC class for a wall.");
     assert_eq!(render(&Message::new("model-error-no-change")), "Nothing to change.");
+    // NFR-REL-005: a refused storey edit names the first element too low
+    // and counts the others.
+    let min = format_length(0.001, &units, &nf, true);
+    let too_low = |others| {
+        render(
+            &Message::new("model-error-linked-element-too-low")
+                .text("name", "W-001")
+                .count("count", others)
+                .length("min", 0.001),
+        )
+    };
+    assert_eq!(too_low(0), format!("W-001 would be less than {min} high."));
+    assert_eq!(
+        too_low(1),
+        format!("W-001 and 1 other element would be less than {min} high.")
+    );
+    assert_eq!(
+        too_low(2),
+        format!("W-001 and 2 other elements would be less than {min} high.")
+    );
 }
 
 /// NFR-L10N-001: unit, IFC class and reference-line names and the parse
