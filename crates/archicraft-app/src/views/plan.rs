@@ -20,8 +20,9 @@ use egui::{
 
 use super::camera::{Camera2d, ZoomHistory};
 use crate::input::{
-    CursorState, Effect, Expect, Frame2d, Hovered, InputConsumer, InputContext, InputSettings, KeyInput, Modifiers,
-    Outcome, PointInput, PointerEvent, Resolved, SnapIndex, SnapKind, SurfaceFrame, TrackerMode, ViewSurface,
+    ConstraintReference, CursorState, Effect, Expect, Frame2d, Guide, GuideShape, Hovered, InputConsumer, InputContext,
+    InputSettings, KeyInput, Modifiers, Outcome, PointInput, PointerEvent, Resolved, SnapIndex, SnapKind, SurfaceFrame,
+    TrackerMode, ViewSurface,
 };
 use crate::tools::{ToolKind, ToolState};
 use crate::tr;
@@ -55,6 +56,8 @@ pub struct PlanViewState {
     /// The pending points of the input in progress marked last frame
     /// (UND-003).
     pub pending: Vec<DVec2>,
+    /// The guides drawn dashed last frame (INP-006).
+    pub guides: Vec<Guide>,
     /// The plane point under the pointer last frame, for the coordinate
     /// readout of the view-control bar (INP-014).
     pub cursor: Option<DVec2>,
@@ -76,6 +79,7 @@ impl Default for PlanViewState {
             ticks: Vec::new(),
             preview: Vec::new(),
             pending: Vec::new(),
+            guides: Vec::new(),
             cursor: None,
         }
     }
@@ -169,6 +173,7 @@ struct PlanInput {
     units: UnitSettings,
     number_format: NumberFormat,
     angle_increment_deg: f64,
+    constraint_reference: ConstraintReference,
     snap_step: f64,
     tracker_xyz: bool,
     /// The division mode and scope (INP-010).
@@ -194,6 +199,7 @@ impl PlanInput {
             units: ws.doc.project.settings.units.clone(),
             number_format: ws.prefs.number_format(),
             angle_increment_deg: ws.prefs.angle_increment_deg,
+            constraint_reference: ws.prefs.constraint_reference,
             snap_step: ws.prefs.snap_step,
             tracker_xyz: ws.prefs.tracker_xyz,
             input: ws.prefs.input,
@@ -229,6 +235,9 @@ impl PlanInput {
             units: &self.units,
             number_format: &self.number_format,
             angle_increment_deg: self.angle_increment_deg,
+            constraint_reference: self.constraint_reference,
+            // Construction grids (GRD-001) will orient the input frame.
+            frame_rotation: 0.0,
             snap_step: self.snap_step,
             frame: self.frame,
             user_origin: frames.user_origin,
@@ -573,6 +582,20 @@ pub fn division_ticks(hovered: &Hovered, to_screen: impl Fn(DVec2) -> Pos2, colo
         .collect()
 }
 
+/// A guide drawn dashed (INP-006, INP-007): its part inside the model
+/// rectangle from `min` to `max`, `to_screen` mapping model to screen
+/// positions.
+pub fn guide_dashes(
+    shape: &GuideShape,
+    min: DVec2,
+    max: DVec2,
+    to_screen: impl Fn(DVec2) -> Pos2,
+    color: Color32,
+) -> Vec<Shape> {
+    let points: Vec<Pos2> = shape.clip(min, max).into_iter().map(to_screen).collect();
+    Shape::dashed_line(&points, Stroke::new(1.0, color), 6.0, 4.0)
+}
+
 /// The crosshair of a free point (INP-008): four arms around a gap.
 pub fn crosshair(p: Pos2, color: Color32) -> Vec<Shape> {
     let stroke = Stroke::new(1.0, color);
@@ -827,6 +850,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     state.ticks.clear();
     state.preview.clear();
     state.pending.clear();
+    state.guides.clear();
 
     // Area selection (SEL-003): left to right = fully inside,
     // right to left = touching.
@@ -902,6 +926,15 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
             painter.circle_filled(camera.to_screen(rect, *q), 3.0, palette.preview);
         }
         state.pending = pending.to_vec();
+        let (a, b) = (
+            camera.to_world(rect, rect.left_bottom()),
+            camera.to_world(rect, rect.right_top()),
+        );
+        for guide in &resolved.guides {
+            let to_screen = |q| camera.to_screen(rect, q);
+            painter.extend(guide_dashes(&guide.shape, a.min(b), a.max(b), to_screen, palette.snap));
+        }
+        state.guides.clone_from(&resolved.guides);
         if let Some(hovered) = &resolved.hovered {
             painter.extend(division_ticks(hovered, |q| camera.to_screen(rect, q), palette.snap));
             state.ticks.clone_from(&hovered.points);
@@ -1194,6 +1227,40 @@ mod tests {
                 .any(|s| s.kind == SnapKind::Node && s.point == end);
             assert_eq!(node, found, "{pixels} px: {:?}", resolved.candidates);
         }
+    }
+
+    /// INP-006: a guide is drawn dashed, along its part inside the view:
+    /// a constraint ray from its origin to the view's edge.
+    #[test]
+    fn guides_are_drawn_dashed_inside_the_view() {
+        let ray = GuideShape::ray(DVec2::ZERO, DVec2::X);
+        let to_screen = |q: DVec2| Pos2::new(100.0 + 10.0 * q.x as f32, 100.0 - 10.0 * q.y as f32);
+        let (min, max) = (DVec2::new(-5.0, -2.0), DVec2::new(4.0, 2.0));
+        let dashes = guide_dashes(&ray, min, max, to_screen, Color32::RED);
+        assert!(dashes.len() > 1, "dashed, not one line: {dashes:?}");
+        let mut xs = Vec::new();
+        for dash in &dashes {
+            let Shape::LineSegment { points, .. } = dash else {
+                panic!("{dash:?} is no line");
+            };
+            for p in points {
+                assert!((p.y - 100.0).abs() < 1e-4, "{p:?} is off the ray");
+                xs.push(p.x);
+            }
+        }
+        let (first, last) = xs.iter().fold((f32::MAX, f32::MIN), |(a, b), x| (a.min(*x), b.max(*x)));
+        assert!((first - 100.0).abs() < 1e-3, "starts at the origin: {first}");
+        assert!(last <= 140.0 + 1e-3 && last > 130.0, "ends at the view's edge: {last}");
+        assert!(
+            guide_dashes(
+                &ray,
+                DVec2::new(-5.0, 1.0),
+                DVec2::new(4.0, 2.0),
+                to_screen,
+                Color32::RED
+            )
+            .is_empty()
+        );
     }
 
     /// INP-010: the hovered edge's division points are drawn as ticks

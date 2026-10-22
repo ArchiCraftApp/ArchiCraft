@@ -525,6 +525,8 @@ mod tests {
             units: &units,
             number_format: &nf,
             angle_increment_deg: 45.0,
+            constraint_reference: crate::input::ConstraintReference::XAxis,
+            frame_rotation: 0.0,
             snap_step: 0.0,
             frame: SurfaceFrame::plan(0.0),
             user_origin: ws.frames.user_origin,

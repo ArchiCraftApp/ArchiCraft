@@ -1097,7 +1097,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Directions are measured from the model X axis only (constrain, crates/archicraft-app/src/input/constrain.rs:9): neither the plan-grid rotation (PlanGrid, crates/archicraft-model/src/project.rs:56) nor a construction grid (GRD-001, not implemented) orients them. The guide geometry for holding the cursor on a guide exists (GuideShape lines, rays, segments, circles and arcs with intersect, project and clip; GuideOrigin; crates/archicraft-app/src/input/guide.rs:40), and snapping meets guides with edges, arcs and other guides (collect, crates/archicraft-app/src/input/snap.rs:368), but no guides are produced yet (PlanInput::ctx passes none, crates/archicraft-app/src/views/plan.rs:198), Shift does not hold the cursor on the nearest guide, and 3D views take no point input (no vertical guides). Constrained mode bypasses snapping (PointInput::resolve, crates/archicraft-app/src/input/mod.rs:242): with Shift held the constrained point is the only candidate, so nodes and edges along the direction cannot be snapped.",
+      "gap": "Directions are measured from the X axis or, by preference, from the input frame's rotation (constrain and ConstraintReference, crates/archicraft-app/src/input/constrain.rs; Preferences.constraint_reference), but the frame is always the X axis until construction grids exist (InputContext.frame_rotation is 0 in the plan view, crates/archicraft-app/src/views/plan.rs; GRD-001), so the grid orientation has no effect yet. While Shift is held the cursor is held on the constraint guide, a ray from the previous point drawn dashed in the plan view, or on the nearest guide in range when that is nearer, and snaps along it: crossing edges at intersection level, nodes projected onto it (InputContext::held, crates/archicraft-app/src/input/mod.rs; snap::along, crates/archicraft-app/src/input/snap.rs). No guides are produced yet for Shift to hold the cursor on (PlanInput::ctx passes none; inference guides INP-011, guide lines INP-012), and 3D views take no point input (no vertical guides).",
       "depends_on": []
     },
     {
@@ -1687,7 +1687,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Implemented for walls through the shared `VerticalLink` and the kind hooks (`vertical_extent`, `storey_links`, `rehome`, `relink`, `unlink_storey` in `kinds/`); the test kind behind the `test-kinds` feature uses the same link and passes the same storey tests; deleting a storey unlinks every tool defaults slot linked to it through the same hook; columns, curtain walls, stairs and storey-spanning openings do not exist yet and must reuse `VerticalLink` when added.",
+      "gap": "Implemented for walls through the shared `VerticalLink` and the kind hooks (`vertical_extent`, `storey_links`, `rehome`, `relink`, `unlink_storey` in `kinds/`); the test kind behind the `test-kinds` feature uses the same link and passes the same storey tests; deleting a storey unlinks every tool defaults slot linked to it through the same hook, and where that fixed height would be invalid only the top changes, to the height of the remaining ground storey (`fix_top`); columns, curtain walls, stairs and storey-spanning openings do not exist yet and must reuse `VerticalLink` when added.",
       "depends_on": []
     },
     {

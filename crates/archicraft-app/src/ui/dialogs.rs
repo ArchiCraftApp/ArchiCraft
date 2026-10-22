@@ -10,7 +10,7 @@ use egui::{Context, Id, RichText, Ui};
 
 use super::widgets::{self, Edited};
 use crate::commands::Registry;
-use crate::input::InputMode;
+use crate::input::{ConstraintReference, InputMode};
 use crate::persistence::prefs::{Preferences, SeparatorChoice, ThemeChoice};
 use crate::tr;
 use crate::workspace::{Request, Workspace};
@@ -748,8 +748,25 @@ impl Dialogs {
                         ui.label("Snap grid step (m)");
                         widgets::decimal(ui, &mut draft.snap_step, 0.001..=10.0, 3, 0.01, nf);
                         ui.end_row();
+                        // INP-006, Appendix D.1: 45° by default, 15° selectable.
                         ui.label("Angle increment (°)");
-                        widgets::decimal(ui, &mut draft.angle_increment_deg, 1.0..=90.0, 1, 1.0, nf);
+                        ui.horizontal(|ui| {
+                            widgets::decimal(ui, &mut draft.angle_increment_deg, 1.0..=90.0, 1, 1.0, nf);
+                            for (deg, label) in [(15.0, "15°"), (45.0, "45°")] {
+                                ui.selectable_value(&mut draft.angle_increment_deg, deg, label);
+                            }
+                        });
+                        ui.end_row();
+                        ui.label("Constrain directions from");
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut draft.constraint_reference, ConstraintReference::XAxis, "X axis");
+                            ui.radio_value(
+                                &mut draft.constraint_reference,
+                                ConstraintReference::Frame,
+                                "Grid orientation",
+                            )
+                            .on_hover_text("The orientation of the construction grid, once one is placed.");
+                        });
                         ui.end_row();
                         // INP-002: distance and angle, X/Y/Z on demand.
                         ui.label("Tracker");

@@ -23,7 +23,7 @@ use archicraft_model::tolerance::coincident;
 use archicraft_model::units::{NumberFormat, UnitSettings, input_alphabet};
 use archicraft_model::{Command, Project, StoreyId};
 
-pub use constrain::constrain;
+pub use constrain::{ConstraintReference, constrain};
 pub use consumer::{CursorState, Expect, InputConsumer, KeyHint, Outcome, Preview, StepSpec, TrackerMode};
 pub use division::{
     Chain, Curve, DivisionMode, DivisionScope, EQUAL_PARTS, Hovered, InputSettings, MAX_DIVISION_POINTS, divide,
@@ -44,8 +44,9 @@ pub struct Resolved {
     pub point: DVec2,
     pub snap: Snap,
     /// The snaps the user can choose between at this position, in order of
-    /// precedence (INP-009); Tab cycles through them. A typed or
-    /// constrained point is the only one, a free point has none.
+    /// precedence (INP-009); Tab cycles through them. A typed point is the
+    /// only one, a point held on a guide is the last of the candidates
+    /// along the guide (INP-006), a free point has none.
     pub candidates: Vec<Snap>,
     /// The guides shown with the point (INP-006, INP-007).
     pub guides: Vec<Guide>,
@@ -88,6 +89,13 @@ pub struct InputContext<'a> {
     pub units: &'a UnitSettings,
     pub number_format: &'a NumberFormat,
     pub angle_increment_deg: f64,
+    /// What the directions of the angle constraint are measured from
+    /// (INP-006, a preference).
+    pub constraint_reference: ConstraintReference,
+    /// The rotation of the input frame in radians, the orientation of the
+    /// construction grid (GRD-001); zero, the X axis, until construction
+    /// grids exist.
+    pub frame_rotation: f64,
     pub snap_step: f64,
     pub frame: SurfaceFrame,
     /// The user origin on the working plane (INP-014); the default frame,
@@ -137,6 +145,28 @@ impl InputContext<'_> {
                 .filter(|p| !coincident(*p, centre))
                 .map_or(0.0, |p| (p - centre).to_angle()),
             _ => 0.0,
+        }
+    }
+
+    /// The guide Shift holds `cursor` on (INP-006): the nearest guide shown
+    /// within the snap radius when it is nearer than the allowed direction
+    /// from the step's origin, otherwise the constraint guide, a ray from
+    /// the origin along that direction. None without a guide in range and
+    /// without an origin, or with the cursor on the origin.
+    fn held(&self, cursor: DVec2) -> Option<Guide> {
+        let constraint = self.origin().and_then(|o| {
+            let rotation = self.constraint_reference.rotation(self.frame_rotation);
+            let (_, dir) = constrain(o, cursor, self.angle_increment_deg, rotation);
+            dir.map(|dir| Guide::new(GuideShape::ray(o, dir), GuideOrigin::Constraint))
+        });
+        let nearest = (self.guides.iter())
+            .map(|g| (*g, g.shape.distance(cursor)))
+            .filter(|(_, d)| *d <= self.radius)
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        match (nearest, constraint) {
+            (Some((g, d)), Some(c)) if d < c.shape.distance(cursor) => Some(g),
+            (_, Some(c)) => Some(c),
+            (g, None) => g.map(|(g, _)| g),
         }
     }
 
@@ -234,15 +264,16 @@ impl PointInput {
     }
 
     /// Resolves a cursor position on the working plane: typed values first,
-    /// then the angle constraint while Shift is held, then snapping to the
-    /// candidate chosen with Tab, the first one unless the user cycled
-    /// (INP-003, INP-006, INP-009). Leaving the snap radius around the
+    /// then snapping to the candidate chosen with Tab, the first one unless
+    /// the user cycled (INP-003, INP-009). While Shift is held the cursor is
+    /// held on the constraint guide or the nearest guide and snaps along it
+    /// ([`InputContext::held`], INP-006); the constraint guide is among the
+    /// resolved guides. Leaving the snap radius around the
     /// position where cycling started ends the cycle. In a stretch every
     /// point that is not typed is projected onto the stretch line (INP-002).
     pub fn resolve(&mut self, cursor: DVec2, mods: Modifiers, ctx: &InputContext) -> Resolved {
         ctx.follow(&mut self.typed);
         self.cursor = Some((cursor, mods));
-        let origin = ctx.origin();
         let typed = (!self.typed.is_empty())
             .then(|| self.apply_typed(cursor, ctx))
             .flatten()
@@ -250,22 +281,28 @@ impl PointInput {
                 point,
                 kind: SnapKind::Typed,
             });
-        let constrained = || {
-            origin.filter(|_| mods.shift).map(|o| Snap {
-                point: constrain(o, cursor, ctx.angle_increment_deg),
-                kind: SnapKind::Constrained,
-            })
-        };
+        let held = (typed.is_none() && mods.shift).then(|| ctx.held(cursor)).flatten();
         let kept = self.last.as_ref().and_then(|r| r.hovered.as_ref()).map(|h| h.key);
-        let hovered = ctx.targets.hover(cursor, ctx.radius, kept, ctx.input);
-        let candidates = match typed.or_else(constrained) {
-            Some(s) => vec![s],
-            None => {
-                let beyond = snap::Beyond {
-                    pending: ctx.pending,
-                    guides: ctx.guides,
-                    hovered: hovered.as_ref(),
+        // A cursor held on a guide snaps along it, not to the division
+        // points of the edge under it.
+        let hovered = (held.is_none())
+            .then(|| ctx.targets.hover(cursor, ctx.radius, kept, ctx.input))
+            .flatten();
+        let beyond = snap::Beyond {
+            pending: ctx.pending,
+            guides: ctx.guides,
+            hovered: hovered.as_ref(),
+        };
+        let candidates = match (typed, held) {
+            (Some(s), _) => vec![s],
+            (None, Some(guide)) => {
+                let free = match guide.origin {
+                    GuideOrigin::Constraint => SnapKind::Constrained,
+                    _ => SnapKind::Guide,
                 };
+                snap::along(ctx.targets, &beyond, &guide.shape, free, cursor, ctx.radius)
+            }
+            (None, None) => {
                 snap::candidates_with(ctx.targets, &beyond, cursor, ctx.radius, ctx.snap_step, ctx.previous)
             }
         };
@@ -301,7 +338,10 @@ impl PointInput {
             point: s.point,
             snap: s,
             candidates,
-            guides: Vec::new(),
+            guides: held
+                .filter(|g| g.origin == GuideOrigin::Constraint)
+                .into_iter()
+                .collect(),
             hovered,
         };
         self.last = Some(resolved.clone());
@@ -806,6 +846,9 @@ mod tests {
         elevation: f64,
         tracker_xyz: bool,
         user_origin: Frame2d,
+        guides: Vec<Guide>,
+        constraint_reference: ConstraintReference,
+        frame_rotation: f64,
     }
 
     impl Env {
@@ -822,6 +865,9 @@ mod tests {
                 elevation: 0.0,
                 tracker_xyz: false,
                 user_origin: Frame2d::default(),
+                guides: Vec::new(),
+                constraint_reference: ConstraintReference::XAxis,
+                frame_rotation: 0.0,
             }
         }
 
@@ -833,7 +879,7 @@ mod tests {
                 targets: &self.targets,
                 pending: &self.pending,
                 previous: consumer.reference_point(),
-                guides: &[],
+                guides: &self.guides,
                 input: InputSettings::default(),
                 expects: consumer.step().map_or(Expect::Point, |s| s.expects),
                 tracker: consumer.step().map_or(TrackerMode::Relative, |s| s.tracker),
@@ -843,6 +889,8 @@ mod tests {
                 units: &self.units,
                 number_format: &self.nf,
                 angle_increment_deg: 45.0,
+                constraint_reference: self.constraint_reference,
+                frame_rotation: self.frame_rotation,
                 snap_step: 0.0,
                 frame: SurfaceFrame::plan(self.elevation),
                 user_origin: self.user_origin,
@@ -1278,6 +1326,146 @@ mod tests {
         let resolved = input.resolve(DVec2::new(3.0, 0.4), shift, &ctx);
         assert_eq!(resolved.snap.kind, SnapKind::Constrained);
         assert!(resolved.point.distance(DVec2::new(3.0, 0.0)) < 1e-12);
+    }
+
+    const SHIFT: Modifiers = Modifiers {
+        shift: true,
+        command: false,
+        alt: false,
+    };
+
+    /// INP-006, INP-009: with Shift held, an edge crossing the constraint
+    /// line gives the crossing at intersection level instead of the free
+    /// constrained point, and the constraint guide, a ray from the previous
+    /// point, is among the resolved guides.
+    #[test]
+    fn shift_snaps_to_an_edge_crossing_the_constraint_line() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        let cursor = DVec2::new(2.05, 0.3);
+        let free = input.resolve(cursor, SHIFT, &env.ctx(&tool));
+        assert_eq!(free.snap.kind, SnapKind::Constrained);
+        assert!(free.point.distance(DVec2::new(2.05, 0.0)) < 1e-12);
+        let ray = Guide::new(GuideShape::ray(DVec2::ZERO, DVec2::X), GuideOrigin::Constraint);
+        assert_eq!(free.guides, [ray]);
+
+        env.targets = index_of(&[], &[[DVec2::new(2.0, -1.0), DVec2::new(2.0, 1.0)]]);
+        let resolved = input.resolve(cursor, SHIFT, &env.ctx(&tool));
+        assert_eq!(resolved.snap.kind, SnapKind::Intersection);
+        assert!(resolved.point.distance(DVec2::new(2.0, 0.0)) < 1e-12);
+        assert_eq!(resolved.guides, [ray]);
+        assert_eq!(
+            resolved.candidates.last().map(|s| s.kind),
+            Some(SnapKind::Constrained),
+            "Tab still reaches the free constrained point: {:?}",
+            resolved.candidates
+        );
+        let unconstrained = input.resolve(cursor, Modifiers::default(), &env.ctx(&tool));
+        assert!(unconstrained.guides.is_empty());
+    }
+
+    /// INP-006: with Shift held, a node near the constraint line snaps onto
+    /// the line.
+    #[test]
+    fn shift_projects_a_node_near_the_constraint_line_onto_it() {
+        let mut env = Env::new();
+        env.targets = index_of(&[DVec2::new(3.0, 0.06)], &[]);
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        let resolved = input.resolve(DVec2::new(3.02, 0.25), SHIFT, &env.ctx(&tool));
+        assert_eq!(resolved.snap.kind, SnapKind::Node);
+        assert!(
+            resolved.point.distance(DVec2::new(3.0, 0.0)) < 1e-12,
+            "{}",
+            resolved.point
+        );
+    }
+
+    /// INP-006: a pending point far from the constraint line, the start of
+    /// a wall chain, does not snap onto the line; a pending point near it
+    /// does. While the cursor is held, the edge under it shows no division
+    /// points.
+    #[test]
+    fn shift_projects_only_pending_points_near_the_constraint_line() {
+        let mut env = Env::new();
+        env.targets = index_of(&[], &[[DVec2::new(-1.0, 5.03), DVec2::new(1.0, 5.03)]]);
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Chain);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        env.click(&mut input, &mut tool, (5.0, 0.0));
+        env.click(&mut input, &mut tool, (5.0, 5.0));
+        env.pending.clone_from(&tool.points);
+        assert_eq!(env.pending.len(), 3);
+        let far = input.resolve(DVec2::new(0.02, 5.1), SHIFT, &env.ctx(&tool));
+        assert_ne!(far.snap.kind, SnapKind::Node, "{:?}", far.candidates);
+        assert!(far.candidates.iter().all(|s| s.kind != SnapKind::Node));
+        assert!(far.hovered.is_none(), "no division points while held");
+        assert!(
+            input
+                .resolve(DVec2::new(0.02, 5.1), Modifiers::default(), &env.ctx(&tool))
+                .hovered
+                .is_some(),
+            "the edge is hovered without Shift"
+        );
+
+        env.pending.push(DVec2::new(2.0, 5.05));
+        let near = input.resolve(DVec2::new(2.03, 5.2), SHIFT, &env.ctx(&tool));
+        assert_eq!(near.snap.kind, SnapKind::Node);
+        assert!(near.point.distance(DVec2::new(2.0, 5.0)) < 1e-12, "{}", near.point);
+    }
+
+    /// INP-006: the constraint directions are measured from the X axis or,
+    /// by preference, from the input frame's rotation.
+    #[test]
+    fn constraint_directions_follow_the_chosen_reference() {
+        let mut env = Env::new();
+        env.frame_rotation = 30f64.to_radians();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        let cursor = DVec2::from_angle(70f64.to_radians()) * 2.0;
+        let direction = |input: &mut PointInput, env: &Env| {
+            let resolved = input.resolve(cursor, SHIFT, &env.ctx(&tool));
+            assert_eq!(resolved.snap.kind, SnapKind::Constrained);
+            resolved.point.to_angle().to_degrees()
+        };
+        assert!((direction(&mut input, &env) - 90.0).abs() < 1e-9, "from the X axis");
+        env.constraint_reference = ConstraintReference::Frame;
+        assert!((direction(&mut input, &env) - 75.0).abs() < 1e-9, "from the frame");
+    }
+
+    /// INP-006: with a guide in range, Shift holds the cursor on the
+    /// nearest guide, also before the first point, unless the constraint
+    /// direction from the previous point is nearer.
+    #[test]
+    fn shift_holds_the_cursor_on_the_nearest_guide() {
+        let mut env = Env::new();
+        let horizontal = |y| Guide::new(GuideShape::line(DVec2::new(0.0, y), DVec2::X), GuideOrigin::Persistent);
+        let guides = vec![horizontal(1.0), horizontal(0.09)];
+        env.guides.clone_from(&guides);
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        let first = input.resolve(DVec2::new(0.5, 1.04), SHIFT, &env.ctx(&tool));
+        assert_eq!(first.snap.kind, SnapKind::Guide);
+        assert!(first.point.distance(DVec2::new(0.5, 1.0)) < 1e-12);
+        assert!(first.guides.is_empty(), "the held guide is shown already");
+
+        // The start point away from the guides' snaps.
+        env.guides.clear();
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        env.guides = guides;
+        let held = input.resolve(DVec2::new(2.0, 1.04), SHIFT, &env.ctx(&tool));
+        assert_eq!(held.snap.kind, SnapKind::Guide);
+        assert!(held.point.distance(DVec2::new(2.0, 1.0)) < 1e-12);
+        let nearer = input.resolve(DVec2::new(3.0, 0.06), SHIFT, &env.ctx(&tool));
+        assert_eq!(nearer.snap.kind, SnapKind::Guide);
+        assert!(nearer.point.distance(DVec2::new(3.0, 0.09)) < 1e-12);
+        let constrained = input.resolve(DVec2::new(3.0, 0.02), SHIFT, &env.ctx(&tool));
+        assert_eq!(constrained.snap.kind, SnapKind::Constrained);
+        assert!(constrained.point.distance(DVec2::new(3.0, 0.0)) < 1e-12);
     }
 
     /// INP-002, INP-003, UI-008: once a step has a point to start from,
