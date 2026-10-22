@@ -341,8 +341,8 @@ fn storey_edit(project: &Project, list: StoreyList) -> Result<Vec<Edit>, Command
 /// height, and an element already too low or too high (made so outside the
 /// commands, or, for too high, added with a linked extent above the
 /// maximum, which `validate_element` does not check) does not block storey
-/// edits that leave it as it is or move it towards the valid range. The message names the first element and counts the
-/// others.
+/// edits that leave it as it is or move it towards the valid range. The
+/// message names the first element and counts the others.
 fn check_linked_heights(project: &Project, list: &StoreyList, element_edits: &[Edit]) -> Result<(), CommandError> {
     let planned: HashMap<ElementId, Option<&Element>> = element_edits
         .iter()
