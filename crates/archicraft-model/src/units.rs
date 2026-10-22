@@ -403,10 +403,12 @@ pub fn format_angle(radians: f64, units: &UnitSettings, nf: &NumberFormat, with_
 /// (STR-009), for example `30°15'07.3"`. The marks are always shown, because
 /// they are the notation.
 fn format_dms(radians: f64, decimals: usize, nf: &NumberFormat) -> String {
-    let per_second = 10_i64.pow(decimals as u32);
+    let per_second = 10_u64.pow(decimals as u32);
+    // `as i64` saturates for angles beyond its range, and `unsigned_abs`
+    // keeps `i64::MIN` from overflowing, so every finite angle formats.
     let total = (radians.to_degrees() * 3600.0 * per_second as f64).round() as i64;
     let sign = if total < 0 { "-" } else { "" };
-    let total = total.abs();
+    let total = total.unsigned_abs();
     let fraction = total % per_second;
     let seconds = total / per_second;
     let (degrees, minutes, seconds) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
@@ -461,7 +463,8 @@ pub fn format_slope(pitch: f64, units: &UnitSettings, nf: &NumberFormat, with_un
 /// of rise to run with `:`, `∶` or `/` (`6:12`, `1 : 1.732`), a percentage
 /// with `%`, an angle with the degree sign, a degrees-minutes-seconds mark or
 /// a `gon`, `grad` or `rad` suffix ([`parse_angle`]). A bare number is read
-/// in `format`; in the ratio format it is the run of `1 : n`. Vertical slopes
+/// in `format`; in the ratio format it is the run of `1 : n`. Vertical slopes,
+/// including a percent or ratio within [`ANGLE_TOLERANCE`] of a right angle,
 /// can only be typed as angles, and pitches beyond a right angle are
 /// rejected.
 pub fn parse_slope(text: &str, format: SlopeFormat, nf: &NumberFormat) -> Result<f64, ParseError> {
@@ -471,14 +474,23 @@ pub fn parse_slope(text: &str, format: SlopeFormat, nf: &NumberFormat) -> Result
         return Err(ParseError::Empty);
     }
     let number = |s: &str| nf.parse_decimal(s).ok_or_else(invalid);
+    // A percent or ratio pitch within `ANGLE_TOLERANCE` of a right angle is
+    // vertical, as in `format_slope`, and has no percent or ratio.
+    let not_vertical = |pitch: f64| {
+        if pitch.abs() >= std::f64::consts::FRAC_PI_2 - ANGLE_TOLERANCE {
+            Err(invalid())
+        } else {
+            Ok(pitch)
+        }
+    };
     let from_ratio = |rise: f64, run: f64| {
         if run == 0.0 {
             Err(invalid())
         } else {
-            Ok((rise / run).atan())
+            not_vertical((rise / run).atan())
         }
     };
-    let from_percent = |percent: f64| Ok((percent / 100.0).atan());
+    let from_percent = |percent: f64| not_vertical((percent / 100.0).atan());
     if let Some((rise, run)) = trimmed.split_once([':', '∶', '/']) {
         return from_ratio(number(rise)?, number(run)?);
     }
@@ -1241,6 +1253,49 @@ mod tests {
         assert_eq!(parse_slope(" ", SlopeFormat::Degrees, &nf()), Err(ParseError::Empty));
         let e = parse_slope("steep", SlopeFormat::Degrees, &nf()).unwrap_err();
         assert_eq!(e.message().key(), "model-error-parse-slope");
+    }
+
+    /// NFR-L10N-003: a percent or ratio whose pitch is within
+    /// `ANGLE_TOLERANCE` of a right angle is vertical, as `format_slope`
+    /// treats it, so it cannot be typed that way either.
+    #[test]
+    fn nearly_vertical_percent_and_ratio_slopes_are_rejected() {
+        let huge = format!("1{}", "0".repeat(40));
+        let tiny = format!("0.{}1", "0".repeat(40));
+        for (text, format) in [
+            (format!("{huge} %"), SlopeFormat::Percent),
+            (huge.clone(), SlopeFormat::Percent),
+            (format!("-{huge}%"), SlopeFormat::Ratio),
+            (format!("{huge} : 1"), SlopeFormat::Degrees),
+            (format!("1 : {tiny}"), SlopeFormat::Percent),
+            (tiny.clone(), SlopeFormat::Ratio),
+            (format!("-{tiny}"), SlopeFormat::Ratio),
+        ] {
+            let e = parse_slope(&text, format, &nf()).unwrap_err();
+            assert_eq!(e, ParseError::InvalidSlope(text.clone()), "{text} in {format:?}");
+        }
+        // Steep but not vertical: 1 : 0.001 is about 89.94°.
+        let v = parse_slope("1 : 0.001", SlopeFormat::Ratio, &nf()).unwrap();
+        assert!((v - 1000f64.atan()).abs() < 1e-12);
+        assert!(parse_slope("100000 %", SlopeFormat::Percent, &nf()).is_ok());
+    }
+
+    /// STR-009: degrees-minutes-seconds format every finite angle without
+    /// panicking, even one too large for the integer count of seconds.
+    #[test]
+    fn dms_formats_huge_angles_without_panicking() {
+        for decimals in [0, 1, 6] {
+            let units = UnitSettings {
+                angle: AngleUnit::DegreesMinutesSeconds,
+                angle_decimals: decimals,
+                ..UnitSettings::default()
+            };
+            for angle in [1e300, -1e300, f64::MAX, f64::MIN] {
+                let text = format_angle(angle, &units, &nf(), true);
+                assert_eq!(text.starts_with('-'), angle < 0.0, "{text}");
+                assert!(text.ends_with('"'), "{text}");
+            }
+        }
     }
 
     /// NFR-L10N-003: typed angles accept the suffix of every angle unit,
