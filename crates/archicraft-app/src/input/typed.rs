@@ -1,4 +1,5 @@
-//! Values typed during point input (INP-002, INP-003, INP-004, INP-005).
+//! Values typed during point input (INP-002, INP-003, INP-004, INP-005,
+//! INP-022).
 //!
 //! The typed values form a field set: relative or absolute polar coordinates
 //! (distance, angle), Cartesian coordinates (X, Y, Z) or, while an element is
@@ -8,7 +9,8 @@
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{
-    NumberFormat, ParseError, UnitSettings, format_angle, format_length, parse_angle, parse_length,
+    InputAlphabet, NumberFormat, ParseError, UnitSettings, format_angle, format_length, parse_angle_expr,
+    parse_length_expr,
 };
 
 use super::consumer::TrackerMode;
@@ -258,6 +260,55 @@ impl TypedInput {
         }
     }
 
+    /// Whether `c` may be typed into the active field (INP-005, INP-022):
+    /// into an empty field a letter only when it addresses a field
+    /// ([`TypedInput::address`]), otherwise a character of `alphabet`, the
+    /// characters the parsers accept under the number format
+    /// (NFR-L10N-004). A letter after text is a unit suffix.
+    pub fn accepts(&self, c: char, alphabet: &InputAlphabet) -> bool {
+        if self.text(self.field).is_empty() && c.is_alphabetic() {
+            self.address(c).is_some()
+        } else {
+            alphabet.contains(c)
+        }
+    }
+
+    /// The field a letter typed into the empty active field addresses
+    /// (INP-022), in either case: x, y and z the Cartesian fields, d and a
+    /// the polar fields, l and c the total length and the length change of
+    /// a stretch. A stretch and the other steps never share their fields,
+    /// so each takes only its own letters. No unit suffix starts a value,
+    /// so the letters cannot be mistaken for one.
+    pub fn address(&self, c: char) -> Option<Field> {
+        if !self.text(self.field).is_empty() {
+            return None;
+        }
+        let stretch = matches!(self.set, FieldSet::Stretch { .. });
+        match (c.to_ascii_lowercase(), stretch) {
+            ('x', false) => Some(Field::X),
+            ('y', false) => Some(Field::Y),
+            ('z', false) => Some(Field::Z),
+            ('d', false) => Some(Field::Distance),
+            ('a', false) => Some(Field::Angle),
+            ('l', true) => Some(Field::Total),
+            ('c', true) => Some(Field::Change),
+            _ => None,
+        }
+    }
+
+    /// Makes `field` of the current set the active field and empties it,
+    /// so the characters typed next replace its value (INP-022). Returns
+    /// false when the set has no such field.
+    pub fn select(&mut self, field: Field) -> bool {
+        let Some(value) = self.set.get_mut(field) else {
+            return false;
+        };
+        *value = Value::default();
+        self.field = field;
+        self.chosen = true;
+        true
+    }
+
     /// Removes the last typed character: from the active field, or from the
     /// last field before it that holds text, which becomes active.
     pub fn pop(&mut self) -> bool {
@@ -288,13 +339,14 @@ impl TypedInput {
     }
 
     /// The value of `field`: `None` while it is empty, its exact value
-    /// after a conversion, otherwise its parsed text (INP-005).
+    /// after a conversion, otherwise its parsed text, which may be an
+    /// arithmetic expression (INP-005, INP-022).
     pub fn value(&self, field: Field, units: &UnitSettings, nf: &NumberFormat) -> Option<Result<f64, ParseError>> {
         let value = self.set.get(field).filter(|v| !v.text.is_empty())?;
         Some(match (value.exact, field) {
             (Some(exact), _) => Ok(exact),
-            (None, Field::Angle) => parse_angle(&value.text, units.angle, nf),
-            (None, _) => parse_length(&value.text, units.length, nf),
+            (None, Field::Angle) => parse_angle_expr(&value.text, units.angle, nf),
+            (None, _) => parse_length_expr(&value.text, units.length, nf),
         })
     }
 
@@ -362,8 +414,9 @@ impl TypedInput {
 }
 
 /// Whether `c` starts a typed value when nothing is typed yet (INP-003): a
-/// digit, a sign or the decimal separator of the number format
-/// (NFR-L10N-004). Every other key keeps its single-key shortcut.
+/// digit, a sign, an opening parenthesis (INP-022) or the decimal separator
+/// of the number format (NFR-L10N-004). Every other key keeps its
+/// single-key shortcut.
 pub fn starts_value(c: char, nf: &NumberFormat) -> bool {
-    c.is_ascii_digit() || matches!(c, '+' | '-' | '−') || c == nf.decimal_separator
+    c.is_ascii_digit() || matches!(c, '+' | '-' | '−' | '(') || c == nf.decimal_separator
 }

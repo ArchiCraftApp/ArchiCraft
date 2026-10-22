@@ -1,5 +1,5 @@
 //! Units, number formatting and length parsing (STR-009, STR-010, INP-005,
-//! NFR-ACC-002, NFR-ACC-005, NFR-L10N-003, NFR-L10N-004).
+//! INP-022, NFR-ACC-002, NFR-ACC-005, NFR-L10N-003, NFR-L10N-004).
 //!
 //! Internally every length is a metre value and every angle a radian value in
 //! `f64`. Units only affect display and input; changing a unit never changes
@@ -10,6 +10,10 @@ use thiserror::Error;
 
 use crate::message::Message;
 use crate::tolerance::ANGLE_TOLERANCE;
+
+mod expr;
+
+pub use expr::{parse_angle_expr, parse_length_expr};
 
 pub const METERS_PER_INCH: f64 = 0.0254;
 pub const METERS_PER_FOOT: f64 = 0.3048;
@@ -551,17 +555,23 @@ pub fn parse_length(text: &str, default_unit: LengthUnit, nf: &NumberFormat) -> 
     if s.is_empty() {
         return Err(ParseError::Empty);
     }
+    length_operand(s, default_unit).ok_or_else(invalid)
+}
 
+/// Reads one signed length from text that [`normalize_number_text`] has
+/// already normalised: the body of [`parse_length`], and an operand of
+/// [`parse_length_expr`].
+fn length_operand(s: &str, default_unit: LengthUnit) -> Option<f64> {
     let (negative, body) = match s.strip_prefix('-') {
         Some(rest) => (true, rest.trim_start()),
         None => (false, s.strip_prefix('+').unwrap_or(s).trim_start()),
     };
 
     let meters = if body.contains('\'') || body.contains('"') {
-        parse_feet_inches(body).ok_or_else(invalid)?
+        parse_feet_inches(body)?
     } else {
         let (number, unit) = split_unit_suffix(body);
-        let value = parse_mixed_number(number.trim()).ok_or_else(invalid)?;
+        let value = parse_mixed_number(number.trim())?;
         let unit_factor = match unit.trim() {
             "" => default_unit.meters_per_unit(),
             "m" => 1.0,
@@ -569,14 +579,14 @@ pub fn parse_length(text: &str, default_unit: LengthUnit, nf: &NumberFormat) -> 
             "mm" => 0.001,
             "ft" => METERS_PER_FOOT,
             "in" => METERS_PER_INCH,
-            _ => return Err(invalid()),
+            _ => return None,
         };
         value * unit_factor
     };
     if !meters.is_finite() {
-        return Err(invalid());
+        return None;
     }
-    Ok(if negative { -meters } else { meters })
+    Some(if negative { -meters } else { meters })
 }
 
 /// Parses a typed angle and returns radians (INP-005, NFR-L10N-003). Accepts
@@ -591,12 +601,19 @@ pub fn parse_angle(text: &str, unit: AngleUnit, nf: &NumberFormat) -> Result<f64
     if s.is_empty() {
         return Err(ParseError::Empty);
     }
+    angle_operand(s, unit).ok_or_else(invalid)
+}
+
+/// Reads one signed angle from text that [`normalize_number_text`] has
+/// already normalised: the body of [`parse_angle`], and an operand of
+/// [`parse_angle_expr`].
+fn angle_operand(s: &str, unit: AngleUnit) -> Option<f64> {
     let (negative, body) = match s.strip_prefix('-') {
         Some(rest) => (true, rest.trim()),
         None => (false, s),
     };
     let (value_text, suffix) = split_unit_suffix(body);
-    let number = |s: &str| s.trim().parse::<f64>().map_err(|_| invalid());
+    let number = |s: &str| s.trim().parse::<f64>().ok();
     let value = match suffix.trim() {
         "gon" | "grad" => number(value_text)? * std::f64::consts::PI / 200.0,
         "rad" => number(value_text)?,
@@ -622,12 +639,12 @@ pub fn parse_angle(text: &str, unit: AngleUnit, nf: &NumberFormat) -> Result<f64
                 AngleUnit::Radians => n,
             }
         }
-        _ => return Err(invalid()),
+        _ => return None,
     };
     if !value.is_finite() {
-        return Err(invalid());
+        return None;
     }
-    Ok(if negative { -value } else { value })
+    Some(if negative { -value } else { value })
 }
 
 /// Grouping characters accepted between digits besides the active one:
@@ -705,14 +722,15 @@ impl InputAlphabet {
     }
 }
 
-/// Returns the characters [`parse_length`] and [`parse_angle`] accept under
-/// `nf`: digits, signs, the decimal separator, the grouping characters,
-/// mixed-number spaces and fraction slashes, the length and angle unit
-/// suffixes (`gon`, `grad`, `rad`) and the feet, inch, degree, minute and
-/// second marks. The unit settings do not
-/// narrow it, because the parsers accept every suffix and mark in any unit.
+/// Returns the characters [`parse_length_expr`] and [`parse_angle_expr`]
+/// accept under `nf`: digits, the operators `+ - − * × / ÷` and parentheses
+/// (INP-022), the decimal separator, the grouping characters, mixed-number
+/// spaces and fraction slashes, the length and angle unit suffixes (`gon`,
+/// `grad`, `rad`) and the feet, inch, degree, minute and second marks. The
+/// unit settings do not narrow it, because the parsers accept every suffix
+/// and mark in any unit.
 pub fn input_alphabet(nf: &NumberFormat) -> InputAlphabet {
-    let mut chars: Vec<char> = vec!['+', '-', '−', ' ', '/', nf.decimal_separator];
+    let mut chars: Vec<char> = vec!['+', '-', '−', '*', '×', '÷', '(', ')', ' ', '/', nf.decimal_separator];
     chars.extend(nf.grouping);
     chars.extend(LOCALE_GROUPINGS);
     chars.extend("mcfitngorad".chars());
