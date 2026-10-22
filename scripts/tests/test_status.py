@@ -14,12 +14,15 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "status.py"
+# No scripts/__pycache__ in the working tree from loading the module.
+sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("status", SCRIPT)
 status = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(status)
@@ -60,13 +63,41 @@ TESTING = """# Testing
 ## Fuzzing
 """
 
+# The traceability table without a guard for NFR-LEG-002.
+UNTRACED_TESTING = TESTING.replace('Repository guards: "No unreviewed trademarks (NFR-LEG-002)"', "Inspection before each release")
+
 WORKFLOW = """name: CI
 jobs:
   guards:
     name: Repository guards
     steps:
+      - uses: actions/checkout@v4
+      - name: Install the browser and its libraries
+        run: npx playwright install --with-deps chromium
       - name: No unreviewed trademarks (NFR-LEG-002)
         run: scripts/check-legal.sh
+      - name: Unit tests of the demo crate
+        run: cargo test -p demo --locked  # scripts/other-tool.sh would be slower
+      - run: python3 scripts/tests/test_unnamed.py
+      - name: Benches of the demo crate
+        env:
+          MINUTES: 1
+        run: |
+          # A block scalar: the script is called on a continuation line, not scripts/other-tool.sh.
+          scripts/bench-demo.sh "$MINUTES"
+# A comment at column 0 between two jobs.
+  licences:
+    name: Licences and sources
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check bans
+  browser:
+    name: Browser installation only
+    steps:
+      - name: Install the browser once more
+        run: npx playwright install chromium
 """
 
 TESTS_RS = """#[test]
@@ -75,7 +106,12 @@ fn prj_001_a_project_comes_from_the_template() {}
 fn helper_outside_a_test_attribute() {}
 """
 
+COMMON_RS = """pub fn common_setup_helper() {}
+"""
+
 SOURCE_RS = """pub fn template() {}
+
+pub fn template_helper() {}
 
 #[cfg(test)]
 mod tests {
@@ -141,7 +177,11 @@ class Repo:
             ".github/workflows/ci.yml": WORKFLOW,
             "crates/demo/tests/demo.rs": TESTS_RS,
             "crates/demo/src/lib.rs": SOURCE_RS,
+            "crates/demo/tests/common/mod.rs": COMMON_RS,
             "scripts/check-legal.sh": "#!/bin/sh\n",
+            "scripts/bench-demo.sh": "#!/bin/sh\n",
+            "scripts/tests/test_unnamed.py": "",
+            "scripts/other-tool.sh": "#!/bin/sh\n",
         }
         for path, text in files.items():
             self.write(path, text)
@@ -289,13 +329,63 @@ class CheckTest(StatusTest):
         self.edit("STR-001", evidence="Done: crates/demo/src/lib.rs template()")
         self.assert_check_fails("STR-001: done row names no test or CI guard")
 
-    def test_a_helper_function_is_not_a_test(self):
-        self.edit("STR-001", evidence="Done: helper_outside_a_test_attribute in src/lib.rs")
-        # It lives in a tests/ directory, so it counts; the same name in a source file would not.
-        code, out = self.check()
-        self.assertEqual(code, 0, out)
-        self.edit("STR-001", evidence="Done: template_helper")
-        self.assert_check_fails("STR-001: done row names no test or CI guard")
+    def test_only_functions_marked_test_count_as_tests(self):
+        self.edit("STR-001", evidence="Done: prj_001_a_project_comes_from_the_template")
+        self.assertEqual(self.check()[0], 0)
+        # A helper in a tests/ file, one in tests/common and a source function are no tests.
+        for helper in ("helper_outside_a_test_attribute", "common_setup_helper", "template_helper"):
+            self.edit("STR-001", evidence=f"Done: {helper}")
+            self.assert_check_fails("STR-001: done row names no test or CI guard")
+
+    def test_a_test_file_counts_but_not_a_helper_module_beside_it(self):
+        self.edit("STR-001", evidence="Done: crates/demo/tests/demo.rs")
+        self.assertEqual(self.check()[0], 0)
+        # Neither a helper module in tests/ nor a source file with unit tests: name the test.
+        for path in ("crates/demo/tests/common/mod.rs", "crates/demo/src/lib.rs"):
+            self.edit("STR-001", evidence=f"Done: {path}")
+            self.assert_check_fails("STR-001: done row names no test or CI guard")
+
+    def test_only_scripts_a_workflow_runs_count_as_guards(self):
+        self.repo.write(status.TESTING_PATH, UNTRACED_TESTING)
+        for script in ("scripts/check-legal.sh", "scripts/bench-demo.sh", "scripts/tests/test_unnamed.py"):
+            self.edit("NFR-LEG-002", evidence=f"Done. Guarded by {script}.")
+            code, out = self.check()
+            self.assertEqual(code, 0, f"{script}: {out}")
+        # It exists, but no workflow step runs it (comments in run: name it, a line and a tail).
+        self.edit("NFR-LEG-002", evidence="Done. Guarded by scripts/other-tool.sh.")
+        self.assert_check_fails("NFR-LEG-002: done row names no test or CI guard")
+
+    def test_only_steps_that_run_a_guard_or_test_count_as_guards(self):
+        self.repo.write(status.TESTING_PATH, UNTRACED_TESTING)
+        self.edit("NFR-LEG-002", evidence="Done. CI: Unit tests of the demo crate.")
+        self.assertEqual(self.check()[0], 0)
+        # A job with a guard step counts, the cargo-deny action included.
+        for name in ("Repository guards", "Licences and sources"):
+            self.edit("NFR-LEG-002", evidence=f"Done. CI: {name}.")
+            self.assertEqual(self.check()[0], 0, name)
+        # A step that only installs tools, and a job of such steps, are no guards.
+        for name in ("Install the browser and its libraries", "Browser installation only"):
+            self.edit("NFR-LEG-002", evidence=f"Done. CI: {name}.")
+            self.assert_check_fails("NFR-LEG-002: done row names no test or CI guard")
+
+    def test_only_the_items_of_steps_are_steps(self):
+        workflow = """jobs:
+  package:
+    name: Package
+    strategy:
+      matrix:
+        include:
+          - name: Linux
+            run: scripts/other-tool.sh
+    steps:
+    - name: Package it
+      env:
+        TARGETS:
+          - name: Windows
+      run: scripts/package.sh
+"""
+        step = {"name": "Package it", "uses": "", "run": "scripts/package.sh"}
+        self.assertEqual(status.workflow_jobs(workflow), [("Package", [step])])
 
     def test_a_ci_step_in_the_traceability_table_counts_as_a_guard(self):
         self.edit("NFR-LEG-002", evidence="Done. Nothing to see here.")
@@ -303,7 +393,7 @@ class CheckTest(StatusTest):
         self.assertEqual(code, 0, out)
         self.repo.write(
             status.TESTING_PATH,
-            TESTING.replace('Repository guards: "No unreviewed trademarks (NFR-LEG-002)"', "Inspection before each release"),
+            UNTRACED_TESTING,
         )
         self.assert_check_fails("NFR-LEG-002: done row names no test or CI guard")
 
@@ -405,6 +495,19 @@ class MergeCheckTest(StatusTest):
         self.edit("STR-001", status="missing", remaining_effort="M", evidence="", gap="Removed.")
         code, out = self.merge_check("Regresses: STR-001\n")
         self.assertEqual(code, 1, out)
+        self.assertIn("STR-001: regresses from done to missing without a 'Regresses: STR-001 <reason>' line", out)
+
+    def test_an_id_with_extra_digits_is_not_listed(self):
+        self.assertEqual(status.listed_ids(["SRS: IFX-0071, STR-001, xPRJ-002"]), (["STR-001"], {}))
+        self.assertEqual(status.listed_ids(["Regresses: STR-0011 typo"]), ([], {}))
+        code, out = self.merge_check("SRS: STR-0011\n")
+        self.assertEqual(code, 0, out)
+
+    def test_an_unknown_base_is_an_error_without_a_traceback(self):
+        self.repo.commit("change")
+        code, out = self.repo.run("merge-check", "--base", "no-such-commit")
+        self.assertEqual(code, 2, out)
+        self.assertIn("status: git log no-such-commit..HEAD failed", out)
 
     def test_the_pull_request_that_introduces_the_rows_passes(self):
         (self.repo.root / status.JSON_PATH).rename(self.repo.root / "rows.json")
@@ -461,11 +564,15 @@ class RepositoryTest(unittest.TestCase):
         rows = status.load_rows((self.root / status.JSON_PATH).read_text(encoding="utf-8"))
         done = [r for r in rows if r["status"] == "done"]
         self.assertGreaterEqual(len(done), 56)
-        tests, cis = status.test_names(self.root), status.ci_names(self.root)
+        checks = status.find_checks(self.root)
         trace = status.traceability((self.root / status.TESTING_PATH).read_text(encoding="utf-8"))
         for r in done:
             texts = [r["evidence"], *trace.get(r["id"], [])]
-            self.assertTrue(any(status.names_a_check(t, tests, cis, self.root) for t in texts), r["id"])
+            self.assertTrue(any(status.names_a_check(t, checks) for t in texts), r["id"])
+
+    def test_the_status_scripts_are_executable(self):
+        for path in (SCRIPT, Path(__file__).resolve()):
+            self.assertTrue(os.access(path, os.X_OK), path)
 
 
 if __name__ == "__main__":
