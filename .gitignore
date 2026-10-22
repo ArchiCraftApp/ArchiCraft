@@ -17,3 +17,6 @@ fuzz/target/
 fuzz/corpus/
 fuzz/artifacts/
 fuzz/coverage/
+
+# Python bytecode from the scripts' test runs
+__pycache__/
