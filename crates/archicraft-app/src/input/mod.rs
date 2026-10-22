@@ -199,8 +199,8 @@ impl PointInput {
     }
 
     /// Whether `text` starts typing a value in the consumer's current step
-    /// (INP-003): a digit, a sign or the decimal separator, also for the
-    /// first point. The Select tool has no step and never types.
+    /// (INP-003): a digit, a sign, an opening parenthesis (INP-022) or the
+    /// decimal separator, also for the first point. The Select tool has no step and never types.
     pub fn starts_typing(&self, consumer: &dyn InputConsumer, text: &str, nf: &NumberFormat) -> bool {
         consumer.step().is_some() && text.chars().next().is_some_and(|c| starts_value(c, nf))
     }
@@ -349,7 +349,31 @@ impl PointInput {
         }
     }
 
-    /// Handles a key (INP-003, INP-004): characters go to the active field,
+    /// Switches between polar and Cartesian fields (INP-004), converting
+    /// the typed values with the cursor's offset from the base point.
+    fn switch_set(&mut self, ctx: &InputContext) {
+        let reference = self.typed.reference;
+        let cursor = self
+            .cursor
+            .zip(ctx.base(reference))
+            .map(|((c, _), base)| base.to_local(c));
+        self.typed
+            .switch_set(ctx.base_angle(reference), cursor, ctx.units, ctx.number_format);
+    }
+
+    /// Makes `field` the active, empty field (INP-022), first switching
+    /// between polar and Cartesian fields as P does when the set has no
+    /// such field. Nothing changes when the switch cannot complete it.
+    fn address(&mut self, field: Field, ctx: &InputContext) {
+        if !self.typed.select(field) {
+            self.switch_set(ctx);
+            self.typed.select(field);
+        }
+    }
+
+    /// Handles a key (INP-003, INP-004, INP-022): characters go to the
+    /// active field, a letter typed into the empty active field addresses a
+    /// field ([`TypedInput::address`]),
     /// Tab cycles through the snap candidates in range or else moves between
     /// fields (INP-009), P and Shift+P switch the field set and the
     /// reference, Enter commits the typed point or finishes a repeating
@@ -368,8 +392,17 @@ impl PointInput {
                     // NFR-L10N-004: the characters the parsers accept under
                     // the active number format, not a fixed list.
                     let alphabet = input_alphabet(ctx.number_format);
-                    let text: String = text.chars().filter(|c| alphabet.contains(*c)).collect();
-                    self.typed.push_str(&text);
+                    // Each character is judged in the state the ones before
+                    // it left: whether the active field is still empty.
+                    for c in text.chars() {
+                        if !self.typed.accepts(c, &alphabet) {
+                            continue;
+                        }
+                        match self.typed.address(c) {
+                            Some(field) => self.address(field, ctx),
+                            None => self.typed.push_str(c.encode_utf8(&mut [0; 4])),
+                        }
+                    }
                 }
                 Effect::None
             }
@@ -387,13 +420,7 @@ impl PointInput {
                 Effect::None
             }
             KeyInput::SwitchFields if step => {
-                let reference = self.typed.reference;
-                let cursor = self
-                    .cursor
-                    .zip(ctx.base(reference))
-                    .map(|((c, _), base)| base.to_local(c));
-                self.typed
-                    .switch_set(ctx.base_angle(reference), cursor, ctx.units, ctx.number_format);
+                self.switch_set(ctx);
                 Effect::None
             }
             // The first point has nothing to be relative to.
@@ -1839,5 +1866,138 @@ mod tests {
         );
         resolve_at(&env, &mut input, &stub, DVec2::new(3.0, 0.0));
         assert_eq!(input.typed.field, Field::Change);
+    }
+
+    /// INP-022: typed values take arithmetic in every field: 2.5+0.3 as
+    /// the distance and 45+15 as the angle from (1, 1); an operator or a
+    /// parenthesis is typed, not dropped, and a value may start with one.
+    #[test]
+    fn typed_values_take_arithmetic() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (1.0, 1.0));
+        for key in [text("2.5+0.3"), KeyInput::Tab, text("45+15")] {
+            env.key(&mut input, &mut tool, key);
+        }
+        assert_eq!(input.typed.text(Field::Distance), "2.5+0.3");
+        assert_eq!(input.typed.text(Field::Angle), "45+15");
+        let point = point_at(&env, &mut input, &tool, (9.0, 9.0));
+        let expected = DVec2::ONE + DVec2::from_angle(60f64.to_radians()) * 2.8;
+        assert!(point.distance(expected) < 1e-12, "{point}");
+
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        assert!(input.starts_typing(&tool, "(", &env.nf));
+        env.key(&mut input, &mut tool, text("(1+2)×3÷2*(4−3)"));
+        assert_eq!(input.typed.text(Field::X), "(1+2)×3÷2*(4−3)");
+        let point = point_at(&env, &mut input, &tool, (0.0, 0.0));
+        assert!((point.x - 4.5).abs() < 1e-12, "{point}");
+    }
+
+    /// INP-022: a letter typed into the empty active field addresses a
+    /// field: a35 types the angle of the polar set, x3 switches to the
+    /// Cartesian set and types ΔX, in either case.
+    #[test]
+    fn a_letter_in_an_empty_field_addresses_a_field() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (1.0, 1.0));
+        resolve_at(&env, &mut input, &tool, DVec2::new(3.0, 1.0));
+        assert!(matches!(input.typed.set, FieldSet::Polar { .. }));
+        assert_eq!(input.typed.field, Field::Distance);
+        env.key(&mut input, &mut tool, text("a35"));
+        assert_eq!(input.typed.field, Field::Angle);
+        assert_eq!(input.typed.text(Field::Angle), "35");
+        assert_eq!(input.typed.text(Field::Distance), "");
+        let point = point_at(&env, &mut input, &tool, (3.0, 1.0));
+        let angle = (point - DVec2::ONE).to_angle();
+        assert!((angle - 35f64.to_radians()).abs() < 1e-12, "{point}");
+        assert!(
+            (point.distance(DVec2::ONE) - 2.0).abs() < 1e-12,
+            "the cursor's distance"
+        );
+
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (1.0, 1.0));
+        for key in ["x", "3"] {
+            env.key(&mut input, &mut tool, text(key));
+        }
+        assert!(matches!(input.typed.set, FieldSet::Cartesian { .. }));
+        assert_eq!(input.typed.reference, Reference::Relative);
+        assert_eq!(input.typed.field, Field::X);
+        assert_eq!(input.typed.field.label(input.typed.reference), "ΔX");
+        assert_eq!(input.typed.text(Field::X), "3");
+        assert_eq!(point_at(&env, &mut input, &tool, (2.0, 1.0)), DVec2::new(4.0, 1.0));
+        // Back to the polar set with D, after Tab to the empty ΔY field.
+        for key in [KeyInput::Tab, text("D"), text("2")] {
+            env.key(&mut input, &mut tool, key);
+        }
+        assert!(matches!(input.typed.set, FieldSet::Polar { .. }));
+        assert_eq!(input.typed.field, Field::Distance);
+        assert_eq!(
+            input.typed.text(Field::Distance),
+            "2",
+            "the typed value replaces the converted one"
+        );
+        assert!(input.typed.text(Field::Angle).starts_with("0.00"), "{:?}", input.typed);
+        env.key(&mut input, &mut tool, KeyInput::Enter);
+        assert_eq!(env.walls(), [(DVec2::ONE, DVec2::new(3.0, 1.0))]);
+    }
+
+    /// INP-022, INP-005: a letter typed into a field that holds text is a
+    /// unit suffix, not an address; a letter that addresses nothing in an
+    /// empty field is dropped.
+    #[test]
+    fn a_letter_after_a_value_is_a_unit() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (1.0, 1.0));
+        for key in ["a", "5", "0", "g", "r", "a", "d"] {
+            env.key(&mut input, &mut tool, text(key));
+        }
+        assert_eq!(input.typed.field, Field::Angle);
+        assert_eq!(input.typed.text(Field::Angle), "50grad");
+        let ctx = env.ctx(&tool);
+        let angle = input.typed.value(Field::Angle, ctx.units, ctx.number_format);
+        assert!((angle.unwrap().unwrap() - 45f64.to_radians()).abs() < 1e-12);
+        for key in [KeyInput::Tab, text("3"), text("c"), text("m"), text("x")] {
+            env.key(&mut input, &mut tool, key);
+        }
+        assert_eq!(input.typed.text(Field::Distance), "3cm");
+        assert!(matches!(input.typed.set, FieldSet::Polar { .. }));
+
+        let mut input = PointInput::default();
+        env.click(&mut input, &mut tool, (1.0, 1.0));
+        for key in ["m", "l", "q", "c"] {
+            env.key(&mut input, &mut tool, text(key));
+        }
+        assert!(input.typed.is_empty(), "{:?}", input.typed);
+        assert!(matches!(input.typed.set, FieldSet::Polar { .. }));
+    }
+
+    /// INP-022: in a stretch L addresses the total length and C the length
+    /// change; the polar and Cartesian letters address nothing there.
+    #[test]
+    fn a_stretch_addresses_its_length_fields() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut stub = StretchStub::new(false);
+        assert_eq!(input.typed.field, Field::X, "before the stretch step is followed");
+        for key in ["x", "c", "0.5"] {
+            env.key(&mut input, &mut stub, text(key));
+        }
+        assert_eq!(input.typed.field, Field::Change);
+        assert_eq!(input.typed.text(Field::Change), "0.5");
+        for key in [KeyInput::Tab, text("d"), text("L"), text("2*3")] {
+            env.key(&mut input, &mut stub, key);
+        }
+        assert_eq!(input.typed.field, Field::Total);
+        assert_eq!(input.typed.text(Field::Total), "2*3");
+        assert_eq!(env.key(&mut input, &mut stub, KeyInput::Enter), Effect::None);
+        assert_eq!(stub.end, Some(DVec2::new(7.0, 1.0)));
     }
 }

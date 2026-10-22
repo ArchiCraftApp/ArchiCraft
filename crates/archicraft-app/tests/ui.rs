@@ -268,6 +268,44 @@ fn typing_the_first_point_keeps_shortcuts_until_a_value_starts() {
     assert_ne!(camera(&mut harness), before);
 }
 
+/// INP-022: in the plan view, after the first wall point, X addresses the
+/// ΔX field (switching to the Cartesian set) and 3+1 is typed into it as an
+/// expression; Enter takes the chain's next point 4 m along X from the
+/// first.
+#[test]
+fn typed_keys_address_a_field_and_take_an_expression() {
+    let mut harness = harness("address-field");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let (storey, pos) = {
+        let ws = harness.state_mut().workspace();
+        (ws.active_storey, ws.plan_views[&ws.active_storey].last_rect.center())
+    };
+    click_at(&mut harness, pos);
+    let first = harness.state_mut().workspace().tool.points[0];
+    for (key, text) in [(Key::X, "X"), (Key::Num3, "3"), (Key::Plus, "+"), (Key::Num1, "1")] {
+        harness.key_press(key);
+        harness.event(Event::Text(text.into()));
+        harness.run_steps(1);
+    }
+    harness.run_steps(1);
+    let ws = harness.state_mut().workspace();
+    assert_eq!(ws.input.typed.field, Field::X);
+    assert_eq!(ws.input.typed.text(Field::X), "3+1");
+    let tracker = ws.plan_views[&storey].tracker.clone().unwrap_or_default();
+    assert!(tracker.starts_with("▸ΔX 3+1_\n"), "{tracker}");
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let points = &ws.tool.points;
+    assert_eq!(points.len(), 2, "the chain took the typed point");
+    assert!(
+        (points[1] - (first + DVec2::new(4.0, 0.0))).length() < 1e-9,
+        "{}",
+        points[1]
+    );
+}
+
 #[test]
 fn edit_menu_undoes_and_redoes() {
     let mut harness = harness("undo");

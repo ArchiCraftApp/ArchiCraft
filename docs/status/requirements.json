@@ -1057,7 +1057,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Esc cancels one step per press (typed text, then the step in progress, then the selection, then back to the Select tool; PointInput::key and views/plan.rs apply) and Backspace removes one typed character, then one point. The first point is typed too: a digit, sign or decimal separator starts absolute X/Y input without a point (PointInput::starts_typing, also looked ahead by app.rs shortcuts so '3ft' in one frame is not a Fit); tests the_first_point_takes_absolute_coordinates (input/mod.rs) and typing_the_first_point_keeps_shortcuts_until_a_value_starts (tests/ui.rs). Remaining gap: point input exists only in plan views, so nothing can be typed in 3D views (INP-001).",
+      "gap": "Esc cancels one step per press (typed text, then the step in progress, then the selection, then back to the Select tool; PointInput::key and views/plan.rs apply) and Backspace removes one typed character, then one point. The first point is typed too: a digit, sign, opening parenthesis (INP-022) or decimal separator starts absolute X/Y input without a point (PointInput::starts_typing, also looked ahead by app.rs shortcuts so '3ft' in one frame is not a Fit); tests the_first_point_takes_absolute_coordinates (input/mod.rs) and typing_the_first_point_keeps_shortcuts_until_a_value_starts (tests/ui.rs). Remaining gap: point input exists only in plan views, so nothing can be typed in 3D views (INP-001).",
       "depends_on": []
     },
     {
@@ -1076,7 +1076,7 @@
       "section": "4.6",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: typed into every point-input field, regressed in the ΔX field by imperial_lengths_in_the_dx_field (crates/archicraft-app/src/input/mod.rs); crates/archicraft-model/src/units.rs:391-424 (parse_length: suffixes mm, cm, m, ft, in, ', \" in any unit setting), units.rs:474-529 (normalises ′ ″ typographic marks, the locale decimal separator and digit groupings), units.rs:560-623 (mixed nu…",
+      "evidence": "Done: crates/archicraft-model/src/units.rs parse_length (suffixes mm, cm, m, ft, in, ', \" in any unit setting, mixed numbers and feet-inches such as 3'-4 1/2\") and parse_angle, with normalize_number_text for the typographic marks ′ ″, the locale decimal separator and digit groupings; point input reads them as operands of parse_length_expr (units/expr.rs, INP-022), which reads every single value as parse_length does (single_values_read_as_before); regressed in the ΔX field by imperial_lengths_in_the_dx_field (crates/archicraft-app/src/input/mod.rs).",
       "gap": "",
       "depends_on": []
     },
@@ -1084,10 +1084,10 @@
       "id": "INP-022",
       "priority": "S",
       "section": "4.6",
-      "status": "missing",
-      "remaining_effort": "M",
-      "evidence": "",
-      "gap": "Arithmetic (+ − × ÷) in typed values and field addressing (X3, A35) are absent; the input character whitelist and the tracker fields must be extended.",
+      "status": "done",
+      "remaining_effort": "none",
+      "evidence": "Done: crates/archicraft-model/src/units/expr.rs (parse_length_expr, parse_angle_expr: + - − * × / ÷ and parentheses with precedence, every operand read by the INP-005 single-value parsers, bare numbers scale in products and are in the default unit in sums, a product of two lengths or a division by one rejected; the fraction rule 'a b/c' and 'b/c' before a unit are numbers, any other '/' divides); every point-input field parses through them (crates/archicraft-app/src/input/typed.rs TypedInput::value), TypedInput::accepts and TypedInput::address take the typed characters: once a value is being typed or a step has a previous point (before the first point letters keep their single-key shortcuts, INP-003), a letter typed into the empty active field addresses a field (x, y, z Cartesian, d, a polar, switching the set as P does; l, c the stretch fields), after text it is a unit suffix. Tests in docs/testing.md; units_parse fuzzes both parsers.",
+      "gap": "",
       "depends_on": []
     },
     {
