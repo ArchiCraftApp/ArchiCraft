@@ -368,6 +368,9 @@ edited by hand. `scripts/status.py` (Python 3 standard library) does the work:
   step that calls such a script or a test command (`cargo test`, `nextest`, `clippy`, `fmt`,
   `fuzz run`) or uses `cargo-deny-action`, or of a job with such a step. Scripts no workflow
   calls or only a comment names, and steps that only install tools or upload files do not count.
+  Only the checking workflows (`ci`, `conformance-matrix`, `fuzz`, `macos`, `windows`) count:
+  the announcement, user-review and preview-release workflows and the `Implementation status`
+  job, which checks the traceability itself, guard no requirement.
 - `python3 scripts/status.py merge-check --base <sha>` reads the `SRS:` lines of the
   pull-request body (`--body-file`, or the event payload in CI) and of the commit messages since
   the base, outside HTML comments. Every listed ID's row must differ from the base, and no row

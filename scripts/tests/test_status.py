@@ -98,6 +98,32 @@ jobs:
     steps:
       - name: Install the browser once more
         run: npx playwright install chromium
+  status:
+    name: Implementation status
+    steps:
+      - name: Tests of the status script
+        run: python3 scripts/tests/test_status.py
+      - name: Every done row traced
+        run: python3 scripts/status.py check
+"""
+
+# Workflows that notify or report but check nothing (archicraft-jmlb).
+ANNOUNCE_WORKFLOW = """name: Announce
+jobs:
+  signal:
+    name: Signal group
+    steps:
+      - name: Announce the new changes
+        run: scripts/announce-signal.sh
+"""
+
+USER_REVIEW_WORKFLOW = """name: User review
+jobs:
+  user-review:
+    name: User review check
+    steps:
+      - name: Report whether the change waits for the user's review
+        run: scripts/loop/ci-user-review.sh
 """
 
 TESTS_RS = """#[test]
@@ -175,6 +201,11 @@ class Repo:
             status.TESTING_PATH: TESTING,
             status.DOC_PATH: DOC,
             ".github/workflows/ci.yml": WORKFLOW,
+            ".github/workflows/announce.yml": ANNOUNCE_WORKFLOW,
+            ".github/workflows/user-review.yml": USER_REVIEW_WORKFLOW,
+            "scripts/announce-signal.sh": "#!/bin/sh\n",
+            "scripts/loop/ci-user-review.sh": "#!/bin/sh\n",
+            "scripts/status.py": "",
             "crates/demo/tests/demo.rs": TESTS_RS,
             "crates/demo/src/lib.rs": SOURCE_RS,
             "crates/demo/tests/common/mod.rs": COMMON_RS,
@@ -366,6 +397,23 @@ class CheckTest(StatusTest):
         # A step that only installs tools, and a job of such steps, are no guards.
         for name in ("Install the browser and its libraries", "Browser installation only"):
             self.edit("NFR-LEG-002", evidence=f"Done. CI: {name}.")
+            self.assert_check_fails("NFR-LEG-002: done row names no test or CI guard")
+
+    def test_notification_review_and_status_workflows_are_no_guards(self):
+        """Only the checking workflows guard a requirement: announcing changes, reporting the
+        user's review and checking the traceability itself guard none (archicraft-jmlb)."""
+        self.repo.write(status.TESTING_PATH, UNTRACED_TESTING)
+        for evidence in (
+            "scripts/announce-signal.sh",
+            "scripts/loop/ci-user-review.sh",
+            "scripts/status.py",
+            "CI: Signal group",
+            "CI: Announce the new changes",
+            "CI: User review check",
+            "CI: Implementation status",
+            "CI: Tests of the status script",
+        ):
+            self.edit("NFR-LEG-002", evidence=f"Done. Guarded by {evidence}.")
             self.assert_check_fails("NFR-LEG-002: done row names no test or CI guard")
 
     def test_only_the_items_of_steps_are_steps(self):
