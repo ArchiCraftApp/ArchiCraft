@@ -26,6 +26,7 @@ use std::path::Path;
 
 use archicraft_geometry::ModelGeometry;
 use archicraft_model::Project;
+use serde_json::value::RawValue;
 
 pub use alpha::reader::ReadOutcome;
 pub use alpha::writer::{WriteOptions, WriteOutcome};
@@ -53,9 +54,10 @@ pub fn save(
 pub struct Adapter {
     /// The `header.ifcxVersion` this adapter reads.
     pub version: &'static str,
-    /// Reads a parsed file of that version; [`ReadOutcome::source_version`]
-    /// names the adapter's version.
-    pub read: fn(&IfcxFile) -> Result<ReadOutcome, Problem>,
+    /// Reads a parsed file of that version, its attribute values raw JSON
+    /// text ([`validate::parse_raw`]); [`ReadOutcome::source_version`] names
+    /// the adapter's version.
+    pub read: fn(&IfcxFile<&RawValue>) -> Result<ReadOutcome, Problem>,
 }
 
 /// Every IFCX version an ArchiCraft release has written, and its reader
@@ -75,9 +77,12 @@ pub const ADAPTERS: &[Adapter] = &[
 ];
 
 /// Reads a project from IFCX bytes. Every IFCX version that an ArchiCraft
-/// release has written is read here (IFX-090).
+/// release has written is read here (IFX-090). The attribute values stay
+/// raw JSON text borrowed from `bytes` until the reader reads them, one
+/// attribute at a time, so that opening a file needs little memory beyond
+/// its bytes (NFR-SEC-003).
 pub fn load(bytes: &[u8]) -> Result<ReadOutcome, Problem> {
-    let file = validate::parse(bytes)?;
+    let file = validate::parse_raw(bytes)?;
     let version = file.header.ifcx_version.as_str();
     let Some(adapter) = ADAPTERS.iter().find(|a| a.version == version) else {
         let supported: Vec<&str> = ADAPTERS.iter().map(|a| a.version).collect();

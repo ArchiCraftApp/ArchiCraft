@@ -395,7 +395,7 @@ never see it, and only fuzzing needs a nightly toolchain.
 | Target | Input | What may not happen |
 |---|---|---|
 | `ifcx_load` | arbitrary bytes | a panic along the application's open path: `archicraft_ifcx::load`, then `ModelGeometry::evaluate`, `save` and `load` again; a rejection without a message |
-| `ifcx_validate` | arbitrary bytes | a panic in `validate::parse` or `validate::validate` |
+| `ifcx_validate` | arbitrary bytes | a panic in `validate::parse`, `validate::parse_raw` or `validate::validate`; the two parsers disagreeing: one accepting an input the other rejects, different messages for a rejected input, or different validation problems for an accepted one |
 | `units_parse` | arbitrary UTF-8 | a panic in `parse_length` (every length unit) or `parse_angle` (every angle unit) with every number format; a non-finite accepted value |
 
 `fuzz/dict/ifcx.dict` is the libFuzzer dictionary for the IFCX targets: JSON tokens, every
@@ -506,11 +506,14 @@ found four problems:
    children (1 MB) was read and validated once per listing and took longer than 10 s. Fixed:
    the reader reads an element once and reports each further listing before reading it again.
    Regression: `slab-listed-three-times.ifcx`.
-4. *Out of memory, not fixed here:* 400 valid slabs of 999 points each (3.3 MB) open with about
-   300 MB, but saving them writes 52 MB of meshes and needs 2.7 GB, and reading that file
-   back needs 2.8 GB. The IFCX reader and writer hold the whole file as a JSON tree; that is a
-   design change, filed as archicraft-4rrc with the recipe for the input. The writer streams
-   since archicraft-4rrc.1; the reader is archicraft-4rrc.2 (**Memory** below).
+4. *Out of memory:* 400 valid slabs of 999 points each (3.3 MB) opened with about 300 MB, but
+   saving them writes 52 MB of meshes and needed 2.7 GB, and reading that file back needed
+   2.8 GB: the IFCX reader and writer held the whole file as a JSON tree. Fixed by the design
+   change archicraft-4rrc: the writer streams the file node by node (archicraft-4rrc.1), and
+   the reader keeps every attribute value as raw JSON text borrowed from the file's bytes and
+   parses one attribute at a time (archicraft-4rrc.2). The input is too large to commit as a
+   regression file; `crates/archicraft-ifcx/tests/memory.rs` bounds a smaller one instead
+   (**Memory** below).
 
 The final runs above used `scripts/fuzz-run.sh` on the corpus grown by the exploratory round
 and earlier runs, with the regression files added, one process per target, all at once. The
@@ -533,7 +536,24 @@ the peak resident memory of each command comes from `/usr/bin/time -l` (macOS) o
 `cargo build --release -p archicraft-ifcx --example memory`. `crates/archicraft-ifcx/tests/memory.rs`
 saves the input with 30 slabs (4 MB) and fails when a save needs a peak heap of more than four
 times the file it writes: the streaming writer needs 2.2 times for the compact file, the
-writer that built the whole file as a JSON tree needed 44 times.
+writer that built the whole file as a JSON tree needed 44 times. It fails too when loading
+that file, or rejecting a copy damaged near its end, needs a peak heap of more than twice the
+file beyond its bytes: the reader of raw attribute values needs 1.1 times, nearly all of it
+the JSON tree of the one slab mesh being validated, which is no larger in the 52.6 MB file; the
+reader that held the file as JSON trees needed 51 times to load it and 29 times to reject it. A
+file whose single attribute is huge still needs that attribute's tree, many times its text
+(archicraft-k9w2 checks attributes without trees).
+
+The reader's container parser, `validate::parse_raw`, accepts exactly the files that
+`validate::parse` accepts, which holds attribute values as trees, and rejects the others with
+the same message (`crates/archicraft-ifcx/tests/parse.rs`; the `ifcx_validate` target checks
+it on every input). `serde_json` checks neither the nesting nor the numbers of a raw value,
+so `parse_raw` reads the whole file once without keeping anything, with the checks of a tree,
+before it builds the container; when either pass fails, a third pass parses the file as
+`parse` does, dropping each attribute as soon as it is parsed, for the message. The first
+pass takes about a seventh of the time of opening a small file: in `scripts/bench-ci.sh
+origin/main` (2026-10-22), `ifcx/load/two_storey_shell` takes 10 % longer than with the tree
+reader and `ifcx/load/tiled_shell` 15 % less.
 
 | Date | Code | Command | File written or read | Peak heap of the step (held before) | Peak RSS |
 |---|---|---|---|---|---|
@@ -542,13 +562,28 @@ writer that built the whole file as a JSON tree needed 44 times.
 | 2026-10-21 | `86ea49b` with archicraft-4rrc.1 | `save` | 52.6 MB | 213 MB (110 MB) | 384 MB |
 | 2026-10-21 | same | `save --indented` | 99.2 MB | 314 MB (110 MB) | 423 MB |
 | 2026-10-21 | same (the reader of main) | `load` | 52.6 MB | 2,729 MB (0 MB) | 2,836 MB |
+| 2026-10-22 | `590b5ba` (main) with archicraft-4rrc.2 | `save` | 52.6 MB | 213 MB (110 MB) | 166 MB |
+| 2026-10-22 | same | `save --indented` | 99.2 MB | 314 MB (110 MB) | 213 MB |
+| 2026-10-22 | same | `load` | 52.6 MB | 62 MB (0 MB) | 154 MB |
+| 2026-10-22 | same | `load` of the indented file | 99.2 MB | 108 MB (0 MB) | 199 MB |
 
 All on macOS 27 on Apple silicon (16 cores), release builds. Both `save` commands open the
-3.3 MB input first (peak heap 244 MB) and evaluate it (110 MB, held through the save), which
-is part of their peak RSS. The streaming save also takes 0.71 s instead of 1.08 s, and writes
-the same bytes, compact and indented. The `ifcx_load` fuzz target, built with
-AddressSanitizer, still stops the input at its 2,048 MB limit, now in its second `load` (of
-the saved 52.6 MB) instead of in `save`; archicraft-4rrc.2 changes the reader.
+3.3 MB input first (peak heap 244 MB with the tree reader, 11 MB with archicraft-4rrc.2) and
+evaluate it (110 MB, held through the save), which is part of their peak RSS. The streaming
+save also takes 0.71 s instead of 1.08 s, and writes the same bytes, compact and indented.
+The peak heap counts both blocks of a moving reallocation, so it can exceed the peak RSS. A
+`load` reads the whole file first: its bytes are 52.6 MB of the 62 MB peak heap, and the
+reader adds 9 MB. Opening takes 3.2 s instead of 3.4 s.
+
+The `ifcx_load` fuzz target, built with AddressSanitizer, stopped the input at its 2,048 MB
+limit with archicraft-4rrc.1 alone, in its second `load` (of the saved 52.6 MB). With
+archicraft-4rrc.2 the input runs through with `-rss_limit_mb=2048`
+(`fuzz/target/aarch64-apple-darwin/release/ifcx_load -rss_limit_mb=2048 <input>`, built by
+`cargo +nightly fuzz build`): peak RSS 1,285 MB, 50 s. That is longer than the 10 s time-out of
+the fuzz runs: in a release build, opening the input takes 2.7 s and opening the saved file
+3.2 s, nearly all of it validating the 400 slabs of 999 points (99 % of the reader's samples
+in `validate_ring`), whose self-intersection checks grow with the square of the points
+(archicraft-91jj replaces them with a sweep-line check).
 
 **Licences.** The fuzz crate is outside the workspace, so `cargo deny` does not list it;
 this paragraph is its entry in the licence inventory (NFR-LEG-001). Beyond the ArchiCraft
@@ -577,6 +612,13 @@ reader enforces the limits of SRS Appendix D.9, each tested at its boundary in
   `serde_json`);
 - `children`/`inherits` chains at most 64 deep, reported with the node path;
 - at most 32 imports.
+
+Opening a file keeps its attribute values as raw JSON text (`validate::parse_raw`), whose
+nesting and numbers `serde_json` does not check; `parse_raw` checks them itself and rejects a
+file as `validate::parse` does, with the same message (`the_raw_parser_enforces_the_same_limits`
+in `limits.rs`, and `crates/archicraft-ifcx/tests/parse.rs`). Opening and saving need a small
+multiple of the file's size in memory, so a large valid file does not exhaust it (Fuzzing,
+**Memory**).
 
 D.9 also limits a slab to 10,000 points in its outline and holes together. The code still
 caps it at 1,000 (`MAX_SLAB_POINTS` in `crates/archicraft-model/src/validate.rs`, because the

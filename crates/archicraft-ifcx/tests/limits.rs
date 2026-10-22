@@ -118,6 +118,29 @@ fn json_nested_128_levels_or_more_is_rejected() {
     }
 }
 
+/// The open path's parser, which keeps attribute values as raw text,
+/// enforces the same nesting and import limits with the same messages
+/// (D.9, NFR-SEC-003): `serde_json` does not check the nesting of a raw
+/// value by itself, and the deepest part of these documents is inside an
+/// attribute value.
+#[test]
+fn the_raw_parser_enforces_the_same_limits() {
+    validate::parse_raw(nested_document(127).as_bytes()).unwrap();
+    for levels in [128, 129, 1_000, 100_000] {
+        let text = nested_document(levels);
+        let problem = validate::parse_raw(text.as_bytes()).unwrap_err();
+        assert_eq!(problem, validate::parse(text.as_bytes()).unwrap_err(), "{levels}");
+        assert!(
+            problem.message.contains("nested more than 127 levels deep"),
+            "{levels}: {problem}"
+        );
+    }
+    validate::parse_raw(document(&unknown_imports(MAX_IMPORTS), "0").as_bytes()).unwrap();
+    let text = document(&unknown_imports(MAX_IMPORTS + 1), "0");
+    let problem = validate::parse_raw(text.as_bytes()).unwrap_err();
+    assert!(problem.message.contains("more than 32 imports"), "{problem}");
+}
+
 /// The walls-and-slab reference model with extra data entries appended.
 fn model_with(entries: impl IntoIterator<Item = Value>) -> Vec<u8> {
     let mut file: Value = serde_json::from_slice(&golden("walls-and-slab.ifcx")).unwrap();
