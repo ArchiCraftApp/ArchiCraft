@@ -17,6 +17,7 @@ use archicraft_model::{
 use egui::{Id, Ui};
 
 use super::widgets::{self, Edited, common};
+use crate::input::{DivisionMode, DivisionScope, EQUAL_PARTS};
 use crate::tools::{SlabMode, ToolKind, WallMode};
 use crate::tr;
 use crate::workspace::{Request, Workspace};
@@ -744,7 +745,97 @@ fn tool_modes(ui: &mut Ui, ws: &mut Workspace) {
             }
             ui.separator();
         }
-        ToolKind::Select => {}
+        ToolKind::Select => return,
+    }
+    division(ui, ws);
+    ui.separator();
+}
+
+/// The division modes in the order of the control, each with its value
+/// when chosen anew (INP-010).
+const DIVISION_MODES: [DivisionMode; 5] = [
+    DivisionMode::Half,
+    DivisionMode::Equal(4),
+    DivisionMode::Percent(50.0),
+    DivisionMode::Repeated(1.0),
+    DivisionMode::BestEqualNear(1.0),
+];
+
+/// The name of a division mode's kind in the control.
+fn division_label(mode: DivisionMode) -> String {
+    match mode {
+        DivisionMode::Half => tr!("tool-division-half"),
+        DivisionMode::Equal(_) => tr!("tool-division-equal"),
+        DivisionMode::Percent(_) => tr!("tool-division-percent"),
+        DivisionMode::Repeated(_) => tr!("tool-division-repeated"),
+        DivisionMode::BestEqualNear(_) => tr!("tool-division-best-equal"),
+    }
+}
+
+/// The 'Division' control of the drawing tools (INP-010): the one active
+/// division mode, its value and the scope, kept in the preferences. The
+/// plan views read them each frame, so a change replaces the hovered
+/// edge's ticks on the next frame.
+fn division(ui: &mut Ui, ws: &mut Workspace) {
+    let before = ws.prefs.input;
+    let mut input = before;
+    ui.label(tr!("tool-division")).on_hover_text(tr!("tool-division-hint"));
+    // The current mode stands for its kind; the two distance modes share
+    // their distance.
+    let distance = match input.division {
+        DivisionMode::Repeated(d) | DivisionMode::BestEqualNear(d) => Some(d),
+        _ => None,
+    };
+    let modes: Vec<(DivisionMode, String)> = DIVISION_MODES
+        .iter()
+        .map(|&mode| {
+            let mode = match (mode, distance) {
+                _ if std::mem::discriminant(&mode) == std::mem::discriminant(&input.division) => input.division,
+                (DivisionMode::Repeated(_), Some(d)) => DivisionMode::Repeated(d),
+                (DivisionMode::BestEqualNear(_), Some(d)) => DivisionMode::BestEqualNear(d),
+                _ => mode,
+            };
+            (mode, division_label(mode))
+        })
+        .collect();
+    if let Some(picked) = widgets::choice(ui, Id::new("division-mode"), Some(&input.division), &modes, 150.0) {
+        input.division = picked;
+    }
+    let nf = ws.prefs.number_format();
+    match &mut input.division {
+        DivisionMode::Half => {}
+        DivisionMode::Equal(n) => {
+            widgets::integer(ui, n, EQUAL_PARTS, &nf);
+        }
+        DivisionMode::Percent(p) => {
+            widgets::decimal(ui, p, 0.0..=100.0, 1, 0.5, &nf);
+            ui.label(tr!("tool-division-percent-suffix"));
+        }
+        DivisionMode::Repeated(d) | DivisionMode::BestEqualNear(d) => {
+            let units = &ws.doc.project.settings.units;
+            match widgets::length(ui, Id::new("division-distance"), Some(*d), units, &nf, 70.0) {
+                Edited::Changed(v) if v > 0.0 && v.is_finite() => *d = v,
+                Edited::Changed(_) => ws.error(tr!("tool-division-distance-positive")),
+                Edited::Invalid(e) => ws.error(e),
+                Edited::Unchanged => {}
+            }
+        }
+    }
+    let scopes = [
+        (DivisionScope::BetweenNodes, tr!("tool-division-scope-nodes")),
+        (
+            DivisionScope::BetweenIntersections,
+            tr!("tool-division-scope-intersections"),
+        ),
+        (DivisionScope::WholeElement, tr!("tool-division-scope-element")),
+    ];
+    if let Some(scope) = widgets::choice(ui, Id::new("division-scope"), Some(&input.scope), &scopes, 150.0) {
+        input.scope = scope;
+    }
+    let input = input.sanitized();
+    if input != before {
+        ws.prefs.input = input;
+        ws.requests.push(Request::SavePreferences);
     }
 }
 

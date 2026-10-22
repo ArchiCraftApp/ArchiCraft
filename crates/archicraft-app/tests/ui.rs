@@ -9,7 +9,8 @@ use std::rc::Rc;
 
 use archicraft_app::commands::{Binding, Origin, Registry};
 use archicraft_app::i18n::{self, Localizer};
-use archicraft_app::input::{Field, InputConsumer, InputMode};
+use archicraft_app::input::{DivisionMode, DivisionScope, Field, InputConsumer, InputMode};
+use archicraft_app::persistence::DataDirs;
 use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::{ToolKind, WallMode};
 use archicraft_app::workspace::{Consumer, Pane};
@@ -1474,4 +1475,141 @@ fn the_plan_context_menu_places_the_user_origin() {
     harness.get_by_label("Reset user origin").click();
     harness.run_steps(2);
     assert!(!harness.state_mut().workspace().frames.user_origin.is_placed());
+}
+
+/// INP-010: with the wall tool active the tool-mode row has a 'Division'
+/// control: the mode, its value field and the scope. Choosing four equal
+/// parts replaces the hovered wall's tick at its midpoint with three ticks
+/// on the next frame, a value typed into the field divides it anew, and
+/// the choices are kept in the preferences file.
+#[test]
+fn the_division_control_chooses_the_mode_its_value_and_the_scope() {
+    let dir = data_dir("division-control");
+    let mut harness = harness_in(&dir, Preferences::default(), 1.0);
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let (storey, on_wall) = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.active_storey;
+        let wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+        let state = &ws.plan_views[&storey];
+        (storey, state.camera.to_screen(state.last_rect, DVec2::new(1.3, 0.0)))
+    };
+    let ticks = |h: &mut Harness<'static, ArchiCraftApp>| {
+        h.hover_at(on_wall);
+        h.run_steps(2);
+        h.state_mut().workspace().plan_views[&storey]
+            .ticks
+            .iter()
+            .map(|p| (p.x * 1e6).round() / 1e6)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ticks(&mut harness), [2.0], "half by default");
+
+    assert_present(&harness, &tr!("tool-division"));
+    harness
+        .get(By::new().role(Role::ComboBox).value(tr!("tool-division-half").as_str()))
+        .click();
+    harness.run_steps(2);
+    harness.get_by_label(&tr!("tool-division-equal")).click();
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state_mut().workspace().prefs.input.division,
+        DivisionMode::Equal(4)
+    );
+    assert_eq!(ticks(&mut harness), [1.0, 2.0, 3.0]);
+
+    // The value field of the mode.
+    harness.get(By::new().role(Role::SpinButton).value("4")).click();
+    harness.run_steps(2);
+    harness.event(Event::Text("8".into()));
+    harness.run_steps(1);
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state_mut().workspace().prefs.input.division,
+        DivisionMode::Equal(8)
+    );
+    assert_eq!(ticks(&mut harness), [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]);
+
+    // The scope.
+    harness
+        .get(
+            By::new()
+                .role(Role::ComboBox)
+                .value(tr!("tool-division-scope-nodes").as_str()),
+        )
+        .click();
+    harness.run_steps(2);
+    harness.get_by_label(&tr!("tool-division-scope-element")).click();
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    assert_eq!(ws.prefs.input.scope, DivisionScope::WholeElement);
+
+    // Kept in the preferences file.
+    let saved = Preferences::load(&DataDirs::at(&dir).preferences_file());
+    assert_eq!(saved.input.division, DivisionMode::Equal(8));
+    assert_eq!(saved.input.scope, DivisionScope::WholeElement);
+}
+
+/// The text field that shows `value`.
+fn text_field(value: &str) -> By<'_> {
+    By::new().role(Role::TextInput).value(value)
+}
+
+/// INP-010: the value field follows the mode: none for half, a percentage
+/// for a percentage and a length in the project's units for the two
+/// distance modes, which keep the distance when switching between them.
+#[test]
+fn the_division_value_field_follows_the_mode() {
+    let mut harness = harness("division-value");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let choose = |h: &mut Harness<'static, ArchiCraftApp>, from: &str, to: &str| {
+        h.get(By::new().role(Role::ComboBox).value(tr!(from).as_str())).click();
+        h.run_steps(2);
+        h.get_by_label(&tr!(to)).click();
+        h.run_steps(2);
+        h.state_mut().workspace().prefs.input.division
+    };
+    assert!(harness.query_by_label(&tr!("tool-division-percent-suffix")).is_none());
+    assert_eq!(
+        choose(&mut harness, "tool-division-half", "tool-division-percent"),
+        DivisionMode::Percent(50.0)
+    );
+    harness.get(By::new().role(Role::SpinButton).value("50"));
+    harness.get_by_label(&tr!("tool-division-percent-suffix"));
+
+    assert_eq!(
+        choose(&mut harness, "tool-division-percent", "tool-division-repeated"),
+        DivisionMode::Repeated(1.0)
+    );
+    let shown = {
+        let ws = harness.state_mut().workspace();
+        let nf = ws.prefs.number_format();
+        (
+            format_length(1.0, &ws.doc.project.settings.units, &nf, false),
+            format_length(0.6, &ws.doc.project.settings.units, &nf, false),
+        )
+    };
+    harness.get(text_field(&shown.0)).click();
+    harness.run_steps(1);
+    harness.get(text_field(&shown.0)).type_text(&shown.1);
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state_mut().workspace().prefs.input.division,
+        DivisionMode::Repeated(0.6)
+    );
+    assert_eq!(
+        choose(&mut harness, "tool-division-repeated", "tool-division-best-equal"),
+        DivisionMode::BestEqualNear(0.6)
+    );
+    harness.get(text_field(&shown.1));
+    assert_eq!(
+        choose(&mut harness, "tool-division-best-equal", "tool-division-half"),
+        DivisionMode::Half
+    );
+    assert!(harness.query(text_field(&shown.1)).is_none());
 }

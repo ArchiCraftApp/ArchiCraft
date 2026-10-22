@@ -28,3 +28,20 @@ prompt-user-origin-key-coordinates = types the coordinates
 prompt-user-origin-key-keep-rotation = keeps the axes unrotated
 prompt-user-origin-key-constrain = constrains angles
 prompt-user-origin-key-cancel = cancels the step
+
+## The division control of the drawing tools (INP-010): the one active
+## division mode, its value and the scope of the division points shown on a
+## hovered edge.
+
+tool-division = Division
+tool-division-hint = The snap points shown on a hovered edge: one division mode, its value and the stretch it divides
+tool-division-half = Half
+tool-division-equal = Equal parts
+tool-division-percent = Percentage
+tool-division-percent-suffix = % from the nearer end
+tool-division-repeated = Repeated distance
+tool-division-best-equal = Equal parts near a distance
+tool-division-distance-positive = The division distance must be greater than zero.
+tool-division-scope-nodes = Between nodes
+tool-division-scope-intersections = Between intersections
+tool-division-scope-element = Whole element

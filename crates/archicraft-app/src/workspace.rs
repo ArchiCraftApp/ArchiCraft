@@ -39,6 +39,9 @@ pub enum Request {
     /// Open the full settings dialog of the active tool or the selection
     /// (UI-003).
     Settings,
+    /// Write the preferences, changed outside the Preferences dialog, to
+    /// their file.
+    SavePreferences,
 }
 
 /// The frames point input measures in, shared by all plan views: session
