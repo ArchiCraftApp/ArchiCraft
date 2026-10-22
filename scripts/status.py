@@ -248,8 +248,8 @@ def test_names(root):
             files.add(path.relative_to(root).as_posix())
     for path in (root / "scripts").rglob("test_*.py"):
         found = re.findall(r"^\s*def (test_\w+)", path.read_text(encoding="utf-8"), re.M)
-        if found:
-            names.update(found)
+        names.update(found)
+        if found and "tests" in path.relative_to(root).parts:
             files.add(path.relative_to(root).as_posix())
     return names, files
 

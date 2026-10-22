@@ -376,6 +376,15 @@ class CheckTest(StatusTest):
             self.edit("STR-001", evidence=f"Done: {path}")
             self.assert_check_fails("STR-001: done row names no test or CI guard")
 
+    def test_a_python_test_file_counts_only_under_a_tests_directory(self):
+        test_py = "import unittest\n\n\nclass T(unittest.TestCase):\n    def test_demo_case(self):\n        pass\n"
+        self.repo.write("scripts/tests/test_demo.py", test_py)
+        self.repo.write("scripts/loop/test_stray.py", test_py)
+        self.edit("STR-001", evidence="Done: scripts/tests/test_demo.py")
+        self.assertEqual(self.check()[0], 0)
+        self.edit("STR-001", evidence="Done: scripts/loop/test_stray.py")
+        self.assert_check_fails("STR-001: done row names no test or CI guard")
+
     def test_only_scripts_a_workflow_runs_count_as_guards(self):
         self.repo.write(status.TESTING_PATH, UNTRACED_TESTING)
         for script in ("scripts/check-legal.sh", "scripts/bench-demo.sh", "scripts/tests/test_unnamed.py"):
