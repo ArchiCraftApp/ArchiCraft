@@ -183,13 +183,16 @@ def rollup_user_review(rollup):
 
 
 def summarize_checks(rollup):
-    """Latest run per check name, reduced to pass/fail/pending counts. The "User review" status and
-    the "User review check" run that posts it are left out: pr_queue_state() reads the status as
-    waiting for the user, not as a failing check."""
+    """Latest run per check name, reduced to pass/fail/pending counts. The "User review" status is
+    left out: pr_queue_state() reads it as waiting for the user, not as a failing check. So is the
+    "User review check" run that posts it, but only while that status failed: a run that failed
+    without posting it (git fetch or gh api failing) leaves the required status missing, and the
+    PR never merges."""
+    waits = rollup_user_review(rollup) in ("FAILURE", "ERROR")
     latest = {}
     for c in rollup or []:
         name = c.get("name") or c.get("context") or "?"
-        if name in (USER_REVIEW, USER_REVIEW_CHECK):
+        if name == USER_REVIEW or (name == USER_REVIEW_CHECK and waits):
             continue
         started = c.get("startedAt") or c.get("createdAt") or ""
         if name not in latest or started > latest[name][0]:
