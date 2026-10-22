@@ -1127,7 +1127,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "2D only: no snapping in 3D views. Missing targets: division points beyond the midpoint (INP-010); the nearest point on an arc or a circle and their intersections. Arc and circle centres, tangent points from the previous point, axis points and handles are snap targets (input/snap.rs ArcTarget, input/targets.rs TargetSink), but nothing produces them yet: no curved geometry, no columns or beams, no handle tool. Missing glyphs…",
+      "gap": "2D only: no snapping in 3D views. Missing targets: division points beyond the midpoint (INP-010); the nearest point on an arc or a circle and their intersections. Arc and circle centres, tangent points from the previous point, axis points and handles are snap targets (input/snap.rs ArcTarget, input/targets.rs TargetSink), but nothing produces them yet: no curved geometry, no columns or beams, no handle tool. The plan view draws a glyph for every snap kind, the crosshair for no snap, and an overlay for the command states copy, multiple copy, trim target and choose side (views/plan.rs snap_glyph, cursor_state_glyph), but no command sets those states yet: there are no copy, trim or side-choosing tools.",
       "depends_on": []
     },
     {
@@ -1137,7 +1137,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Plan views only: no snapping in 3D views (INP-016). The centroids of cut polygons (archicraft-geometry PlanElement::centroids) and of slab outlines are node-level snap targets (input/targets.rs), but the cursor has no centroid glyph yet.",
+      "gap": "Plan views only: no snapping in 3D views (INP-016). The centroids of cut polygons (archicraft-geometry PlanElement::centroids) and of slab outlines are node-level snap targets (input/targets.rs) with their own glyph in the plan view (views/plan.rs snap_glyph).",
       "depends_on": []
     },
     {
