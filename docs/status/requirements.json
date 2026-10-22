@@ -277,7 +277,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "The project has exactly one building (Project::building, crates/archicraft-model/src/project.rs:307) and one storey list for it; the reader takes only the first IfcBuilding under the site (read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1085). Missing: several buildings per site, each with its own storey set (storeys moved under Building), element home-storey lookup across buildings, browser grouping by building, plan panes and storey numbering per building, and an IFCX tree with several IfcBuilding children written and read back.",
+      "gap": "The project has exactly one building (Project::building, crates/archicraft-model/src/project.rs:307) and one storey list for it; the reader takes only the first IfcBuilding under the site (the IfcBuilding lookup in read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1085). Missing: several buildings per site, each with its own storey set (storeys moved under Building), element home-storey lookup across buildings, browser grouping by building, plan panes and storey numbering per building, and an IFCX tree with several IfcBuilding children written and read back.",
       "depends_on": []
     },
     {
@@ -1377,7 +1377,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Move exists only as a model command (Command::MoveElements, crates/archicraft-model/src/command.rs:45): no tool, menu item, shortcut, drag or context-menu entry invokes it, so there is no live preview and no INP-001 point input for the vector in the app; point input supports the needed steps (Expect, crates/archicraft-app/src/input/consumer.rs:34), exercised only by test stubs. Rotate and mirror exist as PlanTransform (crates/archicraft-model/src/transform.rs:21) with per-kind hooks (Kind::transform, crates/archicraft-model/src/kinds/mod.rs:139), but no command applies them. Vertical move (signed ΔZ changing base_offset/offset) has no command: MoveElements takes a plan vector only.",
+      "gap": "Move exists only as a model command (Command::MoveElements, crates/archicraft-model/src/command.rs:45): no tool, menu item, shortcut, drag or context-menu entry invokes it, so there is no live preview and no INP-001 point input for the vector in the app; point input supports the needed steps (Expect, crates/archicraft-app/src/input/consumer.rs:34), exercised only by test stubs. Rotate and mirror exist as PlanTransform (crates/archicraft-model/src/transform.rs:21) with per-kind hooks (Kind::transform, crates/archicraft-model/src/kinds/mod.rs:142), but no command applies them. Vertical move (signed ΔZ changing base_offset/offset) has no command: MoveElements takes a plan vector only.",
       "depends_on": []
     },
     {
@@ -2267,7 +2267,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No column kind: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:361) has only Wall and Slab, and IfcClass (crates/archicraft-model/src/element.rs:15) has no Column. Missing: a Column payload implementing Kind (crates/archicraft-model/src/kinds/mod.rs:121) with rectangular (width x depth), circular (diameter) or profile cross-section (profiles need PRF-004), base offset and fixed or storey-linked top (reuse VerticalLink, crates/archicraft-model/src/kinds/vertical.rs:21), nine-point anchor and rotation about the axis; geometry (a prism from the cross-section, e.g. via extrude, crates/archicraft-geometry/src/extrude.rs:21; circles need tessellation per IFX-034), properties fields, IFCX schema/writer/reader, and the D.2 defaults (0.30 x 0.30 m reinforced concrete, centre anchor, top linked to home storey + 1; pending row in crates/archicraft-model/tests/defaults.rs:148).",
+      "gap": "No column kind: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:364) has only Wall and Slab, and IfcClass (crates/archicraft-model/src/element.rs:15) has no Column. Missing: a Column payload implementing Kind (crates/archicraft-model/src/kinds/mod.rs:124) with rectangular (width x depth), circular (diameter) or profile cross-section (profiles need PRF-004), base offset and fixed or storey-linked top (reuse VerticalLink, crates/archicraft-model/src/kinds/vertical.rs:21), nine-point anchor and rotation about the axis; geometry (a prism from the cross-section, e.g. via extrude, crates/archicraft-geometry/src/extrude.rs:21; circles need tessellation per IFX-034), properties fields, IFCX schema/writer/reader, and the D.2 defaults (0.30 x 0.30 m reinforced concrete, centre anchor, top linked to home storey + 1; pending row in crates/archicraft-model/tests/defaults.rs:148).",
       "depends_on": []
     },
     {
@@ -2327,7 +2327,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No beam kind: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:361) has only Wall and Slab, and IfcClass (crates/archicraft-model/src/element.rs:15) has no Beam. Missing: a Beam payload created between two points with width/height or a profile (needs PRF-004), nine-point anchor, lateral offset of the axis, roll angle, elevation relative to the home storey, and inclination by end elevations or pitch angle; geometry sweeping the rectangle or profile along an inclined axis (extrude, crates/archicraft-geometry/src/extrude.rs:21, only extrudes vertically); validation, properties fields, IFCX schema/writer/reader, a tool (BEA-010 chains), and the D.2 defaults (0.25 x 0.50 m reinforced concrete, top-centre anchor, top at home storey + 2.80 m; pending row in crates/archicraft-model/tests/defaults.rs:149).",
+      "gap": "No beam kind: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:364) has only Wall and Slab, and IfcClass (crates/archicraft-model/src/element.rs:15) has no Beam. Missing: a Beam payload created between two points with width/height or a profile (needs PRF-004), nine-point anchor, lateral offset of the axis, roll angle, elevation relative to the home storey, and inclination by end elevations or pitch angle; geometry sweeping the rectangle or profile along an inclined axis (extrude, crates/archicraft-geometry/src/extrude.rs:21, only extrudes vertically); validation, properties fields, IFCX schema/writer/reader, a tool (BEA-010 chains), and the D.2 defaults (0.25 x 0.50 m reinforced concrete, top-centre anchor, top at home storey + 2.80 m; pending row in crates/archicraft-model/tests/defaults.rs:149).",
       "depends_on": []
     },
     {
@@ -2537,7 +2537,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Everything except slope input: parse_slope (crates/archicraft-model/src/units.rs:467) and format_slope (crates/archicraft-model/src/units.rs:430) already read and show pitch as angle, percent or rise/run. Missing: a Roof element kind (outline polygon, pivot line, slope side, pitch, pivot elevation relative to the home storey, thickness or layer structure per PRF-001) in the kinds! list (crates/archicraft-model/src/kinds/mod.rs:361), a Roof IfcClass (crates/archicraft-model/src/element.rs:15), validation, the D.2 roof defaults (35 degrees, 0.30 m, 0.50 m overhang; pending row in crates/archicraft-model/tests/defaults.rs:152), geometry (an outline prism bounded by the inclined plane; extrude, crates/archicraft-geometry/src/extrude.rs:21, is horizontal only), properties fields, and IFCX schema/writer/reader.",
+      "gap": "Everything except slope input: parse_slope (crates/archicraft-model/src/units.rs:467) and format_slope (crates/archicraft-model/src/units.rs:430) already read and show pitch as angle, percent or rise/run. Missing: a Roof element kind (outline polygon, pivot line, slope side, pitch, pivot elevation relative to the home storey, thickness or layer structure per PRF-001) in the kinds! list (crates/archicraft-model/src/kinds/mod.rs:364), a Roof IfcClass (crates/archicraft-model/src/element.rs:15), validation, the D.2 roof defaults (35 degrees, 0.30 m, 0.50 m overhang; pending row in crates/archicraft-model/tests/defaults.rs:152), geometry (an outline prism bounded by the inclined plane; extrude, crates/archicraft-geometry/src/extrude.rs:21, is horizontal only), properties fields, and IFCX schema/writer/reader.",
       "depends_on": []
     },
     {
@@ -2557,7 +2557,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No multi-plane roof. Missing: a roof element with a closed pivot polygon and per-edge pitch, eaves overhang and edge type (sloped or gable); a straight skeleton weighted by edge pitch for non-convex footprints with different pitches (own code per docs/technology-choices.md:198; nothing in crates/archicraft-geometry); generation of planes, hips, valleys and ridges closing within 0.1 mm; vertical gable ends; one child node per plane (IFX-016, via Kind::parts, crates/archicraft-model/src/kinds/mod.rs:174); IFCX schema/writer/reader; and the L-shaped acceptance test. Needs ROF-001.",
+      "gap": "No multi-plane roof. Missing: a roof element with a closed pivot polygon and per-edge pitch, eaves overhang and edge type (sloped or gable); a straight skeleton weighted by edge pitch for non-convex footprints with different pitches (own code per docs/technology-choices.md:198; nothing in crates/archicraft-geometry); generation of planes, hips, valleys and ridges closing within 0.1 mm; vertical gable ends; one child node per plane (IFX-016, via Kind::parts, crates/archicraft-model/src/kinds/mod.rs:177); IFCX schema/writer/reader; and the L-shaped acceptance test. Needs ROF-001.",
       "depends_on": []
     },
     {
@@ -2677,7 +2677,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No opening element kind exists: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:361) has only Wall and Slab, Element (crates/archicraft-model/src/element.rs:132) has no host field, Project (crates/archicraft-model/src/project.rs:302) has no host relation, and IfcClass (crates/archicraft-model/src/element.rs:15) has no OpeningElement. Missing: the opening kind with exactly one host (wall, slab, roof; roofs need ROF-001) and a position relative to it, moving with the host (MoveElements, crates/archicraft-model/src/command.rs:45, moves only the listed ids), deletion with the host (plan_delete_elements, crates/archicraft-model/src/command.rs:401), void subtraction in the host geometry, and IFCX writing as an IfcOpeningElement with a Void child (IFX-017, IFX-025) and reading.",
+      "gap": "No opening element kind exists: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:364) has only Wall and Slab, Element (crates/archicraft-model/src/element.rs:132) has no host field, Project (crates/archicraft-model/src/project.rs:302) has no host relation, and IfcClass (crates/archicraft-model/src/element.rs:15) has no OpeningElement. Missing: the opening kind with exactly one host (wall, slab, roof; roofs need ROF-001) and a position relative to it, moving with the host (MoveElements, crates/archicraft-model/src/command.rs:45, moves only the listed ids), deletion with the host (plan_delete_elements, crates/archicraft-model/src/command.rs:401), void subtraction in the host geometry, and IFCX writing as an IfcOpeningElement with a Void child (IFX-017, IFX-025) and reading.",
       "depends_on": []
     },
     {
@@ -2807,7 +2807,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No Door or Window element kinds (the kinds! registry lists only wall and slab, crates/archicraft-model/src/kinds/mod.rs:361), no host relation on Element (crates/archicraft-model/src/element.rs:132), no tool (ToolKind has Select, Wall, Slab, crates/archicraft-app/src/tools/mod.rs:23). Workspace::error (crates/archicraft-app/src/workspace.rs:281) is usable for the 'no host under pointer' feedback. Needs hosted-element data (host wall id, position along the wall, vertical position per DW-007), the storey taken from the host, moving with it (plan_transform_elements, crates/archicraft-model/src/command.rs:464, moves only the listed elements) and cascading deletion (plan_delete_elements, crates/archicraft-model/src/command.rs:401, removes only the listed ids).",
+      "gap": "No Door or Window element kinds (the kinds! registry lists only wall and slab, crates/archicraft-model/src/kinds/mod.rs:364), no host relation on Element (crates/archicraft-model/src/element.rs:132), no tool (ToolKind has Select, Wall, Slab, crates/archicraft-app/src/tools/mod.rs:23). Workspace::error (crates/archicraft-app/src/workspace.rs:281) is usable for the 'no host under pointer' feedback. Needs hosted-element data (host wall id, position along the wall, vertical position per DW-007), the storey taken from the host, moving with it (plan_transform_elements, crates/archicraft-model/src/command.rs:464, moves only the listed elements) and cascading deletion (plan_delete_elements, crates/archicraft-model/src/command.rs:401, removes only the listed ids).",
       "depends_on": []
     },
     {
@@ -2877,7 +2877,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No vertical-position model (pinned edge sill or head, reference host base, host top or any storey, offset). VerticalLink (crates/archicraft-model/src/kinds/vertical.rs:21), TopLink::elevation (crates/archicraft-model/src/element.rs:112) and StoreyList::relative_elevation (crates/archicraft-model/src/storey.rs:123) are reusable for resolving a storey reference, and Wall::link (crates/archicraft-model/src/kinds/wall.rs:87) gives the host's base and top. Needs the pinned edge and reference enums on the unit, resize logic that keeps the pinned edge fixed, a reference storey that may differ from the host's and can be reassigned, and storey-deletion handling via Kind::storey_links and unlink_storey (crates/archicraft-model/src/kinds/mod.rs:149 and crates/archicraft-model/src/kinds/mod.rs:169).",
+      "gap": "No vertical-position model (pinned edge sill or head, reference host base, host top or any storey, offset). VerticalLink (crates/archicraft-model/src/kinds/vertical.rs:21), TopLink::elevation (crates/archicraft-model/src/element.rs:112) and StoreyList::relative_elevation (crates/archicraft-model/src/storey.rs:123) are reusable for resolving a storey reference, and Wall::link (crates/archicraft-model/src/kinds/wall.rs:87) gives the host's base and top. Needs the pinned edge and reference enums on the unit, resize logic that keeps the pinned edge fixed, a reference storey that may differ from the host's and can be reassigned, and storey-deletion handling via Kind::storey_links and unlink_storey (crates/archicraft-model/src/kinds/mod.rs:152 and crates/archicraft-model/src/kinds/mod.rs:172).",
       "depends_on": []
     },
     {
@@ -3037,7 +3037,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No curtain wall kind (the kinds! registry lists wall and slab, crates/archicraft-model/src/kinds/mod.rs:361) and no tool; IfcClass has no CurtainWall, Member or Plate (crates/archicraft-model/src/element.rs:15). Compound support exists: Kind::parts with PartSpec (crates/archicraft-model/src/kinds/mod.rs:174 and crates/archicraft-model/src/kinds/mod.rs:98) and per-element BodyPart lists (crates/archicraft-geometry/src/evaluate.rs:23), usable for frames and panels. Needs a base path of straight segments (arcs C), a base elevation and a fixed or storey-linked top (VerticalLink, crates/archicraft-model/src/kinds/vertical.rs:21), boundary-frame placement inside, centred on or outside the path, and the grid, frame and panel classes of CW-002 to CW-004.",
+      "gap": "No curtain wall kind (the kinds! registry lists wall and slab, crates/archicraft-model/src/kinds/mod.rs:364) and no tool; IfcClass has no CurtainWall, Member or Plate (crates/archicraft-model/src/element.rs:15). Compound support exists: Kind::parts with PartSpec (crates/archicraft-model/src/kinds/mod.rs:177 and crates/archicraft-model/src/kinds/mod.rs:101) and per-element BodyPart lists (crates/archicraft-geometry/src/evaluate.rs:23), usable for frames and panels. Needs a base path of straight segments (arcs C), a base elevation and a fixed or storey-linked top (VerticalLink, crates/archicraft-model/src/kinds/vertical.rs:21), boundary-frame placement inside, centred on or outside the path, and the grid, frame and panel classes of CW-002 to CW-004.",
       "depends_on": []
     },
     {
@@ -3047,7 +3047,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No grid model (no curtain wall kind, CW-001). Needs per axis a list of column or row sizes, a distribution mode (fixed sizes, best fit ending exactly at the segment end, number of divisions), per-item locks in the flexible modes with the rule that at least one column and one row stay flexible, enforced in Kind::validate (crates/archicraft-model/src/kinds/mod.rs:133), which validate_element (crates/archicraft-model/src/validate.rs:299) calls from Command::plan (crates/archicraft-model/src/command.rs:169); D.2 default grid 1.50 x 3.00 m.",
+      "gap": "No grid model (no curtain wall kind, CW-001). Needs per axis a list of column or row sizes, a distribution mode (fixed sizes, best fit ending exactly at the segment end, number of divisions), per-item locks in the flexible modes with the rule that at least one column and one row stay flexible, enforced in Kind::validate (crates/archicraft-model/src/kinds/mod.rs:136), which validate_element (crates/archicraft-model/src/validate.rs:299) calls from Command::plan (crates/archicraft-model/src/command.rs:169); D.2 default grid 1.50 x 3.00 m.",
       "depends_on": []
     },
     {
@@ -3147,7 +3147,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "IfcClass lacks IfcCurtainWall, IfcMember and IfcPlate (crates/archicraft-model/src/element.rs:15). The model has a Kind::parts hook returning PartSpec children with their own class (crates/archicraft-model/src/kinds/mod.rs:98, :174), but write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) does not use it and writes only unclassed Body meshes and the Axis as children (IFX-016). The reader takes elements only from storey children (read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1048), reads no part children and skips kinds other than wall and slab (read_element, reader.rs:880). Needs the CW-001 curtain wall kind with frames and panels as parts.",
+      "gap": "IfcClass lacks IfcCurtainWall, IfcMember and IfcPlate (crates/archicraft-model/src/element.rs:15). The model has a Kind::parts hook returning PartSpec children with their own class (crates/archicraft-model/src/kinds/mod.rs:101, :177), but write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) does not use it and writes only unclassed Body meshes and the Axis as children (IFX-016). The reader takes elements only from storey children (read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1048), reads no part children and skips kinds other than wall and slab (read_element, reader.rs:880). Needs the CW-001 curtain wall kind with frames and panels as parts.",
       "depends_on": []
     },
     {
@@ -3157,7 +3157,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No stair element exists. The kind registry lists only wall and slab (kinds! invocation, crates/archicraft-model/src/kinds/mod.rs:361; adding a kind is one module plus one line), ToolKind has Select/Wall/Slab only (crates/archicraft-app/src/tools/mod.rs:23), and evaluate_element returns UnsupportedKind for other kinds (crates/archicraft-geometry/src/evaluate.rs:154). Needs a Stair payload (baseline with at least two nodes, width, home storey, top storey link and bottom/top offsets, reusable from VerticalLink at crates/archicraft-model/src/kinds/vertical.rs:21, and a STA-005 rule set), the rise/going solver (STA-004 to STA-011), a generator for steps, landings and supports re-run on every revision, a stair tool and IFCX records. The D.2 stair defaults are still pending in crates/archicraft-model/tests/defaults.rs:153.",
+      "gap": "No stair element exists. The kind registry lists only wall and slab (kinds! invocation, crates/archicraft-model/src/kinds/mod.rs:364; adding a kind is one module plus one line), ToolKind has Select/Wall/Slab only (crates/archicraft-app/src/tools/mod.rs:23), and evaluate_element returns UnsupportedKind for other kinds (crates/archicraft-geometry/src/evaluate.rs:154). Needs a Stair payload (baseline with at least two nodes, width, home storey, top storey link and bottom/top offsets, reusable from VerticalLink at crates/archicraft-model/src/kinds/vertical.rs:21, and a STA-005 rule set), the rise/going solver (STA-004 to STA-011), a generator for steps, landings and supports re-run on every revision, a stair tool and IFCX records. The D.2 stair defaults are still pending in crates/archicraft-model/tests/defaults.rs:153.",
       "depends_on": []
     },
     {
@@ -3377,7 +3377,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No flight/landing structure choice (none, or monolithic with smooth or stepped underside, stepped with separate vertical and horizontal thickness), each with a material; the D.2 default (monolithic, smooth) is pending in crates/archicraft-model/tests/defaults.rs:153. Per-part materials are supported by BodyPart (crates/archicraft-geometry/src/evaluate.rs:23), but Kind::material and Kind::set_material expose one main material per element (crates/archicraft-model/src/kinds/mod.rs:125), so separate flight and landing structure materials need their own parameters and editing. Needs the STA-001 stair kind.",
+      "gap": "No flight/landing structure choice (none, or monolithic with smooth or stepped underside, stepped with separate vertical and horizontal thickness), each with a material; the D.2 default (monolithic, smooth) is pending in crates/archicraft-model/tests/defaults.rs:153. Per-part materials are supported by BodyPart (crates/archicraft-geometry/src/evaluate.rs:23), but Kind::material and Kind::set_material expose one main material per element (crates/archicraft-model/src/kinds/mod.rs:128), so separate flight and landing structure materials need their own parameters and editing. Needs the STA-001 stair kind.",
       "depends_on": []
     },
     {
@@ -3477,7 +3477,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "IfcClass has only Wall/Slab/Footing/Covering/BuildingElementProxy (crates/archicraft-model/src/element.rs:15); IfcStair, IfcStairFlight and IfcMember are missing. write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) writes body parts as unclassed mesh children and ignores the Kind::parts hook (crates/archicraft-model/src/kinds/mod.rs:174); element_attributes (writer.rs:263) and read_element (crates/archicraft-ifcx/src/alpha/reader.rs:880) handle only wall and slab, and the schema knows only the wall and slab kinds (KINDS, crates/archicraft-ifcx/src/alpha/schema.rs:30). Needs the STA-001 stair kind, its parts and an ArchiCraft attribute for solver inputs and results.",
+      "gap": "IfcClass has only Wall/Slab/Footing/Covering/BuildingElementProxy (crates/archicraft-model/src/element.rs:15); IfcStair, IfcStairFlight and IfcMember are missing. write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) writes body parts as unclassed mesh children and ignores the Kind::parts hook (crates/archicraft-model/src/kinds/mod.rs:177); element_attributes (writer.rs:263) and read_element (crates/archicraft-ifcx/src/alpha/reader.rs:880) handle only wall and slab, and the schema knows only the wall and slab kinds (KINDS, crates/archicraft-ifcx/src/alpha/schema.rs:30). Needs the STA-001 stair kind, its parts and an ArchiCraft attribute for solver inputs and results.",
       "depends_on": []
     },
     {
@@ -3587,7 +3587,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No railing kind, no IfcRailing class (IfcClass, crates/archicraft-model/src/element.rs:15) and no part writing: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) writes body parts unclassed and does not use the Kind::parts hook (crates/archicraft-model/src/kinds/mod.rs:174). Needs the RAI-001 railing kind with its components (RAI-003) as parts.",
+      "gap": "No railing kind, no IfcRailing class (IfcClass, crates/archicraft-model/src/element.rs:15) and no part writing: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) writes body parts unclassed and does not use the Kind::parts hook (crates/archicraft-model/src/kinds/mod.rs:177). Needs the RAI-001 railing kind with its components (RAI-003) as parts.",
       "depends_on": []
     },
     {
@@ -3837,7 +3837,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: a terrain element kind with 3D points, optional breaklines, an editable boundary polygon, a TIN top surface, a flat bottom at an elevation or thickness (D.2: 5.00 m below the lowest point, pending in crates/archicraft-model/tests/defaults.rs:156), body mesh evaluation as a closed solid, and plan and 3D drawing. A constrained Delaunay triangulation (spade) exists in triangulate (crates/archicraft-geometry/src/triangulate.rs:42), but only for planar polygons with holes, without interior points, breaklines or elevations. Container::Site (crates/archicraft-model/src/kinds/mod.rs:108) lets a kind sit below the site, but the IFCX writer and reader still handle only elements below storeys.",
+      "gap": "Whole requirement: a terrain element kind with 3D points, optional breaklines, an editable boundary polygon, a TIN top surface, a flat bottom at an elevation or thickness (D.2: 5.00 m below the lowest point, pending in crates/archicraft-model/tests/defaults.rs:156), body mesh evaluation as a closed solid, and plan and 3D drawing. A constrained Delaunay triangulation (spade) exists in triangulate (crates/archicraft-geometry/src/triangulate.rs:42), but only for planar polygons with holes, without interior points, breaklines or elevations. Container::Site (crates/archicraft-model/src/kinds/mod.rs:111) lets a kind sit below the site, but the IFCX writer and reader still handle only elements below storeys.",
       "depends_on": []
     },
     {
@@ -4367,7 +4367,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "derived (crates/archicraft-app/src/ui/properties.rs:506) shows values for a single selected element only: walls get reference-line length and volume, slabs get one net area (outline minus holes) and volume. Missing: the length of both wall faces; slab top and bottom area and perimeter. Net volume after openings and solid operations is trivially true only because openings (OPN-001) and solid operations do not exist. Roofs (ROF-011), columns, beams, doors/windows (DW-015) and stairs (STA-009) have no values because these element kinds do not exist (only Wall and Slab are registered in crates/archicraft-model/src/kinds/mod.rs:361).",
+      "gap": "derived (crates/archicraft-app/src/ui/properties.rs:506) shows values for a single selected element only: walls get reference-line length and volume, slabs get one net area (outline minus holes) and volume. Missing: the length of both wall faces; slab top and bottom area and perimeter. Net volume after openings and solid operations is trivially true only because openings (OPN-001) and solid operations do not exist. Roofs (ROF-011), columns, beams, doors/windows (DW-015) and stairs (STA-009) have no values because these element kinds do not exist (only Wall and Slab are registered in crates/archicraft-model/src/kinds/mod.rs:364).",
       "depends_on": []
     },
     {
@@ -4587,7 +4587,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Site-level elements (terrain) are not placed under the site, and hosted elements (IFX-015) and compound parts (IFX-016) are not contained through their host, because none of these element kinds exist (only walls and slabs). The model hook is ready: Kind::container (crates/archicraft-model/src/kinds/mod.rs:179) returns Container (crates/archicraft-model/src/kinds/mod.rs:108) with a Site variant, used only by the test kind Dummy. The writer ignores it: nodes (crates/archicraft-ifcx/src/alpha/writer.rs:379) always nests elements under their home storey via Project::elements_on, and the site node gets no element children. Element has no host reference yet.",
+      "gap": "Site-level elements (terrain) are not placed under the site, and hosted elements (IFX-015) and compound parts (IFX-016) are not contained through their host, because none of these element kinds exist (only walls and slabs). The model hook is ready: Kind::container (crates/archicraft-model/src/kinds/mod.rs:182) returns Container (crates/archicraft-model/src/kinds/mod.rs:111) with a Site variant, used only by the test kind Dummy. The writer ignores it: nodes (crates/archicraft-ifcx/src/alpha/writer.rs:379) always nests elements under their home storey via Project::elements_on, and the site node gets no element children. Element has no host reference yet.",
       "depends_on": []
     },
     {
@@ -5277,7 +5277,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Hosts and types do not exist in the model yet, so those checks are absent. Storeys, layers and materials are checked while reading: an unknown layer or material falls back to the first one and is reported (read_element, crates/archicraft-ifcx/src/alpha/reader.rs:880), and an empty material or layer list gets a default (read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1098 and 1116). A wall whose top-linked storey is missing is still skipped, not repaired (validate_element at reader.rs:1013 rejects it through <Wall as Kind>::validate, crates/archicraft-model/src/kinds/wall.rs:169). A deterministic repair, for example to a fixed height as unlink_storey does when a storey is deleted, is missing. A wall whose top ends below its base is skipped the same way.",
+      "gap": "Hosts and types do not exist in the model yet, so those checks are absent. Storeys, layers and materials are checked while reading: an unknown layer or material falls back to the first one and is reported (read_element, crates/archicraft-ifcx/src/alpha/reader.rs:880), and an empty material or layer list gets a default (the empty-list checks in read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1098 and 1116). A wall whose top-linked storey is missing is still skipped, not repaired (validate_element at reader.rs:1013 rejects it through <Wall as Kind>::validate, crates/archicraft-model/src/kinds/wall.rs:171). A deterministic repair, for example to a fixed height as unlink_storey does when a storey is deleted, is missing. A wall whose top ends below its base is skipped the same way.",
       "depends_on": []
     },
     {

@@ -1560,7 +1560,7 @@ fn nfr_acc_001_a_wall_ten_kilometres_out_round_trips_exactly_and_meshes_within_0
         assert_eq!(written.len(), model.len());
         for (w, m) in written.iter().zip(&model) {
             assert!(m.x > 9999.0 && m.y < -9998.0, "{m}");
-            assert!((*w - *m).abs().max_element() < 1e-5, "{w} vs {m}");
+            assert!(w.distance(*m) < 1e-5, "{w} vs {m}");
             checked += 1;
         }
     }

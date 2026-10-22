@@ -87,8 +87,11 @@ pub struct KindDescriptor {
 /// links follow the home storey and are not listed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StoreyLinkRef {
-    /// What is linked, for messages, for example "top".
+    /// What is linked, for example "top". An internal key, not user-facing
+    /// text: a message shows it only through its own localised wording
+    /// (NFR-L10N-001).
     pub role: &'static str,
+    /// The storey the link points to.
     pub storey: StoreyId,
 }
 

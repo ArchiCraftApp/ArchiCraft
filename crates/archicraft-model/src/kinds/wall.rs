@@ -91,6 +91,8 @@ impl Wall {
         }
     }
 
+    /// Sets the wall's base offset and top from `link` (ELM-006). Does not
+    /// validate the link; validation runs when a command applies the wall.
     pub fn set_link(&mut self, link: VerticalLink) {
         self.base_offset = link.base_offset;
         self.top = link.top;
