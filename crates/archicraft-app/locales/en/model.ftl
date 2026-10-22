@@ -84,6 +84,11 @@ model-error-linked-element-too-low = { $count ->
         [one] { $name } and { $count_text } other element would be less than { $min } high.
        *[other] { $name } and { $count_text } other elements would be less than { $min } high.
     }
+model-error-linked-element-too-high = { $count ->
+        [0] { $name } would be more than { $max } high.
+        [one] { $name } and { $count_text } other element would be more than { $max } high.
+       *[other] { $name } and { $count_text } other elements would be more than { $max } high.
+    }
 model-error-duplicate-layer-id = A layer with this ID already exists.
 model-error-layer-not-found = The layer does not exist.
 model-error-layer-name = A layer needs a name.

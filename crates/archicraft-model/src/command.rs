@@ -332,14 +332,16 @@ fn storey_edit(project: &Project, list: StoreyList) -> Result<Vec<Edit>, Command
 }
 
 /// Refuses a new storey list that would leave an element whose extent
-/// depends on the storeys lower than [`validate::MIN_HEIGHT`] (NFR-REL-005,
-/// ELM-017, STR-002). `element_edits` are the element changes planned with
-/// the list (removals and replacements). Only elements the edit lowers
-/// count, beyond the rounding of their elevations ([`near_zero`]): a
-/// fixed-height element on a moved storey keeps its height, and an element
-/// made too low outside the commands does not block storey edits that leave
-/// it as it is or raise it. The message names the first element and counts
-/// the others.
+/// depends on the storeys lower than [`validate::MIN_HEIGHT`] or higher
+/// than [`validate::MAX_HEIGHT`] (NFR-REL-005, ELM-017, STR-002).
+/// `element_edits` are the element changes planned with the list (removals
+/// and replacements). Only elements the edit lowers below the minimum, or
+/// raises above the maximum, count, beyond the rounding of their elevations
+/// ([`near_zero`]): a fixed-height element on a moved storey keeps its
+/// height, and an element made too low or too high outside the commands
+/// does not block storey edits that leave it as it is or move it towards
+/// the valid range. The message names the first element and counts the
+/// others.
 fn check_linked_heights(project: &Project, list: &StoreyList, element_edits: &[Edit]) -> Result<(), CommandError> {
     let planned: HashMap<ElementId, Option<&Element>> = element_edits
         .iter()
@@ -349,31 +351,48 @@ fn check_linked_heights(project: &Project, list: &StoreyList, element_edits: &[E
             _ => None,
         })
         .collect();
-    let mut too_low = project.elements.values().filter(|old| {
-        let new = planned.get(&old.id).copied().unwrap_or(Some(old));
-        let Some((bottom, top)) = new.and_then(|new| new.kind.vertical_extent(new.storey, list)) else {
-            return false;
-        };
-        let after = top - bottom;
-        after < validate::MIN_HEIGHT
-            && project.vertical_extent(old).is_none_or(|(old_bottom, old_top)| {
-                let before = old_top - old_bottom;
-                let scale = [bottom, top, old_bottom, old_top]
-                    .map(f64::abs)
-                    .into_iter()
-                    .fold(0.0, f64::max);
-                after < before && !near_zero(before - after, scale)
-            })
-    });
-    let Some(first) = too_low.next() else {
-        return Ok(());
+    // Each element's height before and after the edit, when the edit
+    // changes it beyond rounding; `None` before when it had no extent.
+    let changed: Vec<(&Element, Option<f64>, f64)> = project
+        .elements
+        .values()
+        .filter_map(|old| {
+            let new = planned.get(&old.id).copied().unwrap_or(Some(old))?;
+            let (bottom, top) = new.kind.vertical_extent(new.storey, list)?;
+            let after = top - bottom;
+            let Some((old_bottom, old_top)) = project.vertical_extent(old) else {
+                return Some((old, None, after));
+            };
+            let before = old_top - old_bottom;
+            let scale = [bottom, top, old_bottom, old_top]
+                .map(f64::abs)
+                .into_iter()
+                .fold(0.0, f64::max);
+            (!near_zero(before - after, scale)).then_some((old, Some(before), after))
+        })
+        .collect();
+    let refuse = |key: &'static str, offends: &dyn Fn(Option<f64>, f64) -> bool, limit: (&'static str, f64)| {
+        let mut offending = changed.iter().filter(|(_, before, after)| offends(*before, *after));
+        match offending.next() {
+            None => Ok(()),
+            Some((first, _, _)) => Err(CommandError::Invalid(
+                Message::new(key)
+                    .text("name", &first.name)
+                    .count("count", offending.count())
+                    .length(limit.0, limit.1),
+            )),
+        }
     };
-    Err(CommandError::Invalid(
-        Message::new("model-error-linked-element-too-low")
-            .text("name", &first.name)
-            .count("count", too_low.count())
-            .length("min", validate::MIN_HEIGHT),
-    ))
+    refuse(
+        "model-error-linked-element-too-low",
+        &|before, after| after < validate::MIN_HEIGHT && before.is_none_or(|before| after < before),
+        ("min", validate::MIN_HEIGHT),
+    )?;
+    refuse(
+        "model-error-linked-element-too-high",
+        &|before, after| after > validate::MAX_HEIGHT && before.is_none_or(|before| after > before),
+        ("max", validate::MAX_HEIGHT),
+    )
 }
 
 fn plan_add_elements(project: &Project, elements: &[Element]) -> Result<Vec<Edit>, CommandError> {

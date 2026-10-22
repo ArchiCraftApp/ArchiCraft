@@ -10,7 +10,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::project::{DefaultsSlot, ToolDefaults};
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::validate::{MAX_GRID_SPACING, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
+use archicraft_model::validate::{MAX_GRID_SPACING, MAX_HEIGHT, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
 use archicraft_model::{
     Arg, Command, CommandError, Element, ElementKind, History, IfcClass, KindTag, Layer, Material, Message, PlanGrid,
     ProjectSettings, Slab, Storey, StoreyId, TopLink, Wall,
@@ -416,6 +416,65 @@ fn storey_moves_refuse_to_drop_linked_walls_below_the_minimum_height() {
         shift_above: false,
     };
     assert_too_low(&mut p, &mut h, command, "W-001", 1);
+}
+
+/// NFR-REL-005, ELM-017, STR-002: moving a storey or changing its height
+/// does not raise a wall linked to it above the 1000 m maximum height; the
+/// command is refused with a message naming the wall and counting the
+/// others, and a move that keeps it at most 1000 m high is accepted.
+#[test]
+fn storey_moves_refuse_to_raise_linked_walls_above_the_maximum_height() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let [g, first] = [0, 1].map(|i| p.storeys.as_slice()[i].id);
+    // 3 m high, two of them, linked to the first floor at 3 m.
+    let walls = [linked_wall(&p, g, first, 0.0), linked_wall(&p, g, first, 0.0)];
+    let id = walls[0].id;
+    h.execute(&mut p, Command::AddElements(walls.to_vec())).unwrap();
+    let assert_too_high = |p: &mut archicraft_model::Project, h: &mut History, command: Command| {
+        let before = p.clone();
+        let (variant, message) = rejection(h.execute(p, command));
+        assert_eq!(
+            (variant, message.key()),
+            ("Invalid", "model-error-linked-element-too-high")
+        );
+        assert_eq!(message.arg("name"), Some(&Arg::Text("W-001".into())));
+        assert_eq!(message.arg("count"), Some(&Arg::Count(1)));
+        assert_eq!(message.arg("max"), Some(&Arg::Length(MAX_HEIGHT)));
+        assert_eq!(*p, before, "a refused storey edit leaves the project unchanged");
+    };
+
+    assert_too_high(
+        &mut p,
+        &mut h,
+        Command::SetStoreyElevation {
+            storey: first,
+            elevation: 1000.5,
+            shift_above: false,
+        },
+    );
+    assert_too_high(
+        &mut p,
+        &mut h,
+        Command::SetStoreyHeight {
+            storey: g,
+            height: 1000.5,
+            shift_above: true,
+        },
+    );
+
+    // 1000 m is still at most the maximum.
+    h.execute(
+        &mut p,
+        Command::SetStoreyHeight {
+            storey: g,
+            height: 1000.0,
+            shift_above: true,
+        },
+    )
+    .unwrap();
+    let (bottom, top) = p.vertical_extent(p.element(id).unwrap()).unwrap();
+    assert!((top - bottom - 1000.0).abs() < 1e-9, "{}", top - bottom);
 }
 
 /// NFR-REL-005, STR-002: inserting or deleting a storey moves the storeys

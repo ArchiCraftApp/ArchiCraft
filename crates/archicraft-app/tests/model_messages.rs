@@ -188,6 +188,9 @@ fn error_representatives() -> Vec<Message> {
         named("model-error-linked-element-too-low")
             .count("count", 1)
             .length("min", 0.001),
+        named("model-error-linked-element-too-high")
+            .count("count", 1)
+            .length("max", 1000.0),
         named("model-error-transform-unsupported"),
         named("model-error-element-locked"),
         named("model-error-layer-locked").text("layer", "Walls"),
@@ -413,6 +416,25 @@ fn model_errors_render_in_english_with_project_units() {
     assert_eq!(
         too_low(2),
         format!("W-001 and 2 other elements would be less than {min} high.")
+    );
+    // ... and the first element too high.
+    let max = format_length(1000.0, &units, &nf, true);
+    let too_high = |others| {
+        render(
+            &Message::new("model-error-linked-element-too-high")
+                .text("name", "W-001")
+                .count("count", others)
+                .length("max", 1000.0),
+        )
+    };
+    assert_eq!(too_high(0), format!("W-001 would be more than {max} high."));
+    assert_eq!(
+        too_high(1),
+        format!("W-001 and 1 other element would be more than {max} high.")
+    );
+    assert_eq!(
+        too_high(2),
+        format!("W-001 and 2 other elements would be more than {max} high.")
     );
 }
 

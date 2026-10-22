@@ -67,6 +67,7 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-move-target-same",
     "model-error-target-storey-not-found",
     "model-error-linked-element-too-low",
+    "model-error-linked-element-too-high",
     "model-error-duplicate-layer-id",
     "model-error-layer-not-found",
     "model-error-layer-name",
