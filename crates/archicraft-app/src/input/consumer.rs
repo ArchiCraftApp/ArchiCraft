@@ -117,11 +117,31 @@ impl StepSpec {
     }
 }
 
-/// How the cursor looks while a consumer previews.
+/// How the cursor looks while a consumer previews: the command state the
+/// plan view draws beside the snap glyph (INP-008).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CursorState {
+    /// No command state: the snap glyph alone.
     #[default]
     Normal,
+    /// The next point places a copy.
+    Copy,
+    /// The next point places one of several copies.
+    MultipleCopy,
+    /// The element under the cursor is trimmed.
+    TrimTarget,
+    /// The next point chooses a side.
+    ChooseSide,
+}
+
+impl CursorState {
+    pub const ALL: [CursorState; 5] = [
+        CursorState::Normal,
+        CursorState::Copy,
+        CursorState::MultipleCopy,
+        CursorState::TrimTarget,
+        CursorState::ChooseSide,
+    ];
 }
 
 /// The live preview of a consumer for a resolved point (INP-001).

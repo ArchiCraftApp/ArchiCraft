@@ -99,6 +99,27 @@ impl SnapKind {
         SnapKind::Grid,
     ];
 
+    /// Every kind: the snap targets in order of precedence, then the points
+    /// of point input that are no snap target.
+    pub const ALL: [SnapKind; 16] = [
+        SnapKind::Node,
+        SnapKind::Handle,
+        SnapKind::Centre,
+        SnapKind::AxisPoint,
+        SnapKind::Centroid,
+        SnapKind::Intersection,
+        SnapKind::Midpoint,
+        SnapKind::GuideIntersection,
+        SnapKind::Perpendicular,
+        SnapKind::Tangent,
+        SnapKind::Edge,
+        SnapKind::Guide,
+        SnapKind::Grid,
+        SnapKind::Constrained,
+        SnapKind::Typed,
+        SnapKind::Free,
+    ];
+
     /// The precedence level of a snap target, or `None` for a typed,
     /// constrained or free point.
     pub fn level(self) -> Option<SnapLevel> {
