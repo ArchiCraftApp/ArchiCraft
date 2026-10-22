@@ -604,6 +604,54 @@ fn an_auxiliary_spacing_above_the_main_spacing_falls_back_to_the_defaults() {
     assert_eq!(grid.auxiliary_spacing, PlanGrid::default().auxiliary_spacing);
 }
 
+/// INP-013: an invalid auxiliary spacing is the one problem of a grid whose
+/// main spacing lies below the default auxiliary spacing. The main spacing is
+/// kept, and the auxiliary spacing is not larger than it.
+#[test]
+fn an_invalid_auxiliary_spacing_keeps_a_fine_main_spacing() {
+    let mut project = samples::storey_with_walls_and_slab();
+    project.settings.plan_grid.main_spacing = DVec2::new(0.1, 0.1);
+    project.settings.plan_grid.auxiliary_spacing = DVec2::new(0.05, 0.05);
+    let bytes = edit(&project, |v| {
+        project_settings(v)["planGrid"]["auxiliarySpacing"] = serde_json::json!([0.25]);
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert_eq!(loaded.problems.len(), 1, "{:#?}", loaded.problems);
+    assert!(
+        loaded.problems[0].message.contains("auxiliarySpacing"),
+        "{:#?}",
+        loaded.problems
+    );
+    let grid = &loaded.project.settings.plan_grid;
+    assert_eq!(grid.main_spacing, DVec2::new(0.1, 0.1));
+    assert!(grid.auxiliary_spacing.cmple(grid.main_spacing).all(), "{grid:?}");
+    assert_eq!(grid.check(), Ok(()));
+}
+
+/// INP-013: an invalid main spacing is the one problem of a grid whose
+/// auxiliary spacing lies above the default main spacing. The main spacing
+/// takes its default, and the auxiliary spacing is not larger than it.
+#[test]
+fn an_invalid_main_spacing_keeps_the_grid_valid() {
+    let mut project = samples::storey_with_walls_and_slab();
+    project.settings.plan_grid.main_spacing = DVec2::new(4.0, 4.0);
+    project.settings.plan_grid.auxiliary_spacing = DVec2::new(2.0, 2.0);
+    let bytes = edit(&project, |v| {
+        project_settings(v)["planGrid"]["mainSpacing"] = serde_json::json!([1.0, -1.0]);
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert_eq!(loaded.problems.len(), 1, "{:#?}", loaded.problems);
+    assert!(
+        loaded.problems[0].message.contains("mainSpacing"),
+        "{:#?}",
+        loaded.problems
+    );
+    let grid = &loaded.project.settings.plan_grid;
+    assert_eq!(grid.main_spacing, PlanGrid::default().main_spacing);
+    assert!(grid.auxiliary_spacing.cmple(grid.main_spacing).all(), "{grid:?}");
+    assert_eq!(grid.check(), Ok(()));
+}
+
 /// ELM-019: name counters are keyed by kind code. A counter of a kind this
 /// build does not know (written by a later version) reads without a
 /// problem, and the known counters are kept.
