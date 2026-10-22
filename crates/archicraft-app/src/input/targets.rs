@@ -9,8 +9,10 @@
 //! changes more than a quarter of the owners, bulk-load the trees instead.
 //!
 //! Targets come from [`SnapSource`]s: the plan's elements (cut rings,
-//! projected and overhead lines, centroids of the cut polygons), the walls'
-//! reference lines and the slabs' outline centroids (INP-024). A node
+//! projected and overhead lines), the walls' reference lines and the slabs'
+//! outline centroids. Only area elements offer centroids (INP-024): a
+//! wall's cut centroid would lie within the snap radius of its faces on a
+//! thin wall and, at node level, hide their midpoints (INP-009). A node
 //! carries its kind within the node level (INP-009): a plain node, a
 //! handle, a centre, an axis point or a centroid. Elements
 //! that are hidden or excluded from snapping, themselves or through their
@@ -284,8 +286,8 @@ impl SnapSource for Element {
 }
 
 /// An element's plan: the corners and sides of its cut rings, then its
-/// projected and overhead lines, then the centroids of its cut polygons
-/// (INP-024).
+/// projected and overhead lines. Cut polygons offer no centroids: those
+/// come from area elements' outlines (INP-024).
 impl SnapSource for PlanElement {
     fn owner(&self) -> TargetOwner {
         TargetOwner::Element(self.id)
@@ -307,9 +309,6 @@ impl SnapSource for PlanElement {
                 sink.node(class, p);
             }
             sink.edge(class, *segment);
-        }
-        for centroid in self.centroids() {
-            sink.centroid(SourceClass::Cut, centroid);
         }
     }
 }
@@ -817,7 +816,6 @@ pub(crate) mod tests {
                     nodes.extend(segment.map(node));
                     edges.push(*segment);
                 }
-                nodes.extend(element.centroids().into_iter().map(centroid));
             }
             Self {
                 nodes: weld_nodes(nodes),
@@ -1315,11 +1313,11 @@ pub(crate) mod tests {
         assert!(s.point.distance(DVec2::new(6.0, 4.5)) < 1e-12, "{s:?}");
     }
 
-    /// INP-024: an L-shaped cut polygon offers its centroid, which geo
-    /// computes.
+    /// INP-024: a cut polygon offers no centroid, only its corners and
+    /// sides: centroids belong to area elements such as slabs.
     #[test]
-    fn an_l_shaped_cut_polygon_offers_its_centroid() {
-        use archicraft_geometry::geo::{Centroid, LineString, Polygon};
+    fn a_cut_polygon_offers_no_centroid() {
+        use archicraft_geometry::geo::{LineString, Polygon};
         let l_shape = Polygon::new(
             LineString::from(vec![
                 (0.0, 0.0),
@@ -1331,9 +1329,6 @@ pub(crate) mod tests {
             ]),
             Vec::new(),
         );
-        let expected = l_shape.centroid().unwrap();
-        let expected = DVec2::new(expected.x(), expected.y());
-        assert!(expected.distance(DVec2::splat(2.5)) < 1e-12);
         let element = PlanElement {
             id: ElementId::new(),
             cut: vec![l_shape],
@@ -1342,8 +1337,13 @@ pub(crate) mod tests {
             reference_line: None,
         };
         let index = index_with(&[&element]);
-        let found = candidates(&index, &[], expected + DVec2::new(0.05, -0.04), 0.2, 0.0, None, &[]);
-        assert_candidates(&found, &[(SnapKind::Centroid, expected)]);
+        // The centroid (2.5, 2.5) is 0.71 from the inner corner (3, 3).
+        let centroid = DVec2::splat(2.5);
+        let near = candidates(&index, &[], centroid, 0.2, 0.0, None, &[]);
+        assert!(near.is_empty(), "{near:?}");
+        let found = candidates(&index, &[], centroid, 1.0, 0.0, None, &[]);
+        assert!(!found.is_empty());
+        assert!(found.iter().all(|s| s.kind != SnapKind::Centroid), "{found:?}");
     }
 
     /// INP-008, INP-009: axis points and handles are node-level candidates
