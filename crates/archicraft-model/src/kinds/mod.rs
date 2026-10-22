@@ -173,6 +173,13 @@ pub trait Kind: Sized {
         false
     }
 
+    /// Replaces the top of a vertical kind by the fixed height `height`
+    /// above its base, keeping everything else (ELM-006). Returns whether
+    /// the kind has a top; kinds without one stay unchanged.
+    fn fix_top(&mut self, _height: f64) -> bool {
+        false
+    }
+
     /// The parts of a compound element (IFX-016); empty for simple ones.
     fn parts(&self) -> Vec<PartSpec> {
         Vec::new()
@@ -333,6 +340,13 @@ macro_rules! kinds {
             pub fn unlink_storey(&mut self, home: StoreyId, storeys: &StoreyList, storey: StoreyId) -> bool {
                 match self {
                     $($(#[$meta])* ElementKind::$Payload(k) => k.unlink_storey(home, storeys, storey),)+
+                }
+            }
+
+            /// See [`Kind::fix_top`].
+            pub fn fix_top(&mut self, height: f64) -> bool {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.fix_top(height),)+
                 }
             }
 
