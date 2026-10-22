@@ -9,7 +9,7 @@
 //!   `format!`) of egui calls that show text ([`SINK_METHODS`],
 //!   [`SINK_FUNCTIONS`]) and of `Workspace::info`/`error` and
 //!   `ArchiCraftApp::message`, and every literal in the body of a function
-//!   that returns display text ([`TEXT_FUNCTIONS`], such as `Action::label`);
+//!   that returns display text ([`TEXT_FUNCTIONS`], such as `CommandSpec::label`);
 //! - in archicraft-model, which has no catalogue and returns message keys,
 //!   every string literal with a space or an uppercase letter in its text;
 //! - in both, the messages of thiserror's `#[error("…")]`.
@@ -41,8 +41,6 @@ use syn::{Attribute, Expr, ExprLit, Lit, LitStr, Macro, Stmt, Token, Type};
 /// only shrinks. The About window and the Help menu title were migrated first
 /// (archicraft-o4x.1); the comments name the task that empties each group.
 const PENDING: &[&str] = &[
-    // archicraft-5eu: the command registry replaces the action labels.
-    "crates/archicraft-app/src/ui/actions.rs",
     // archicraft-e19: main window, views, tools and workspace.
     "crates/archicraft-app/src/app.rs",
     "crates/archicraft-app/src/input/snap.rs",

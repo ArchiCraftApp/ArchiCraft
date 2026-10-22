@@ -5,8 +5,13 @@
 //! in. Each area registers its commands in its own file (`file.rs`,
 //! `edit.rs`, …), so adding a command means adding one spec there plus its
 //! label and description in `locales/en/commands.ftl`.
+//!
+//! Menus, shortcuts and the other places that run commands go through one
+//! entry, [`ArchiCraftApp::invoke`], which looks the command up here and
+//! runs its [`Handler`].
 
 pub mod binding;
+pub mod ctx;
 mod edit;
 mod file;
 mod help;
@@ -14,9 +19,14 @@ mod project;
 mod tools;
 mod view;
 
+use std::cmp::Reverse;
 use std::sync::LazyLock;
 
 pub use binding::Binding;
+pub use ctx::{CommandCtx, Enabled, Invocation, Origin, Target};
+use egui::InputState;
+
+use crate::ArchiCraftApp;
 
 /// The stable id of a command, lower-case and dotted such as `file.save`.
 /// Ids are a public contract: keymaps and exported preferences store them.
@@ -100,10 +110,28 @@ impl Scope {
             (Global | TextSafe, _) | (_, Global | TextSafe) | (Canvas | PointInput, Canvas | PointInput)
         )
     }
+
+    /// Whether bindings of this scope are active while a text field has
+    /// focus (`typing`) or a tool takes point input (`drawing`). While
+    /// typing only TextSafe bindings work, so single keys reach the text
+    /// field (UI-008); while drawing Canvas bindings are off, so typed values
+    /// and the tool's own keys (Backspace removes the last point) reach the
+    /// tool.
+    pub fn is_active(self, typing: bool, drawing: bool) -> bool {
+        match self {
+            Scope::TextSafe => true,
+            Scope::Global => !typing,
+            Scope::Canvas => !typing && !drawing,
+            Scope::PointInput => !typing && drawing,
+        }
+    }
 }
 
+/// Runs a command on its target.
+pub type Handler = fn(&mut ArchiCraftApp, &egui::Context, Target);
+
 /// The description of one command.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct CommandSpec {
     pub id: CommandId,
     pub category: Category,
@@ -117,12 +145,22 @@ pub struct CommandSpec {
     /// The default key bindings; the first is shown in menus.
     pub default_bindings: Vec<Binding>,
     pub scope: Scope,
+    /// Whether the command can run now; menus grey it out otherwise. The
+    /// handler still copes with a disabled state, because a shortcut runs it
+    /// regardless (Undo reports that there is nothing to undo).
+    pub enabled: fn(&CommandCtx) -> Enabled,
+    /// For an on/off command, whether it is on; menus show a check box.
+    pub checked: Option<fn(&CommandCtx) -> bool>,
+    /// A label that depends on the state, such as "Undo Create wall"; `None`
+    /// from the function falls back to the catalogue label.
+    pub dynamic_label: Option<fn(&CommandCtx) -> Option<String>>,
+    pub handler: Handler,
 }
 
 impl CommandSpec {
-    /// A command without menu entry and bindings, in the [`Scope::Global`]
-    /// scope.
-    pub fn new(id: &'static str, category: Category) -> Self {
+    /// An always enabled command without menu entry and bindings, in the
+    /// [`Scope::Global`] scope, that runs `handler`.
+    pub fn new(id: &'static str, category: Category, handler: Handler) -> Self {
         Self {
             id: CommandId::new(id),
             category,
@@ -131,6 +169,10 @@ impl CommandSpec {
             context_only: false,
             default_bindings: Vec::new(),
             scope: Scope::Global,
+            enabled: |_| Enabled::Yes,
+            checked: None,
+            dynamic_label: None,
+            handler,
         }
     }
 
@@ -152,9 +194,32 @@ impl CommandSpec {
         self
     }
 
+    pub fn enabled_when(mut self, enabled: fn(&CommandCtx) -> Enabled) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    pub fn checked_when(mut self, checked: fn(&CommandCtx) -> bool) -> Self {
+        self.checked = Some(checked);
+        self
+    }
+
+    pub fn dynamic_label(mut self, label: fn(&CommandCtx) -> Option<String>) -> Self {
+        self.dynamic_label = Some(label);
+        self
+    }
+
     /// The command's label in the current language.
     pub fn label(&self) -> String {
         crate::tr!(&self.id.label_key())
+    }
+
+    /// The label shown in menus in the state `ctx`: the dynamic label if the
+    /// command has one, otherwise [`CommandSpec::label`].
+    pub fn label_in(&self, ctx: &CommandCtx) -> String {
+        self.dynamic_label
+            .and_then(|label| label(ctx))
+            .unwrap_or_else(|| self.label())
     }
 
     /// The command's description in the current language.
@@ -168,6 +233,11 @@ impl CommandSpec {
 #[derive(Debug)]
 pub struct Registry {
     specs: Vec<CommandSpec>,
+    /// Every default binding with the index of its command, in the order
+    /// key presses are matched: more modifiers first, because egui ignores
+    /// an extra Shift, so Primary+Z would otherwise swallow Primary+Shift+Z
+    /// and F would swallow Shift+F (UI-008).
+    match_order: Vec<(Binding, usize)>,
 }
 
 impl Registry {
@@ -182,8 +252,14 @@ impl Registry {
         ]
         .into_iter()
         .flatten()
-        .collect();
-        Self { specs }
+        .collect::<Vec<CommandSpec>>();
+        let mut match_order: Vec<(Binding, usize)> = specs
+            .iter()
+            .enumerate()
+            .flat_map(|(i, spec)| spec.default_bindings.iter().map(move |&b| (b, i)))
+            .collect();
+        match_order.sort_by_key(|(binding, _)| Reverse(binding.modifier_count()));
+        Self { specs, match_order }
     }
 
     /// The commands of the application.
@@ -200,6 +276,23 @@ impl Registry {
     /// The command with the given id.
     pub fn spec(&self, id: &str) -> Option<&CommandSpec> {
         self.specs.iter().find(|s| s.id.as_str() == id)
+    }
+
+    /// The default bindings with their commands, in match order.
+    pub fn bindings_in_match_order(&self) -> impl Iterator<Item = (Binding, &CommandSpec)> {
+        self.match_order.iter().map(|&(binding, i)| (binding, &self.specs[i]))
+    }
+
+    /// Consumes the key presses of this frame that match a binding whose
+    /// scope is `active`, in match order, and returns their commands
+    /// (UI-008, HW-003). Bindings of inactive scopes leave their key press
+    /// to the text field or tool that has the keys.
+    pub fn consume_shortcuts(&self, input: &mut InputState, active: impl Fn(Scope) -> bool) -> Vec<CommandId> {
+        self.bindings_in_match_order()
+            .filter(|(_, spec)| active(spec.scope))
+            .filter(|(binding, _)| input.consume_shortcut(&binding.shortcut()))
+            .map(|(_, spec)| spec.id)
+            .collect()
     }
 }
 

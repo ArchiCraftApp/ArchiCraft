@@ -1,6 +1,5 @@
 //! Panels, menus and dialogs.
 
-pub mod actions;
 pub mod browser;
 pub mod dialogs;
 pub mod properties;

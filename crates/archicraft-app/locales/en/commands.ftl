@@ -28,6 +28,10 @@ cmd-edit-undo-label = Undo
 cmd-edit-undo-desc = Take back the last change to the model.
 cmd-edit-redo-label = Redo
 cmd-edit-redo-desc = Repeat the last change that was undone.
+# The Undo and Redo menu items with the label of the change, such as
+# "Undo Create wall"; $action is the change's label.
+cmd-edit-undo-named = Undo { $action }
+cmd-edit-redo-named = Redo { $action }
 cmd-edit-delete-label = Delete
 cmd-edit-delete-desc = Delete the selected elements.
 cmd-edit-select-all-label = Select all
@@ -88,3 +92,10 @@ cmd-help-shortcuts-label = Keyboard shortcuts
 cmd-help-shortcuts-desc = List the keyboard shortcuts.
 cmd-help-about-label = About ArchiCraft
 cmd-help-about-desc = Show the version of ArchiCraft and the file format it writes.
+
+## Reasons a command is disabled (Enabled::No in the command registry)
+
+cmd-reason-nothing-to-undo = There is nothing to undo.
+cmd-reason-nothing-to-redo = There is nothing to redo.
+cmd-reason-nothing-selected = Nothing is selected.
+cmd-reason-no-user-origin = No user origin is placed.

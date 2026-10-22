@@ -7,6 +7,7 @@ mod common;
 
 use std::rc::Rc;
 
+use archicraft_app::commands::{Binding, Origin, Registry};
 use archicraft_app::i18n::{self, Localizer};
 use archicraft_app::input::{Field, InputConsumer, InputMode};
 use archicraft_app::persistence::prefs::Preferences;
@@ -19,6 +20,7 @@ use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{Command, ProjectSettings};
 use common::{assert_present, data_dir, harness, harness_in};
 use egui::accesskit::Role;
+use egui::os::OperatingSystem;
 use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{By, NodeT, Queryable};
@@ -306,6 +308,42 @@ fn typed_keys_address_a_field_and_take_an_expression() {
     );
 }
 
+/// UI-008, HW-003: Help ▸ Keyboard shortcuts lists the commands with all
+/// their default bindings from the registry, among them the second bindings
+/// of Redo and Delete.
+#[test]
+fn the_shortcuts_window_lists_every_binding() {
+    let mut harness = harness("shortcuts-window");
+    open_menu(&mut harness, "Help");
+    harness.get_by_label("Keyboard shortcuts").click();
+    harness.run_steps(2);
+    let keys = |bindings: &[Binding]| {
+        bindings
+            .iter()
+            .map(|b| harness.ctx.format_shortcut(&b.shortcut()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let redo = keys(&[Binding::primary(Key::Z).shift(), Binding::primary(Key::Y)]);
+    let delete = keys(&[Binding::key(Key::Delete), Binding::key(Key::Backspace)]);
+    assert_eq!(delete, "Delete, Backspace");
+    for (label, keys) in [("Redo", redo), ("Delete", delete), ("Wall tool", "W".to_owned())] {
+        assert_present(&harness, label);
+        assert_present(&harness, &keys);
+    }
+    let rows = Registry::get()
+        .specs()
+        .iter()
+        .filter(|s| !s.default_bindings.is_empty())
+        .count();
+    assert_eq!(rows, 23);
+    for spec in Registry::get().specs() {
+        if !spec.default_bindings.is_empty() {
+            assert_present(&harness, &keys(&spec.default_bindings));
+        }
+    }
+}
+
 #[test]
 fn edit_menu_undoes_and_redoes() {
     let mut harness = harness("undo");
@@ -326,6 +364,123 @@ fn edit_menu_undoes_and_redoes() {
     harness.get_by_label_contains("Redo Create wall").click();
     harness.run_steps(2);
     assert_eq!(harness.state_mut().workspace().doc.project.elements.len(), 1);
+}
+
+/// Presses and releases `binding` with the modifier keys `os` reports for
+/// it: Cmd (with egui's logical `command`) on macOS, Ctrl elsewhere.
+fn press(harness: &mut Harness<'static, ArchiCraftApp>, binding: Binding, os: OperatingSystem) {
+    let mut modifiers = binding.for_os(os).modifiers;
+    modifiers.command = binding.primary;
+    for pressed in [true, false] {
+        harness.event(Event::Key {
+            key: binding.key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers,
+        });
+    }
+    harness.run_steps(1);
+}
+
+/// The commands invoked by shortcuts since the last call.
+fn invoked_by_shortcut(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<&'static str> {
+    harness
+        .state_mut()
+        .take_invocations()
+        .into_iter()
+        .inspect(|i| assert_eq!(i.origin, Origin::Shortcut, "{i:?}"))
+        .map(|i| i.id.as_str())
+        .collect()
+}
+
+/// UI-008, HW-003, UI-017: every default binding of the registry, among them
+/// the 23 shortcuts of the former action list, Primary+Y (redo) and
+/// Backspace (delete), invokes its command when its keys are pressed, on
+/// macOS and elsewhere.
+#[test]
+fn every_default_shortcut_invokes_its_command() {
+    let mut harness = harness("shortcuts");
+    harness.state_mut().record_invocations();
+    let mut pressed = 0;
+    for os in [OperatingSystem::Mac, OperatingSystem::Nix] {
+        for spec in Registry::get().specs() {
+            for &binding in &spec.default_bindings {
+                press(&mut harness, binding, os);
+                assert_eq!(
+                    invoked_by_shortcut(&mut harness),
+                    [spec.id.as_str()],
+                    "{} on {os:?}",
+                    binding.display(os)
+                );
+                pressed += 1;
+            }
+        }
+    }
+    assert_eq!(pressed, 2 * 25);
+}
+
+/// UI-008, INP-003: while a tool takes point input the single-key shortcuts,
+/// Backspace and Ctrl+Tab belong to the tool and invoke no command; the
+/// shortcuts with Cmd or Ctrl still work.
+#[test]
+fn single_key_shortcuts_stay_off_while_a_tool_is_drawing() {
+    let mut harness = harness("drawing-keys");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let pos = {
+        let ws = harness.state_mut().workspace();
+        ws.plan_views[&ws.active_storey].last_rect.center()
+    };
+    click_at(&mut harness, pos);
+    assert_eq!(harness.state_mut().workspace().tool.points.len(), 1);
+    harness.state_mut().record_invocations();
+    let os = OperatingSystem::Nix;
+    for binding in [Key::V, Key::W, Key::S, Key::F, Key::F3, Key::O, Key::Delete]
+        .map(Binding::key)
+        .into_iter()
+        .chain([Binding::ctrl(Key::Tab)])
+    {
+        press(&mut harness, binding, os);
+        assert_eq!(invoked_by_shortcut(&mut harness), Vec::<&str>::new(), "{binding:?}");
+    }
+    press(&mut harness, Binding::primary(Key::Z), os);
+    assert_eq!(invoked_by_shortcut(&mut harness), ["edit.undo"]);
+    press(&mut harness, Binding::key(Key::F).shift(), os);
+    assert_eq!(invoked_by_shortcut(&mut harness), ["view.zoom-selection"]);
+    assert_eq!(harness.state_mut().workspace().tool.points.len(), 1);
+    // Backspace removes the point instead of deleting the selection.
+    press(&mut harness, Binding::key(Key::Backspace), os);
+    harness.run_steps(1);
+    assert_eq!(invoked_by_shortcut(&mut harness), Vec::<&str>::new(), "Backspace");
+    assert!(harness.state_mut().workspace().tool.points.is_empty());
+}
+
+/// UI-008: typing W into a text field of the Project settings dialog types
+/// the letter and leaves the Selection tool active; the shortcuts that work
+/// while typing still do.
+#[test]
+fn typing_into_a_text_field_does_not_switch_tools() {
+    let mut harness = harness("typing-w");
+    harness.state_mut().workspace().doc.project.info.name = "Villa Test".to_owned();
+    open_menu(&mut harness, "Project");
+    harness.get_by_label("Project settings…").click();
+    harness.run_steps(2);
+    harness.get(By::new().role(Role::TextInput).value("Villa Test")).focus();
+    harness.run_steps(2);
+    assert!(harness.ctx.text_edit_focused(), "the project name field has focus");
+    harness.key_press(Key::W);
+    harness.event(Event::Text("w".into()));
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Select);
+    harness.get(By::new().role(Role::TextInput).value("Villa Testw"));
+
+    harness.state_mut().record_invocations();
+    press(&mut harness, Binding::key(Key::W), OperatingSystem::Nix);
+    press(&mut harness, Binding::primary(Key::A), OperatingSystem::Nix);
+    assert_eq!(invoked_by_shortcut(&mut harness), Vec::<&str>::new());
+    press(&mut harness, Binding::primary(Key::P).shift(), OperatingSystem::Nix);
+    assert_eq!(invoked_by_shortcut(&mut harness), ["view.problems"]);
 }
 
 #[test]
@@ -494,10 +649,10 @@ fn project_settings_unit_choices_come_from_the_catalogue() {
     harness.state_mut().set_localizer(Rc::clone(&pseudo));
     harness.run_steps(2);
     let label = |key: &str| i18n::with(Rc::clone(&pseudo), || tr!(key));
-    // Menu titles and command labels are migrated with archicraft-e19 and
-    // archicraft-5eu.
+    // Menu titles are migrated with archicraft-5eu.3; command labels come
+    // from the catalogue.
     open_menu(&mut harness, "Project");
-    harness.get_by_label("Project settings…").click();
+    harness.get_by_label(&label("cmd-project-settings-label")).click();
     harness.run_steps(4);
     let metre = label(LengthUnit::Meter.label_key());
     assert!(metre.starts_with(i18n::pseudo::OPEN), "{metre}");
@@ -564,8 +719,8 @@ fn open_about(harness: &mut Harness<'static, ArchiCraftApp>, localizer: &Rc<Loca
     let help = i18n::with(Rc::clone(localizer), || tr!("menu-help"));
     harness.get_by_label(&help).click();
     harness.run_steps(2);
-    // Command labels are migrated with the command registry (archicraft-5eu).
-    harness.get_by_label("About ArchiCraft").click();
+    let about = i18n::with(Rc::clone(localizer), || tr!("cmd-help-about-label"));
+    harness.get_by_label(&about).click();
     harness.run_steps(2);
 }
 

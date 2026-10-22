@@ -11,14 +11,13 @@ use eframe::egui_wgpu;
 use egui::{Id, RichText, ThemePreference, Ui, ViewportCommand, WidgetText};
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 
+use crate::commands::{CommandCtx, CommandId, Invocation, Origin, Registry, Target};
 use crate::document::Document;
 use crate::i18n::{self, Localizer};
 use crate::persistence::autosave::{Abandoned, Autosaver, Clock, Session, SystemClock, find_abandoned};
 use crate::persistence::crash::{RecentLog, reports_since};
 use crate::persistence::prefs::{Preferences, ThemeChoice};
 use crate::persistence::{DataDirs, save_atomically};
-use crate::tools::ToolKind;
-use crate::ui::actions::Action;
 use crate::ui::dialogs::{self, Dialogs};
 use crate::ui::{browser, properties, shell};
 use crate::views::plan;
@@ -41,7 +40,7 @@ pub fn with_ifcx_extension(path: PathBuf) -> PathBuf {
 
 /// What to do once unsaved changes are saved or discarded.
 #[derive(Clone, Debug, PartialEq)]
-enum Then {
+pub(crate) enum Then {
     New,
     Open(Option<PathBuf>),
     Close,
@@ -79,9 +78,9 @@ impl Prompt {
 
 pub struct ArchiCraftApp {
     dirs: DataDirs,
-    ws: Workspace,
+    pub(crate) ws: Workspace,
     tree: Tree<Pane>,
-    dialogs: Dialogs,
+    pub(crate) dialogs: Dialogs,
     session: Option<Session>,
     autosaver: Autosaver,
     /// The time the autosave interval is measured with (PRJ-004).
@@ -103,6 +102,9 @@ pub struct ArchiCraftApp {
     /// The largest file opened or recovered (Appendix D.9, NFR-SEC-003);
     /// lowered only by tests.
     file_size_limit: u64,
+    /// When set, [`ArchiCraftApp::invoke`] records invocations here instead
+    /// of running them (tests).
+    recorder: Option<Vec<Invocation>>,
     _log: Arc<RecentLog>,
 }
 
@@ -170,6 +172,7 @@ impl ArchiCraftApp {
             localizer: Rc::new(Localizer::english()),
             released: Vec::new(),
             file_size_limit: archicraft_ifcx::validate::MAX_FILE_SIZE as u64,
+            recorder: None,
             _log: log,
         };
         if let Some(path) = open {
@@ -261,7 +264,7 @@ impl ArchiCraftApp {
         }
     }
 
-    fn save_prefs(&mut self) {
+    pub(crate) fn save_prefs(&mut self) {
         if let Err(e) = self.ws.prefs.save(&self.dirs.preferences_file()) {
             tracing::warn!("preferences not saved: {e}");
         }
@@ -269,7 +272,7 @@ impl ArchiCraftApp {
 
     /// Saves the project (PRJ-003, PRJ-005, NFR-REL-001…003). Returns true
     /// if it was saved.
-    fn save(&mut self, save_as: bool) -> bool {
+    pub(crate) fn save(&mut self, save_as: bool) -> bool {
         if self.ws.doc.newer_format && !self.newer_confirmed {
             self.prompt = Some(Prompt::OverwriteNewer { save_as });
             return false;
@@ -319,7 +322,7 @@ impl ArchiCraftApp {
     }
 
     /// Runs `then`, first asking to save unsaved changes (PRJ-003).
-    fn guard(&mut self, ctx: &egui::Context, then: Then) {
+    pub(crate) fn guard(&mut self, ctx: &egui::Context, then: Then) {
         if self.ws.doc.is_dirty() {
             self.prompt = Some(Prompt::Unsaved(then));
         } else {
@@ -375,7 +378,7 @@ impl ArchiCraftApp {
         }
     }
 
-    fn open_pane(&mut self, pane: Pane) {
+    pub(crate) fn open_pane(&mut self, pane: Pane) {
         if let Pane::Plan(storey) = pane {
             self.ws.active_storey = storey;
         }
@@ -424,7 +427,7 @@ impl ArchiCraftApp {
         out
     }
 
-    fn cycle_tab(&mut self, step: isize) {
+    pub(crate) fn cycle_tab(&mut self, step: isize) {
         let panes = self.panes();
         if panes.is_empty() {
             return;
@@ -438,8 +441,9 @@ impl ArchiCraftApp {
         self.open_pane(panes[next]);
     }
 
-    fn zoom_active(&mut self, ids: Option<Vec<archicraft_model::ElementId>>) {
-        match self.ws.active_pane {
+    /// Fits `pane` to the model, or to the elements `ids` (VIEW-014).
+    pub(crate) fn zoom_pane(&mut self, pane: Option<Pane>, ids: Option<Vec<archicraft_model::ElementId>>) {
+        match pane {
             Some(Pane::Plan(storey)) => {
                 let plan = self.ws.doc.plan(storey);
                 if let Some(state) = self.ws.plan_views.get_mut(&storey) {
@@ -461,97 +465,48 @@ impl ArchiCraftApp {
         }
     }
 
-    fn run(&mut self, ctx: &egui::Context, action: Action) {
-        match action {
-            Action::New => self.guard(ctx, Then::New),
-            Action::Open => self.guard(ctx, Then::Open(None)),
-            Action::Save => {
-                self.save(false);
-            }
-            Action::SaveAs => {
-                self.save(true);
-            }
-            Action::Close => self.guard(ctx, Then::Close),
-            Action::Quit => self.guard(ctx, Then::Quit),
-            Action::Undo => self.ws.undo(),
-            Action::Redo => self.ws.redo(),
-            Action::Delete => self.ws.delete_selection(),
-            Action::SelectAll => self.ws.select_all(),
-            Action::ToolSelect => self.ws.select_tool(ToolKind::Select),
-            Action::ToolWall => self.ws.select_tool(ToolKind::Wall),
-            Action::ToolSlab => self.ws.select_tool(ToolKind::Slab),
-            Action::Settings => self.dialogs.settings = true,
-            Action::FitWindow => self.zoom_active(None),
-            Action::ZoomSelection => {
-                let ids = self.ws.selected_ids();
-                if !ids.is_empty() {
-                    self.zoom_active(Some(ids));
-                }
-            }
-            Action::PreviousZoom | Action::NextZoom => {
-                if let Some(Pane::Plan(storey)) = self.ws.active_pane
-                    && let Some(state) = self.ws.plan_views.get_mut(&storey)
-                {
-                    if action == Action::PreviousZoom {
-                        state.previous_zoom();
-                    } else {
-                        state.next_zoom();
-                    }
-                }
-            }
-            Action::NextTab => self.cycle_tab(1),
-            Action::PreviousTab => self.cycle_tab(-1),
-            Action::SwitchPlan3d => {
-                let target = match self.ws.active_pane {
-                    Some(Pane::Plan(_)) => self.ws.doc.project.views.first().map(|v| Pane::View3d(v.id)),
-                    _ => Some(Pane::Plan(self.ws.active_storey)),
-                };
-                if let Some(pane) = target {
-                    self.open_pane(pane);
-                }
-            }
-            Action::OrbitMode => {
-                let view = match self.ws.active_pane {
-                    Some(Pane::View3d(v)) => Some(v),
-                    _ => self.ws.doc.project.views.first().map(|v| v.id),
-                };
-                if let Some(view) = view {
-                    self.open_pane(Pane::View3d(view));
-                    let projection = self
-                        .ws
-                        .doc
-                        .project
-                        .view(view)
-                        .map_or(archicraft_model::project::Projection::Perspective, |v| v.projection);
-                    let state = self
-                        .ws
-                        .views_3d
-                        .entry(view)
-                        .or_insert_with(|| View3dState::new(projection));
-                    state.orbit = !state.orbit;
-                }
-            }
-            Action::ToggleReferenceLines => {
-                self.ws.prefs.show_reference_lines = !self.ws.prefs.show_reference_lines;
-                self.save_prefs();
-            }
-            Action::PlaceUserOrigin => self.ws.place_user_origin(),
-            Action::ResetUserOrigin => self.ws.reset_user_origin(),
-            Action::Storeys => self.dialogs.storeys = true,
-            Action::Layers => self.dialogs.layers = true,
-            Action::Materials => self.dialogs.materials = true,
-            Action::ProjectSettings => self.dialogs.open_project_settings(&self.ws),
-            Action::Preferences => self.dialogs.preferences = Some(self.ws.prefs.clone()),
-            Action::Problems => self.dialogs.problems = !self.dialogs.problems,
-            Action::Shortcuts => self.dialogs.shortcuts = true,
-            Action::About => self.dialogs.about = true,
+    /// Invokes the command `id` on `target` (UI-017). Menus, shortcuts and
+    /// the toolbar all come through here; with the test recorder installed
+    /// the invocation is recorded instead of run.
+    pub fn invoke(&mut self, ctx: &egui::Context, id: CommandId, target: Target, origin: Origin) {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.push(Invocation { id, target, origin });
+            return;
         }
+        let Some(spec) = Registry::get().spec(id.as_str()) else {
+            tracing::warn!(%id, "unknown command");
+            return;
+        };
+        tracing::debug!(%id, ?origin, "command");
+        (spec.handler)(self, ctx, target);
     }
 
-    /// Keyboard shortcuts (UI-008). Single-key shortcuts are ignored while a
-    /// text field has focus or a value is being typed during point input,
-    /// also when the typing starts in this frame: '3ft' arriving at once is a
-    /// typed length, not a 3 and Fit (INP-003).
+    /// Records the following invocations instead of running them, for tests
+    /// of what menus and shortcuts invoke.
+    #[doc(hidden)]
+    pub fn record_invocations(&mut self) {
+        self.recorder = Some(Vec::new());
+    }
+
+    /// The invocations recorded since the last call.
+    #[doc(hidden)]
+    pub fn take_invocations(&mut self) -> Vec<Invocation> {
+        self.recorder.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
+    /// The state commands are shown and enabled in this frame.
+    fn command_ctx(&self, ctx: &egui::Context) -> CommandCtx {
+        CommandCtx::new(&self.ws, ctx.text_edit_focused(), self.dialogs.problems)
+    }
+
+    /// Keyboard shortcuts (UI-008, HW-003): the default bindings of the
+    /// registry whose scope is active (see [`Scope::is_active`]). Only
+    /// TextSafe bindings work while a text field has focus; Canvas bindings,
+    /// among them every single key, are off while a tool takes point input
+    /// or a value is being typed, also when the typing starts in this frame:
+    /// '3ft' arriving at once is a typed length, not a 3 and Fit (INP-003).
+    ///
+    /// [`Scope::is_active`]: crate::commands::Scope::is_active
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let typing = ctx.text_edit_focused();
         let nf = self.ws.prefs.number_format();
@@ -565,24 +520,11 @@ impl ArchiCraftApp {
                 .is_some_and(|text| self.ws.input.starts_typing(self.ws.consumer(), text, &nf))
         });
         let drawing = starts_typing || self.ws.input.captures_keys(self.ws.consumer());
-        let mut triggered = ctx.input_mut(|i| {
-            Action::consume_shortcuts(i, |action| {
-                (!typing || action.works_while_typing())
-                    && !(drawing && (action.is_single_key() || action == Action::NextTab))
-            })
-        });
-        if !typing {
-            let redo_y = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Y);
-            if ctx.input_mut(|i| i.consume_shortcut(&redo_y)) {
-                triggered.push(Action::Redo);
-            }
-            let backspace = egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Backspace);
-            if !drawing && ctx.input_mut(|i| i.consume_shortcut(&backspace)) {
-                triggered.push(Action::Delete);
-            }
-        }
-        for action in triggered {
-            self.run(ctx, action);
+        let triggered =
+            ctx.input_mut(|i| Registry::get().consume_shortcuts(i, |scope| scope.is_active(typing, drawing)));
+        for id in triggered {
+            let target = Target::active(&self.ws);
+            self.invoke(ctx, id, target, Origin::Shortcut);
         }
     }
 
@@ -849,8 +791,8 @@ impl ArchiCraftApp {
         for request in std::mem::take(&mut self.ws.requests) {
             match request {
                 Request::OpenPane(pane) => self.open_pane(pane),
-                Request::ZoomTo(ids) if ids.is_empty() => self.zoom_active(None),
-                Request::ZoomTo(ids) => self.zoom_active(Some(ids)),
+                Request::ZoomTo(ids) if ids.is_empty() => self.zoom_pane(self.ws.active_pane, None),
+                Request::ZoomTo(ids) => self.zoom_pane(self.ws.active_pane, Some(ids)),
                 Request::Settings => self.dialogs.settings = true,
             }
         }
@@ -944,17 +886,19 @@ impl eframe::App for ArchiCraftApp {
         }
         self.ws.prune_selection();
 
-        let mut actions: Vec<Action> = Vec::new();
+        let mut invoked: Vec<(CommandId, Origin)> = Vec::new();
         let mut recent: Option<PathBuf> = None;
+        let cx = self.command_ctx(&ctx);
         egui::Panel::top("menu").show(ui, |ui| {
-            let (action, r) = shell::menu_bar(ui, &self.ws, self.dialogs.problems);
-            actions.extend(action);
+            let (id, r) = shell::menu_bar(ui, &self.ws, &cx);
+            invoked.extend(id.map(|id| (id, Origin::Menu)));
             recent = r;
         });
         egui::Panel::top("properties").show(ui, |ui| properties::strip(ui, &mut self.ws));
         let problem_count = self.ws.doc.geometry().problems.len() + self.load_problems.len();
         egui::Panel::bottom("status").show(ui, |ui| {
-            actions.extend(shell::status_bar(ui, &mut self.ws, problem_count));
+            let id = shell::status_bar(ui, &mut self.ws, problem_count);
+            invoked.extend(id.map(|id| (id, Origin::Toolbar)));
         });
         if self.dialogs.problems {
             egui::Panel::bottom("problems").resizable(true).show(ui, |ui| {
@@ -962,7 +906,8 @@ impl eframe::App for ArchiCraftApp {
             });
         }
         egui::Panel::left("toolbox").resizable(false).show(ui, |ui| {
-            actions.extend(shell::toolbox(ui, &mut self.ws));
+            let id = shell::toolbox(ui, &mut self.ws);
+            invoked.extend(id.map(|id| (id, Origin::Toolbar)));
         });
         egui::Panel::right("browser")
             .resizable(true)
@@ -1002,8 +947,9 @@ impl eframe::App for ArchiCraftApp {
         self.handle_requests();
         self.startup_windows(&ctx);
         self.prompts(&ctx);
-        for action in actions {
-            self.run(&ctx, action);
+        for (id, origin) in invoked {
+            let target = Target::active(&self.ws);
+            self.invoke(&ctx, id, target, origin);
         }
         if let Some(path) = recent {
             self.guard(&ctx, Then::Open(Some(path)));

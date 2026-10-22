@@ -1,49 +1,114 @@
 //! Commands of the View menu (VIEW-014, UI-006).
 
+use archicraft_model::project::Projection;
 use egui::Key;
 
-use super::{Binding, Category, CommandSpec, Scope};
+use super::{Binding, Category, CommandSpec, Enabled, Handler, Scope, Target};
+use crate::ArchiCraftApp;
+use crate::views::view3d::View3dState;
+use crate::workspace::Pane;
 
 pub(super) fn specs() -> Vec<CommandSpec> {
-    let view = |id| CommandSpec::new(id, Category::View);
+    let view = |id, handler: Handler| CommandSpec::new(id, Category::View, handler);
     vec![
-        view("view.fit-window")
+        view("view.fit-window", |app, _, target| app.zoom_pane(target.pane, None))
             .menu("view", 0, 0)
             .bind(Binding::key(Key::F))
             .scope(Scope::Canvas),
-        view("view.zoom-selection")
-            .menu("view", 0, 1)
-            .bind(Binding::key(Key::F).shift()),
-        view("view.previous-zoom")
-            .menu("view", 0, 2)
-            .bind(Binding::primary(Key::OpenBracket)),
-        view("view.next-zoom")
-            .menu("view", 0, 3)
-            .bind(Binding::primary(Key::CloseBracket)),
-        view("view.switch-plan-3d")
-            .menu("view", 1, 0)
-            .bind(Binding::key(Key::F3))
-            .scope(Scope::Canvas),
+        view("view.zoom-selection", |app, _, target| {
+            let ids = app.ws.selected_ids();
+            if !ids.is_empty() {
+                app.zoom_pane(target.pane, Some(ids));
+            }
+        })
+        .menu("view", 0, 1)
+        .bind(Binding::key(Key::F).shift())
+        .enabled_when(|cx| Enabled::when(!cx.selection_empty, "cmd-reason-nothing-selected")),
+        view("view.previous-zoom", |app, _, target| {
+            if let Some(Pane::Plan(storey)) = target.pane
+                && let Some(state) = app.ws.plan_views.get_mut(&storey)
+            {
+                state.previous_zoom();
+            }
+        })
+        .menu("view", 0, 2)
+        .bind(Binding::primary(Key::OpenBracket)),
+        view("view.next-zoom", |app, _, target| {
+            if let Some(Pane::Plan(storey)) = target.pane
+                && let Some(state) = app.ws.plan_views.get_mut(&storey)
+            {
+                state.next_zoom();
+            }
+        })
+        .menu("view", 0, 3)
+        .bind(Binding::primary(Key::CloseBracket)),
+        view("view.switch-plan-3d", |app, _, target| {
+            let pane = match target.pane {
+                Some(Pane::Plan(_)) => app.ws.doc.project.views.first().map(|v| Pane::View3d(v.id)),
+                _ => Some(Pane::Plan(target.storey)),
+            };
+            if let Some(pane) = pane {
+                app.open_pane(pane);
+            }
+        })
+        .menu("view", 1, 0)
+        .bind(Binding::key(Key::F3))
+        .scope(Scope::Canvas),
         // Ctrl+Tab stays off while a tool takes point input, where Tab moves
         // between the typed fields.
-        view("view.next-tab")
+        view("view.next-tab", |app, _, _| app.cycle_tab(1))
             .menu("view", 1, 1)
             .bind(Binding::ctrl(Key::Tab))
             .scope(Scope::Canvas),
-        view("view.previous-tab")
+        view("view.previous-tab", |app, _, _| app.cycle_tab(-1))
             .menu("view", 1, 2)
             .bind(Binding::ctrl(Key::Tab).shift()),
-        view("view.orbit")
+        view("view.orbit", toggle_orbit)
             .menu("view", 1, 3)
             .bind(Binding::key(Key::O))
             .scope(Scope::Canvas),
-        view("view.reference-lines").menu("view", 2, 0),
-        view("view.problems")
-            .menu("view", 2, 1)
-            .bind(Binding::primary(Key::P).shift())
-            .scope(Scope::TextSafe),
+        view("view.reference-lines", |app, _, _| {
+            app.ws.prefs.show_reference_lines = !app.ws.prefs.show_reference_lines;
+            app.save_prefs();
+        })
+        .menu("view", 2, 0)
+        .checked_when(|cx| cx.reference_lines_shown),
+        view("view.problems", |app, _, _| {
+            app.dialogs.problems = !app.dialogs.problems
+        })
+        .menu("view", 2, 1)
+        .bind(Binding::primary(Key::P).shift())
+        .scope(Scope::TextSafe)
+        .checked_when(|cx| cx.problems_open),
         // INP-014: the user origin of the plan views.
-        view("view.place-user-origin").menu("view", 3, 0),
-        view("view.reset-user-origin").menu("view", 3, 1),
+        view("view.place-user-origin", |app, _, _| app.ws.place_user_origin()).menu("view", 3, 0),
+        view("view.reset-user-origin", |app, _, _| app.ws.reset_user_origin())
+            .menu("view", 3, 1)
+            .enabled_when(|cx| Enabled::when(cx.user_origin_placed, "cmd-reason-no-user-origin")),
     ]
+}
+
+/// Turns orbit mode of the target's 3D view on or off, opening the first 3D
+/// view when the target is a plan (VIEW-014).
+fn toggle_orbit(app: &mut ArchiCraftApp, _: &egui::Context, target: Target) {
+    let view = match target.pane {
+        Some(Pane::View3d(v)) => Some(v),
+        _ => app.ws.doc.project.views.first().map(|v| v.id),
+    };
+    let Some(view) = view else {
+        return;
+    };
+    app.open_pane(Pane::View3d(view));
+    let projection = app
+        .ws
+        .doc
+        .project
+        .view(view)
+        .map_or(Projection::Perspective, |v| v.projection);
+    let state = app
+        .ws
+        .views_3d
+        .entry(view)
+        .or_insert_with(|| View3dState::new(projection));
+    state.orbit = !state.orbit;
 }

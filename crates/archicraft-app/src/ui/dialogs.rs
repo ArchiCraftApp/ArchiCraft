@@ -8,8 +8,8 @@ use archicraft_model::units::{NumberFormat, format_length};
 use archicraft_model::{Command, Layer, LayerId, MaterialId, ProjectInfo, ProjectSettings, StoreyId};
 use egui::{Context, Id, RichText, Ui};
 
-use super::actions::Action;
 use super::widgets::{self, Edited};
+use crate::commands::Registry;
 use crate::input::InputMode;
 use crate::persistence::prefs::{Preferences, SeparatorChoice, ThemeChoice};
 use crate::tr;
@@ -624,12 +624,18 @@ impl Dialogs {
             .resizable(true)
             .show(ctx, |ui| {
                 egui::Grid::new("shortcuts").striped(true).show(ui, |ui| {
-                    for action in Action::ALL {
-                        if let Some(s) = action.shortcut() {
-                            ui.label(action.label());
-                            ui.monospace(ctx.format_shortcut(&s));
-                            ui.end_row();
+                    for spec in Registry::get().specs() {
+                        if spec.default_bindings.is_empty() {
+                            continue;
                         }
+                        let keys: Vec<String> = spec
+                            .default_bindings
+                            .iter()
+                            .map(|b| ctx.format_shortcut(&b.shortcut()))
+                            .collect();
+                        ui.label(spec.label());
+                        ui.monospace(keys.join(", "));
+                        ui.end_row();
                     }
                     for (label, keys) in [
                         ("Pan", "Middle mouse drag, or two-finger drag"),
