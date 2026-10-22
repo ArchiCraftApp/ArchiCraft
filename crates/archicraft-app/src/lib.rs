@@ -29,10 +29,12 @@ pub fn icon() -> Option<egui::IconData> {
 
 #[cfg(test)]
 mod tests {
+    /// The logo is as large as the largest macOS bundle icon
+    /// (`icon_512x512@2x.png`, 1024 px), so packaging never upscales it.
     #[test]
     fn icon_decodes() {
         let icon = super::icon().unwrap();
-        assert_eq!((icon.width, icon.height), (630, 630));
+        assert_eq!((icon.width, icon.height), (1024, 1024));
     }
 
     /// The window and Dock icon is the logo in the repository root, the one

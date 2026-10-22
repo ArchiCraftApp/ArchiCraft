@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 630 630" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:affinity="https://www.affinity.studio/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5;">
+    <!-- Rounded app-icon shape: clips the artwork; the outline is drawn along the lower part only. -->
+    <defs>
+        <clipPath id="icon-shape"><rect x="0" y="0" width="630" height="630" rx="120" ry="120"/></clipPath>
+        <clipPath id="icon-outline"><rect x="0" y="268" width="630" height="362"/></clipPath>
+    </defs>
+    <g clip-path="url(#icon-shape)">
+        <g transform="matrix(0,-1.120932,1.141451,0,-353.319596,977.470764)">
+            <rect x="285.309" y="285.043" width="611.381" height="600.915" style="fill:rgb(214,214,214);stroke:rgb(214,214,214);stroke-width:14.73px;"/>
+        </g>
+        <g transform="matrix(1,0,0,1,-149,-472.990796)">
+            <g>
+                <g transform="matrix(0.811668,0,-0,0.770911,-1598.140732,-827.743923)">
+                    <path d="M2290,1793L2416,2039L2164,2039L2290,1793Z" style="fill:white;stroke:black;stroke-width:21.06px;"/>
+                </g>
+                <g transform="matrix(0.440574,0,0,0.418451,-748.333752,-195.782002)">
+                    <path d="M2290,1793L2416,2039L2164,2039L2290,1793Z" style="fill:rgb(0,79,255);stroke:black;stroke-width:38.79px;"/>
+                </g>
+                <g transform="matrix(0.865888,0,0,-0.96943,-1682.281515,2509.315724)">
+                    <path d="M2125.669,1820.835L2125.669,1460.275L2361.89,1460.55L2361.89,1820.835L2125.669,1820.835Z" style="fill:rgb(0,79,255);stroke:black;stroke-width:18.13px;"/>
+                </g>
+                <g transform="matrix(0.802779,0,-0,0.762905,-1374.362888,-811.420107)">
+                    <path d="M2290,1793L2416,2039L2164,2039L2290,1793Z" style="fill:white;stroke:black;stroke-width:21.28px;"/>
+                </g>
+                <g transform="matrix(0.420732,0,0,0.418451,-498.097049,-193.812576)">
+                    <path d="M2290,1793L2416,2039L2164,2039L2290,1793Z" style="fill:rgb(255,0,0);stroke:black;stroke-width:39.72px;"/>
+                </g>
+                <g transform="matrix(-0.856404,0,-0,-0.96943,2385.582124,2509.315724)">
+                    <rect x="2125.669" y="1460" width="236.22" height="360.835" style="fill:rgb(251,0,0);stroke:black;stroke-width:18.22px;"/>
+                </g>
+                <g transform="matrix(0.981144,-0,-0,-1.890293,-2005.627164,3887.023307)">
+                    <path d="M2480,1662.641L2480,1477.589" style="fill:none;stroke:black;stroke-width:11.07px;"/>
+                </g>
+                <g transform="matrix(0.981144,-0,-0,-1.890293,-1927.950775,3887.023307)">
+                    <path d="M2480,1662.641L2480,1477.589" style="fill:none;stroke:black;stroke-width:11.07px;"/>
+                </g>
+                <g transform="matrix(0.811668,0,-0,0.770911,-1191.300122,-827.743923)">
+                    <path d="M2290,1793L2416,2039L2164,2039L2290,1793Z" style="fill:white;stroke:black;stroke-width:21.06px;"/>
+                </g>
+                <g transform="matrix(0.440574,0,0,0.418451,-341.493143,-195.782002)">
+                    <path d="M2290,1793L2416,2039L2164,2039L2290,1793Z" style="fill:rgb(39,191,80);stroke:black;stroke-width:38.79px;"/>
+                </g>
+                <g transform="matrix(-0.865888,0,-0,-0.96943,2610.281515,2509.315724)">
+                    <path d="M2125.669,1820.835L2125.669,1460.275L2361.89,1460.55L2361.89,1820.835L2125.669,1820.835Z" style="fill:rgb(39,191,80);stroke:black;stroke-width:18.13px;"/>
+                </g>
+                <g transform="matrix(0.981144,-0,-0,-1.83085,-1765.816501,3788.19173)">
+                    <path d="M2480,1662.641L2480,1477.589" style="fill:none;stroke:black;stroke-width:11.35px;"/>
+                </g>
+            </g>
+        </g>
+        <rect x="0" y="0" width="630" height="630" rx="120" ry="120" clip-path="url(#icon-outline)" style="fill:none;stroke:black;stroke-width:24px;"/>
+    </g>
+</svg>

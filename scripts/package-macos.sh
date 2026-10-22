@@ -35,7 +35,13 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$out/AppIcon.iconset"
 cp "$bin" "$app/Contents/MacOS/archicraft"
 cp LICENSE "$app/Contents/Resources/LICENSE"
 
-# Every size iconutil expects, scaled from the logo in the repository root.
+# Every size iconutil expects, scaled down from the logo in the repository root
+# (rendered from ArchiCraft_Logo.svg at 1024 px, the largest size, so none is upscaled).
+logo_size=$(sips -g pixelWidth -g pixelHeight "$icon" | awk '/pixel(Width|Height)/ { print $2 }' | sort -n | head -n 1)
+if [ "$logo_size" -lt 1024 ]; then
+    echo "$icon is smaller than 1024 px; render it from ArchiCraft_Logo.svg (see README)" >&2
+    exit 1
+fi
 for size in 16 32 128 256 512; do
     sips -z "$size" "$size" "$icon" --out "$out/AppIcon.iconset/icon_${size}x${size}.png" >/dev/null
     sips -z $((size * 2)) $((size * 2)) "$icon" --out "$out/AppIcon.iconset/icon_${size}x${size}@2x.png" >/dev/null
