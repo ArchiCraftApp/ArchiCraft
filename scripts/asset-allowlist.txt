@@ -4,7 +4,8 @@
 # *.pln, *.pla, *.tpl or *.aat file fails the check.
 #
 # One entry per line: <path> | <origin> | <licence>
-ArchiCraft_Logo.png | ArchiCraft logo, project artwork added in commit 4f5a93b (PR #2) | CC BY 4.0, as the repository (LICENSE)
+ArchiCraft_Logo.png | ArchiCraft logo, project artwork added in commit 4f5a93b (PR #2), rendered at 1024 px from ArchiCraft_Logo.svg since archicraft-6k61 | CC BY 4.0, as the repository (LICENSE)
+ArchiCraft_Logo.svg | ArchiCraft logo, vector source of ArchiCraft_Logo.png supplied by the project author, added with archicraft-6k61 | CC BY 4.0, as the repository (LICENSE)
 ArchiCraft_Logo_web.png | ArchiCraft logo for document headers, project artwork added in commit 4f5a93b (PR #2) | CC BY 4.0, as the repository (LICENSE)
 crates/archicraft-app/assets/ArchiCraft_Logo.png | Byte-identical copy of ArchiCraft_Logo.png (project artwork), added in commit 2029c22 | CC BY 4.0, as the repository (LICENSE)
 crates/archicraft-app/assets/ArchiCraft_Logo_web.png | Byte-identical copy of ArchiCraft_Logo_web.png (project artwork), added in commit 2029c22 | CC BY 4.0, as the repository (LICENSE)
