@@ -434,11 +434,12 @@ the golden file `walls-and-slab.ifcx` changed:
   4, 400 slabs of 999 points, is left out: it still takes 50 s through `ifcx_load` (**Memory**
   below, archicraft-91jj), beyond the 10 s time-out, so every run would report it.
 - `extreme-<node>-<attribute>-<value>`: every number of one ArchiCraft attribute of one node
-  (the 8 attributes that hold numbers) replaced by one of eleven values: 0, −0.0, −1, 10⁻¹²,
-  10¹⁵, the largest `u32`, 2⁵³ + 1, the smallest `i64`, the largest and the lowest finite `f64`
-  and the smallest subnormal (88 seeds). The first campaign replaced the numbers one at a time
-  (3,330 files); one seed per attribute and value keeps the corpus small, and mutation varies
-  single numbers from there.
+  (the attributes of the 8 nodes whose ArchiCraft data holds numbers: the project, two storeys,
+  four walls and the slab) replaced by one of eleven values: 0, −0.0, −1, 10⁻¹², 10¹⁵, the
+  largest `u32`, 2⁵³ + 1, the smallest `i64`, the largest and the lowest finite `f64` and the
+  smallest subnormal (88 seeds). The first campaign replaced the numbers one at a time (3,330
+  files); one seed per attribute and value keeps the corpus small, and mutation varies single
+  numbers from there.
 - `coverage-*`: damaged or unusual records that reach the reader branches the other seeds
   miss (**Coverage check** below).
 
