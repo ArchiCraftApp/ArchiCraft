@@ -147,7 +147,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs derives Default, dialogs.rs:34-37), so by default changing a height moves only the next storey (the SRS alternative) instead of shifting all sto…",
+      "gap": "The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs derives Default, dialogs.rs:36-39), so by default changing a height moves only the next storey (the SRS alternative) instead of shifting all storeys above. Elevation and height changes that would leave a storey-linked element lower than 1 mm are refused with a message naming it (NFR-REL-005).",
       "depends_on": []
     },
     {
@@ -1807,7 +1807,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Dependent values do not update live while editing: fields commit on Enter/focus loss (widgets.rs:52-57) and derived rows (properties.rs:541-575) refresh only after the command; no kind with dependent parameters (stairs) exists ye…",
+      "gap": "Dependent values do not update live while editing: fields commit on Enter/focus loss (widgets.rs:52-57) and derived rows (properties.rs:541-575) refresh only after the command; no kind with dependent parameters (stairs) exists yet. Range checks hold across storey edits: a storey move that would leave a linked wall lower than 1 mm is rejected with a message naming it (NFR-REL-005).",
       "depends_on": []
     },
     {
@@ -5287,7 +5287,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "SetStoreyElevation/SetStoreyHeight (command.rs:186-207) validate storey spacing only, not the elements whose extent depends on the storeys: moving a storey down can put a linked wall's top below its base; the command succeeds and…",
+      "gap": "Storey edits (insert, delete, elevation, height) refuse to leave an element whose top is linked to a storey lower than the 1 mm minimum height, naming the element (check_linked_heights in crates/archicraft-model/src/command.rs; tests storey_moves_refuse_to_drop_linked_walls_below_the_minimum_height and inserting_or_deleting_a_storey_refuses_to_drop_linked_walls_below_the_minimum_height in crates/archicraft-model/tests/commands.rs). Still open: storey edits do not check the 1000 m maximum height (validate.rs MAX_HEIGHT) of linked elements, and Boolean operations, whose failures must be rejected, do not exist yet.",
       "depends_on": []
     },
     {
