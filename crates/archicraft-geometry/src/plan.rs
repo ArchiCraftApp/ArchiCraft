@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 
 use archicraft_model::{Element, ElementId, MODEL_TOLERANCE, MaterialId, Project, StoreyId};
-use geo::{LineString, MultiPolygon, Polygon};
+use geo::{Centroid, LineString, MultiPolygon, Polygon};
 use glam::DVec2;
 
 use crate::evaluate::ModelGeometry;
@@ -222,6 +222,12 @@ impl PlanElement {
         out
     }
 
+    /// The centroids of the cut polygons, one per polygon with an area, as
+    /// snap targets (INP-024).
+    pub fn centroids(&self) -> Vec<DVec2> {
+        self.cut.iter().filter_map(polygon_centroid).collect()
+    }
+
     pub fn bounds(&self) -> Option<(DVec2, DVec2)> {
         self.segments()
             .iter()
@@ -300,4 +306,88 @@ pub fn polygon_rings(polygon: &Polygon<f64>) -> Vec<Vec<DVec2>> {
         .chain(polygon.interiors())
         .map(ring_coords)
         .collect()
+}
+
+fn polygon_centroid(polygon: &Polygon<f64>) -> Option<DVec2> {
+    polygon.centroid().map(|c| DVec2::new(c.x(), c.y()))
+}
+
+/// The centroid of the polygon with the ring `outline` and the rings
+/// `holes`, such as a slab's outline (INP-024), or `None` for a ring
+/// without points.
+pub fn outline_centroid(outline: &[DVec2], holes: &[Vec<DVec2>]) -> Option<DVec2> {
+    let ring = |points: &[DVec2]| LineString::from(points.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>());
+    polygon_centroid(&Polygon::new(ring(outline), holes.iter().map(|h| ring(h)).collect()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn polygon(outer: &[(f64, f64)], holes: &[&[(f64, f64)]]) -> Polygon<f64> {
+        Polygon::new(
+            LineString::from(outer.to_vec()),
+            holes.iter().map(|h| LineString::from(h.to_vec())).collect(),
+        )
+    }
+
+    fn element(cut: Vec<Polygon<f64>>) -> PlanElement {
+        PlanElement {
+            id: ElementId::new(),
+            cut,
+            projected: Vec::new(),
+            overhead: Vec::new(),
+            reference_line: None,
+        }
+    }
+
+    fn assert_near(found: DVec2, expected: DVec2) {
+        assert!(found.distance(expected) < 1e-12, "{found} is not {expected}");
+    }
+
+    /// INP-024: the centroid of each cut polygon, by area: a rectangle's
+    /// centre, an L shape's weighted centre and a ring with a hole's centre
+    /// moved away from the hole.
+    #[test]
+    fn centroids_of_cut_polygons() {
+        let rectangle = polygon(&[(0.0, 0.0), (4.0, 0.0), (4.0, 2.0), (0.0, 2.0)], &[]);
+        // [0, 2] x [0, 1] (area 2) and [0, 1] x [1, 2] (area 1).
+        let l_shape = polygon(
+            &[(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (1.0, 1.0), (1.0, 2.0), (0.0, 2.0)],
+            &[],
+        );
+        // [0, 4]^2 (area 16) without [1, 2]^2 (area 1).
+        let holed = polygon(
+            &[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)],
+            &[&[(1.0, 1.0), (1.0, 2.0), (2.0, 2.0), (2.0, 1.0)]],
+        );
+        let found = element(vec![rectangle, l_shape, holed]).centroids();
+        assert_eq!(found.len(), 3);
+        assert_near(found[0], DVec2::new(2.0, 1.0));
+        assert_near(found[1], DVec2::splat(5.0 / 6.0));
+        assert_near(found[2], DVec2::splat((16.0 * 2.0 - 1.5) / 15.0));
+        assert!(element(Vec::new()).centroids().is_empty());
+    }
+
+    /// INP-024: a slab's outline with a hole has the centroid of the polygon
+    /// between them.
+    #[test]
+    fn centroid_of_an_outline_with_holes() {
+        let square = |lo: f64, hi: f64| {
+            vec![
+                DVec2::new(lo, lo),
+                DVec2::new(hi, lo),
+                DVec2::new(hi, hi),
+                DVec2::new(lo, hi),
+            ]
+        };
+        assert_near(outline_centroid(&square(0.0, 4.0), &[]).unwrap(), DVec2::splat(2.0));
+        let mut hole = square(1.0, 2.0);
+        hole.reverse();
+        assert_near(
+            outline_centroid(&square(0.0, 4.0), &[hole]).unwrap(),
+            DVec2::splat((16.0 * 2.0 - 1.5) / 15.0),
+        );
+        assert_eq!(outline_centroid(&[], &[]), None);
+    }
 }
