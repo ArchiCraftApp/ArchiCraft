@@ -49,3 +49,7 @@ crates/archicraft-model/src/units.rs::format_volume | "{} ft³" | unit symbol of
 
 # Developer-facing errors.
 crates/archicraft-model/src/message.rs::Message::try_from | * | serde error for a journal or log entry with an unknown key or argument name, never shown in the UI
+
+# Developer diagnostics: the Performance window of the `perf` feature, which
+# release builds do not enable (see the module doc of perf.rs).
+crates/archicraft-app/src/perf.rs | * | developer diagnostic of the `perf` feature, not in release builds; metric names match the results file (archicraft-yso8)
