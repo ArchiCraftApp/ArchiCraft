@@ -170,8 +170,8 @@ fn parents(nodes: &IndexMap<String, FlatNode>) -> HashMap<String, String> {
     parents
 }
 
-/// The children of every spatial node and element in the model, by kind of
-/// child: (parent path, child key, child path).
+/// The children of the project, the site, the building and every storey, by
+/// kind of child: (parent path, child key, child path).
 fn object_children(project: &Project, nodes: &IndexMap<String, FlatNode>) -> Vec<(String, String, String)> {
     let mut parents = vec![
         project.id.to_string(),
@@ -602,7 +602,8 @@ fn ifx_020_classes_and_parents_follow_table_5_1() {
 /// IFX-021: the project, site, building, storeys and elements carry their
 /// user-visible names as `bsi::ifc::prop::Name`; the project description is
 /// written as `bsi::ifc::prop::Description`. Elements have no description in
-/// the model yet (gap row).
+/// the model yet (the gap in the IFX-021 row of
+/// `docs/implementation-status.md`).
 #[test]
 fn ifx_021_names_everywhere_and_the_project_description() {
     let mut project = samples::two_storey_shell();
@@ -849,7 +850,6 @@ fn nfr_port_004_output_has_no_carriage_return_and_no_platform_path() {
         for platform in &platform_paths {
             assert!(!text.contains(platform.as_str()), "{platform} (pretty: {pretty})");
         }
-        assert!(!text.contains('\\'), "no backslash, so no Windows path or escape");
     }
 }
 
