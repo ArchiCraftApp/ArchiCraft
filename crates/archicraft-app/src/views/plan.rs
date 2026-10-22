@@ -20,8 +20,8 @@ use egui::{
 
 use super::camera::{Camera2d, ZoomHistory};
 use crate::input::{
-    Effect, Expect, Frame2d, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput, PointerEvent,
-    Resolved, SnapIndex, SnapKind, SurfaceFrame, TrackerMode, ViewSurface,
+    CursorState, Effect, Expect, Frame2d, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput,
+    PointerEvent, Resolved, SnapIndex, SnapKind, SurfaceFrame, TrackerMode, ViewSurface,
 };
 use crate::tools::{ToolKind, ToolState};
 use crate::tr;
@@ -41,6 +41,11 @@ pub struct PlanViewState {
     last_record: f64,
     /// The tracker text drawn last frame (INP-002).
     pub tracker: Option<String>,
+    /// The snap glyph and the command state drawn last frame (INP-008).
+    pub glyph: Option<(SnapKind, CursorState)>,
+    /// The label drawn beside the cursor last frame: the tracker and the
+    /// snap kind (INP-002, INP-008).
+    pub label: Option<String>,
     /// The plane point under the pointer last frame, for the coordinate
     /// readout of the view-control bar (INP-014).
     pub cursor: Option<DVec2>,
@@ -57,6 +62,8 @@ impl Default for PlanViewState {
             pick: None,
             last_record: 0.0,
             tracker: None,
+            glyph: None,
+            label: None,
             cursor: None,
         }
     }
@@ -480,41 +487,109 @@ fn draw_plan(
     }
 }
 
-fn draw_snap_marker(painter: &egui::Painter, p: Pos2, snap: SnapKind, color: Color32) {
+/// The glyph of a snap of kind `snap` at its point `p` (INP-008, INP-024):
+/// each kind has its own, and a free point shows the crosshair. Node and
+/// intersection keep the square and the cross.
+pub fn snap_glyph(p: Pos2, snap: SnapKind, color: Color32) -> Vec<Shape> {
     let stroke = Stroke::new(1.5, color);
+    let seg = |a: (f32, f32), b: (f32, f32)| {
+        Shape::line_segment([p + egui::vec2(a.0, a.1), p + egui::vec2(b.0, b.1)], stroke)
+    };
+    let ring = |r: f32| Shape::circle_stroke(p, r, stroke);
+    let poly = |pts: &[(f32, f32)]| pts.iter().map(|&(x, y)| p + egui::vec2(x, y)).collect::<Vec<_>>();
+    let cross = |h: f32| vec![seg((-h, -h), (h, h)), seg((-h, h), (h, -h))];
+    let plus = |h: f32| vec![seg((-h, 0.0), (h, 0.0)), seg((0.0, -h), (0.0, h))];
     match snap {
-        SnapKind::Node | SnapKind::Handle | SnapKind::Centre | SnapKind::AxisPoint | SnapKind::Centroid => {
-            painter.rect_stroke(
-                Rect::from_center_size(p, egui::vec2(10.0, 10.0)),
-                0.0,
-                stroke,
-                StrokeKind::Middle,
-            );
-        }
-        SnapKind::Intersection | SnapKind::GuideIntersection => {
-            painter.line_segment([p + egui::vec2(-6.0, -6.0), p + egui::vec2(6.0, 6.0)], stroke);
-            painter.line_segment([p + egui::vec2(-6.0, 6.0), p + egui::vec2(6.0, -6.0)], stroke);
-        }
-        SnapKind::Midpoint => {
-            let pts = vec![
-                p + egui::vec2(0.0, -7.0),
-                p + egui::vec2(6.0, 5.0),
-                p + egui::vec2(-6.0, 5.0),
-            ];
-            painter.add(Shape::closed_line(pts, stroke));
-        }
-        SnapKind::Perpendicular => {
-            painter.line_segment([p + egui::vec2(-6.0, 6.0), p + egui::vec2(6.0, 6.0)], stroke);
-            painter.line_segment([p + egui::vec2(0.0, 6.0), p + egui::vec2(0.0, -6.0)], stroke);
-        }
-        SnapKind::Edge | SnapKind::Tangent => {
-            painter.circle_stroke(p, 5.0, stroke);
-        }
-        SnapKind::Guide | SnapKind::Grid | SnapKind::Constrained | SnapKind::Typed => {
-            painter.circle_filled(p, 2.5, color);
-        }
-        SnapKind::Free => {}
+        SnapKind::Node => vec![Shape::rect_stroke(
+            Rect::from_center_size(p, egui::vec2(10.0, 10.0)),
+            0.0,
+            stroke,
+            StrokeKind::Middle,
+        )],
+        SnapKind::Handle => vec![Shape::rect_filled(
+            Rect::from_center_size(p, egui::vec2(8.0, 8.0)),
+            0.0,
+            color,
+        )],
+        SnapKind::Centre => [vec![ring(6.0)], plus(3.0)].concat(),
+        SnapKind::AxisPoint => vec![Shape::closed_line(
+            poly(&[(0.0, -7.0), (7.0, 0.0), (0.0, 7.0), (-7.0, 0.0)]),
+            stroke,
+        )],
+        SnapKind::Centroid => vec![ring(6.0), Shape::circle_filled(p, 2.0, color)],
+        SnapKind::Intersection => cross(6.0),
+        SnapKind::Midpoint => vec![Shape::closed_line(
+            poly(&[(0.0, -7.0), (6.0, 5.0), (-6.0, 5.0)]),
+            stroke,
+        )],
+        SnapKind::GuideIntersection => [cross(6.0), vec![ring(3.0)]].concat(),
+        SnapKind::Perpendicular => vec![seg((-6.0, 6.0), (6.0, 6.0)), seg((0.0, 6.0), (0.0, -6.0))],
+        SnapKind::Tangent => vec![ring(5.0), seg((-7.0, -5.0), (7.0, -5.0))],
+        SnapKind::Edge => vec![ring(5.0)],
+        SnapKind::Guide => vec![seg((-7.0, 0.0), (7.0, 0.0)), Shape::circle_filled(p, 2.5, color)],
+        SnapKind::Grid => plus(5.0),
+        SnapKind::Constrained => vec![Shape::convex_polygon(
+            poly(&[(0.0, -4.0), (4.0, 0.0), (0.0, 4.0), (-4.0, 0.0)]),
+            color,
+            Stroke::NONE,
+        )],
+        SnapKind::Typed => vec![Shape::circle_filled(p, 2.5, color)],
+        SnapKind::Free => crosshair(p, color),
     }
+}
+
+/// The crosshair of a free point (INP-008): four arms around a gap.
+pub fn crosshair(p: Pos2, color: Color32) -> Vec<Shape> {
+    let stroke = Stroke::new(1.0, color);
+    [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)]
+        .into_iter()
+        .map(|(x, y)| {
+            let d = egui::vec2(x, y);
+            Shape::line_segment([p + d * 3.0, p + d * 10.0], stroke)
+        })
+        .collect()
+}
+
+/// The overlay of a command state beside the snap glyph at `p`, above and
+/// to the left of it (INP-008); none for [`CursorState::Normal`].
+pub fn cursor_state_glyph(p: Pos2, state: CursorState, color: Color32) -> Vec<Shape> {
+    let stroke = Stroke::new(1.5, color);
+    let q = p + egui::vec2(-14.0, -14.0);
+    let seg = |a: (f32, f32), b: (f32, f32)| {
+        Shape::line_segment([q + egui::vec2(a.0, a.1), q + egui::vec2(b.0, b.1)], stroke)
+    };
+    let plus = |x: f32| vec![seg((x - 3.0, 0.0), (x + 3.0, 0.0)), seg((x, -3.0), (x, 3.0))];
+    match state {
+        CursorState::Normal => Vec::new(),
+        CursorState::Copy => plus(0.0),
+        CursorState::MultipleCopy => [plus(-5.0), plus(5.0)].concat(),
+        CursorState::TrimTarget => vec![
+            Shape::circle_stroke(q + egui::vec2(-3.0, 4.0), 2.0, stroke),
+            Shape::circle_stroke(q + egui::vec2(3.0, 4.0), 2.0, stroke),
+            seg((-2.0, 2.0), (4.0, -5.0)),
+            seg((2.0, 2.0), (-4.0, -5.0)),
+        ],
+        CursorState::ChooseSide => vec![
+            seg((-6.0, 0.0), (6.0, 0.0)),
+            seg((-6.0, 0.0), (-3.0, -3.0)),
+            seg((-6.0, 0.0), (-3.0, 3.0)),
+            seg((6.0, 0.0), (3.0, -3.0)),
+            seg((6.0, 0.0), (3.0, 3.0)),
+        ],
+    }
+}
+
+/// The label beside the cursor: the tracker, then the name of the snap kind
+/// (INP-002, INP-008); empty for a free point without a tracker.
+pub fn cursor_label(tracker: Option<String>, snap: SnapKind) -> String {
+    let mut label = tracker.unwrap_or_default();
+    if !snap.label().is_empty() {
+        if !label.is_empty() {
+            label.push('\n');
+        }
+        label.push_str(snap.label());
+    }
+    label
 }
 
 /// Shows the plan of `storey` and handles its input.
@@ -712,6 +787,8 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
                 (resolved, tracker)
             });
     state.tracker = resolved.as_ref().and_then(|(_, tracker)| tracker.clone());
+    state.glyph = None;
+    state.label = None;
 
     // Area selection (SEL-003): left to right = fully inside,
     // right to left = touching.
@@ -762,7 +839,8 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     }
     if let (Some((resolved, tracker)), Some(p)) = (resolved, pointer) {
         let target = camera.to_screen(rect, resolved.point);
-        for (ring, closed) in ws.consumer().preview(&ws.doc.project, &resolved).outlines {
+        let preview = ws.consumer().preview(&ws.doc.project, &resolved);
+        for (ring, closed) in preview.outlines {
             let points: Vec<Pos2> = ring.iter().map(|q| camera.to_screen(rect, *q)).collect();
             let stroke = Stroke::new(1.5, palette.preview);
             if closed {
@@ -774,14 +852,11 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         for q in &ws.tool.points {
             painter.circle_filled(camera.to_screen(rect, *q), 3.0, palette.preview);
         }
-        draw_snap_marker(&painter, target, resolved.snap.kind, palette.snap);
-        let mut label = tracker.unwrap_or_default();
-        if !resolved.snap.kind.label().is_empty() {
-            if !label.is_empty() {
-                label.push('\n');
-            }
-            label.push_str(resolved.snap.kind.label());
-        }
+        painter.extend(snap_glyph(target, resolved.snap.kind, palette.snap));
+        painter.extend(cursor_state_glyph(target, preview.cursor, palette.snap));
+        state.glyph = Some((resolved.snap.kind, preview.cursor));
+        let label = cursor_label(tracker, resolved.snap.kind);
+        state.label = Some(label.clone());
         if !label.is_empty() {
             let galley_pos = p + egui::vec2(16.0, 14.0);
             let font = FontId::monospace(12.0);
