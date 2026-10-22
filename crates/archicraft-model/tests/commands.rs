@@ -10,7 +10,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::project::{DefaultsSlot, ToolDefaults};
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::validate::{MAX_GRID_SPACING, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
+use archicraft_model::validate::{MAX_GRID_SPACING, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
 use archicraft_model::{
     Arg, Command, CommandError, Element, ElementKind, History, IfcClass, KindTag, Layer, Material, Message, PlanGrid,
     ProjectSettings, Slab, Storey, StoreyId, TopLink, Wall,
@@ -678,6 +678,31 @@ fn tool_defaults_slots_are_validated_per_kind() {
         Err(CommandError::NoChange)
     );
     assert_eq!(p, before);
+}
+
+/// ELM-017, NFR-L10N-001: a slab default offset beyond ±[`MAX_OFFSET`] is
+/// rejected with the slab offset message, its limit as a length argument, and
+/// the project stays unchanged.
+#[test]
+fn tool_defaults_reject_a_slab_offset_beyond_the_limit() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let before = p.clone();
+
+    let mut far_offset = p.tool_defaults.clone();
+    slab_of(far_offset.get_mut(KindTag::Slab).unwrap()).offset = 1000.5;
+    let (variant, message) = rejection(h.execute(&mut p, Command::SetToolDefaults(far_offset)));
+    assert_eq!((variant, message.key()), ("Invalid", "model-error-default-invalid"));
+    assert_eq!(message.arg("kind"), Some(&Arg::Kind(KindTag::Slab)));
+    match message.arg("reason") {
+        Some(Arg::Nested(reason)) => {
+            assert_eq!(reason.key(), "model-error-slab-offset-range");
+            assert_eq!(reason.arg("max"), Some(&Arg::Length(MAX_OFFSET)));
+        }
+        other => panic!("expected a nested reason, got {other:?}"),
+    }
+    assert_eq!(p, before);
+    assert!(!h.can_undo());
 }
 
 /// ELM-006, STR-004: a default top linked to a deleted storey that would
