@@ -7,7 +7,7 @@ use archicraft_geometry::{ModelGeometry, ViewRange, plan_drawing};
 use archicraft_model::glam::DVec2;
 use archicraft_model::template::default_metric_project;
 use archicraft_model::validate::validate_element;
-use archicraft_model::{Command, ElementKind, History, Project, TopLink};
+use archicraft_model::{Command, CommandError, ElementKind, History, Project, TopLink};
 use geo::Area;
 
 fn house() -> Project {
@@ -79,9 +79,10 @@ fn plan_cuts_walls_and_projects_slab() {
 
 /// NFR-ACC-003: an element lower than the model tolerance has no body. A
 /// wall whose top is linked to a storey passes validation (at least 1 mm
-/// high, validate.rs) and is then shortened by moving that storey, which
-/// does not validate the walls linked to it; so heights between 5 and 20 µm
-/// reach evaluation.
+/// high, validate.rs). Moving that storey so that the wall gets lower than
+/// that is refused (NFR-REL-005), but a storey list changed outside the
+/// commands still shortens the wall, and raising it again from there is
+/// accepted, so heights between 5 and 20 µm reach evaluation.
 #[test]
 fn a_wall_lower_than_the_model_tolerance_has_no_body() {
     let mut p = default_metric_project();
@@ -104,15 +105,24 @@ fn a_wall_lower_than_the_model_tolerance_has_no_body() {
         top - bottom
     };
     for (elevation, has_body) in [(2.990_005, false), (2.990_02, true)] {
-        h.execute(
+        let moved = h.execute(
             &mut p,
             Command::SetStoreyElevation {
                 storey: first,
                 elevation,
                 shift_above: false,
             },
-        )
-        .unwrap();
+        );
+        if has_body {
+            // Raising the too-low wall again is accepted.
+            moved.unwrap();
+        } else {
+            assert!(
+                matches!(moved, Err(CommandError::Invalid(_))),
+                "the storey command refuses to lower it"
+            );
+            p.storeys = p.storeys.set_elevation(first, elevation, false).unwrap();
+        }
         let micrometres = height(&p) * 1e6;
         assert!(
             (micrometres - if has_body { 20.0 } else { 5.0 }).abs() < 1e-3,

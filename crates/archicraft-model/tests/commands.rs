@@ -10,10 +10,10 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::project::{DefaultsSlot, ToolDefaults};
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::validate::{MAX_GRID_SPACING, MAX_THICKNESS, MIN_THICKNESS};
+use archicraft_model::validate::{MAX_GRID_SPACING, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
 use archicraft_model::{
     Arg, Command, CommandError, Element, ElementKind, History, IfcClass, KindTag, Layer, Material, Message, PlanGrid,
-    ProjectSettings, Slab, Storey, TopLink, Wall,
+    ProjectSettings, Slab, Storey, StoreyId, TopLink, Wall,
 };
 use common::{ground, wall};
 
@@ -334,6 +334,236 @@ fn deleting_a_storey_can_keep_its_elements() {
     .unwrap();
     assert!(p.element(id).is_none());
     assert!(h.can_undo(), "storey operations keep the undo history (STR-005)");
+}
+
+/// A wall on `home` whose top is linked to `storey` with `offset`.
+fn linked_wall(p: &archicraft_model::Project, home: StoreyId, storey: StoreyId, offset: f64) -> Element {
+    let mut w = p.new_wall(home, DVec2::ZERO, DVec2::X * 4.0, 0);
+    if let ElementKind::Wall(wall) = &mut w.kind {
+        wall.base_offset = 0.0;
+        wall.top = TopLink::Storey { storey, offset };
+    }
+    w
+}
+
+/// Asserts that `command` is refused because it would leave the element
+/// named `name`, and `others` more, lower than MIN_HEIGHT, and that the
+/// project is unchanged.
+fn assert_too_low(p: &mut archicraft_model::Project, h: &mut History, command: Command, name: &str, others: usize) {
+    let before = p.clone();
+    let (variant, message) = rejection(h.execute(p, command));
+    assert_eq!(
+        (variant, message.key()),
+        ("Invalid", "model-error-linked-element-too-low")
+    );
+    assert_eq!(message.arg("name"), Some(&Arg::Text(name.into())));
+    assert_eq!(message.arg("count"), Some(&Arg::Count(others as u64)));
+    assert_eq!(message.arg("min"), Some(&Arg::Length(MIN_HEIGHT)));
+    assert_eq!(*p, before, "a refused storey edit leaves the project unchanged");
+}
+
+/// NFR-REL-005, ELM-017, STR-002: moving a storey or changing its height
+/// does not shorten a wall linked to it below the 1 mm minimum height; the
+/// command is refused with a message naming the wall, and a move that keeps
+/// it at least 1 mm high is accepted.
+#[test]
+fn storey_moves_refuse_to_drop_linked_walls_below_the_minimum_height() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let [g, first] = [0, 1].map(|i| p.storeys.as_slice()[i].id);
+    // 1 cm high: the first floor is at 3 m.
+    let w = linked_wall(&p, g, first, -2.99);
+    let id = w.id;
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    let height = |p: &archicraft_model::Project| {
+        let (bottom, top) = p.vertical_extent(p.element(id).unwrap()).unwrap();
+        top - bottom
+    };
+
+    for elevation in [2.990_5, 2.99, 2.5] {
+        let command = Command::SetStoreyElevation {
+            storey: first,
+            elevation,
+            shift_above: false,
+        };
+        assert_too_low(&mut p, &mut h, command, "W-001", 0);
+    }
+    let command = Command::SetStoreyHeight {
+        storey: g,
+        height: 2.990_5,
+        shift_above: true,
+    };
+    assert_too_low(&mut p, &mut h, command, "W-001", 0);
+
+    // 5 mm is still at least the minimum.
+    h.execute(
+        &mut p,
+        Command::SetStoreyElevation {
+            storey: first,
+            elevation: 2.995,
+            shift_above: false,
+        },
+    )
+    .unwrap();
+    assert!((height(&p) - 0.005).abs() < 1e-9, "{}", height(&p));
+
+    // Every offending element counts; the first one is named.
+    let second = linked_wall(&p, g, first, -2.99);
+    h.execute(&mut p, Command::AddElements(vec![second])).unwrap();
+    let command = Command::SetStoreyHeight {
+        storey: g,
+        height: 2.0,
+        shift_above: false,
+    };
+    assert_too_low(&mut p, &mut h, command, "W-001", 1);
+}
+
+/// NFR-REL-005, STR-002: inserting or deleting a storey moves the storeys
+/// above it, so it is refused when that would leave a linked wall lower than
+/// the minimum height.
+#[test]
+fn inserting_or_deleting_a_storey_refuses_to_drop_linked_walls_below_the_minimum_height() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let [g, first] = [0, 1].map(|i| p.storeys.as_slice()[i].id);
+    // On the first floor (3 m), top 1 cm above it, linked to the ground.
+    let w = linked_wall(&p, first, g, 3.01);
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    // A storey inserted above the ground lifts the first floor by 3 m.
+    let command = Command::InsertStorey {
+        reference: g,
+        above: true,
+        storey: Storey::new("00a Mezzanine", 0.0, 3.0),
+    };
+    assert_too_low(&mut p, &mut h, command, "W-001", 0);
+
+    // On the ground, top 1 cm high, linked to a storey two above.
+    let second = Storey::new("02 Second floor", 0.0, 3.0);
+    let second_id = second.id;
+    h.execute(
+        &mut p,
+        Command::InsertStorey {
+            reference: first,
+            above: true,
+            storey: second,
+        },
+    )
+    .unwrap();
+    let w = linked_wall(&p, g, second_id, -5.99);
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    // Deleting the first floor (and W-001 on it) lowers the second floor by
+    // 3 m.
+    let command = Command::DeleteStorey {
+        storey: first,
+        elements: StoreyElements::Delete,
+    };
+    assert_too_low(&mut p, &mut h, command, "W-002", 0);
+}
+
+/// NFR-REL-005, STR-002: a top linked relative to the home storey counts
+/// too. Inserting a storey re-targets "home + 2" to a lower storey, which is
+/// refused when it leaves the wall lower than the minimum height.
+#[test]
+fn inserting_a_storey_refuses_to_drop_relatively_linked_walls_below_the_minimum_height() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let g = ground(&p);
+    // "Home + 2" lies beyond the top storey: 6 m, from the first floor's
+    // nominal height. The top is 1 cm above the base.
+    let mut w = p.new_wall(g, DVec2::ZERO, DVec2::X * 4.0, 0);
+    if let ElementKind::Wall(wall) = &mut w.kind {
+        wall.base_offset = 0.0;
+        wall.top = TopLink::Relative {
+            storeys: 2,
+            offset: -5.99,
+        };
+    }
+    let id = w.id;
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    assert_eq!(p.vertical_extent(p.element(id).unwrap()).map(|(b, _)| b), Some(0.0));
+    // A 2 m storey above the ground: "home + 2" becomes the first floor,
+    // now at 5 m.
+    let command = Command::InsertStorey {
+        reference: g,
+        above: true,
+        storey: Storey::new("00a Mezzanine", 0.0, 2.0),
+    };
+    assert_too_low(&mut p, &mut h, command, "W-001", 0);
+}
+
+/// NFR-REL-005: a storey move does not change the height of an element with
+/// a fixed height, so a 1 mm high wall on the moved storey does not block it,
+/// even where rounding makes its computed height a little less than 1 mm.
+#[test]
+fn moving_a_storey_with_a_fixed_height_wall_of_the_minimum_height_is_accepted() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let first = p.storeys.as_slice()[1].id;
+    h.execute(
+        &mut p,
+        Command::SetStoreyElevation {
+            storey: first,
+            elevation: 4.0,
+            shift_above: false,
+        },
+    )
+    .unwrap();
+    let mut w = p.new_wall(first, DVec2::ZERO, DVec2::X * 4.0, 0);
+    if let ElementKind::Wall(wall) = &mut w.kind {
+        wall.base_offset = 0.0;
+        wall.top = TopLink::Fixed { height: MIN_HEIGHT };
+    }
+    let id = w.id;
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    h.execute(
+        &mut p,
+        Command::SetStoreyElevation {
+            storey: first,
+            elevation: 3.5,
+            shift_above: false,
+        },
+    )
+    .unwrap();
+    let (bottom, top) = p.vertical_extent(p.element(id).unwrap()).unwrap();
+    assert_eq!(bottom, 3.5);
+    assert!(top - bottom < MIN_HEIGHT, "rounding: {}", top - bottom);
+}
+
+/// NFR-REL-005: the check refuses only edits that lower an element below the
+/// minimum. An element that is already lower (here put there by changing the
+/// storey list directly, outside the commands) does not block unrelated
+/// storey edits, nor edits that raise it again.
+#[test]
+fn storey_edits_that_do_not_lower_a_too_low_element_are_accepted() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let [g, first] = [0, 1].map(|i| p.storeys.as_slice()[i].id);
+    let w = linked_wall(&p, g, first, -2.99);
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    p.storeys = p.storeys.set_elevation(first, 2.990_005, false).unwrap();
+    h.execute(
+        &mut p,
+        Command::RenameStorey {
+            storey: first,
+            name: "01 Upper floor".into(),
+        },
+    )
+    .unwrap();
+    h.execute(
+        &mut p,
+        Command::SetStoreyElevation {
+            storey: first,
+            elevation: 2.990_5,
+            shift_above: false,
+        },
+    )
+    .unwrap();
+    let command = Command::SetStoreyElevation {
+        storey: first,
+        elevation: 2.990_1,
+        shift_above: false,
+    };
+    assert_too_low(&mut p, &mut h, command, "W-001", 0);
 }
 
 /// DSP-003, LAY-002, ELM-001: deleting a material or layer needs a

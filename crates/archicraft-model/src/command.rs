@@ -9,7 +9,7 @@
 //! and identities stay stable. Commands are serialisable, so they can be
 //! logged and replayed.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,7 @@ use crate::message::Message;
 use crate::project::{DefaultsSlot, Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
 use crate::storey::{MAX_CUT_PLANE_HEIGHT, Storey, StoreyList};
 use crate::template::TemplateContext;
+use crate::tolerance::near_zero;
 use crate::transform::{PlanTransform, TransformError};
 use crate::validate;
 
@@ -188,6 +189,7 @@ impl Command {
                     .storeys
                     .insert(*reference, *above, storey.clone())
                     .map_err(CommandError::Invalid)?;
+                check_linked_heights(project, &list, &[])?;
                 Ok(vec![Edit::SetStoreys(list)])
             }
             Command::DeleteStorey { storey, elements } => plan_delete_storey(project, *storey, *elements),
@@ -326,7 +328,53 @@ fn storey_edit(project: &Project, list: StoreyList) -> Result<Vec<Edit>, Command
     if list == project.storeys {
         return Err(CommandError::NoChange);
     }
+    check_linked_heights(project, &list, &[])?;
     Ok(vec![Edit::SetStoreys(list)])
+}
+
+/// Refuses a new storey list that would leave an element whose extent
+/// depends on the storeys lower than [`validate::MIN_HEIGHT`] (NFR-REL-005,
+/// ELM-017, STR-002). `element_edits` are the element changes planned with
+/// the list (removals and replacements). Only elements the edit lowers
+/// count, beyond the rounding of their elevations ([`near_zero`]): a
+/// fixed-height element on a moved storey keeps its height, and an element
+/// made too low outside the commands does not block storey edits that leave
+/// it as it is or raise it. The message names the first element and counts
+/// the others.
+fn check_linked_heights(project: &Project, list: &StoreyList, element_edits: &[Edit]) -> Result<(), CommandError> {
+    let planned: HashMap<ElementId, Option<&Element>> = element_edits
+        .iter()
+        .filter_map(|edit| match edit {
+            Edit::RemoveElement { id } => Some((*id, None)),
+            Edit::ReplaceElement(new) => Some((new.id, Some(new))),
+            _ => None,
+        })
+        .collect();
+    let mut too_low = project.elements.values().filter(|old| {
+        let new = planned.get(&old.id).copied().unwrap_or(Some(old));
+        let Some((bottom, top)) = new.and_then(|new| new.kind.vertical_extent(new.storey, list)) else {
+            return false;
+        };
+        let after = top - bottom;
+        after < validate::MIN_HEIGHT
+            && project.vertical_extent(old).is_none_or(|(old_bottom, old_top)| {
+                let before = old_top - old_bottom;
+                let scale = [bottom, top, old_bottom, old_top]
+                    .map(f64::abs)
+                    .into_iter()
+                    .fold(0.0, f64::max);
+                after < before && !near_zero(before - after, scale)
+            })
+    });
+    let Some(first) = too_low.next() else {
+        return Ok(());
+    };
+    Err(CommandError::Invalid(
+        Message::new("model-error-linked-element-too-low")
+            .text("name", &first.name)
+            .count("count", too_low.count())
+            .length("min", validate::MIN_HEIGHT),
+    ))
 }
 
 fn plan_add_elements(project: &Project, elements: &[Element]) -> Result<Vec<Edit>, CommandError> {
@@ -504,6 +552,7 @@ fn plan_delete_storey(project: &Project, storey: StoreyId, mode: StoreyElements)
     if defaults != project.tool_defaults {
         edits.push(Edit::SetToolDefaults(defaults));
     }
+    check_linked_heights(project, &list, &edits)?;
     edits.push(Edit::SetStoreys(list));
     Ok(edits)
 }
