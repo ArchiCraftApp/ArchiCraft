@@ -183,6 +183,10 @@ impl FixtureBuilder {
 
     /// Changes an element. An element not added yet is changed before it is
     /// added; an added one through `UpdateElements`.
+    ///
+    /// # Panics
+    ///
+    /// If `id` is not an element this builder created.
     pub fn edit(&mut self, id: ElementId, change: impl FnOnce(&mut Element)) {
         if let Some(element) = self.pending.iter_mut().find(|e| e.id == id) {
             change(element);
@@ -190,7 +194,7 @@ impl FixtureBuilder {
         }
         self.commit();
         let Some(mut element) = self.project.element(id).cloned() else {
-            unreachable!("fixtures edit only elements they created");
+            panic!("edit: the builder did not create element {id:?}");
         };
         change(&mut element);
         execute(
@@ -471,8 +475,8 @@ pub const BENCH_TILES: usize = 9;
 /// spacing, built by copying its walls and slabs through `AddElements`.
 ///
 /// Provisional bench model (NFR-PERF-001): the seeded [`stand_in`] models
-/// of [`STAND_IN_SIZES`] and RM-M/RM-L (SRS 7.3) replace it in
-/// [`bench_models`].
+/// of [`STAND_IN_SIZES`] and RM-M/RM-L (SRS 7.3) will replace it in
+/// [`bench_models`] (regression-and-status).
 pub fn tiled_shell(n: usize) -> Project {
     let mut project = two_storey_shell();
     let mut history = History::default();
