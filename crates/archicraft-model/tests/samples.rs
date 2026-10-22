@@ -11,7 +11,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::Dummy;
 use archicraft_model::samples::{self, CatalogueEntry, FIXTURE_NAMESPACE, FixtureBuilder, STAND_IN_SIZES};
 use archicraft_model::template::{default_metric_project, default_metric_project_with};
-use archicraft_model::{IfcClass, KindTag, Position, Project};
+use archicraft_model::{ElementId, IfcClass, KindTag, Position, Project};
 use uuid::Uuid;
 
 /// Every identity of a project: spatial structure, resources, elements and
@@ -140,8 +140,7 @@ fn the_builder_creates_elements_of_any_kind() {
 }
 
 /// `storey` inserts missing storeys on top with the top storey's height,
-/// and `edit` changes elements before and after they are added; every
-/// change is a command, so it is all undoable.
+/// and `edit` changes elements before and after they are added.
 #[test]
 fn the_builder_adds_storeys_and_edits_elements() {
     let mut b = FixtureBuilder::new("edits");
@@ -158,6 +157,14 @@ fn the_builder_adds_storeys_and_edits_elements() {
     let wall = &p.elements[&wall];
     assert_eq!(wall.name, "Pending");
     assert!(wall.locked);
+}
+
+/// `edit` panics, as documented, for an id the builder did not create.
+#[test]
+#[should_panic(expected = "the builder did not create")]
+fn editing_an_unknown_element_panics() {
+    let mut b = FixtureBuilder::new("unknown");
+    b.edit(ElementId::new(), |e| e.locked = true);
 }
 
 /// The two samples keep their geometry and contents, now with seeded
