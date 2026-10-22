@@ -2,18 +2,21 @@
 
 use egui::Key;
 
-use super::{Binding, Category, CommandSpec, Scope};
+use super::{Binding, Category, CommandSpec, Handler, Scope};
+use crate::tools::ToolKind;
 
 pub(super) fn specs() -> Vec<CommandSpec> {
-    let tool = |id, order, key| {
-        CommandSpec::new(id, Category::Design)
+    let tool = |id, order, key, handler: Handler| {
+        CommandSpec::new(id, Category::Design, handler)
             .menu("design", 0, order)
             .bind(Binding::key(key))
             .scope(Scope::Canvas)
     };
     vec![
-        tool("tool.select", 0, Key::V),
-        tool("tool.wall", 1, Key::W),
-        tool("tool.slab", 2, Key::S),
+        tool("tool.select", 0, Key::V, |app, _, _| {
+            app.ws.select_tool(ToolKind::Select)
+        }),
+        tool("tool.wall", 1, Key::W, |app, _, _| app.ws.select_tool(ToolKind::Wall)),
+        tool("tool.slab", 2, Key::S, |app, _, _| app.ws.select_tool(ToolKind::Slab)),
     ]
 }

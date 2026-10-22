@@ -5,7 +5,6 @@ use egui::{Key, KeyboardShortcut, Modifiers};
 
 use super::*;
 use crate::i18n::Localizer;
-use crate::ui::actions::Action;
 
 fn spec(id: &str) -> &'static CommandSpec {
     Registry::get().spec(id).unwrap_or_else(|| panic!("no command {id}"))
@@ -143,73 +142,158 @@ fn primary_binding_follows_the_platform() {
     );
 }
 
-/// The command each action of `ui/actions.rs` becomes.
-fn command_of(action: Action) -> &'static str {
-    match action {
-        Action::New => "file.new",
-        Action::Open => "file.open",
-        Action::Save => "file.save",
-        Action::SaveAs => "file.save-as",
-        Action::Close => "file.close",
-        Action::Quit => "file.quit",
-        Action::Undo => "edit.undo",
-        Action::Redo => "edit.redo",
-        Action::Delete => "edit.delete",
-        Action::SelectAll => "edit.select-all",
-        Action::ToolSelect => "tool.select",
-        Action::ToolWall => "tool.wall",
-        Action::ToolSlab => "tool.slab",
-        Action::Settings => "edit.settings",
-        Action::FitWindow => "view.fit-window",
-        Action::ZoomSelection => "view.zoom-selection",
-        Action::PreviousZoom => "view.previous-zoom",
-        Action::NextZoom => "view.next-zoom",
-        Action::NextTab => "view.next-tab",
-        Action::PreviousTab => "view.previous-tab",
-        Action::SwitchPlan3d => "view.switch-plan-3d",
-        Action::OrbitMode => "view.orbit",
-        Action::ToggleReferenceLines => "view.reference-lines",
-        Action::PlaceUserOrigin => "view.place-user-origin",
-        Action::ResetUserOrigin => "view.reset-user-origin",
-        Action::Storeys => "project.storeys",
-        Action::Layers => "project.layers",
-        Action::Materials => "project.materials",
-        Action::ProjectSettings => "project.settings",
-        Action::Preferences => "file.preferences",
-        Action::Problems => "view.problems",
-        Action::Shortcuts => "help.shortcuts",
-        Action::About => "help.about",
+/// The 23 default shortcuts of the former `ui/actions.rs`, each the first
+/// binding of its command. Primary is Cmd on macOS and Ctrl elsewhere.
+const DEFAULT_SHORTCUTS: [(&str, Binding); 23] = [
+    ("file.new", Binding::primary(Key::N)),
+    ("file.open", Binding::primary(Key::O)),
+    ("file.save", Binding::primary(Key::S)),
+    ("file.save-as", Binding::primary(Key::S).shift()),
+    ("file.close", Binding::primary(Key::W)),
+    ("file.quit", Binding::primary(Key::Q)),
+    ("edit.undo", Binding::primary(Key::Z)),
+    ("edit.redo", Binding::primary(Key::Z).shift()),
+    ("edit.delete", Binding::key(Key::Delete)),
+    ("edit.select-all", Binding::primary(Key::A)),
+    ("tool.select", Binding::key(Key::V)),
+    ("tool.wall", Binding::key(Key::W)),
+    ("tool.slab", Binding::key(Key::S)),
+    ("edit.settings", Binding::primary(Key::T)),
+    ("view.fit-window", Binding::key(Key::F)),
+    ("view.zoom-selection", Binding::key(Key::F).shift()),
+    ("view.previous-zoom", Binding::primary(Key::OpenBracket)),
+    ("view.next-zoom", Binding::primary(Key::CloseBracket)),
+    ("view.next-tab", Binding::ctrl(Key::Tab)),
+    ("view.previous-tab", Binding::ctrl(Key::Tab).shift()),
+    ("view.switch-plan-3d", Binding::key(Key::F3)),
+    ("view.orbit", Binding::key(Key::O)),
+    ("view.problems", Binding::primary(Key::P).shift()),
+];
+
+/// The commands whose shortcuts work while a text field has focus: the file
+/// commands, the settings and the problems panel (UI-008).
+const WORKS_WHILE_TYPING: [&str; 8] = [
+    "file.new",
+    "file.open",
+    "file.save",
+    "file.save-as",
+    "file.close",
+    "file.quit",
+    "edit.settings",
+    "view.problems",
+];
+
+/// UI-008, HW-003: the registry keeps the 23 default shortcuts as first
+/// bindings, the former special cases of the shortcut loop as second
+/// bindings (Primary+Y redoes, Backspace deletes) and no others; the
+/// commands that work while typing are TextSafe, and the single-key
+/// shortcuts and Ctrl+Tab, which stay off while a tool is drawing, are
+/// Canvas.
+#[test]
+fn registry_keeps_the_default_shortcuts() {
+    let mut bound = 0;
+    for spec in Registry::get().specs() {
+        let id = spec.id.as_str();
+        let expected = DEFAULT_SHORTCUTS.iter().find(|(i, _)| *i == id).map(|&(_, b)| b);
+        assert_eq!(spec.default_bindings.first().copied(), expected, "{id}");
+        bound += spec.default_bindings.len();
+        assert_eq!(spec.scope == Scope::TextSafe, WORKS_WHILE_TYPING.contains(&id), "{id}");
+        if let Some(first) = expected {
+            let off_while_drawing = first.is_single_key() || first == Binding::ctrl(Key::Tab);
+            assert_eq!(spec.scope == Scope::Canvas, off_while_drawing, "{id}");
+        }
+    }
+    assert_eq!(bound, 25);
+    assert_eq!(spec("edit.redo").default_bindings[1], Binding::primary(Key::Y));
+    assert_eq!(spec("edit.delete").default_bindings[1], Binding::key(Key::Backspace));
+}
+
+/// UI-008: no two commands share a key combination, whatever their scope.
+#[test]
+fn shortcuts_are_unique() {
+    let mut seen = HashSet::new();
+    for (binding, spec) in Registry::get().bindings_in_match_order() {
+        assert!(seen.insert(binding), "{} reuses {binding:?}", spec.id);
     }
 }
 
-/// UI-008, HW-003: the registry carries all 33 actions with the 23 default
-/// shortcuts they have today as first binding, and the scopes keep today's
-/// rules: the commands that work while typing are TextSafe, and the
-/// single-key shortcuts and Ctrl+Tab, which stay off while a tool is
-/// drawing, are Canvas.
+/// UI-008: a single key never works while a text field has focus, so no
+/// TextSafe command has one.
 #[test]
-fn registry_keeps_the_default_shortcuts_of_the_actions() {
-    let mut ids: Vec<&str> = Action::ALL.iter().map(|&a| command_of(a)).collect();
-    ids.sort_unstable();
-    let mut registered: Vec<&str> = Registry::get().specs().iter().map(|s| s.id.as_str()).collect();
-    registered.sort_unstable();
-    assert_eq!(ids, registered);
-    let mut bound = 0;
-    for action in Action::ALL {
-        let spec = spec(command_of(action));
-        let first = spec.default_bindings.first().map(|b| b.shortcut());
-        assert_eq!(first, action.shortcut(), "{action:?}");
-        bound += usize::from(first.is_some());
-        assert_eq!(spec.scope == Scope::TextSafe, action.works_while_typing(), "{action:?}");
-        if first.is_some() {
-            let off_while_drawing = action.is_single_key() || action == Action::NextTab;
-            assert_eq!(spec.scope == Scope::Canvas, off_while_drawing, "{action:?}");
+fn text_safe_commands_have_no_single_key() {
+    for spec in Registry::get().specs() {
+        if spec.scope == Scope::TextSafe {
+            assert!(spec.default_bindings.iter().all(|b| !b.is_single_key()), "{}", spec.id);
         }
     }
-    assert_eq!(bound, 23);
-    // The special cases of the shortcut loop become second bindings.
-    assert_eq!(spec("edit.redo").default_bindings[1], Binding::primary(Key::Y));
-    assert_eq!(spec("edit.delete").default_bindings[1], Binding::key(Key::Backspace));
+}
+
+/// UI-008: while typing only TextSafe bindings work; while drawing Canvas
+/// bindings are off and PointInput bindings on.
+#[test]
+fn scopes_are_active_as_documented() {
+    use Scope::*;
+    for (typing, drawing, active) in [
+        (false, false, [true, true, true, false]),
+        (false, true, [true, true, false, true]),
+        (true, false, [false, true, false, false]),
+        (true, true, [false, true, false, false]),
+    ] {
+        for (scope, expected) in [Global, TextSafe, Canvas, PointInput].into_iter().zip(active) {
+            assert_eq!(
+                scope.is_active(typing, drawing),
+                expected,
+                "{scope:?} {typing} {drawing}"
+            );
+        }
+    }
+}
+
+/// UI-017: the reasons a command gives for being disabled have English
+/// text, in the states that disable them.
+#[test]
+fn disabled_commands_name_a_reason_from_the_catalogue() {
+    let english = Localizer::english();
+    let nothing = CommandCtx {
+        selection_empty: true,
+        ..CommandCtx::default()
+    };
+    let mut reasons = 0;
+    for spec in Registry::get().specs() {
+        if let Enabled::No(reason) = (spec.enabled)(&nothing) {
+            assert!(reason.starts_with("cmd-reason-"), "{}: {reason}", spec.id);
+            assert!(english.has(reason), "{}: no English text for {reason}", spec.id);
+            reasons += 1;
+        }
+    }
+    // Undo, Redo, Delete, Zoom to selection and Reset user origin.
+    assert_eq!(reasons, 5);
+    let everything = CommandCtx {
+        can_undo: true,
+        can_redo: true,
+        user_origin_placed: true,
+        ..CommandCtx::default()
+    };
+    for spec in Registry::get().specs() {
+        assert_eq!((spec.enabled)(&everything), Enabled::Yes, "{}", spec.id);
+    }
+}
+
+/// UND-001: Undo and Redo name the change they take back or repeat, and
+/// fall back to their plain label without one.
+#[test]
+fn undo_and_redo_labels_name_the_change() {
+    let english = std::rc::Rc::new(Localizer::english());
+    let cx = CommandCtx {
+        undo_label: Some("Create wall".to_owned()),
+        redo_label: Some("Delete slab".to_owned()),
+        ..CommandCtx::default()
+    };
+    let label = |id, cx: &CommandCtx| crate::i18n::with(english.clone(), || spec(id).label_in(cx));
+    assert_eq!(label("edit.undo", &cx), "Undo Create wall");
+    assert_eq!(label("edit.redo", &cx), "Redo Delete slab");
+    assert_eq!(label("edit.undo", &CommandCtx::default()), "Undo");
+    assert_eq!(label("file.save", &cx), "Save");
 }
 
 /// UI-008: the commands of Appendix D.8 that exist have default shortcuts.
@@ -254,4 +338,95 @@ fn scopes_overlap_as_documented() {
         assert!(TextSafe.overlaps(a) && a.overlaps(TextSafe));
     }
     assert!(Canvas.overlaps(PointInput));
+}
+
+/// UI-008: a binding is matched before every other binding on the same key
+/// whose modifiers it contains, because egui would let the one with fewer
+/// modifiers take the key press.
+#[test]
+fn shortcuts_with_more_modifiers_are_matched_first() {
+    let order: Vec<Binding> = Registry::get().bindings_in_match_order().map(|(b, _)| b).collect();
+    let position = |b: Binding| order.iter().position(|&o| o == b);
+    for &a in &order {
+        for &b in &order {
+            let (ma, mb) = (a.modifiers(), b.modifiers());
+            if a != b && a.key == b.key && ma.contains(mb) {
+                assert!(position(a) < position(b), "{a:?} must be matched before {b:?}");
+            }
+        }
+    }
+}
+
+/// The commands a key press with `modifiers` triggers, with every scope
+/// active.
+fn pressed(modifiers: Modifiers, key: Key) -> Vec<&'static str> {
+    let ctx = egui::Context::default();
+    let input = egui::RawInput {
+        events: vec![egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }],
+        ..Default::default()
+    };
+    let mut triggered = Vec::new();
+    let output = ctx.run_ui(input, |ui| {
+        triggered = ui.ctx().input_mut(|i| Registry::get().consume_shortcuts(i, |_| true));
+    });
+    output.drop_without_applying_deltas();
+    triggered.into_iter().map(CommandId::as_str).collect()
+}
+
+/// UI-008, UI-006, VIEW-014: Cmd+Shift+Z redoes and Cmd+Shift+S saves as,
+/// on macOS and elsewhere; the shortcuts without Shift on the same keys keep
+/// their own command.
+#[test]
+fn a_shortcut_with_shift_runs_its_own_command() {
+    let mac_cmd = Modifiers::MAC_CMD.plus(Modifiers::COMMAND);
+    let ctrl = Modifiers::CTRL.plus(Modifiers::COMMAND);
+    let shift = Modifiers::SHIFT;
+    for cmd in [mac_cmd, ctrl] {
+        for (modifiers, key, expected) in [
+            (cmd.plus(shift), Key::Z, "edit.redo"),
+            (cmd, Key::Z, "edit.undo"),
+            (cmd, Key::Y, "edit.redo"),
+            (cmd.plus(shift), Key::S, "file.save-as"),
+            (cmd, Key::S, "file.save"),
+        ] {
+            assert_eq!(pressed(modifiers, key), [expected], "{modifiers:?}+{key:?}");
+        }
+    }
+    for (modifiers, key, expected) in [
+        (Modifiers::CTRL.plus(shift), Key::Tab, "view.previous-tab"),
+        (Modifiers::CTRL, Key::Tab, "view.next-tab"),
+        (shift, Key::F, "view.zoom-selection"),
+        (Modifiers::NONE, Key::F, "view.fit-window"),
+        (Modifiers::NONE, Key::Backspace, "edit.delete"),
+    ] {
+        assert_eq!(pressed(modifiers, key), [expected], "{modifiers:?}+{key:?}");
+    }
+}
+
+/// The menus, toolbox and status bar look commands up by id and panic on an
+/// unknown one, so every command id written in `ui/shell.rs` must be
+/// registered, also in menus no test opens.
+#[test]
+fn shell_names_registered_commands() {
+    let source = include_str!("../ui/shell.rs");
+    let prefixes = ["file.", "edit.", "view.", "tool.", "project.", "help."];
+    let mut named = 0;
+    // The odd pieces between quotes are the contents of string literals.
+    for literal in source.split('"').skip(1).step_by(2) {
+        let looks_like_id = prefixes.iter().any(|p| literal.starts_with(p))
+            && literal
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.');
+        if looks_like_id {
+            assert!(Registry::get().spec(literal).is_some(), "ui/shell.rs names {literal}");
+            named += 1;
+        }
+    }
+    assert!(named >= 33, "only {named} command ids found in ui/shell.rs");
 }

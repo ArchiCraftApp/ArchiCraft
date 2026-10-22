@@ -357,7 +357,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Default shortcuts exist for every D.8 command that exists (Action::shortcut, crates/archicraft-app/src/ui/actions.rs:122): save, undo, redo, delete, select all, wall, slab, plan/3D switch, next/previous tab, fit, zoom to selection, orbit; single-key shortcuts do not fire while a text field has focus (ArchiCraftApp::shortcuts, crates/archicraft-app/src/app.rs:555). Missing because the commands do not exist: cut, copy, paste, command palette (NFR-USE-005); move, copy-move, rotate, mirror, vertical move, array, trim, split, offset; measure and the column, beam, roof, opening, door, window, stair and free-form solid tools; show all, hide selection, isolate selection.",
+      "gap": "Default shortcuts exist for every D.8 command that exists (default bindings of the command registry, crates/archicraft-app/src/commands/mod.rs:234): save, undo, redo, delete, select all, wall, slab, plan/3D switch, next/previous tab, fit, zoom to selection, orbit; single-key shortcuts do not fire while a text field has focus (Scope::is_active, crates/archicraft-app/src/commands/mod.rs:120, used by ArchiCraftApp::shortcuts, crates/archicraft-app/src/app.rs:510). Missing because the commands do not exist: cut, copy, paste, command palette (NFR-USE-005); move, copy-move, rotate, mirror, vertical move, array, trim, split, offset; measure and the column, beam, roof, opening, door, window, stair and free-form solid tools; show all, hide selection, isolate selection.",
       "depends_on": []
     },
     {
@@ -447,7 +447,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No command palette (NFR-USE-005); shortcuts are not bindable (UI-009). Several commands are not Actions and are reachable from one place only, without a menu entry: R cycles the wall reference line and P/Shift+P switch the input fields (handle_keys, crates/archicraft-app/src/views/plan.rs:916); the wall and slab geometry modes are buttons in the properties strip (tool_modes, crates/archicraft-app/src/ui/properties.rs:727); the 3D display mode, view presets and projection switch are in the status bar only (status_bar, crates/archicraft-app/src/ui/shell.rs:182); Locked and Snap targets are properties checkboxes (lock_toggle, crates/archicraft-app/src/ui/properties.rs:592).",
+      "gap": "No command palette (NFR-USE-005); shortcuts are not bindable (UI-009). Several commands are not in the command registry and are reachable from one place only, without a menu entry: R cycles the wall reference line and P/Shift+P switch the input fields (handle_keys, crates/archicraft-app/src/views/plan.rs:916); the wall and slab geometry modes are buttons in the properties strip (tool_modes, crates/archicraft-app/src/ui/properties.rs:727); the 3D display mode, view presets and projection switch are in the status bar only (status_bar, crates/archicraft-app/src/ui/shell.rs:182); Locked and Snap targets are properties checkboxes (lock_toggle, crates/archicraft-app/src/ui/properties.rs:592).",
       "depends_on": []
     },
     {
@@ -546,7 +546,7 @@
       "section": "4.4",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/views/plan.rs:521 ui pans by middle-button drag (587-588) and two-finger scroll (565-566) and zooms about the cursor by wheel (573) and pinch (578); crates/archicraft-app/src/app.rs:484 runs fit to window, 485 zoom to selection and 491 previous/next zoom over crates/archicraft-app/src/views/camera.rs:68 ZoomHistory (73 ZOOM_STEPS = 50). Observation: a Point-unit wheel without modifier always pans, so a smooth-scrolling mouse cannot zoom without Cmd/Ctrl. Shift+F runs zoom to selection (it ran fit to window before shortcuts were matched most modifiers first). Regression check: Test: `view_014_plan_navigation_pans_zooms_and_fits` (app), `zoom_history_keeps_20_steps` (camera.rs); also `plan_round_trip_and_zoom_anchor`, `zoom_history` (camera.rs)",
+      "evidence": "Done: crates/archicraft-app/src/views/plan.rs:521 ui pans by middle-button drag (587-588) and two-finger scroll (565-566) and zooms about the cursor by wheel (573) and pinch (578); crates/archicraft-app/src/commands/view.rs:14 runs fit to window, 18 zoom to selection and 27/36 previous/next zoom over crates/archicraft-app/src/views/camera.rs:68 ZoomHistory (73 ZOOM_STEPS = 50). Observation: a Point-unit wheel without modifier always pans, so a smooth-scrolling mouse cannot zoom without Cmd/Ctrl. Shift+F runs zoom to selection (it ran fit to window before shortcuts were matched most modifiers first). Regression check: Test: `view_014_plan_navigation_pans_zooms_and_fits` (app), `zoom_history_keeps_20_steps` (camera.rs); also `plan_round_trip_and_zoom_anchor`, `zoom_history` (camera.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -2547,7 +2547,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No roof tool: ToolKind (crates/archicraft-app/src/tools/mod.rs:23) is Select, Wall and Slab only, as are the tool commands in specs (crates/archicraft-app/src/commands/tools.rs:7) and Action (crates/archicraft-app/src/ui/actions.rs:9). Missing: a roof tool that draws the pivot line, asks for the slope side, then draws the outline as rectangle, rotated rectangle or polygon (the slab tool's SlabMode, crates/archicraft-app/src/tools/slab.rs:5, has the same outline modes) that may extend beyond the pivot line on both sides, with toolbox, menu and shortcut entries and preview. Needs the ROF-001 roof kind first.",
+      "gap": "No roof tool: ToolKind (crates/archicraft-app/src/tools/mod.rs:23) is Select, Wall and Slab only, as are the tool commands in specs (crates/archicraft-app/src/commands/tools.rs:8). Missing: a roof tool that draws the pivot line, asks for the slope side, then draws the outline as rectangle, rotated rectangle or polygon (the slab tool's SlabMode, crates/archicraft-app/src/tools/slab.rs:5, has the same outline modes) that may extend beyond the pivot line on both sides, with toolbox, menu and shortcut entries and preview. Needs the ROF-001 roof kind first.",
       "depends_on": []
     },
     {
@@ -5077,7 +5077,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Only the commands that exist have shortcuts (Action::shortcut, crates/archicraft-app/src/ui/actions.rs:122); the rest of the D.8 set (cut/copy/paste, command palette, move, copy-move, rotate, mirror, vertical move, array, trim, split, offset, measure, the column, beam, roof, opening, door, window, stair and free-form solid tools, show all/hide/isolate) is absent because those commands do not exist. Menus and dialogs are not keyboard-navigable beyond egui's built-in Tab focus: no code for opening the menu bar from the keyboard (F10 or Alt access keys) was found in crates/archicraft-app/src/ui. Typed numeric entry works through point input (INP-003, crates/archicraft-app/src/input/typed.rs).",
+      "gap": "Only the commands that exist have shortcuts (default bindings of the command registry, crates/archicraft-app/src/commands/mod.rs:234); the rest of the D.8 set (cut/copy/paste, command palette, move, copy-move, rotate, mirror, vertical move, array, trim, split, offset, measure, the column, beam, roof, opening, door, window, stair and free-form solid tools, show all/hide/isolate) is absent because those commands do not exist. Menus and dialogs are not keyboard-navigable beyond egui's built-in Tab focus: no code for opening the menu bar from the keyboard (F10 or Alt access keys) was found in crates/archicraft-app/src/ui. Typed numeric entry works through point input (INP-003, crates/archicraft-app/src/input/typed.rs).",
       "depends_on": []
     },
     {
@@ -5137,7 +5137,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Needs EDT-016 copy/paste first: there is no clipboard and no Cut/Copy/Paste action (Action, crates/archicraft-app/src/ui/actions.rs:9). Also missing: a serialised clipboard payload (elements plus the materials and layers they reference; layer structures and profiles do not exist in the model yet, PRF-001, PRF-004), the conflict resolution UI (use existing / keep both / overwrite, PRF-009), and a second open project, either as a second window (PRJ-011; ArchiCraftApp, crates/archicraft-app/src/app.rs:80, holds one Workspace with one Document, crates/archicraft-app/src/workspace.rs:110) or as a second process exchanging the payload through the OS clipboard.",
+      "gap": "Needs EDT-016 copy/paste first: there is no clipboard and no Cut/Copy/Paste command (the Edit commands, crates/archicraft-app/src/commands/edit.rs:8). Also missing: a serialised clipboard payload (elements plus the materials and layers they reference; layer structures and profiles do not exist in the model yet, PRF-001, PRF-004), the conflict resolution UI (use existing / keep both / overwrite, PRF-009), and a second open project, either as a second window (PRJ-011; ArchiCraftApp, crates/archicraft-app/src/app.rs:80, holds one Workspace with one Document, crates/archicraft-app/src/workspace.rs:110) or as a second process exchanging the payload through the OS clipboard.",
       "depends_on": []
     },
     {
@@ -5407,7 +5407,7 @@
       "status": "missing",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No searchable command palette: no fuzzy search UI, no execution from a list, no shortcut to open it (D.8 lists 'command palette' among required shortcuts). Action::ALL/label()/shortcut() make this a small task.",
+      "gap": "No searchable command palette: no fuzzy search UI, no execution from a list, no shortcut to open it (D.8 lists 'command palette' among required shortcuts). Registry::specs with each command's label, description and bindings (crates/archicraft-app/src/commands/mod.rs:234) make this a small task.",
       "depends_on": []
     },
     {
