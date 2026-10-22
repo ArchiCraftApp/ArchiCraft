@@ -358,8 +358,10 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
 /// Writes the IFCX document for a project and its evaluated geometry
 /// straight into bytes, compact or indented (IFX-007, IFX-008), with the
 /// warnings of [`write`]. Each data node is formatted as soon as it is built
-/// and then dropped, so that saving holds the output and one node at a time,
-/// not a tree of the whole file (NFR-SEC-003). The bytes are those of
+/// and then dropped, an element's body and axis nodes one after the other.
+/// Besides the output, saving holds one data node, the element references of
+/// the current storey and the ids of the materials used so far, not a tree
+/// of the whole file (NFR-SEC-003). The bytes are those of
 /// [`to_bytes`] of the [`write`] document.
 pub fn save(
     project: &Project,
@@ -472,6 +474,9 @@ fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem
     }
 }
 
+/// Emits an element node and then its sub-nodes: each body and the axis
+/// node is built and emitted in turn, so that only one of them is held at a
+/// time (NFR-SEC-003). The element node needs only their names and ids.
 fn write_element(
     e: &Element,
     geometry: &ModelGeometry,
@@ -480,26 +485,16 @@ fn write_element(
     warnings: &mut Vec<Problem>,
 ) {
     let mut node = Node::new(e.id.to_string());
-    let mut parts: Vec<Node> = Vec::new();
-    match geometry.get(e.id) {
+    let geometry = geometry.get(e.id);
+    match geometry {
         Some(g) => {
             for part in &g.parts {
                 let id = sub_node_id(e.id.uuid(), &part.name);
                 node.children.insert(part.name.clone(), Some(id.to_string()));
-                let mut body = Node::new(id.to_string());
-                body.inherits.insert("material".into(), Some(part.material.to_string()));
-                body.attributes
-                    .insert("usd::usdgeom::mesh".into(), mesh_attribute(&part.mesh));
-                used_materials.insert(part.material);
-                parts.push(body);
             }
             if !g.axis.is_empty() {
                 let id = sub_node_id(e.id.uuid(), "Axis");
                 node.children.insert("Axis".into(), Some(id.to_string()));
-                let mut axis = Node::new(id.to_string());
-                axis.attributes
-                    .insert("usd::usdgeom::basiscurves".into(), curve_attribute(&g.axis));
-                parts.push(axis);
             }
         }
         None => warnings.push(Problem::warning(
@@ -540,8 +535,21 @@ fn write_element(
         )),
     }
     emit(node);
-    for part in parts {
-        emit(part);
+
+    let Some(g) = geometry else { return };
+    for part in &g.parts {
+        let mut body = Node::new(sub_node_id(e.id.uuid(), &part.name).to_string());
+        body.inherits.insert("material".into(), Some(part.material.to_string()));
+        body.attributes
+            .insert("usd::usdgeom::mesh".into(), mesh_attribute(&part.mesh));
+        used_materials.insert(part.material);
+        emit(body);
+    }
+    if !g.axis.is_empty() {
+        let mut axis = Node::new(sub_node_id(e.id.uuid(), "Axis").to_string());
+        axis.attributes
+            .insert("usd::usdgeom::basiscurves".into(), curve_attribute(&g.axis));
+        emit(axis);
     }
 }
 

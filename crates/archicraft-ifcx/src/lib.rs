@@ -38,8 +38,10 @@ pub const WRITTEN_VERSION: &str = alpha::writer::IFCX_VERSION;
 
 /// Serialises a project with its evaluated geometry. Returns the file bytes
 /// and warnings (for example elements saved without a body). The file is
-/// written one node at a time, so saving needs little memory beyond the
-/// bytes it returns (NFR-SEC-003).
+/// written one data node at a time, each element's body and axis nodes
+/// separately: besides the bytes it returns, saving holds that node, the
+/// element references of the current storey and the ids of the materials
+/// used so far (NFR-SEC-003).
 pub fn save(
     project: &Project,
     geometry: &ModelGeometry,
