@@ -6,7 +6,7 @@
 | **Version** | 0.3 — draft for review |
 | **Date** | 2026-10-21 |
 | **Owner** | Alexander Partsch |
-| **Status** | Draft. Version 0.2 was reviewed against the technology choices (R8) on 2026-10-16; the resulting decisions are D-2, D-11 and D-12 (Section 9.1). Changes since then are listed in Section 0.3. |
+| **Status** | Draft. Reviewed against the technology choices (R8) on 2026-10-16, which produced version 0.2 (decisions D-2, D-11 and D-12, Section 9.1). Changes since 0.2 are listed in Section 0.3. |
 | **Basis** | Graphisoft Archicad Knowledge Base (offline corpus of 313 articles, scraped 2026-10-16), buildingSMART IFC5-development repository (commit `1a63082`, 2026-09-08), IFCX schema registry ifcx.dev |
 
 ## Executive summary
@@ -80,7 +80,7 @@ The document is technology-neutral on purpose. Where a requirement constrains th
 | 0.2 | 2026-10-16 | Reviewed against the technology choices (R8) with the product owner. IFCX is the only file format (D-11, which supersedes D-4), and there is no installer, updater or online service (D-12). This withdraws 22 requirements: imports and exports of other formats, survey-point import, material textures, image export and update checks. Linux is required (NFR-PORT-003 raised to Must, D-2). Solid operations and trims stay Must; R8 plans a 3D Boolean library for them. The JSON nesting limit follows R8 (Appendix D.9). Open question O-17 (product name) added. |
 | 0.3 | 2026-10-21 | Slab point limit: a slab has at most 10,000 points in outline and holes together, for drawn and imported slabs alike (SLB-001, SLB-003, Appendix D.9; product-owner decision of 2026-10-21). |
 
-Every change to normative text (a requirement, a decision, a limit in an appendix) is recorded here in the same change. Changes collect in the row of the open draft version, and each one sets that row's date and the header's date to its own. The first change after a version has been reviewed opens the next version and sets it in the header.
+Every change to normative text (a requirement, a decision, a limit in an appendix) is recorded here in the same change. Changes collect in the row of the open draft version, and each one sets that row's date and the header's date to its own. The first change after a version has been reviewed opens the next version and sets it in the header. A review is recorded in the version's row and in the header's Status; until then the version is open.
 
 ---
 
