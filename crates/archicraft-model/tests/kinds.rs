@@ -15,15 +15,12 @@ use archicraft_model::template::{TemplateContext, default_metric_project};
 use archicraft_model::{Arg, Command, CommandError, History, IfcClass, KindTag};
 use common::{ground, wall};
 
-/// The registry lists wall and slab, plus the test kind in builds with the
-/// feature `test-kinds`, in the order of `KindTag::ALL`, and each tag's
-/// descriptor is its registry entry.
+/// The registry lists wall and slab, plus the test kind (tests always build
+/// with the feature `test-kinds`, tests/test_kinds_feature.rs), in the order
+/// of `KindTag::ALL`, and each tag's descriptor is its registry entry.
 #[test]
 fn the_registry_has_wall_and_slab() {
     let codes: Vec<&str> = KINDS.iter().map(|d| d.code).collect();
-    #[cfg(not(feature = "test-kinds"))]
-    assert_eq!(codes, ["wall", "slab"]);
-    #[cfg(feature = "test-kinds")]
     assert_eq!(codes, ["wall", "slab", "dummy"]);
     assert_eq!(KINDS.len(), KindTag::ALL.len());
     for (tag, descriptor) in KindTag::ALL.iter().zip(KINDS) {
