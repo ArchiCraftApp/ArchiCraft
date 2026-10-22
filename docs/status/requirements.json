@@ -4417,7 +4417,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Wall chains keep their points pending and create all walls as one Command::AddElements (one undo step) on Enter, double-click, a click on the first point, Finish, a tool or wall-mode switch or a click on another storey, so Backspace and Esc remove the last point without touching the model (ToolState::end_chain in tools/mod.rs). Remaining gap: polylines, railings and stair baselines do not exist yet; they inherit Backspace through InputConsumer.",
+      "gap": "Wall chains keep their points pending and create all walls as one Command::AddElements (one undo step) on Enter, double-click, a click on the first point, Finish, a tool or wall-mode switch or a click on another storey, so Backspace and Esc remove the last point without touching the model (ToolState::end_chain in tools/mod.rs). A tool or wall-mode switch whose walls the project rejects keeps the chain pending (Workspace::end_chain), and only the plan of the chain's storey previews it (views/plan.rs). Remaining gap: polylines, railings and stair baselines do not exist yet; they inherit Backspace through InputConsumer.",
       "depends_on": []
     },
     {

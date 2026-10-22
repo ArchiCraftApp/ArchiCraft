@@ -49,6 +49,12 @@ pub struct PlanViewState {
     /// The division points of the hovered edge drawn as ticks last frame
     /// (INP-010).
     pub ticks: Vec<DVec2>,
+    /// The preview outlines of the input in progress drawn last frame, each
+    /// with whether it is closed (WAL-007).
+    pub preview: Vec<(Vec<DVec2>, bool)>,
+    /// The pending points of the input in progress marked last frame
+    /// (UND-003).
+    pub pending: Vec<DVec2>,
     /// The plane point under the pointer last frame, for the coordinate
     /// readout of the view-control bar (INP-014).
     pub cursor: Option<DVec2>,
@@ -68,6 +74,8 @@ impl Default for PlanViewState {
             glyph: None,
             label: None,
             ticks: Vec::new(),
+            preview: Vec::new(),
+            pending: Vec::new(),
             cursor: None,
         }
     }
@@ -817,6 +825,8 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     state.glyph = None;
     state.label = None;
     state.ticks.clear();
+    state.preview.clear();
+    state.pending.clear();
 
     // Area selection (SEL-003): left to right = fully inside,
     // right to left = touching.
@@ -867,19 +877,31 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     }
     if let (Some((resolved, tracker)), Some(p)) = (resolved, pointer) {
         let target = camera.to_screen(rect, resolved.point);
-        let preview = ws.consumer().preview(&ws.doc.project, &resolved);
-        for (ring, closed) in preview.outlines {
+        let mut preview = ws.consumer().preview(&ws.doc.project, &resolved);
+        // Input that started on another storey is previewed only in that
+        // storey's plan (UND-003).
+        if !on_storey(ws.active_consumer.storey(&ws.tool), storey) {
+            preview.outlines.clear();
+        }
+        for (ring, closed) in &preview.outlines {
             let points: Vec<Pos2> = ring.iter().map(|q| camera.to_screen(rect, *q)).collect();
             let stroke = Stroke::new(1.5, palette.preview);
-            if closed {
+            if *closed {
                 painter.add(Shape::closed_line(points, stroke));
             } else {
                 painter.add(Shape::line(points, stroke));
             }
         }
-        for q in &ws.tool.points {
+        state.preview = preview.outlines;
+        let pending = if ws.active_consumer == Consumer::Tool && on_storey(ws.tool.storey, storey) {
+            &ws.tool.points[..]
+        } else {
+            &[]
+        };
+        for q in pending {
             painter.circle_filled(camera.to_screen(rect, *q), 3.0, palette.preview);
         }
+        state.pending = pending.to_vec();
         if let Some(hovered) = &resolved.hovered {
             painter.extend(division_ticks(hovered, |q| camera.to_screen(rect, q), palette.snap));
             state.ticks.clone_from(&hovered.points);

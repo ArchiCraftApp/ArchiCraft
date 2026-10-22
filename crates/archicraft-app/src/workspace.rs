@@ -200,20 +200,32 @@ impl Workspace {
     }
 
     /// Switches to the tool `kind`, discarding the input in progress. An open
-    /// wall chain keeps its walls (UND-003).
+    /// wall chain keeps its walls (UND-003); while the project rejects them,
+    /// the tool stays with the chain pending.
     pub fn select_tool(&mut self, kind: ToolKind) {
         self.active_consumer = Consumer::Tool;
-        self.end_chain();
+        if !self.end_chain() {
+            return;
+        }
         self.tool.select(kind);
         self.input = PointInput::default();
     }
 
     /// Ends an open wall chain, creating its walls as one undo step
-    /// (UND-003).
-    pub fn end_chain(&mut self) {
-        if let Some(command) = self.tool.end_chain(&self.doc.project) {
-            self.execute(command);
+    /// (UND-003). When the project rejects the walls, the chain stays
+    /// pending with its points and the status line names the error; returns
+    /// whether no chain is pending any more.
+    pub fn end_chain(&mut self) -> bool {
+        let (points, storey) = (self.tool.points.clone(), self.tool.storey);
+        let Some(command) = self.tool.end_chain(&self.doc.project) else {
+            return true;
+        };
+        if self.execute(command) {
+            return true;
         }
+        self.tool.points = points;
+        self.tool.storey = storey;
+        false
     }
 
     /// Discards the points and typed values of the input in progress,
@@ -438,6 +450,47 @@ mod tests {
         assert_eq!(walls, 2);
         ws.undo();
         assert!(ws.doc.project.elements.is_empty(), "the chain is one undo step");
+    }
+
+    /// UND-003: a chain whose command the project rejects keeps its pending
+    /// points: here its storey was deleted meanwhile, so the walls have no
+    /// home storey. Neither ending the chain nor switching the tool loses
+    /// the points; the status line names the error.
+    #[test]
+    fn a_rejected_chain_keeps_its_pending_points() {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        ws.select_tool(ToolKind::Wall);
+        let ground = ws.doc.project.storeys.ground();
+        let upper = ws
+            .doc
+            .project
+            .storeys
+            .iter()
+            .map(|s| s.id)
+            .find(|&s| s != ground)
+            .unwrap();
+        let points = [DVec2::ZERO, DVec2::new(5.0, 0.0), DVec2::new(5.0, 4.0)];
+        for p in points {
+            assert_eq!(
+                ws.tool.commit(&ws.doc.project, upper, p),
+                crate::input::Outcome::Continue
+            );
+        }
+        assert!(ws.execute(Command::DeleteStorey {
+            storey: upper,
+            elements: archicraft_model::command::StoreyElements::Delete,
+        }));
+        let revision = ws.doc.project.revision;
+
+        assert!(!ws.end_chain(), "the chain did not end");
+        assert_eq!(ws.tool.points, points);
+        assert_eq!(ws.tool.storey, Some(upper));
+        assert!(matches!(ws.status, Some(Status { error: true, .. })), "{:?}", ws.status);
+
+        ws.select_tool(ToolKind::Slab);
+        assert_eq!(ws.tool.kind, ToolKind::Wall, "the tool waits for the chain");
+        assert_eq!(ws.tool.points, points);
+        assert_eq!(ws.doc.project.revision, revision);
     }
 
     /// Feeds `key` to the workspace's consumer, as a plan view does, with
