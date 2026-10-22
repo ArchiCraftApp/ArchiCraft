@@ -17,7 +17,7 @@ The procedure an agent follows is the `/bead` skill (`.claude/skills/bead/SKILL.
 | 2 Slice | Split into child beads above 480 minutes, above 800 non-test source lines (a top-level `#[cfg(test)] mod tests` does not count), or with separable criteria | `bd create --parent` |
 | 3 Tests first | Every acceptance criterion becomes a failing test | |
 | 4 Implement | CLAUDE.md conventions; rustfmt runs after every edit | |
-| 5 Gate | fmt, clippy, tests, layering, golden files, diff budget, `.beads/`, loop guardrails only under label `loop`, conformance, licences | `scripts/loop/gate.sh` |
+| 5 Gate | fmt, clippy, tests, layering, golden files, diff budget, `.beads/`, loop guardrails only under label `loop`, implementation status (`scripts/status.py` check and merge-check with the bead's `SRS:` line), conformance, licences | `scripts/loop/gate.sh` |
 | 6 Review | Fresh-context `bead-reviewer` agent; its verdict becomes the review stamp | `.claude/agents/bead-reviewer.md` |
 | 7 Land | Commit `<id>: <summary>`, push, PR, squash auto-merge: on green CI the PR joins the merge queue, which merges it once CI passes on `main` with the PRs ahead of it (a PR that changes `.github/workflows/` or `.claude/settings.json` waits for the user) | `scripts/loop/land.sh` |
 | 8 Close | Close note (tier, review rounds, gate failures); bead closes when the PR merges; follow-ups and lessons recorded | `sweep.sh`, `bd remember` |
@@ -114,7 +114,7 @@ Instructions are soft; these are not:
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
 | CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop` (labels read live at run time, since `gh pr create` attaches them after the PR is opened); headless layering; the hooks' self-test |
 | CI workflow `User review` | A PR that changes `.github/workflows/` or `.claude/settings.json` (or `LOOP_USER_REVIEW_PATHS`) gets the failing status `User review`, decided by the base's `scripts/loop/ci-user-review.sh` (`pull_request_target`), never by the PR's own scripts |
-| Rulesets on `main` | Every PR merges through the merge queue (squash), which needs the six required CI checks on Linux and the status `User review` on the PR and again on `main` with the PRs ahead of it (The merge queue, below); admins bypass it, nobody deletes or force-pushes `main`; Windows runs on `main`, nightly and by hand, macOS only for releases and the nightly conformance matrix (below) |
+| Rulesets on `main` | Every PR merges through the merge queue (squash), which needs the seven required CI checks on Linux and the status `User review` on the PR and again on `main` with the PRs ahead of it (The merge queue, below); admins bypass it, nobody deletes or force-pushes `main`; Windows runs on `main`, nightly and by hand, macOS only for releases and the nightly conformance matrix (below) |
 
 **A bead PR runs CI once, and once more in the merge queue.** `ci.yml` runs for the
 `pull_request` event; its `push` trigger covers only `main` and version tags `v*`, so pushing a
@@ -182,7 +182,9 @@ Every required check must report on a merge group, or the queue waits for it unt
 and drops the PR. `ci.yml` runs on `merge_group` and all its required jobs run there; the bench,
 which is not required, skips it, since the PR's run compared it with the merge base already.
 `selftest.sh` checks that every required check of the ruleset is a job of `ci.yml` without a
-condition, or the status `User review`. Windows, macOS, the conformance matrix, the fuzzing run and
+condition, or the status `User review`, and that every job without a condition is required: the
+`Implementation status` job was not, and PRs #140, #141 and #143 merged with it failing
+(archicraft-erpe). Windows, macOS, the conformance matrix, the fuzzing run and
 the announcement are not required and do not run on merge groups; Windows and the announcement
 run when the queue has pushed to `main`. The status `User review` comes from `user-review.yml`,
 which runs on `merge_group` too: there it checks out `main`, not the group's commit, and `main`'s
@@ -271,7 +273,8 @@ review), so the loop runs for hours without the user. The exception is a PR that
 `scripts/loop/lib.sh`): they hold the CI gate and the hook wiring, the gates that cannot be
 bypassed. `land.sh` leaves auto-merge off for such a PR, also when an earlier run turned it on,
 names the files and writes the user's steps into its description (review it, merge it as an
-admin, and run `setup-github.sh` after the merge when the PR changes it); `guard-bash` refuses turning it on by hand; the user reviews and merges it.
+admin, and run `setup-github.sh` after the merge when the PR changes it, a step it writes for a
+PR that auto-merges too); `guard-bash` refuses turning it on by hand; the user reviews and merges it.
 Both judge by the pattern as `origin/main` defines it as well as the branch's copy, so a branch
 that narrows `LOOP_USER_REVIEW_PATHS` still waits for every file the base names, and both also
 make a PR wait when it changes the pattern itself (naming `scripts/loop/lib.sh`).
@@ -299,7 +302,8 @@ Once per machine: `brew install gh && gh auth login` (PRs and auto-merge), optio
 
 Once per repository, by an admin: `scripts/loop/setup-github.sh` (auto-merge, labels, the
 rulesets on `main` with the merge queue and the required checks). Run it again after a change to
-its list of required checks or the queue's settings. A PR
+its list of required checks or the queue's settings: `land.sh` writes that step into the
+description of every PR that changes the script. A PR
 opened before the status `User review` became required gets it with its next push (or a close
 and reopen).
 

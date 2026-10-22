@@ -138,8 +138,11 @@ it renders snapshots, they are part of the evidence the reviewer looks at.
   rustfmt runs on every edited `.rs` file automatically.
 - Stay in scope. Anything else you notice becomes its own bead:
   `bd create … --deps discovered-from:<id>`.
-- When the change moves a requirement's status, update its row in
-  `docs/implementation-status.md` (status and gap text).
+- When the change moves a requirement's status, and for every ID on the bead's `SRS:` line that
+  has a row (`land.sh` puts those on the PR's), change its row in
+  `docs/status/requirements.json` (status, effort, evidence or gap) and run
+  `python3 scripts/status.py generate`. Never edit the generated tables of
+  `docs/implementation-status.md` by hand (docs/testing.md, "Implementation status").
 
 ## 5. Gate
 
@@ -149,8 +152,9 @@ scripts/loop/gate.sh
 
 fmt, clippy `-D warnings`, the workspace tests, headless layering, golden files, the diff
 budget, a clean `.beads/`, no change to the loop's guardrails (`LOOP_SELF_PATHS`) without the
-label `loop`, IFCX conformance when IFCX code changed and licences when manifests changed. Fix
-each failure at its cause. Never weaken or delete a test, add an `#[allow]`, bless golden files
+label `loop`, the implementation status (`scripts/status.py` check, and merge-check with the
+bead's `SRS:` line), IFCX conformance when IFCX code changed and licences when manifests
+changed. Fix each failure at its cause. Never weaken or delete a test, add an `#[allow]`, bless golden files
 or edit the loop scripts to get green.
 
 ## 6. Review

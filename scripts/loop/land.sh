@@ -38,8 +38,8 @@ waits="$(loop_user_review_files | sed 's/.*/`&`/' | paste -sd ' ' - || true)"
 body="$(mktemp "${TMPDIR:-/tmp}/loop-pr.XXXXXX")"
 {
     echo "Bead: \`$id\` — $(jq -r '.title' <<<"$bead")"
-    srs="$(jq -r '.notes // ""' <<<"$bead" | loop_srs_ids || true)"
-    [ -n "$srs" ] && echo "SRS: $srs"
+    srs="$(jq -r '.notes // ""' <<<"$bead" | loop_srs_lines || true)"
+    [ -n "$srs" ] && echo "$srs"
     echo
     echo "## Acceptance criteria"
     echo
@@ -55,18 +55,25 @@ body="$(mktemp "${TMPDIR:-/tmp}/loop-pr.XXXXXX")"
     else
         echo "Local gate passed on tree \`$tree\`; the review passed before these changes to prose only: $since."
     fi
+    # Its settings take effect only when the user runs it, and only from the merged main: they may
+    # rely on workflows this PR brings (docs/loop.md, Setup). A PR that auto-merges needs that step
+    # too (archicraft-erpe).
+    setup="$(loop_changed_files | grep -x scripts/loop/setup-github.sh || true)"
     if [ -n "$waits" ]; then
         echo
         echo "Waits for the user's review (no auto-merge): it changes the CI workflows, the hook wiring or which files wait, $waits."
+    fi
+    if [ -n "$waits$setup" ]; then
         echo
         echo "## Steps for the user"
         echo
-        echo "1. Review the change."
-        echo "2. Merge it as an admin, past the failing status \`User review\` and the merge queue: \"Merge without waiting for requirements to be met (bypass rules)\" on GitHub, or \`gh pr merge <number> --admin --squash\` in your own terminal."
-        # Its settings take effect only when the user runs it, and only from the merged main: they
-        # may rely on workflows this PR brings (docs/loop.md, Setup).
-        if loop_changed_files | grep -qx scripts/loop/setup-github.sh; then
-            echo "3. After the merge, update the main checkout to the merged \`main\` (\`git pull --ff-only\` there; the next sweep does it too) and run \`scripts/loop/setup-github.sh\` in it: this PR changes the GitHub settings, and they apply only then. Not before the merge, since they rely on what this PR brings to \`main\`. The script prints what it set; Settings → Rules → Rulesets on GitHub shows the result."
+        n=0
+        if [ -n "$waits" ]; then
+            echo "$((n += 1)). Review the change."
+            echo "$((n += 1)). Merge it as an admin, past the failing status \`User review\` and the merge queue: \"Merge without waiting for requirements to be met (bypass rules)\" on GitHub, or \`gh pr merge <number> --admin --squash\` in your own terminal."
+        fi
+        if [ -n "$setup" ]; then
+            echo "$((n + 1)). After the merge, update the main checkout to the merged \`main\` (\`git pull --ff-only\` there; the next sweep does it too) and run \`scripts/loop/setup-github.sh\` in it: this PR changes the GitHub settings, and they apply only then. Not before the merge, since they rely on what this PR brings to \`main\`. The script prints what it set; Settings → Rules → Rulesets on GitHub shows the result."
         fi
     fi
     echo

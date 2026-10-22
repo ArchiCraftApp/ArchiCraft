@@ -379,7 +379,11 @@ edited by hand. `scripts/status.py` (Python 3 standard library) does the work:
   counts as changed and the regression check compares with the base's Markdown table.
 
 The CI job "Implementation status" runs `scripts/tests/test_status.py` and check on every pull
-request and push to `main`, and merge-check on pull requests.
+request, merge group and push to `main`, and merge-check on pull requests. It is a required check
+of `main` (`scripts/loop/setup-github.sh`), so a pull request it fails does not merge.
+`scripts/loop/gate.sh` runs check and merge-check before a bead's review: merge-check against the
+branch's fork point, with the `SRS:` line that `land.sh` writes from the bead's notes (below)
+(archicraft-erpe).
 
 To change a status (an epic's tasks and every bead):
 
@@ -389,8 +393,10 @@ To change a status (an epic's tasks and every bead):
 2. Run `python3 scripts/status.py generate` and commit the JSON and the regenerated document
    together; `python3 scripts/status.py check` passes.
 3. List the IDs on the pull request's `SRS:` line. An epic's final pull request lists the
-   epic's `srs_ids`. `scripts/loop/land.sh` writes the bead's `SRS:` notes line into every bead
-   pull request, so every bead pull request changes the row of each ID it lists, at least the
+   epic's `srs_ids`. `scripts/loop/land.sh` writes the IDs of the bead's `SRS:` notes line that
+   have a row onto every bead pull request's `SRS:` line (scenario, decision and open-question IDs
+   such as AS-03, D-11 or O-12 have none and go on an `Also cites:` line, which merge-check does
+   not read), so every bead pull request changes the row of each ID it lists, at least the
    evidence or gap text; an ID whose row stays as it is does not belong on the line.
 
 ## Fuzzing

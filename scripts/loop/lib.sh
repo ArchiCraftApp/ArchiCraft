@@ -162,6 +162,28 @@ loop_srs_ids() {
         awk 'NR > 1 { printf ", " } { printf "%s", $0 } END { if (NR) print "" }'
 }
 
+# The lines of a bead PR's body for the bead's notes (stdin), as merge-check reads them: `SRS:` with
+# the IDs of loop_srs_ids that have a row in docs/status/requirements.json, each of which the PR
+# must change, and `Also cites:` with the others, scenario, decision and open-question IDs such as
+# AS-03, D-11 or O-12, which have no row and would fail merge-check (archicraft-erpe). Prints
+# nothing when the notes cite no ID. Run it from the top level.
+loop_srs_lines() {
+    local ids
+    ids="$(loop_srs_ids)" || return 0
+    jq -r '.requirements[]?.id' docs/status/requirements.json 2>/dev/null |
+        awk -v ids="$ids" '
+            { row[$0] = 1 }
+            END {
+                n = split(ids, id, /, /)
+                for (i = 1; i <= n; i++) {
+                    if (id[i] in row) srs = srs (srs == "" ? "" : ", ") id[i]
+                    else also = also (also == "" ? "" : ", ") id[i]
+                }
+                if (srs != "") print "SRS: " srs
+                if (also != "") print "Also cites: " also
+            }'
+}
+
 # The Markdown <file> with its headings shifted down so the top one has <level> (code blocks
 # untouched): the review notes nest below the PR body's "## Review".
 loop_nest_headings() {
