@@ -20,7 +20,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
 license = "CC-BY-4.0"
-repository = "https://github.com/Graphicraft/ArchiCraft"
+repository = "https://github.com/ArchiCraftApp/ArchiCraft"
 publish = false
 
 # Versions follow docs/technology-choices.md. The egui family is pinned exactly
