@@ -506,6 +506,7 @@ pub struct BenchModel {
     pub id: &'static str,
     /// Whether the CI regression gate runs it; RM-M and RM-L will not.
     pub ci: bool,
+    /// Builds the model's project afresh for each bench run.
     pub build: fn() -> Project,
 }
 
@@ -600,7 +601,10 @@ mod tests {
             .filter_map(|e| e.as_wall())
             .map(|w| w.start.x.max(w.end.x))
             .fold(f64::MIN, f64::max);
-        assert_eq!(max_x, TILE_PITCH + 12.0);
+        assert!(
+            (max_x - (TILE_PITCH + 12.0)).abs() < 1e-9,
+            "the second tile ends one pitch past the first, got {max_x}"
+        );
         assert_eq!(tiled_shell(1).elements.len(), 12);
     }
 }
