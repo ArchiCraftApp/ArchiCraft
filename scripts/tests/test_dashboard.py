@@ -126,6 +126,23 @@ class OpenPullRequests(unittest.TestCase):
                          "startedAt": "2026-10-21T10:00:00Z"}]
         self.assertEqual(dashboard.summarize_checks(red)["failing"], ["Clippy"])
 
+    def test_the_failed_user_review_check_run_is_not_a_failing_check(self):
+        """The job "User review check" in .github/workflows/user-review.yml fails while the PR waits
+        (ci-user-review.sh exits 1): the PR waits for the review, once in Needs you, and its card
+        lists no failing check."""
+        rollup = GREEN + [
+            {"__typename": "CheckRun", "name": "User review check", "workflowName": "User review",
+             "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-10-21T10:01:00Z"},
+            {"__typename": "StatusContext", "context": "User review", "state": "FAILURE",
+             "startedAt": "2026-10-21T10:02:00Z"}]
+        view = dashboard.open_pr_view(open_pr(review="FAILURE", checks=rollup))
+        checks = view["checks"]
+        self.assertEqual((checks["fail"], checks["failing"]), (0, []))
+        self.assertEqual(view["status"]["text"], "waiting for your review")
+        # The overview adds a "checks failing" row for every PR with checks.fail, so no fail means
+        # the PR shows once, with its needs_you reason.
+        self.assertEqual(view["needs_you"], WAITS)
+
     def test_a_failed_queue_query_leaves_the_pr_list_working(self):
         """Without the merge-queue answer the PRs still show, and none is reported as stuck."""
         listed = [{k: v for k, v in open_pr(7).items() if k != "queue"},

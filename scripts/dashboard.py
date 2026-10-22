@@ -164,6 +164,8 @@ def pr_bead(p):
 # The status scripts/loop/ci-user-review.sh (from .github/workflows/user-review.yml) posts on a PR
 # that waits for the user's review: not a check of the code.
 USER_REVIEW = "User review"
+# The job of that workflow, which fails while the PR waits (ci-user-review.sh exits 1).
+USER_REVIEW_CHECK = "User review check"
 
 
 def rollup_user_review(rollup):
@@ -181,12 +183,13 @@ def rollup_user_review(rollup):
 
 
 def summarize_checks(rollup):
-    """Latest run per check name, reduced to pass/fail/pending counts. The "User review" status is
-    left out: pr_queue_state() reads it as waiting for the user, not as a failing check."""
+    """Latest run per check name, reduced to pass/fail/pending counts. The "User review" status and
+    the "User review check" run that posts it are left out: pr_queue_state() reads the status as
+    waiting for the user, not as a failing check."""
     latest = {}
     for c in rollup or []:
         name = c.get("name") or c.get("context") or "?"
-        if name == USER_REVIEW:
+        if name in (USER_REVIEW, USER_REVIEW_CHECK):
             continue
         started = c.get("startedAt") or c.get("createdAt") or ""
         if name not in latest or started > latest[name][0]:
