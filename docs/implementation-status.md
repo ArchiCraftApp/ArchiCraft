@@ -14,8 +14,8 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
 | done | 66 | 8 | 1 | 75 |
-| partial | 111 | 35 | 6 | 152 |
-| missing | 137 | 156 | 47 | 340 |
+| partial | 112 | 35 | 6 | 153 |
+| missing | 136 | 156 | 47 | 339 |
 | **total** | 314 | 199 | 54 | 567 |
 
 Remaining effort of the 492 open requirements: S 115, M 216, L 136, XL 25.
@@ -34,7 +34,7 @@ Remaining effort of the 492 open requirements: S 115, M 216, L 136, XL 25.
 | 4.3 | Workspace and user interface | 1/7/0 | 1/6/1 | 0/0/1 | 17 |
 | 4.4 | Views and navigation | 2/8/8 | 0/2/15 | 0/0/3 | 38 |
 | 4.5 | Plan display and graphic attributes | 0/7/1 | 0/2/7 | 0/1/2 | 20 |
-| 4.6 | Drawing input and precision | 3/7/5 | 3/1/4 | 0/0/1 | 24 |
+| 4.6 | Drawing input and precision | 3/8/4 | 3/1/4 | 0/0/1 | 24 |
 | 4.7 | Selection | 0/5/1 | 0/0/3 | 0/0/1 | 10 |
 | 4.8 | Editing and transformation | 0/4/11 | 0/0/9 | 0/0/1 | 25 |
 | 4.9 | Common element behaviour | 3/5/4 | 0/2/5 | 0/0/1 | 20 |
@@ -337,7 +337,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | INP-008 | M | partial | L | 2D only: no snapping in 3D views. Missing targets: division points beyond the midpoint (INP-010); the nearest point on an arc or a circle and their intersections. Arc and circle centres, tangent points from the previous point, axis points and handles are snap targets (input/snap.rs ArcTarget, input/targets.rs TargetSink), but nothing produces them yet: no curved geometry, no columns or beams, no handle tool. The plan view draws a glyph for every snap kind, the crosshair for no snap, and an overlay for the command states copy, multiple copy, trim target and choose side (views/plan.rs snap_glyph, cursor_state_glyph), but no command sets those states yet: there are no copy, trim or side-choosing tools. |
 | INP-024 | S | partial | S | Plan views only: no snapping in 3D views (INP-016). The centroids of cut polygons (archicraft-geometry PlanElement::centroids) and of slab outlines are node-level snap targets (input/targets.rs) with their own glyph in the plan view (views/plan.rs snap_glyph). |
 | INP-009 | M | partial | S | The seven levels, their ranks and the candidate list are in place (input/snap.rs) and Tab cycles the candidates in range while nothing is typed (provisional binding until D.8). Every kind of the node and edge levels has a target (input/targets.rs). The guide intersection and guide levels have no producers yet: there are no guides (INP-011, INP-012); nor do handles, axis points and arcs. |
-| INP-010 | M | missing | M | Only the 'half' mode, hard-coded. Missing: N equal parts (2-100), percentage, repeated fixed distance, best equal division near a target distance; selection of exactly one active mode; scope option (between nodes / between inters… |
+| INP-010 | M | partial | M | The five modes divide segments, circles and arcs, and the mode, its value and the scope are stored in the preferences (input/division.rs, InputSettings), but snapping still offers only the hard-coded midpoint: hovering an edge shows no ticks, the scopes are not resolved on the snap index, and no control chooses the mode. |
 | INP-011 | M | missing | L | Whole requirement: marking points/edges by dwell (default 1.0 s) or key, temporary guides (horizontal, vertical, angle increments, parallel, perpendicular, tangent, bisector, line through two centres), snappable guide intersectio… |
 | INP-012 | S | missing | L | Whole requirement: persistent guide lines/segments/circles/arcs per view, snappable with division points, drag-from-border creation aligned to an edge, numeric offset move/copy, delete individually/by sweep/all, global hide, excl… |
 | INP-013 | M | partial | M | The plan grid (snap steps X/Y, main/auxiliary spacing, rotation, local origin) is stored per project in ProjectSettings.plan_grid and the IFCX settings (model/src/project.rs PlanGrid, alpha/schema.rs planGrid). Snapping and drawing still use the single preference step and the fixed power-of-ten display grid (task archicraft-v58p); no grids for section views or the 3D working plane. |

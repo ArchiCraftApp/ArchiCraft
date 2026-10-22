@@ -8,6 +8,7 @@
 
 mod constrain;
 mod consumer;
+mod division;
 mod keys;
 mod pointer;
 mod snap;
@@ -23,6 +24,7 @@ use archicraft_model::{Command, Project, StoreyId};
 
 pub use constrain::constrain;
 pub use consumer::{CursorState, Expect, InputConsumer, KeyHint, Outcome, Preview, StepSpec, TrackerMode};
+pub use division::{Curve, DivisionMode, DivisionScope, EQUAL_PARTS, InputSettings, MAX_DIVISION_POINTS, divide};
 pub use keys::{KeyInput, Modifiers};
 pub use pointer::{InputMode, PointerEvent};
 pub use snap::{ArcTarget, Snap, SnapKind, SnapLevel, candidates, snap};
