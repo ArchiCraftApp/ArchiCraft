@@ -6,9 +6,9 @@ use std::time::Duration;
 
 use archicraft_model::project::Projection;
 use archicraft_model::units::format_length;
-use egui::{Button, RichText, Ui};
+use egui::{Atom, Atoms, Button, RichText, Ui};
 
-use crate::commands::{CommandCtx, CommandId, Registry};
+use crate::commands::{CommandCtx, CommandId, CommandSpec, MENUS, MenuEntry, Registry, file, menu_title, tools, view};
 use crate::input::InputMode;
 use crate::tools::ToolKind;
 use crate::tr;
@@ -16,35 +16,40 @@ use crate::views::camera::ViewPreset;
 use crate::views::render3d::DisplayMode;
 use crate::workspace::{Pane, Workspace};
 
-/// The registered command `id`. Every command id this file names is
-/// checked against the registry by
-/// `commands::tests::shell_names_registered_commands`.
-fn spec(id: &str) -> &'static crate::commands::CommandSpec {
-    Registry::get().spec(id).unwrap_or_else(|| panic!("no command {id}"))
-}
-
-/// The text of the first default binding of `id`, if it has one.
-fn shortcut_text(ui: &Ui, id: &str) -> Option<String> {
-    spec(id)
-        .default_bindings
+/// The text of the first default binding of `spec`, if it has one.
+fn shortcut_text(ui: &Ui, spec: &CommandSpec) -> Option<String> {
+    spec.default_bindings
         .first()
         .map(|b| ui.ctx().format_shortcut(&b.shortcut()))
 }
 
-/// The menu item of the command `id`: its label, shortcut, enabled state
-/// and, for an on/off command, a check box, all from the registry.
-fn item(ui: &mut Ui, cx: &CommandCtx, id: &str, out: &mut Option<CommandId>) {
-    let spec = spec(id);
+/// The registered command `id`. The ids this file uses are constants of
+/// `crate::commands`, whose tests check that they are registered.
+fn spec(id: CommandId) -> &'static CommandSpec {
+    Registry::get()
+        .spec(id.as_str())
+        .unwrap_or_else(|| panic!("no command {id}"))
+}
+
+/// The menu item of `spec`: its label, shortcut, enabled state and, for an
+/// on/off command, a check box, all from the registry.
+fn item(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, out: &mut Option<CommandId>) {
     let label = spec.label_in(cx);
+    let enabled = (spec.enabled)(cx).is_yes();
     let clicked = if let Some(checked) = spec.checked {
         let mut on = checked(cx);
-        ui.checkbox(&mut on, label).clicked()
+        let mut atoms = Atoms::new(label);
+        if let Some(text) = shortcut_text(ui, spec) {
+            atoms.push_right(Atom::grow());
+            atoms.push_right(RichText::new(text).weak());
+        }
+        ui.add_enabled(enabled, egui::Checkbox::new(&mut on, atoms)).clicked()
     } else {
         let mut button = Button::new(label);
-        if let Some(text) = shortcut_text(ui, id) {
+        if let Some(text) = shortcut_text(ui, spec) {
             button = button.shortcut_text(text);
         }
-        ui.add_enabled((spec.enabled)(cx).is_yes(), button).clicked()
+        ui.add_enabled(enabled, button).clicked()
     };
     if clicked {
         *out = Some(spec.id);
@@ -52,91 +57,75 @@ fn item(ui: &mut Ui, cx: &CommandCtx, id: &str, out: &mut Option<CommandId>) {
     }
 }
 
-/// The menu bar. Returns the chosen command, or a recent file to open.
-pub fn menu_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx) -> (Option<CommandId>, Option<PathBuf>) {
-    let mut chosen = None;
-    let mut recent = None;
-    egui::MenuBar::new().ui(ui, |ui| {
-        ui.menu_button("File", |ui| {
-            item(ui, cx, "file.new", &mut chosen);
-            item(ui, cx, "file.open", &mut chosen);
-            ui.menu_button("Open recent", |ui| {
-                if ws.prefs.recent.is_empty() {
-                    ui.label(RichText::new("No recent projects").weak());
+/// What the user chose in the menu bar.
+#[derive(Default)]
+struct Chosen {
+    command: Option<CommandId>,
+    recent: Option<PathBuf>,
+}
+
+/// The entries of the menu `path`, built from the menu places of the
+/// registry (UI-017).
+fn menu(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, path: &str, chosen: &mut Chosen) {
+    for entry in Registry::get().menu(path) {
+        match entry {
+            MenuEntry::Command(spec) => {
+                item(ui, cx, spec, &mut chosen.command);
+                if spec.id == file::OPEN {
+                    open_recent(ui, ws, &mut chosen.recent);
                 }
-                for path in &ws.prefs.recent {
-                    if ui.button(path.display().to_string()).clicked() {
-                        recent = Some(path.clone());
-                        ui.close();
-                    }
-                }
-            });
-            ui.separator();
-            item(ui, cx, "file.save", &mut chosen);
-            item(ui, cx, "file.save-as", &mut chosen);
-            item(ui, cx, "file.close", &mut chosen);
-            ui.separator();
-            item(ui, cx, "file.preferences", &mut chosen);
-            ui.separator();
-            item(ui, cx, "file.quit", &mut chosen);
-        });
-        ui.menu_button("Edit", |ui| {
-            item(ui, cx, "edit.undo", &mut chosen);
-            item(ui, cx, "edit.redo", &mut chosen);
-            ui.separator();
-            item(ui, cx, "edit.delete", &mut chosen);
-            item(ui, cx, "edit.select-all", &mut chosen);
-            ui.separator();
-            item(ui, cx, "edit.settings", &mut chosen);
-        });
-        ui.menu_button("View", |ui| {
-            item(ui, cx, "view.fit-window", &mut chosen);
-            item(ui, cx, "view.zoom-selection", &mut chosen);
-            item(ui, cx, "view.previous-zoom", &mut chosen);
-            item(ui, cx, "view.next-zoom", &mut chosen);
-            ui.separator();
-            item(ui, cx, "view.switch-plan-3d", &mut chosen);
-            item(ui, cx, "view.next-tab", &mut chosen);
-            item(ui, cx, "view.previous-tab", &mut chosen);
-            item(ui, cx, "view.orbit", &mut chosen);
-            ui.separator();
-            item(ui, cx, "view.reference-lines", &mut chosen);
-            item(ui, cx, "view.problems", &mut chosen);
-            ui.separator();
-            item(ui, cx, "view.place-user-origin", &mut chosen);
-            item(ui, cx, "view.reset-user-origin", &mut chosen);
-            #[cfg(feature = "perf")]
-            crate::perf::menu_item(ui);
-        });
-        ui.menu_button("Design", |ui| {
-            item(ui, cx, "tool.select", &mut chosen);
-            item(ui, cx, "tool.wall", &mut chosen);
-            item(ui, cx, "tool.slab", &mut chosen);
-        });
-        ui.menu_button("Project", |ui| {
-            item(ui, cx, "project.storeys", &mut chosen);
-            item(ui, cx, "project.layers", &mut chosen);
-            item(ui, cx, "project.materials", &mut chosen);
-            item(ui, cx, "project.settings", &mut chosen);
-        });
-        // The menu titles move to the command registry (archicraft-5eu);
-        // Help is the pilot of the message catalogue (NFR-L10N-001).
-        ui.menu_button(tr!("menu-help"), |ui| {
-            item(ui, cx, "help.shortcuts", &mut chosen);
-            item(ui, cx, "help.about", &mut chosen);
-        });
+            }
+            MenuEntry::Submenu(sub) => {
+                let title = menu_title(sub).unwrap_or_else(|| sub.to_owned());
+                ui.menu_button(title, |ui| menu(ui, ws, cx, sub, chosen));
+            }
+            MenuEntry::Separator => {
+                ui.separator();
+            }
+        }
+    }
+    #[cfg(feature = "perf")]
+    if path == "view" {
+        crate::perf::menu_item(ui);
+    }
+}
+
+/// The Open recent submenu, a hook after File > Open…, with the recently
+/// opened project files.
+fn open_recent(ui: &mut Ui, ws: &Workspace, recent: &mut Option<PathBuf>) {
+    ui.menu_button(tr!("menu-file-recent"), |ui| {
+        if ws.prefs.recent.is_empty() {
+            ui.label(RichText::new(tr!("menu-file-recent-empty")).weak());
+        }
+        for path in &ws.prefs.recent {
+            if ui.button(path.display().to_string()).clicked() {
+                *recent = Some(path.clone());
+                ui.close();
+            }
+        }
     });
-    (chosen, recent)
+}
+
+/// The menu bar (UI-011, UI-017): the menus of [`MENUS`] with the commands
+/// placed in them. Returns the chosen command, or a recent file to open.
+pub fn menu_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx) -> (Option<CommandId>, Option<PathBuf>) {
+    let mut chosen = Chosen::default();
+    egui::MenuBar::new().ui(ui, |ui| {
+        for path in MENUS {
+            let title = menu_title(path).unwrap_or_else(|| path.to_owned());
+            ui.menu_button(title, |ui| menu(ui, ws, cx, path, &mut chosen));
+        }
+    });
+    (chosen.command, chosen.recent)
 }
 
 /// The tool palette (UI-001): selection, modelling and view tools. Returns
-/// the command of a clicked view tool.
-pub fn toolbox(ui: &mut Ui, ws: &mut Workspace) -> Option<CommandId> {
+/// the command of the clicked button.
+pub fn toolbox(ui: &mut Ui, ws: &Workspace) -> Option<CommandId> {
     let mut chosen = None;
-    let tool_button = |ui: &mut Ui, ws: &mut Workspace, kind: ToolKind, command: &str| {
-        let shortcut = shortcut_text(ui, command)
-            .map(|s| format!(" ({s})"))
-            .unwrap_or_default();
+    let tool_button = |ui: &mut Ui, kind: ToolKind, chosen: &mut Option<CommandId>| {
+        let spec = spec(tools::command(kind));
+        let shortcut = shortcut_text(ui, spec).map(|s| format!(" ({s})")).unwrap_or_default();
         let response = ui
             .add_sized(
                 [88.0, 26.0],
@@ -144,24 +133,24 @@ pub fn toolbox(ui: &mut Ui, ws: &mut Workspace) -> Option<CommandId> {
             )
             .on_hover_text(format!("{}{shortcut}", kind.description()));
         if response.clicked() {
-            ws.select_tool(kind);
+            *chosen = Some(spec.id);
         }
     };
     ui.label(RichText::new("Selection").small().weak());
-    tool_button(ui, ws, ToolKind::Select, "tool.select");
+    tool_button(ui, ToolKind::Select, &mut chosen);
     ui.add_space(6.0);
     ui.label(RichText::new("Modelling").small().weak());
-    tool_button(ui, ws, ToolKind::Wall, "tool.wall");
-    tool_button(ui, ws, ToolKind::Slab, "tool.slab");
+    tool_button(ui, ToolKind::Wall, &mut chosen);
+    tool_button(ui, ToolKind::Slab, &mut chosen);
     ui.add_space(6.0);
     ui.label(RichText::new("View tools").small().weak());
     for (label, id) in [
-        ("Fit", "view.fit-window"),
-        ("Orbit", "view.orbit"),
-        ("Plan/3D", "view.switch-plan-3d"),
+        ("Fit", view::FIT_WINDOW),
+        ("Orbit", view::ORBIT),
+        ("Plan/3D", view::SWITCH_PLAN_3D),
     ] {
         let spec = spec(id);
-        let tip = shortcut_text(ui, id)
+        let tip = shortcut_text(ui, spec)
             .map(|s| format!("{} ({s})", spec.label()))
             .unwrap_or_else(|| spec.label());
         if ui
@@ -216,16 +205,18 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Opti
                 format!("⚠ {problem_count} problem(s)")
             };
             if ui.small_button(label).clicked() {
-                chosen = Some(spec("view.problems").id);
+                chosen = Some(view::PROBLEMS);
             }
             ui.separator();
             match ws.active_pane {
-                Some(Pane::View3d(view)) => {
-                    if let Some(state) = ws.views_3d.get_mut(&view) {
+                Some(Pane::View3d(view_id)) => {
+                    if let Some(state) = ws.views_3d.get_mut(&view_id) {
                         if ui.small_button("Fit").clicked() {
-                            chosen = Some(spec("view.fit-window").id);
+                            chosen = Some(view::FIT_WINDOW);
                         }
-                        ui.toggle_value(&mut state.orbit, "Orbit");
+                        if ui.selectable_label(state.orbit, "Orbit").clicked() {
+                            chosen = Some(view::ORBIT);
+                        }
                         egui::ComboBox::from_id_salt("display-mode")
                             .selected_text(state.mode.label())
                             .show_ui(ui, |ui| {
@@ -257,13 +248,13 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Opti
                 }
                 Some(Pane::Plan(storey)) => {
                     if ui.small_button("Fit").clicked() {
-                        chosen = Some(spec("view.fit-window").id);
+                        chosen = Some(view::FIT_WINDOW);
                     }
                     if ui.small_button("Next zoom ▶").clicked() {
-                        chosen = Some(spec("view.next-zoom").id);
+                        chosen = Some(view::NEXT_ZOOM);
                     }
                     if ui.small_button("◀ Previous zoom").clicked() {
-                        chosen = Some(spec("view.previous-zoom").id);
+                        chosen = Some(view::PREVIOUS_ZOOM);
                     }
                     if let Some(state) = ws.plan_views.get(&storey) {
                         // INP-014: the cursor's X and Y from the user origin,

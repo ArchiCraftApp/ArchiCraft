@@ -45,7 +45,6 @@ const PENDING: &[&str] = &[
     "crates/archicraft-app/src/app.rs",
     "crates/archicraft-app/src/input/snap.rs",
     "crates/archicraft-app/src/ui/browser.rs",
-    "crates/archicraft-app/src/ui/shell.rs::menu_bar",
     "crates/archicraft-app/src/ui/shell.rs::status_bar",
     "crates/archicraft-app/src/ui/shell.rs::toolbox",
     "crates/archicraft-app/src/views/camera.rs",

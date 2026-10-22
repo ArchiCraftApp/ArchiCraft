@@ -2,8 +2,11 @@
 
 use egui::Key;
 
-use super::{Binding, Category, CommandSpec, Handler, Scope};
+use super::{Binding, Category, CommandId, CommandSpec, Handler, Scope};
 use crate::app::Then;
+
+/// Open…, which the File menu follows with the Open recent submenu.
+pub const OPEN: CommandId = CommandId::new("file.open");
 
 pub(super) fn specs() -> Vec<CommandSpec> {
     let file = |id, handler: Handler| CommandSpec::new(id, Category::File, handler).scope(Scope::TextSafe);
@@ -11,7 +14,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         file("file.new", |app, ctx, _| app.guard(ctx, Then::New))
             .menu("file", 0, 0)
             .bind(Binding::primary(Key::N)),
-        file("file.open", |app, ctx, _| app.guard(ctx, Then::Open(None)))
+        file(OPEN.as_str(), |app, ctx, _| app.guard(ctx, Then::Open(None)))
             .menu("file", 0, 1)
             .bind(Binding::primary(Key::O)),
         file("file.save", |app, _, _| {

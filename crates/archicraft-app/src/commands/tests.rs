@@ -409,24 +409,217 @@ fn a_shortcut_with_shift_runs_its_own_command() {
     }
 }
 
-/// The menus, toolbox and status bar look commands up by id and panic on an
-/// unknown one, so every command id written in `ui/shell.rs` must be
-/// registered, also in menus no test opens.
-#[test]
-fn shell_names_registered_commands() {
-    let source = include_str!("../ui/shell.rs");
-    let prefixes = ["file.", "edit.", "view.", "tool.", "project.", "help."];
-    let mut named = 0;
-    // The odd pieces between quotes are the contents of string literals.
-    for literal in source.split('"').skip(1).step_by(2) {
-        let looks_like_id = prefixes.iter().any(|p| literal.starts_with(p))
-            && literal
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.');
-        if looks_like_id {
-            assert!(Registry::get().spec(literal).is_some(), "ui/shell.rs names {literal}");
-            named += 1;
+/// The commands in the menu `path` and its submenus, depth first, with
+/// `|` for a separator and `path/` for a submenu.
+fn menu_tree(specs: &[CommandSpec], path: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for entry in menu_entries(specs, path) {
+        match entry {
+            MenuEntry::Command(spec) => out.push(spec.id.as_str().to_owned()),
+            MenuEntry::Separator => out.push("|".to_owned()),
+            MenuEntry::Submenu(sub) => {
+                out.push(format!("{sub}/"));
+                out.extend(menu_tree(specs, sub));
+            }
         }
     }
-    assert!(named >= 33, "only {named} command ids found in ui/shell.rs");
+    out
+}
+
+/// UI-017: the menu bar is built from the menu places, so every command with
+/// a menu place appears in its menu, exactly once, and nothing else does.
+#[test]
+fn every_command_with_a_menu_place_appears_in_its_menu() {
+    let specs = Registry::get().specs();
+    let mut shown = Vec::new();
+    for top in MENUS {
+        for entry in menu_tree(specs, top) {
+            if entry != "|" && !entry.ends_with('/') {
+                let place = spec(&entry).menu.expect("a menu place");
+                assert!(
+                    place.path == top || place.path.starts_with(&format!("{top}/")),
+                    "{entry} is in {top}"
+                );
+                shown.push(entry);
+            }
+        }
+    }
+    let mut placed: Vec<String> = specs
+        .iter()
+        .filter(|s| s.menu.is_some())
+        .map(|s| s.id.as_str().to_owned())
+        .collect();
+    shown.sort();
+    placed.sort();
+    assert_eq!(shown, placed);
+}
+
+/// UI-011, UI-017: the generated menus keep the entries, order and separators
+/// of the former hand-written menus.
+#[test]
+fn menus_follow_group_and_order() {
+    let specs = Registry::get().specs();
+    let menu = |path| menu_tree(specs, path).join(" ");
+    assert_eq!(
+        menu("file"),
+        "file.new file.open | file.save file.save-as file.close | file.preferences | file.quit"
+    );
+    assert_eq!(
+        menu("edit"),
+        "edit.undo edit.redo | edit.delete edit.select-all | edit.settings"
+    );
+    assert_eq!(
+        menu("view"),
+        "view.fit-window view.zoom-selection view.previous-zoom view.next-zoom | view.switch-plan-3d \
+         view.next-tab view.previous-tab view.orbit | view.reference-lines view.problems | \
+         view.place-user-origin view.reset-user-origin"
+    );
+    assert_eq!(menu("design"), "tool.select tool.wall tool.slab");
+    assert_eq!(
+        menu("project"),
+        "project.storeys project.layers project.materials project.settings"
+    );
+    assert_eq!(menu("help"), "help.shortcuts help.about");
+}
+
+/// UI-017: a command placed in `menu/submenu` appears in a submenu that sits
+/// at the place of its first command; ties keep registration order.
+#[test]
+fn submenus_sit_at_the_place_of_their_first_command() {
+    let noop: Handler = |_, _, _| {};
+    let specs = [
+        CommandSpec::new("view.a", Category::View, noop).menu("view", 1, 0),
+        CommandSpec::new("view.zoom.out", Category::View, noop).menu("view/zoom", 0, 1),
+        CommandSpec::new("view.zoom.in", Category::View, noop).menu("view/zoom", 0, 0),
+        CommandSpec::new("view.b", Category::View, noop).menu("view", 0, 5),
+        CommandSpec::new("view.zoom.deep", Category::View, noop).menu("view/zoom/deep", 0, 0),
+        CommandSpec::new("view.c", Category::View, noop).menu("view", 0, 5),
+        CommandSpec::new("view.zoom.late", Category::View, noop).menu("view/zoom", 0, 2),
+        CommandSpec::new("viewer.x", Category::View, noop).menu("viewer", 0, 0),
+    ];
+    // view/zoom sits at group 0, order 0 of view.zoom.in, before view.b and
+    // view.c; view/zoom/deep sits at the same place within view/zoom, after
+    // view.zoom.in, which was registered first.
+    assert_eq!(
+        menu_tree(&specs, "view").join(" "),
+        "view/zoom/ view.zoom.in view/zoom/deep/ view.zoom.deep view.zoom.out view.zoom.late \
+         view.b view.c | view.a"
+    );
+}
+
+/// UI-011, NFR-L10N-001: every menu and submenu has a title in the
+/// catalogue.
+#[test]
+fn every_menu_has_a_title() {
+    let english = std::rc::Rc::new(Localizer::english());
+    let mut paths: HashSet<&str> = MENUS.into_iter().collect();
+    for spec in Registry::get().specs() {
+        if let Some(place) = spec.menu {
+            for (i, _) in place.path.match_indices('/') {
+                paths.insert(&place.path[..i]);
+            }
+            paths.insert(place.path);
+        }
+    }
+    for path in paths {
+        let title = crate::i18n::with(english.clone(), || menu_title(path));
+        let title = title.unwrap_or_else(|| panic!("menu {path} has no title"));
+        assert!(
+            !title.trim().is_empty() && !title.starts_with("menu-"),
+            "{path}: {title}"
+        );
+    }
+}
+
+/// UI-001: the commands the toolbox and the status bar invoke are
+/// registered, and each tool button selects its own tool.
+#[test]
+fn toolbar_commands_are_registered() {
+    for id in [
+        file::OPEN,
+        view::FIT_WINDOW,
+        view::PREVIOUS_ZOOM,
+        view::NEXT_ZOOM,
+        view::SWITCH_PLAN_3D,
+        view::ORBIT,
+        view::PROBLEMS,
+    ] {
+        assert!(Registry::get().spec(id.as_str()).is_some(), "{id}");
+    }
+    let mut ids = HashSet::new();
+    for kind in crate::tools::ToolKind::ALL {
+        let id = tools::command(kind);
+        assert_eq!(spec(id.as_str()).category, Category::Design, "{kind:?}");
+        assert!(ids.insert(id), "{kind:?} shares {id}");
+    }
+}
+
+/// The body of the top-level function `name` in `source`, from its
+/// signature to the closing brace in the first column.
+fn function_body<'a>(source: &'a str, name: &str) -> &'a str {
+    let start = source
+        .find(&format!("\npub fn {name}("))
+        .unwrap_or_else(|| panic!("no fn {name}"));
+    let end = source[start..].find("\n}\n").map_or(source.len(), |e| start + e + 3);
+    &source[start..end]
+}
+
+/// The commands `source` names through the command modules, such as
+/// `view::ORBIT` or `tools::command`: paths that start with one of the
+/// modules (not `crate::tools::`, the drawing tools).
+fn command_paths(source: &str) -> Vec<String> {
+    let modules = ["file::", "edit::", "view::", "tools::", "project::", "help::"];
+    let mut paths = Vec::new();
+    for (i, _) in source.match_indices("::") {
+        let before = &source[..i + 2];
+        let Some(module) = modules.iter().find(|m| before.ends_with(*m)) else {
+            continue;
+        };
+        let start = i + 2 - module.len();
+        let preceded = source[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == ':');
+        if preceded {
+            continue;
+        }
+        let name: String = source[i + 2..]
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        paths.push(format!("{module}{name}"));
+    }
+    paths
+}
+
+/// UI-017: `ui/shell.rs` builds the menus from the registry and names no
+/// command: no command id in a string literal and no `CommandId::new`
+/// anywhere, and outside the toolbox and the status bar no command at all
+/// except File > Open…, after which the Open recent hook follows. The
+/// toolbox and the status bar invoke their buttons' commands by id (UI-001),
+/// through constants of the command modules.
+#[test]
+fn shell_names_no_command() {
+    let source = include_str!("../ui/shell.rs");
+    let ids: HashSet<&str> = Registry::get().specs().iter().map(|s| s.id.as_str()).collect();
+    // The odd pieces between quotes are the contents of string literals.
+    for literal in source.split('"').skip(1).step_by(2) {
+        assert!(!ids.contains(literal), "ui/shell.rs names {literal}");
+    }
+    assert!(!source.contains("CommandId::new"), "ui/shell.rs makes a command id");
+    assert!(
+        source.contains("Registry::get().menu("),
+        "the menus come from the registry"
+    );
+    let toolbox = function_body(source, "toolbox");
+    let status_bar = function_body(source, "status_bar");
+    let rest = source.replace(toolbox, "").replace(status_bar, "");
+    assert_eq!(command_paths(&rest), ["file::OPEN"]);
+    assert!(command_paths(toolbox).contains(&"tools::command".to_owned()));
+    assert!(command_paths(status_bar).contains(&"view::PROBLEMS".to_owned()));
+    // The scan finds a hand-written menu entry.
+    assert_eq!(
+        command_paths("item(ui, cx, spec(view::ORBIT), out); crate::tools::ToolKind::Wall"),
+        ["view::ORBIT"]
+    );
 }
