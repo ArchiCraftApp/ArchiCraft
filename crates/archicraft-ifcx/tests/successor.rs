@@ -43,7 +43,10 @@ fn the_default_build_has_no_successor_adapter() {
     let golden = std::fs::read(&golden_files()[0]).unwrap();
     let error = archicraft_ifcx::load(&with_version(&golden, MOCK)).unwrap_err();
     assert!(
-        error.message.contains(&format!("“{MOCK}” is not supported")),
+        error
+            .message
+            .to_string()
+            .contains(&format!("ifcx-version-unsupported(version={MOCK:?}")),
         "{error:?}"
     );
 }
@@ -77,9 +80,15 @@ fn an_unknown_version_names_alpha_and_the_successor() {
     assert_eq!(versions, ["ifcx_alpha", MOCK]);
     let golden = std::fs::read(&golden_files()[0]).unwrap();
     let error = archicraft_ifcx::load(&with_version(&golden, "ifcx_omega")).unwrap_err();
-    assert!(error.message.contains("“ifcx_omega” is not supported"), "{error:?}");
+    assert!(
+        error
+            .message
+            .to_string()
+            .contains(r#"ifcx-version-unsupported(version="ifcx_omega""#),
+        "{error:?}"
+    );
     for version in versions {
-        assert!(error.message.contains(version), "{error:?}");
+        assert!(error.message.to_string().contains(version), "{error:?}");
     }
 }
 

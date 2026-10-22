@@ -1,8 +1,11 @@
-//! Rendering of the messages archicraft-model returns (NFR-L10N-001).
+//! Rendering of the messages archicraft-model and archicraft-ifcx return
+//! (NFR-L10N-001).
 //!
 //! The model gives command labels as a [`Message`]: a `model-` key from
-//! `locales/en/model.ftl` and typed arguments. [`render`] turns each argument
-//! into a Fluent argument of the same name:
+//! `locales/en/model.ftl` and typed arguments. archicraft-ifcx reports the
+//! problems of reading and saving files the same way, with `ifcx-` keys
+//! from `locales/en/ifcx.ftl`. [`render`] turns each argument into a Fluent
+//! argument of the same name:
 //!
 //! | Argument | Fluent arguments |
 //! |---|---|

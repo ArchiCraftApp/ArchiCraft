@@ -49,6 +49,11 @@ pub const ENGLISH: &[CatalogueFile] = &[
         source: include_str!("../../locales/en/model.ftl"),
         prefixes: &["model-"],
     },
+    CatalogueFile {
+        name: "en/ifcx.ftl",
+        source: include_str!("../../locales/en/ifcx.ftl"),
+        prefixes: &["ifcx-"],
+    },
 ];
 
 /// The language of [`ENGLISH`].

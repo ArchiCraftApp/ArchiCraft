@@ -303,7 +303,7 @@ impl Workspace {
         });
     }
 
-    /// Renders a model message with the project units and the user's number
+    /// Renders a model or IFCX message with the project units and the user's number
     /// format (NFR-L10N-001).
     pub fn render(&self, message: &Message) -> String {
         crate::i18n::render(message, &self.doc.project.settings.units, &self.prefs.number_format())

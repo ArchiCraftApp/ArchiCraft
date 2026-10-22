@@ -53,3 +53,16 @@ crates/archicraft-model/src/message.rs::Message::try_from | * | serde error for 
 # Developer diagnostics: the Performance window of the `perf` feature, which
 # release builds do not enable (see the module doc of perf.rs).
 crates/archicraft-app/src/perf.rs | * | developer diagnostic of the `perf` feature, not in release builds; metric names match the results file (archicraft-yso8)
+
+# archicraft-ifcx: project data the reader adds to a damaged file, as the
+# metric template names it.
+crates/archicraft-ifcx/src/alpha/reader.rs::read_migrated | "Untitled project" | default project name of a file without one (project data)
+crates/archicraft-ifcx/src/alpha/reader.rs::read_migrated | "3D perspective" | default 3D view added to a file without views (project data)
+crates/archicraft-ifcx/src/alpha/reader.rs::storey_list | "00 Ground floor" | default storey added to a file without readable storeys (project data)
+
+# archicraft-ifcx: file-format keywords and the JSON parser's own texts.
+crates/archicraft-ifcx/src/alpha/schema.rs::angle | "Plane angle" | IFCX quantityKind keyword of the archicraft:: schemas (file format)
+crates/archicraft-ifcx/src/validate.rs::parse_error | "recursion limit exceeded" | recognises serde_json's recursion-limit error by its text, never shown
+crates/archicraft-ifcx/src/validate.rs::SyntaxVisitor::expecting | "any JSON value" | serde expectation inside the JSON parser's error, passed on as the detail of ifcx-file-invalid
+crates/archicraft-ifcx/src/validate.rs::SyntaxKeyVisitor::expecting | "a string key" | serde expectation inside the JSON parser's error, passed on as the detail of ifcx-file-invalid
+crates/archicraft-ifcx/src/validate.rs::SyntaxKeyVisitor::visit_str | "a serde_json token as a key" | serde error inside the JSON parser's error, passed on as the detail of ifcx-file-invalid

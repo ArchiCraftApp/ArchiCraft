@@ -366,10 +366,10 @@ fn invalid_elements_are_skipped_and_reported() {
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
     assert_eq!(loaded.project.elements.len(), project.elements.len() - 1);
     assert!(
-        loaded
-            .problems
-            .iter()
-            .any(|p| p.severity == Severity::Error && p.message.contains("W-002 skipped")),
+        loaded.problems.iter().any(|p| p.severity == Severity::Error
+            && p.message
+                .to_string()
+                .contains(r#"ifcx-skipped(record=ifcx-record-element(name="W-002")"#)),
         "{:#?}",
         loaded.problems
     );
@@ -385,13 +385,13 @@ fn missing_references_are_repaired_and_reported() {
     });
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
     assert_eq!(loaded.project.elements.len(), project.elements.len());
-    let messages: Vec<&str> = loaded.problems.iter().map(|p| p.message.as_str()).collect();
+    let messages: Vec<String> = loaded.problems.iter().map(|p| p.message.to_string()).collect();
     assert!(
-        messages.iter().any(|m| m.contains("material does not exist")),
+        messages.iter().any(|m| m.contains("ifcx-element-material-missing")),
         "{messages:#?}"
     );
     assert!(
-        messages.iter().any(|m| m.contains("layer does not exist")),
+        messages.iter().any(|m| m.contains("ifcx-element-layer-missing")),
         "{messages:#?}"
     );
     assert!(loaded.project.integrity_problems().is_empty());
@@ -417,7 +417,7 @@ fn ground_storey_fallback_uses_the_model_tolerance() {
             loaded
                 .problems
                 .iter()
-                .any(|p| p.message.contains("ground storey is not defined")),
+                .any(|p| p.message.to_string().contains("ifcx-ground-storey-undefined")),
             "{:#?}",
             loaded.problems
         );
@@ -435,12 +435,11 @@ fn schema_violations_are_reported() {
         v["data"][0]["attributes"]["vendor::unknown"] = 1.into();
     });
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
-    assert!(
-        loaded
-            .problems
-            .iter()
-            .any(|p| p.message.contains("“vendor::unknown” is not declared"))
-    );
+    assert!(loaded.problems.iter().any(|p| {
+        p.message
+            .to_string()
+            .contains(r#"ifcx-attribute-undeclared(id="vendor::unknown")"#)
+    }));
 }
 
 /// IFX-062: a file of a newer format is flagged, not migrated.
@@ -488,7 +487,7 @@ fn third_party_files_are_reported_as_unsupported() {
         "data": [{"path": "p", "attributes": {"bsi::ifc::class": {"code": "IfcProject", "uri": "u"}}}]
     }"#;
     let error = archicraft_ifcx::load(third_party).unwrap_err();
-    assert!(error.message.contains("not supported yet"));
+    assert!(error.message.to_string().contains("ifcx-no-project"));
 }
 
 #[test]
@@ -502,7 +501,10 @@ fn cycles_are_detected() {
     });
     let file = validate::parse(&bytes).unwrap();
     let problems = validate::validate(&file);
-    assert!(problems.iter().any(|p| p.message.contains("cycle")), "{problems:#?}");
+    assert!(
+        problems.iter().any(|p| p.message.to_string().contains("cycle")),
+        "{problems:#?}"
+    );
 }
 
 fn project_settings(value: &mut Value) -> &mut serde_json::Map<String, Value> {
@@ -572,7 +574,11 @@ fn an_invalid_plan_grid_field_falls_back_to_its_default() {
         });
         let loaded = archicraft_ifcx::load(&bytes).unwrap();
         assert_eq!(loaded.problems.len(), 1, "{key}: {:#?}", loaded.problems);
-        assert!(loaded.problems[0].message.contains(key), "{:#?}", loaded.problems);
+        assert!(
+            loaded.problems[0].message.to_string().contains(key),
+            "{:#?}",
+            loaded.problems
+        );
         let mut expected = project.settings.plan_grid.clone();
         match key {
             "snapStep" => expected.snap_step = defaults.snap_step,
@@ -618,7 +624,7 @@ fn an_invalid_auxiliary_spacing_keeps_a_fine_main_spacing() {
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
     assert_eq!(loaded.problems.len(), 1, "{:#?}", loaded.problems);
     assert!(
-        loaded.problems[0].message.contains("auxiliarySpacing"),
+        loaded.problems[0].message.to_string().contains("auxiliarySpacing"),
         "{:#?}",
         loaded.problems
     );
@@ -642,7 +648,7 @@ fn an_invalid_main_spacing_keeps_the_grid_valid() {
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
     assert_eq!(loaded.problems.len(), 1, "{:#?}", loaded.problems);
     assert!(
-        loaded.problems[0].message.contains("mainSpacing"),
+        loaded.problems[0].message.to_string().contains("mainSpacing"),
         "{:#?}",
         loaded.problems
     );
@@ -684,7 +690,8 @@ fn a_class_outside_the_kinds_set_falls_back_to_the_kind_default() {
             loaded
                 .problems
                 .iter()
-                .any(|p| p.message.contains("unsupported IFC class") && p.message.contains(expected)),
+                .any(|p| p.message.to_string().contains("ifcx-element-class-unsupported")
+                    && p.message.to_string().contains(expected)),
             "{name}: {:#?}",
             loaded.problems
         );
@@ -748,7 +755,11 @@ fn an_invalid_snap_exclusion_flag_is_repaired_and_reported() {
     let repaired = loaded
         .problems
         .iter()
-        .filter(|p| p.message.contains("“snapExcluded” is not true or false"))
+        .filter(|p| {
+            p.message
+                .to_string()
+                .contains(r#"ifcx-field-not-boolean(key="snapExcluded")"#)
+        })
         .count();
     assert_eq!(repaired, 2, "{:#?}", loaded.problems);
 }

@@ -23,6 +23,7 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 
 use crate::container::{AttributeValue, DataType, IfcxFile, SERDE_JSON_TOKEN, SchemaEntry, ValueDescription};
+use crate::message::Message;
 use crate::registry;
 
 /// Largest accepted file: 2 GB (Appendix D.9).
@@ -40,45 +41,60 @@ pub enum Severity {
 }
 
 /// A problem found while validating or reading a file, with the affected node
-/// path where there is one (IFX-083, PRJ-008).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// path where there is one (IFX-083, PRJ-008). The message is a key with
+/// typed arguments ([`crate::message`]), rendered by the application in the
+/// user's language (NFR-L10N-001).
+#[derive(Clone, Debug, PartialEq)]
 pub struct Problem {
     pub severity: Severity,
     pub path: Option<String>,
-    pub message: String,
+    pub message: Message,
 }
 
 impl Problem {
-    pub fn error(path: Option<&str>, message: impl Into<String>) -> Self {
+    pub fn error(path: Option<&str>, message: Message) -> Self {
         Self {
             severity: Severity::Error,
             path: path.map(str::to_owned),
-            message: message.into(),
+            message,
         }
     }
 
-    pub fn warning(path: Option<&str>, message: impl Into<String>) -> Self {
+    pub fn warning(path: Option<&str>, message: Message) -> Self {
         Self {
             severity: Severity::Warning,
             path: path.map(str::to_owned),
-            message: message.into(),
+            message,
         }
     }
 
-    pub fn info(path: Option<&str>, message: impl Into<String>) -> Self {
+    pub fn info(path: Option<&str>, message: Message) -> Self {
         Self {
             severity: Severity::Info,
             path: path.map(str::to_owned),
-            message: message.into(),
+            message,
+        }
+    }
+
+    /// The message with the node path in front, as reports list it
+    /// (`ifcx-problem-at`), or the message alone when there is no path.
+    pub fn located(&self) -> Message {
+        match &self.path {
+            Some(path) => Message::new("ifcx-problem-at")
+                .text("path", path.clone())
+                .nested("message", self.message.clone()),
+            None => self.message.clone(),
         }
     }
 }
 
+/// The key form, for logs and test failures; the user interface renders
+/// [`Problem::located`] instead.
 impl std::fmt::Display for Problem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.path {
             Some(path) => write!(f, "[{path}] {}", self.message),
-            None => f.write_str(&self.message),
+            None => write!(f, "{}", self.message),
         }
     }
 }
@@ -147,7 +163,12 @@ impl SchemaSet {
                 Ok(entry) => {
                     schemas.insert(id.clone(), entry.value);
                 }
-                Err(e) => problems.push(Problem::error(None, format!("Schema “{id}” cannot be read: {e}"))),
+                Err(e) => problems.push(Problem::error(
+                    None,
+                    Message::new("ifcx-schema-unreadable")
+                        .text("id", id.clone())
+                        .text("detail", e.to_string()),
+                )),
             }
         }
         for import in &file.imports {
@@ -166,10 +187,7 @@ impl SchemaSet {
                 }
                 None => problems.push(Problem::warning(
                     None,
-                    format!(
-                        "Import “{}” is not available offline; its attributes cannot be checked.",
-                        import.uri
-                    ),
+                    Message::new("ifcx-import-offline").text("uri", import.uri.clone()),
                 )),
             }
         }
@@ -193,34 +211,32 @@ fn type_name(value: &Value) -> &'static str {
 }
 
 /// Checks a value against its description, as the reference implementation
-/// does. Returns a message on the first mismatch.
-pub fn check_value(desc: &ValueDescription, value: &Value, schemas: &SchemaSet, depth: usize) -> Result<(), String> {
+/// does. Returns a message on the first mismatch; the expected and found
+/// types are JSON type names.
+pub fn check_value(desc: &ValueDescription, value: &Value, schemas: &SchemaSet, depth: usize) -> Result<(), Message> {
     if depth > 64 {
-        return Err("schema nesting is too deep".into());
+        return Err(Message::new("ifcx-schema-too-deep"));
     }
     if let Some(inherited) = &desc.inherits {
         for id in inherited {
             let parent = schemas
                 .get(id)
-                .ok_or_else(|| format!("unknown inherited schema “{id}”"))?;
+                .ok_or_else(|| Message::new("ifcx-schema-unknown-inherited").text("id", id.clone()))?;
             check_value(parent, value, schemas, depth + 1)?;
         }
     }
-    let expect = |ok: bool, what: &str| {
-        if ok {
-            Ok(())
-        } else {
-            Err(format!("expected {what}, found {}", type_name(value)))
-        }
+    let mismatch = |expected: &str| {
+        Message::new("ifcx-value-type")
+            .text("expected", expected)
+            .text("found", type_name(value))
     };
+    let expect = |ok: bool, expected: &str| if ok { Ok(()) } else { Err(mismatch(expected)) };
     match desc.data_type {
-        DataType::Boolean => expect(value.is_boolean(), "a boolean"),
-        DataType::String | DataType::DateTime | DataType::Reference => expect(value.is_string(), "a string"),
-        DataType::Integer | DataType::Real => expect(value.is_number(), "a number"),
+        DataType::Boolean => expect(value.is_boolean(), "boolean"),
+        DataType::String | DataType::DateTime | DataType::Reference => expect(value.is_string(), "string"),
+        DataType::Integer | DataType::Real => expect(value.is_number(), "number"),
         DataType::Enum => {
-            let text = value
-                .as_str()
-                .ok_or_else(|| format!("expected a string, found {}", type_name(value)))?;
+            let text = value.as_str().ok_or_else(|| mismatch("string"))?;
             let options = desc
                 .enum_restrictions
                 .as_ref()
@@ -229,38 +245,40 @@ pub fn check_value(desc: &ValueDescription, value: &Value, schemas: &SchemaSet, 
             if options.iter().filter(|o| *o == text).count() == 1 {
                 Ok(())
             } else {
-                Err(format!("“{text}” is not one of [{}]", options.join(",")))
+                Err(Message::new("ifcx-value-not-option")
+                    .text("value", text)
+                    .text("options", options.join(", ")))
             }
         }
         DataType::Object => {
-            let object = value
-                .as_object()
-                .ok_or_else(|| format!("expected an object, found {}", type_name(value)))?;
+            let object = value.as_object().ok_or_else(|| mismatch("object"))?;
             if let Some(restrictions) = &desc.object_restrictions {
                 for (key, field) in &restrictions.values {
                     match object.get(key) {
                         None if field.optional == Some(true) => {}
-                        None => return Err(format!("missing key “{key}”")),
-                        Some(v) => check_value(field, v, schemas, depth + 1).map_err(|e| format!("{key}: {e}"))?,
+                        None => return Err(Message::new("ifcx-value-key-missing").text("key", key.clone())),
+                        Some(v) => check_value(field, v, schemas, depth + 1).map_err(|e| {
+                            Message::new("ifcx-value-in-key")
+                                .text("key", key.clone())
+                                .nested("reason", e)
+                        })?,
                     }
                 }
             }
             Ok(())
         }
         DataType::Array => {
-            let items = value
-                .as_array()
-                .ok_or_else(|| format!("expected an array, found {}", type_name(value)))?;
+            let items = value.as_array().ok_or_else(|| mismatch("array"))?;
             let restrictions = desc
                 .array_restrictions
                 .as_ref()
-                .ok_or("an Array schema needs arrayRestrictions")?;
+                .ok_or_else(|| Message::new("ifcx-schema-array-restrictions"))?;
             for item in items {
                 check_value(&restrictions.value, item, schemas, depth + 1)?;
             }
             Ok(())
         }
-        DataType::Blob => Err("the Blob data type is not supported".into()),
+        DataType::Blob => Err(Message::new("ifcx-schema-blob")),
     }
 }
 
@@ -272,14 +290,22 @@ pub fn check_attributes<A: AttributeValue>(nodes: &IndexMap<String, FlatNode<A>>
     for (path, node) in nodes {
         for (id, value) in &node.attributes {
             match schemas.get(id) {
-                None => problems.push(Problem::error(Some(path), format!("attribute “{id}” is not declared"))),
+                None => problems.push(Problem::error(
+                    Some(path),
+                    Message::new("ifcx-attribute-undeclared").text("id", id.clone()),
+                )),
                 Some(desc) => {
                     let checked = value
                         .value()
-                        .map_err(|e| e.to_string())
+                        .map_err(|e| Message::new("ifcx-detail").text("detail", e.to_string()))
                         .and_then(|value| check_value(desc, &value, schemas, 0));
                     if let Err(e) = checked {
-                        problems.push(Problem::error(Some(path), format!("attribute “{id}”: {e}")));
+                        problems.push(Problem::error(
+                            Some(path),
+                            Message::new("ifcx-attribute-invalid")
+                                .text("id", id.clone())
+                                .nested("reason", e),
+                        ));
                     }
                 }
             }
@@ -305,10 +331,10 @@ pub fn roots<A>(nodes: &IndexMap<String, FlatNode<A>>) -> Result<Vec<String>, Pr
         level: usize,
     ) -> Result<usize, Problem> {
         if level > MAX_COMPOSITION_DEPTH {
-            return Err(Problem::error(Some(path), "composition is nested too deeply"));
+            return Err(Problem::error(Some(path), Message::new("ifcx-composition-too-deep")));
         }
         match state.get(path) {
-            Some((1, _)) => return Err(Problem::error(Some(path), "composition cycle")),
+            Some((1, _)) => return Err(Problem::error(Some(path), Message::new("ifcx-composition-cycle"))),
             Some((_, depth)) => return Ok(*depth),
             None => {}
         }
@@ -321,7 +347,7 @@ pub fn roots<A>(nodes: &IndexMap<String, FlatNode<A>>) -> Result<Vec<String>, Pr
             }
         }
         if depth > MAX_COMPOSITION_DEPTH {
-            return Err(Problem::error(Some(path), "composition is nested too deeply"));
+            return Err(Problem::error(Some(path), Message::new("ifcx-composition-too-deep")));
         }
         state.insert(path, (2, depth));
         Ok(depth)
@@ -345,7 +371,7 @@ pub fn dangling_references<A>(nodes: &IndexMap<String, FlatNode<A>>) -> Vec<Prob
             if !nodes.contains_key(head) {
                 problems.push(Problem::warning(
                     Some(path),
-                    format!("refers to the unknown node “{target}”"),
+                    Message::new("ifcx-unknown-node").text("target", target.clone()),
                 ));
             }
         }
@@ -357,13 +383,14 @@ pub fn dangling_references<A>(nodes: &IndexMap<String, FlatNode<A>>) -> Vec<Prob
 /// user-facing units (NFR-SEC-003).
 fn too_large(limit: u64) -> Problem {
     const KB: u64 = 1024;
-    let size = match limit {
-        l if l >= KB * KB * KB && l % (KB * KB * KB) == 0 => format!("{} GB", l / (KB * KB * KB)),
-        l if l >= KB * KB && l % (KB * KB) == 0 => format!("{} MB", l / (KB * KB)),
-        l if l >= KB && l % KB == 0 => format!("{} KB", l / KB),
-        l => format!("{l} bytes"),
+    let (key, size) = match limit {
+        l if l >= KB * KB * KB && l % (KB * KB * KB) == 0 => ("ifcx-size-gb", l / (KB * KB * KB)),
+        l if l >= KB * KB && l % (KB * KB) == 0 => ("ifcx-size-mb", l / (KB * KB)),
+        l if l >= KB && l % KB == 0 => ("ifcx-size-kb", l / KB),
+        l => ("ifcx-size-bytes", l),
     };
-    Problem::error(None, format!("the file is larger than the limit of {size}"))
+    let size = Message::new(key).count("size", usize::try_from(size).unwrap_or(usize::MAX));
+    Problem::error(None, Message::new("ifcx-file-too-large").nested("limit", size))
 }
 
 /// Reads a whole file of at most `limit` bytes (Appendix D.9 file size,
@@ -380,7 +407,7 @@ pub fn read_bounded(reader: impl Read, declared_len: Option<u64>, limit: u64) ->
     reader
         .take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
-        .map_err(|e| Problem::error(None, format!("the file cannot be read: {e}")))?;
+        .map_err(|e| Problem::error(None, cannot_read(&e)))?;
     if bytes.len() as u64 > limit {
         return Err(too_large(limit));
     }
@@ -394,18 +421,26 @@ fn check_size(bytes: &[u8]) -> Result<(), Problem> {
     Ok(())
 }
 
+/// The message for a file that cannot be read, with the system's reason.
+pub(crate) fn cannot_read(e: &std::io::Error) -> Message {
+    Message::new("ifcx-file-unreadable").text("detail", e.to_string())
+}
+
 fn parse_error(e: serde_json::Error) -> Problem {
     // serde_json reports its recursion limit only in the message.
     if e.to_string().starts_with("recursion limit exceeded") {
-        Problem::error(None, "the file is nested more than 127 levels deep")
+        Problem::error(None, Message::new("ifcx-file-nested-too-deep").count("max", 127))
     } else {
-        Problem::error(None, format!("the file is not a valid IFCX document: {e}"))
+        Problem::error(None, Message::new("ifcx-file-invalid").text("detail", e.to_string()))
     }
 }
 
 fn check_imports<A>(file: IfcxFile<A>) -> Result<IfcxFile<A>, Problem> {
     if file.imports.len() > MAX_IMPORTS {
-        return Err(Problem::error(None, "the file has more than 32 imports"));
+        return Err(Problem::error(
+            None,
+            Message::new("ifcx-file-too-many-imports").count("max", MAX_IMPORTS),
+        ));
     }
     Ok(file)
 }
@@ -571,7 +606,7 @@ pub fn validate_flattened<A: AttributeValue>(
         Ok(roots) if roots.len() == 1 => {}
         Ok(roots) => problems.push(Problem::warning(
             None,
-            format!("the composed tree has {} roots instead of one", roots.len()),
+            Message::new("ifcx-roots").count("count", roots.len()),
         )),
         Err(e) => problems.push(e),
     }

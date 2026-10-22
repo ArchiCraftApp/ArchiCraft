@@ -90,13 +90,14 @@ fn ifx_092_a_file_importing_the_published_schema_validates() {
         assert!(
             unresolved
                 .iter()
-                .any(|p| p.severity == Severity::Warning && p.message.contains(PLACEHOLDER_URI)),
+                .any(|p| p.severity == Severity::Warning && p.message.to_string().contains(PLACEHOLDER_URI)),
             "{name}: {unresolved:#?}"
         );
         assert!(
-            unresolved
-                .iter()
-                .any(|p| p.severity == Severity::Error && p.message.contains("“archicraft::project” is not declared")),
+            unresolved.iter().any(|p| p.severity == Severity::Error
+                && p.message
+                    .to_string()
+                    .contains(r#"ifcx-attribute-undeclared(id="archicraft::project")"#)),
             "{name}: {unresolved:#?}"
         );
     }
@@ -112,9 +113,10 @@ fn ifx_092_extra_sources_resolve_only_named_imports() {
         file.imports.retain(|import| import.uri != PLACEHOLDER_URI);
         let problems = validate::validate_with(&file, &[(PLACEHOLDER_URI, &document)]);
         assert!(
-            problems
-                .iter()
-                .any(|p| p.severity == Severity::Error && p.message.contains("“archicraft::project” is not declared")),
+            problems.iter().any(|p| p.severity == Severity::Error
+                && p.message
+                    .to_string()
+                    .contains(r#"ifcx-attribute-undeclared(id="archicraft::project")"#)),
             "{name}: {problems:#?}"
         );
     }

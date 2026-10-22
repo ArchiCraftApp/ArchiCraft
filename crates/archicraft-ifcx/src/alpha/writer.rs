@@ -24,6 +24,7 @@ use uuid::Uuid;
 use super::schema::{self, FORMAT_VERSION};
 use crate::container::{Header, IfcxFile, Import, Node};
 use crate::json::{self, round_coordinate};
+use crate::message::Message;
 use crate::registry;
 use crate::validate::Problem;
 
@@ -147,10 +148,7 @@ fn tool_defaults(p: &Project, warnings: &mut Vec<Problem>) -> Value {
             _ => {
                 warnings.push(Problem::warning(
                     None,
-                    format!(
-                        "The defaults of the “{}” tool cannot be stored in this file format yet and were not saved.",
-                        kind.code()
-                    ),
+                    Message::new("ifcx-tool-defaults-not-saved").kind("kind", kind),
                 ));
                 continue;
             }
@@ -499,7 +497,7 @@ fn write_element(
         }
         None => warnings.push(Problem::warning(
             Some(&e.id.to_string()),
-            format!("{} has no valid geometry and was saved without a body.", e.name),
+            Message::new("ifcx-saved-without-body").text("name", e.name.clone()),
         )),
     }
     node.attributes
@@ -527,11 +525,9 @@ fn write_element(
         // unsupported node, not as a broken element.
         None => warnings.push(Problem::warning(
             Some(&e.id.to_string()),
-            format!(
-                "{} is of the kind “{}”, which this file format cannot store yet; it was saved without its parameters and will not open as an editable element.",
-                e.name,
-                e.tag().code()
-            ),
+            Message::new("ifcx-kind-not-storable")
+                .text("name", e.name.clone())
+                .kind("kind", e.tag()),
         )),
     }
     emit(node);

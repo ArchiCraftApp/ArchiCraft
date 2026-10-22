@@ -918,7 +918,7 @@ pub fn problems_panel(ui: &mut Ui, ws: &mut Workspace, load_problems: &[archicra
                 archicraft_ifcx::Severity::Warning => ui.visuals().warn_fg_color,
                 archicraft_ifcx::Severity::Info => ui.visuals().text_color(),
             };
-            ui.colored_label(color, problem.to_string());
+            ui.colored_label(color, ws.render(&problem.located()));
         }
     });
 }

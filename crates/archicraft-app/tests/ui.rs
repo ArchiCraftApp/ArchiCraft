@@ -1053,6 +1053,39 @@ fn a_damaged_file_opens_with_the_load_report() {
     assert!(harness.query_by_label("The project was opened with problems").is_none());
 }
 
+/// PRJ-008, NFR-L10N-001: the load report and the problems panel show the
+/// problems of a damaged file as sentences from the catalogue, the model's
+/// reason rendered in place, and never a message key.
+#[test]
+fn load_problems_show_as_localized_text() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../archicraft-ifcx/tests/corrupt/invalid-wall.ifcx");
+    let no_key_form = |harness: &Harness<'static, ArchiCraftApp>| {
+        for prefix in ["model-", "ifcx-"] {
+            let keys: Vec<String> = harness
+                .query_all_by_label_contains(prefix)
+                .map(|node| format!("{node:?}"))
+                .collect();
+            assert!(keys.is_empty(), "{keys:#?}");
+        }
+    };
+    let expected = "element W-002 skipped: Thickness must be between";
+    let mut harness = harness("load-report-text");
+    harness.state_mut().open_path(&path);
+    harness.run_steps(2);
+    harness.get_by_label("The project was opened with problems");
+    harness.get_by_label_contains(expected);
+    no_key_form(&harness);
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+
+    press(&mut harness, Binding::primary(Key::P).shift(), OperatingSystem::Nix);
+    harness.run_steps(2);
+    harness.get_by_label_contains("from opening the file");
+    harness.get_by_label_contains(expected);
+    no_key_form(&harness);
+}
+
 /// NFR-REL-007, NFR-SEC-003: every fuzz regression and every corrupt fixture
 /// of the IFCX crate goes through the application's open path without a
 /// panic, and the application answers each with the load report or the

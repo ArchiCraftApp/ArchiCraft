@@ -17,6 +17,7 @@
 pub mod alpha;
 pub mod container;
 pub mod json;
+pub mod message;
 pub mod registry;
 #[cfg(feature = "successor-stub")]
 pub mod successor;
@@ -90,10 +91,9 @@ pub fn load(bytes: &[u8]) -> Result<ReadOutcome, Problem> {
         let supported: Vec<&str> = ADAPTERS.iter().map(|a| a.version).collect();
         return Err(Problem::error(
             None,
-            format!(
-                "the IFCX version “{version}” is not supported; this release reads {}",
-                supported.join(", ")
-            ),
+            message::Message::new("ifcx-version-unsupported")
+                .text("version", version)
+                .text("supported", supported.join(", ")),
         ));
     };
     (adapter.read)(&file)
@@ -108,7 +108,7 @@ pub fn load_path(path: &Path) -> Result<ReadOutcome, Problem> {
 /// [`load_path`] with another size limit, so that callers can test the
 /// limit without 2 GB files.
 pub fn load_path_with_limit(path: &Path, limit: u64) -> Result<ReadOutcome, Problem> {
-    let cannot_read = |e: std::io::Error| Problem::error(None, format!("the file cannot be read: {e}"));
+    let cannot_read = |e: std::io::Error| Problem::error(None, validate::cannot_read(&e));
     let file = std::fs::File::open(path).map_err(cannot_read)?;
     // A pipe or device has no length; an empty length is no promise either.
     let declared_len = file
