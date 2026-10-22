@@ -10,7 +10,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::project::{DefaultsSlot, ToolDefaults};
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::validate::{MAX_GRID_SPACING, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
+use archicraft_model::validate::{MAX_GRID_SPACING, MAX_HEIGHT, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
 use archicraft_model::{
     Arg, Command, CommandError, Element, ElementKind, History, IfcClass, KindTag, Layer, Material, Message, PlanGrid,
     ProjectSettings, Slab, Storey, StoreyId, TopLink, Wall,
@@ -416,6 +416,107 @@ fn storey_moves_refuse_to_drop_linked_walls_below_the_minimum_height() {
         shift_above: false,
     };
     assert_too_low(&mut p, &mut h, command, "W-001", 1);
+}
+
+/// Asserts that `command` is refused because it would raise the element
+/// named `name`, and `others` more, above MAX_HEIGHT, and that the project
+/// is unchanged.
+fn assert_too_high(p: &mut archicraft_model::Project, h: &mut History, command: Command, name: &str, others: usize) {
+    let before = p.clone();
+    let (variant, message) = rejection(h.execute(p, command));
+    assert_eq!(
+        (variant, message.key()),
+        ("Invalid", "model-error-linked-element-too-high")
+    );
+    assert_eq!(message.arg("name"), Some(&Arg::Text(name.into())));
+    assert_eq!(message.arg("count"), Some(&Arg::Count(others as u64)));
+    assert_eq!(message.arg("max"), Some(&Arg::Length(MAX_HEIGHT)));
+    assert_eq!(*p, before, "a refused storey edit leaves the project unchanged");
+}
+
+/// NFR-REL-005, ELM-017, STR-002: moving, inserting a storey or changing
+/// its height does not raise a wall linked to it above the 1000 m maximum
+/// height; the command is refused with a message naming the wall and
+/// counting the others, and an edit that keeps it at most 1000 m high is
+/// accepted.
+#[test]
+fn storey_edits_refuse_to_raise_linked_walls_above_the_maximum_height() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let [g, first] = [0, 1].map(|i| p.storeys.as_slice()[i].id);
+    // 3 m high, two of them, linked to the first floor at 3 m.
+    let walls = [linked_wall(&p, g, first, 0.0), linked_wall(&p, g, first, 0.0)];
+    let id = walls[0].id;
+    h.execute(&mut p, Command::AddElements(walls.to_vec())).unwrap();
+
+    let command = Command::SetStoreyElevation {
+        storey: first,
+        elevation: 1000.5,
+        shift_above: false,
+    };
+    assert_too_high(&mut p, &mut h, command, "W-001", 1);
+    let command = Command::SetStoreyHeight {
+        storey: g,
+        height: 1000.5,
+        shift_above: true,
+    };
+    assert_too_high(&mut p, &mut h, command, "W-001", 1);
+    // A storey inserted above the ground lifts the first floor by its height.
+    let command = Command::InsertStorey {
+        reference: g,
+        above: true,
+        storey: Storey::new("00a Atrium", 0.0, 998.0),
+    };
+    assert_too_high(&mut p, &mut h, command, "W-001", 1);
+
+    // 1000 m is still at most the maximum.
+    h.execute(
+        &mut p,
+        Command::SetStoreyHeight {
+            storey: g,
+            height: 1000.0,
+            shift_above: true,
+        },
+    )
+    .unwrap();
+    let (bottom, top) = p.vertical_extent(p.element(id).unwrap()).unwrap();
+    assert!((top - bottom - 1000.0).abs() < 1e-9, "{}", top - bottom);
+}
+
+/// NFR-REL-005, STR-002: an element made higher than the maximum outside
+/// the commands does not block storey edits that leave it as it is, or
+/// lower it, beyond rounding; an edit that raises it further is refused.
+#[test]
+fn storey_edits_that_do_not_raise_a_too_high_element_are_accepted() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let [g, first] = [0, 1].map(|i| p.storeys.as_slice()[i].id);
+    let w = linked_wall(&p, g, first, 0.0);
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    p.storeys = p.storeys.set_elevation(first, 1000.5, false).unwrap();
+    h.execute(
+        &mut p,
+        Command::RenameStorey {
+            storey: first,
+            name: "01 Upper floor".into(),
+        },
+    )
+    .unwrap();
+    h.execute(
+        &mut p,
+        Command::SetStoreyElevation {
+            storey: first,
+            elevation: 1000.2,
+            shift_above: false,
+        },
+    )
+    .unwrap();
+    let command = Command::SetStoreyElevation {
+        storey: first,
+        elevation: 1000.3,
+        shift_above: false,
+    };
+    assert_too_high(&mut p, &mut h, command, "W-001", 0);
 }
 
 /// NFR-REL-005, STR-002: inserting or deleting a storey moves the storeys

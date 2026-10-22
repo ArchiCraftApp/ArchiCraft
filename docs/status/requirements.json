@@ -147,7 +147,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs, crates/archicraft-app/src/ui/dialogs.rs:37, derives Default), so by default changing a height moves only the next storey (StoreyList::set_height, crates/archicraft-model/src/storey.rs:303), the SRS alternative, instead of shifting all storeys above. One checkbox governs both edits, so the SRS defaults (height: shift the storeys above; elevation: keep them and change the height of the storey below) cannot both apply at once; the choice is a sticky dialog toggle, not a per-edit choice, and it resets on restart. Elevation and height changes that would leave a storey-linked element lower than 1 mm are refused with a message naming it (NFR-REL-005).",
+      "gap": "The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs, crates/archicraft-app/src/ui/dialogs.rs:37, derives Default), so by default changing a height moves only the next storey (StoreyList::set_height, crates/archicraft-model/src/storey.rs:303), the SRS alternative, instead of shifting all storeys above. One checkbox governs both edits, so the SRS defaults (height: shift the storeys above; elevation: keep them and change the height of the storey below) cannot both apply at once; the choice is a sticky dialog toggle, not a per-edit choice, and it resets on restart. Elevation and height changes that would leave a storey-linked element lower than 1 mm or higher than 1000 m are refused with a message naming it (NFR-REL-005).",
       "depends_on": []
     },
     {
@@ -1807,7 +1807,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Range checks work: values are validated when committed (validate_element, crates/archicraft-model/src/validate.rs:299) and rejected with an explanation in the status line, and a storey move that would leave a linked wall lower than 1 mm is rejected with a message naming it (NFR-REL-005). Dependent values do not update live while editing: fields parse and commit only on Enter or focus loss (committed_text, crates/archicraft-app/src/ui/widgets.rs:24), so an invalid value is also flagged only after the commit, and the derived rows (derived, crates/archicraft-app/src/ui/properties.rs:506) refresh only after the command has run. No kind with dependent parameters (stairs, STA) exists yet, so nothing is recomputed live.",
+      "gap": "Range checks work: values are validated when committed (validate_element, crates/archicraft-model/src/validate.rs:299) and rejected with an explanation in the status line, and a storey move that would leave a linked wall lower than 1 mm or higher than 1000 m is rejected with a message naming it (NFR-REL-005). Dependent values do not update live while editing: fields parse and commit only on Enter or focus loss (committed_text, crates/archicraft-app/src/ui/widgets.rs:24), so an invalid value is also flagged only after the commit, and the derived rows (derived, crates/archicraft-app/src/ui/properties.rs:506) refresh only after the command has run. No kind with dependent parameters (stairs, STA) exists yet, so nothing is recomputed live.",
       "depends_on": []
     },
     {
@@ -5287,7 +5287,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Storey edits (insert, delete, elevation, height) refuse to leave an element whose top is linked to a storey lower than the 1 mm minimum height, naming the element (check_linked_heights, crates/archicraft-model/src/command.rs:344; tests storey_moves_refuse_to_drop_linked_walls_below_the_minimum_height and inserting_or_deleting_a_storey_refuses_to_drop_linked_walls_below_the_minimum_height in crates/archicraft-model/tests/commands.rs). Still open: storey edits do not check the 1000 m maximum height (MAX_HEIGHT, crates/archicraft-model/src/validate.rs:32) of linked elements, and Boolean operations, whose failures must be rejected, do not exist yet.",
+      "gap": "Storey edits (insert, delete, elevation, height) refuse to leave an element whose top is linked to a storey lower than the 1 mm minimum height, naming the element, and to raise such an element above the 1000 m maximum height (MAX_HEIGHT, crates/archicraft-model/src/validate.rs:32) the same way (check_linked_heights, crates/archicraft-model/src/command.rs:346; tests storey_moves_refuse_to_drop_linked_walls_below_the_minimum_height, inserting_or_deleting_a_storey_refuses_to_drop_linked_walls_below_the_minimum_height and storey_edits_refuse_to_raise_linked_walls_above_the_maximum_height in crates/archicraft-model/tests/commands.rs). Still open: adding or updating an element does not check a storey-linked extent against the maximum height (validate_element checks only the minimum), and Boolean operations, whose failures must be rejected, do not exist yet.",
       "depends_on": []
     },
     {
