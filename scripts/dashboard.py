@@ -136,13 +136,17 @@ def collect_prs():
     try:
         answer = run_json(["gh", "api", "graphql", "-F", "owner={owner}", "-F", "name={repo}",
                            "-f", f"query={QUEUE_QUERY}"], cwd=ROOT)
-        errors = answer.get("errors") if isinstance(answer, dict) else None
-        if errors and not ((answer.get("data") or {}).get("repository")):
+        if not isinstance(answer, dict):
+            raise RuntimeError("gh api graphql: the answer is not a JSON object")
+        repository = (answer.get("data") or {}).get("repository")
+        if not repository:
             # A GraphQL error comes back as an answer without the repository: report GitHub's
             # messages instead of failing on the missing data.
-            raise RuntimeError("gh api graphql: " + "; ".join(
-                str(e.get("message") if isinstance(e, dict) else e) for e in errors))
-        queue = {n["number"]: n for n in answer["data"]["repository"]["pullRequests"]["nodes"]}
+            errors = answer.get("errors")
+            raise RuntimeError("gh api graphql: " + ("; ".join(
+                str(e.get("message") if isinstance(e, dict) else e) for e in errors)
+                if errors else "the answer has no repository"))
+        queue = {n["number"]: n for n in repository["pullRequests"]["nodes"]}
     except (RuntimeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as e:
         queue, queue_error = None, str(e) or type(e).__name__
     for p in open_prs:
@@ -171,7 +175,8 @@ USER_REVIEW_CHECK = "User review check"
 def check_time(c):
     """The time a statusCheckRollup entry is ordered by: gh exports a check run's and a status's
     time as "startedAt"; "createdAt" is the fallback. rollup_user_review() and summarize_checks()
-    both use it, so their orderings cannot drift."""
+    both use it and both let the later entry of the rollup win a tie, so their orderings cannot
+    drift."""
     return c.get("startedAt") or c.get("createdAt") or ""
 
 
@@ -198,7 +203,7 @@ def summarize_checks(rollup):
         if name == USER_REVIEW or (name == USER_REVIEW_CHECK and waits):
             continue
         started = check_time(c)
-        if name not in latest or started > latest[name][0]:
+        if name not in latest or started >= latest[name][0]:
             latest[name] = (started, c)
     summary = {"pass": 0, "fail": 0, "pending": 0, "skipped": 0, "failing": [], "running": []}
     for name, (_, c) in sorted(latest.items()):
