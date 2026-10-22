@@ -67,7 +67,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Units, storeys, location, layers, materials, 3D views (name and projection only), tessellation tolerances and the cut-plane default are stored (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs:200). Layer structures, profiles, presets and stair rule defaults are not in the model, so not stored (PRF-001, PRF-004, ELM-002, stairs). Personal settings: the tab/split layout is not persisted (the tile tree is rebuilt by default_tree, crates/archicraft-app/src/app.rs:117, at start and on every New/Open/Close via ArchiCraftApp::replace_document, crates/archicraft-app/src/app.rs:231); only egui's own memory (panel sizes) survives through eframe's persistence feature; shortcuts are not customisable (UI-009), so no keymap is stored; Preferences (crates/archicraft-app/src/persistence/prefs.rs:32) has no navigation-scheme setting.",
+      "gap": "Units, storeys, location, layers, materials, 3D views (name and projection only), tessellation tolerances and the cut-plane default are stored (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs:200). Layer structures, profiles, presets and stair rule defaults are not in the model, so not stored (PRF-001, PRF-004, ELM-002, stairs). Personal settings: the tab/split layout is not persisted (the tile tree is rebuilt by default_tree, crates/archicraft-app/src/app.rs:117, at start and on every New/Open/Close via ArchiCraftApp::replace_document, crates/archicraft-app/src/app.rs:231); only egui's own memory (panel sizes) survives through eframe's persistence feature; shortcuts are not customisable (UI-009), so no keymap is stored; Preferences (crates/archicraft-app/src/persistence/prefs.rs:33) has no navigation-scheme setting.",
       "depends_on": []
     },
     {
@@ -1097,7 +1097,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Directions are measured from the model X axis only (constrain, crates/archicraft-app/src/input/constrain.rs:9): neither the plan-grid rotation (PlanGrid, crates/archicraft-model/src/project.rs:56) nor a construction grid (GRD-001, not implemented) orients them. The alternative of holding the cursor on the nearest guide, including vertical guides in 3D, is missing: no guides exist (PlanInput::ctx passes none, crates/archicraft-app/src/views/plan.rs:191) and 3D views take no point input. Constrained mode bypasses snapping (PointInput::resolve, crates/archicraft-app/src/input/mod.rs:237): with Shift held the constrained point is the only candidate, so nodes and edges along the direction cannot be snapped.",
+      "gap": "Directions are measured from the model X axis only (constrain, crates/archicraft-app/src/input/constrain.rs:9): neither the plan-grid rotation (PlanGrid, crates/archicraft-model/src/project.rs:56) nor a construction grid (GRD-001, not implemented) orients them. The alternative of holding the cursor on the nearest guide, including vertical guides in 3D, is missing: no guides exist (PlanInput::ctx passes none, crates/archicraft-app/src/views/plan.rs:191) and 3D views take no point input. Constrained mode bypasses snapping (PointInput::resolve, crates/archicraft-app/src/input/mod.rs:239): with Shift held the constrained point is the only candidate, so nodes and edges along the direction cannot be snapped.",
       "depends_on": []
     },
     {
@@ -1154,10 +1154,10 @@
       "id": "INP-010",
       "priority": "M",
       "section": "4.6",
-      "status": "missing",
+      "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Only the 'half' mode, hard-coded: collect (crates/archicraft-app/src/input/snap.rs:329) adds the midpoint of each edge within the snap radius as the only division point. Missing: N equal parts (N = 2 to 100), a percentage from the nearer end, a repeated fixed distance from the nearer end, the best equal division nearest a target distance; a setting that selects exactly one active mode; the scope option (between nodes, between intersections with other elements, or the whole element; edges are always single plan segments today); showing the division points while an edge is hovered.",
+      "gap": "The five modes divide segments, circles and arcs (DivisionMode, crates/archicraft-app/src/input/division.rs:97; divide at :172), and the mode, its value and the scope are stored in the preferences (InputSettings, crates/archicraft-app/src/input/division.rs:181; Preferences::input, crates/archicraft-app/src/persistence/prefs.rs:58), but snapping still offers only the hard-coded midpoint (collect, crates/archicraft-app/src/input/snap.rs:329): hovering an edge shows no ticks, the scopes are not resolved on the snap index, and no control chooses the mode.",
       "depends_on": []
     },
     {
@@ -1167,7 +1167,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: marking points and edges as snap references by hovering for a dwell time (default 1.0 s, Appendix D.1; no such preference) or instantly with a key; temporary inference guides (horizontal, vertical, angle increments, parallel, perpendicular, tangent, the bisector of two marked edges, the line through two circle centres) and their drawing; clearing marks when the input ends or on Esc. Only hooks exist: GuideShape (crates/archicraft-app/src/input/mod.rs:37), guide and guide-intersection candidates in collect (crates/archicraft-app/src/input/snap.rs:329) and InputContext::marked, but the plan passes no guides and no marked point (PlanInput::ctx, crates/archicraft-app/src/views/plan.rs:191).",
+      "gap": "Whole requirement: marking points and edges as snap references by hovering for a dwell time (default 1.0 s, Appendix D.1; no such preference) or instantly with a key; temporary inference guides (horizontal, vertical, angle increments, parallel, perpendicular, tangent, the bisector of two marked edges, the line through two circle centres) and their drawing; clearing marks when the input ends or on Esc. Only hooks exist: GuideShape (crates/archicraft-app/src/input/mod.rs:39), guide and guide-intersection candidates in collect (crates/archicraft-app/src/input/snap.rs:329) and InputContext::marked, but the plan passes no guides and no marked point (PlanInput::ctx, crates/archicraft-app/src/views/plan.rs:191).",
       "depends_on": []
     },
     {
@@ -1177,7 +1177,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: persistent guide lines, segments, circles and arcs in plan and 3D views, stored per view, snappable including their division points, created by dragging from the view border onto an edge (aligned to it), moved by a numeric offset (also as a copy), deleted individually, by sweep or all at once, hidden globally, and excluded from export and the model. Only hooks exist: GuideShape (crates/archicraft-app/src/input/mod.rs:37) has a single Line variant and the snap candidates rank guide points and guide intersections (collect, crates/archicraft-app/src/input/snap.rs:329); nothing creates or stores guides.",
+      "gap": "Whole requirement: persistent guide lines, segments, circles and arcs in plan and 3D views, stored per view, snappable including their division points, created by dragging from the view border onto an edge (aligned to it), moved by a numeric offset (also as a copy), deleted individually, by sweep or all at once, hidden globally, and excluded from export and the model. Only hooks exist: GuideShape (crates/archicraft-app/src/input/mod.rs:39) has a single Line variant and the snap candidates rank guide points and guide intersections (collect, crates/archicraft-app/src/input/snap.rs:329); nothing creates or stores guides.",
       "depends_on": []
     },
     {
@@ -1607,7 +1607,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "None of trim (EDT-011), extend (EDT-012), split (EDT-013), parameter pick-up/inject (ELM-003) or contour detection (INP-018) exist, neither as modifier gestures nor as explicit commands; the command registry (crates/archicraft-app/src/commands/) has only file, edit, view, project, help and tool commands. Live previews exist only for element creation (ToolState::outlines, crates/archicraft-app/src/tools/mod.rs:274) and the user origin, through the point-input framework (InputConsumer with Preview, crates/archicraft-app/src/input/consumer.rs:167); move, rotate and stretch exist only as test stubs (TransformStub, crates/archicraft-app/src/input/mod.rs:545). Effort here is wiring each operation, once it exists under its own requirement, as a menu command that runs as an InputConsumer with a preview, besides its gesture.",
+      "gap": "None of trim (EDT-011), extend (EDT-012), split (EDT-013), parameter pick-up/inject (ELM-003) or contour detection (INP-018) exist, neither as modifier gestures nor as explicit commands; the command registry (crates/archicraft-app/src/commands/) has only file, edit, view, project, help and tool commands. Live previews exist only for element creation (ToolState::outlines, crates/archicraft-app/src/tools/mod.rs:274) and the user origin, through the point-input framework (InputConsumer with Preview, crates/archicraft-app/src/input/consumer.rs:167); move, rotate and stretch exist only as test stubs (TransformStub, crates/archicraft-app/src/input/mod.rs:547). Effort here is wiring each operation, once it exists under its own requirement, as a menu command that runs as an InputConsumer with a preview, besides its gesture.",
       "depends_on": []
     },
     {
@@ -2827,7 +2827,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No preview of a door or window or its void: tool previews are outlines only (Preview, crates/archicraft-app/src/input/consumer.rs:149; ToolState::outlines, crates/archicraft-app/src/tools/mod.rs:274). No host-candidate cycling; Tab already cycles snap candidates during point input (PointInput::cycles, crates/archicraft-app/src/input/mod.rs:227) and picks in the select tool (handle_keys, crates/archicraft-app/src/views/plan.rs:916), so a key without that conflict is needed. Needs the list of candidate hosts under the pointer (walls at junctions and overlaps), the chosen host highlighted, and a live preview of the unit and its void on that host (depends on DW-001, DW-009).",
+      "gap": "No preview of a door or window or its void: tool previews are outlines only (Preview, crates/archicraft-app/src/input/consumer.rs:149; ToolState::outlines, crates/archicraft-app/src/tools/mod.rs:274). No host-candidate cycling; Tab already cycles snap candidates during point input (PointInput::cycles, crates/archicraft-app/src/input/mod.rs:229) and picks in the select tool (handle_keys, crates/archicraft-app/src/views/plan.rs:916), so a key without that conflict is needed. Needs the list of candidate hosts under the pointer (walls at junctions and overlaps), the chosen host highlighted, and a live preview of the unit and its void on that host (depends on DW-001, DW-009).",
       "depends_on": []
     },
     {
@@ -2997,7 +2997,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No handedness computation, no convention setting (DIN 107 default, Appendix D.6) and no plan labels. Needs a convention enum in the preferences (Preferences, crates/archicraft-app/src/persistence/prefs.rs:32) or project settings (ProjectSettings, crates/archicraft-model/src/project.rs:118), handedness derived from hinge side and opening side (DW-004), and display in the inspector and in plan labels (PlanElement has no label geometry, crates/archicraft-geometry/src/plan.rs:25).",
+      "gap": "No handedness computation, no convention setting (DIN 107 default, Appendix D.6) and no plan labels. Needs a convention enum in the preferences (Preferences, crates/archicraft-app/src/persistence/prefs.rs:33) or project settings (ProjectSettings, crates/archicraft-model/src/project.rs:118), handedness derived from hinge side and opening side (DW-004), and display in the inspector and in plan labels (PlanElement has no label geometry, crates/archicraft-geometry/src/plan.rs:25).",
       "depends_on": []
     },
     {
@@ -4447,7 +4447,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Preferences (crates/archicraft-app/src/persistence/prefs.rs:32) stores theme, autosave interval, backups, snap radius, angle increment, tracker behaviour and author outside the project. Missing preference items: UI language (the message catalogue has only English, crates/archicraft-app/locales/en, and there is no language choice), navigation scheme (SET-003), snap dwell time (INP-011, not implemented), and default units for new projects: New always uses default_metric_project (ArchiCraftApp::proceed, crates/archicraft-app/src/app.rs:330).",
+      "gap": "Preferences (crates/archicraft-app/src/persistence/prefs.rs:33) stores theme, autosave interval, backups, snap radius, angle increment, tracker behaviour and author outside the project. Missing preference items: UI language (the message catalogue has only English, crates/archicraft-app/locales/en, and there is no language choice), navigation scheme (SET-003), snap dwell time (INP-011, not implemented), and default units for new projects: New always uses default_metric_project (ArchiCraftApp::proceed, crates/archicraft-app/src/app.rs:330).",
       "depends_on": []
     },
     {
@@ -5107,7 +5107,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "UI scaling 100-200% is available only through the OS scale factor and egui's built-in Ctrl/Cmd +/-/0 zoom (NFR-PORT-005 holds by inspection and test); egui's zoom factor is not exposed in Preferences (crates/archicraft-app/src/persistence/prefs.rs:32) nor persisted across restarts. DPI changes when the window moves between monitors with different scale factors rely on egui/winit and the per-frame 3D viewport size (ui, crates/archicraft-app/src/views/view3d.rs:102), with no test or recorded manual check on a mixed-DPI multi-monitor setup; the app has a single main window (panes cannot be detached to a second monitor).",
+      "gap": "UI scaling 100-200% is available only through the OS scale factor and egui's built-in Ctrl/Cmd +/-/0 zoom (NFR-PORT-005 holds by inspection and test); egui's zoom factor is not exposed in Preferences (crates/archicraft-app/src/persistence/prefs.rs:33) nor persisted across restarts. DPI changes when the window moves between monitors with different scale factors rely on egui/winit and the per-frame 3D viewport size (ui, crates/archicraft-app/src/views/view3d.rs:102), with no test or recorded manual check on a mixed-DPI multi-monitor setup; the app has a single main window (panes cannot be detached to a second monitor).",
       "depends_on": []
     },
     {
@@ -5117,7 +5117,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Registering as handler for .ifcx with the user's consent at first start is not implemented on any platform: no first-start flag or consent prompt in Preferences (crates/archicraft-app/src/persistence/prefs.rs:32), no Windows HKCU registry ProgID, no macOS document-type registration (scripts/package-macos.sh deliberately omits CFBundleDocumentTypes) or LSSetDefaultRoleHandlerForContentType call, and no Linux MimeType/xdg-mime registration (scripts/package-linux.sh omits it). A path passed on the command line is opened (crates/archicraft-app/src/main.rs:18), but macOS open-document events are not handled. Native file dialogs (rfd) and the recent-projects list (Preferences::add_recent, crates/archicraft-app/src/persistence/prefs.rs:148) exist.",
+      "gap": "Registering as handler for .ifcx with the user's consent at first start is not implemented on any platform: no first-start flag or consent prompt in Preferences (crates/archicraft-app/src/persistence/prefs.rs:33), no Windows HKCU registry ProgID, no macOS document-type registration (scripts/package-macos.sh deliberately omits CFBundleDocumentTypes) or LSSetDefaultRoleHandlerForContentType call, and no Linux MimeType/xdg-mime registration (scripts/package-linux.sh omits it). A path passed on the command line is opened (crates/archicraft-app/src/main.rs:18), but macOS open-document events are not handled. Native file dialogs (rfd) and the recent-projects list (Preferences::add_recent, crates/archicraft-app/src/persistence/prefs.rs:171) exist.",
       "depends_on": []
     },
     {
@@ -5377,7 +5377,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Only two element tools exist (wall and slab; ToolKind, crates/archicraft-app/src/tools/mod.rs:23). Their numeric input and snapping already go through one shared layer (PointInput, crates/archicraft-app/src/input/mod.rs:173; InputConsumer, crates/archicraft-app/src/input/consumer.rs:167), and both offer rectangle and rotated-rectangle methods. The clause 'the same edit commands for nodes, edges and polygons' has nothing behind it: no node, edge or polygon editing (EDT-008, EDT-009), and no move, rotate or stretch tool in the application (these exist only as test stubs in the input module's tests, input/mod.rs:524). Consistency can only be inspected once more element kinds and the edit palette exist.",
+      "gap": "Only two element tools exist (wall and slab; ToolKind, crates/archicraft-app/src/tools/mod.rs:23). Their numeric input and snapping already go through one shared layer (PointInput, crates/archicraft-app/src/input/mod.rs:175; InputConsumer, crates/archicraft-app/src/input/consumer.rs:167), and both offer rectangle and rotated-rectangle methods. The clause 'the same edit commands for nodes, edges and polygons' has nothing behind it: no node, edge or polygon editing (EDT-008, EDT-009), and no move, rotate or stretch tool in the application (these exist only as test stubs in the input module's tests, crates/archicraft-app/src/input/mod.rs:526). Consistency can only be inspected once more element kinds and the edit palette exist.",
       "depends_on": []
     },
     {
@@ -5627,7 +5627,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "eframe's `accesskit` feature is on (Cargo.toml:35), so widgets expose roles, but many inputs have no accessible name. The layer manager's Visible, Locked and Snaps checkboxes have empty labels (crates/archicraft-app/src/ui/dialogs.rs:311, 319, 328), as do the Preferences checkboxes for digit grouping and reference lines (dialogs.rs:718, 721). Text fields, combo boxes and DragValues from the helpers in crates/archicraft-app/src/ui/widgets.rs (length at :70, angle at :87) have their visible label in a separate ui.label() that is never linked to the control (labelled_by is not used anywhere). The UI tests find widgets by accessible label (crates/archicraft-app/tests/ui.rs), but nothing checks that every control has a name, and no screen-reader test has been run.",
+      "gap": "eframe's `accesskit` feature is on (the workspace Cargo.toml:35), so widgets expose roles, but many inputs have no accessible name. The layer manager's Visible, Locked and Snaps checkboxes have empty labels (crates/archicraft-app/src/ui/dialogs.rs:311, 319, 328), as do the Preferences checkboxes for digit grouping and reference lines (dialogs.rs:718, 721). Text fields, combo boxes and DragValues from the helpers in crates/archicraft-app/src/ui/widgets.rs (length at :70, angle at :87) have their visible label in a separate ui.label() that is never linked to the control (labelled_by is not used anywhere). The UI tests find widgets by accessible label (crates/archicraft-app/tests/ui.rs), but nothing checks that every control has a name, and no screen-reader test has been run.",
       "depends_on": []
     },
     {
@@ -5637,7 +5637,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Light and dark themes exist (ThemeChoice, crates/archicraft-app/src/persistence/prefs.rs:13). No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours has been done: small weak text in the toolbox headings and the status bar (crates/archicraft-app/src/ui/shell.rs:152, 283, 285) is unchecked. In the plan palette (Palette::new, crates/archicraft-app/src/views/plan.rs:258) on white paper, hover reaches about 2.6:1 and preview and overhead about 3.0:1, at or below the 3:1 for graphics. Selection and hover are two shades of one blue. Reference red against snap green depends on a red-green difference. No colour-vision-deficiency check exists, and the 3D SELECTION_COLOR (crates/archicraft-app/src/views/render3d.rs:91) is also unchecked.",
+      "gap": "Light and dark themes exist (ThemeChoice, crates/archicraft-app/src/persistence/prefs.rs:14). No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours has been done: small weak text in the toolbox headings and the status bar (crates/archicraft-app/src/ui/shell.rs:152, 283, 285) is unchecked. In the plan palette (Palette::new, crates/archicraft-app/src/views/plan.rs:258) on white paper, hover reaches about 2.6:1 and preview and overhead about 3.0:1, at or below the 3:1 for graphics. Selection and hover are two shades of one blue. Reference red against snap green depends on a red-green difference. No colour-vision-deficiency check exists, and the 3D SELECTION_COLOR (crates/archicraft-app/src/views/render3d.rs:91) is also unchecked.",
       "depends_on": []
     },
     {
