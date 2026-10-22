@@ -17,7 +17,7 @@ use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_length};
 use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
-use archicraft_model::{Command, ProjectSettings};
+use archicraft_model::{Command, ElementKind, KindTag, ProjectSettings};
 use common::{assert_present, data_dir, harness, harness_in};
 use egui::accesskit::Role;
 use egui::os::OperatingSystem;
@@ -61,6 +61,49 @@ fn tool_buttons_and_properties_follow_each_other() {
     harness.run_steps(2);
     assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Slab);
     harness.get_by_label("Slab tool defaults");
+}
+
+/// ELM-001: with the wall tool active and nothing selected, a thickness
+/// typed into the properties strip becomes the thickness of the wall's
+/// tool defaults slot, undoably; the slab slot stays as it was.
+#[test]
+fn a_thickness_in_the_strip_updates_the_wall_defaults_slot() {
+    let mut harness = harness("defaults-thickness");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let (before, shown, typed) = {
+        let ws = harness.state_mut().workspace();
+        let before = ws.doc.project.tool_defaults.clone();
+        let ElementKind::Wall(wall) = &before.get(KindTag::Wall).unwrap().kind else {
+            panic!("the wall slot holds a wall");
+        };
+        let thickness = wall.thickness;
+        let units = ws.doc.project.settings.units.clone();
+        let nf = ws.prefs.number_format();
+        (
+            before,
+            format_length(thickness, &units, &nf, false),
+            format_length(0.3, &units, &nf, false),
+        )
+    };
+    let field = || By::new().role(Role::TextInput).value(shown.as_str());
+    harness.get(field()).click();
+    harness.run_steps(1);
+    harness.get(field()).type_text(&typed);
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let slot = ws.doc.project.tool_defaults.get(KindTag::Wall).unwrap();
+    let ElementKind::Wall(wall) = &slot.kind else {
+        panic!("the wall slot holds a wall");
+    };
+    assert!((wall.thickness - 0.3).abs() < 1e-9, "{}", wall.thickness);
+    assert_eq!(
+        ws.doc.project.tool_defaults.get(KindTag::Slab),
+        before.get(KindTag::Slab)
+    );
+    ws.undo();
+    assert_eq!(ws.doc.project.tool_defaults, before);
 }
 
 /// NFR-USE-003, INP-001: the status line names the next input of the wall
@@ -552,9 +595,9 @@ fn the_layers_dialog_has_a_snaps_column() {
     assert!(layer.visible && !layer.locked);
 }
 
-/// SRS 3.2: an element of a kind without a panel of its own (the model's
-/// test kind) shows the common fields only, and its missing geometry is the
-/// only problem listed.
+/// SRS 3.2, ELM-011: an element of a kind without a panel of its own (the
+/// model's test kind) shows the common fields only (name, layer, its kind's
+/// IFC classes), and its missing geometry is the only problem listed.
 #[test]
 fn a_kind_without_its_own_panel_shows_the_common_fields() {
     let mut harness = harness("test-kind");
@@ -576,7 +619,7 @@ fn a_kind_without_its_own_panel_shows_the_common_fields() {
         ws.selection.insert(id);
     }
     harness.run_steps(2);
-    for common in ["Locked", "Home storey"] {
+    for common in ["Name", "Layer", "IFC class", "Locked", "Home storey"] {
         harness.get_by_label(common);
     }
     for specific in ["Thickness", "Reference line", "Length", "Area"] {
