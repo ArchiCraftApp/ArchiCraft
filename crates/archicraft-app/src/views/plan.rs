@@ -20,8 +20,8 @@ use egui::{
 
 use super::camera::{Camera2d, ZoomHistory};
 use crate::input::{
-    CursorState, Effect, Expect, Frame2d, InputConsumer, InputContext, KeyInput, Modifiers, Outcome, PointInput,
-    PointerEvent, Resolved, SnapIndex, SnapKind, SurfaceFrame, TrackerMode, ViewSurface,
+    CursorState, Effect, Expect, Frame2d, Hovered, InputConsumer, InputContext, InputSettings, KeyInput, Modifiers,
+    Outcome, PointInput, PointerEvent, Resolved, SnapIndex, SnapKind, SurfaceFrame, TrackerMode, ViewSurface,
 };
 use crate::tools::{ToolKind, ToolState};
 use crate::tr;
@@ -46,6 +46,9 @@ pub struct PlanViewState {
     /// The label drawn beside the cursor last frame: the tracker and the
     /// snap kind (INP-002, INP-008).
     pub label: Option<String>,
+    /// The division points of the hovered edge drawn as ticks last frame
+    /// (INP-010).
+    pub ticks: Vec<DVec2>,
     /// The plane point under the pointer last frame, for the coordinate
     /// readout of the view-control bar (INP-014).
     pub cursor: Option<DVec2>,
@@ -64,6 +67,7 @@ impl Default for PlanViewState {
             tracker: None,
             glyph: None,
             label: None,
+            ticks: Vec::new(),
             cursor: None,
         }
     }
@@ -159,6 +163,8 @@ struct PlanInput {
     angle_increment_deg: f64,
     snap_step: f64,
     tracker_xyz: bool,
+    /// The division mode and scope (INP-010).
+    input: InputSettings,
 }
 
 impl PlanInput {
@@ -182,6 +188,7 @@ impl PlanInput {
             angle_increment_deg: ws.prefs.angle_increment_deg,
             snap_step: ws.prefs.snap_step,
             tracker_xyz: ws.prefs.tracker_xyz,
+            input: ws.prefs.input,
         }
     }
 
@@ -205,6 +212,7 @@ impl PlanInput {
             pending: &self.pending,
             previous: consumer.reference_point().filter(|_| here),
             guides: &[],
+            input: self.input,
             expects: step.as_ref().map_or(Expect::Point, |s| s.expects),
             tracker: step.as_ref().map_or(TrackerMode::Relative, |s| s.tracker),
             tracker_xyz: self.tracker_xyz,
@@ -522,6 +530,10 @@ pub fn snap_glyph(p: Pos2, snap: SnapKind, color: Color32) -> Vec<Shape> {
             poly(&[(0.0, -7.0), (6.0, 5.0), (-6.0, 5.0)]),
             stroke,
         )],
+        SnapKind::Division => vec![Shape::closed_line(
+            poly(&[(0.0, 7.0), (6.0, -5.0), (-6.0, -5.0)]),
+            stroke,
+        )],
         SnapKind::GuideIntersection => [cross(6.0), vec![ring(3.0)]].concat(),
         SnapKind::Perpendicular => vec![seg((-6.0, 6.0), (6.0, 6.0)), seg((0.0, 6.0), (0.0, -6.0))],
         SnapKind::Tangent => vec![ring(5.0), seg((-7.0, -5.0), (7.0, -5.0))],
@@ -536,6 +548,21 @@ pub fn snap_glyph(p: Pos2, snap: SnapKind, color: Color32) -> Vec<Shape> {
         SnapKind::Typed => vec![Shape::circle_filled(p, 2.5, color)],
         SnapKind::Free => crosshair(p, color),
     }
+}
+
+/// The ticks of the hovered edge's division points (INP-010): a short
+/// stroke across the divided stretch at each point, 4 points to either
+/// side, `to_screen` mapping model to screen positions.
+pub fn division_ticks(hovered: &Hovered, to_screen: impl Fn(DVec2) -> Pos2, color: Color32) -> Vec<Shape> {
+    let stroke = Stroke::new(1.0, color);
+    (hovered.points.iter())
+        .map(|&q| {
+            let p = to_screen(q);
+            let along = (to_screen(q + hovered.span.direction_at(q)) - p).normalized();
+            let across = egui::vec2(-along.y, along.x) * 4.0;
+            Shape::line_segment([p - across, p + across], stroke)
+        })
+        .collect()
 }
 
 /// The crosshair of a free point (INP-008): four arms around a gap.
@@ -789,6 +816,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     state.tracker = resolved.as_ref().and_then(|(_, tracker)| tracker.clone());
     state.glyph = None;
     state.label = None;
+    state.ticks.clear();
 
     // Area selection (SEL-003): left to right = fully inside,
     // right to left = touching.
@@ -851,6 +879,10 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         }
         for q in &ws.tool.points {
             painter.circle_filled(camera.to_screen(rect, *q), 3.0, palette.preview);
+        }
+        if let Some(hovered) = &resolved.hovered {
+            painter.extend(division_ticks(hovered, |q| camera.to_screen(rect, q), palette.snap));
+            state.ticks.clone_from(&hovered.points);
         }
         painter.extend(snap_glyph(target, resolved.snap.kind, palette.snap));
         painter.extend(cursor_state_glyph(target, preview.cursor, palette.snap));
@@ -1139,6 +1171,39 @@ mod tests {
                 .iter()
                 .any(|s| s.kind == SnapKind::Node && s.point == end);
             assert_eq!(node, found, "{pixels} px: {:?}", resolved.candidates);
+        }
+    }
+
+    /// INP-010: the hovered edge's division points are drawn as ticks
+    /// across it, one per point: three for four equal parts.
+    #[test]
+    fn division_points_are_drawn_as_ticks_across_the_edge() {
+        let line = archicraft_geometry::plan::PlanElement {
+            id: ElementId::new(),
+            cut: Vec::new(),
+            projected: vec![[DVec2::ZERO, DVec2::new(4.0, 0.0)]],
+            overhead: Vec::new(),
+            reference_line: None,
+        };
+        let mut index = SnapIndex::default();
+        index.sync(0, &[&line]);
+        let settings = InputSettings {
+            division: crate::input::DivisionMode::Equal(4),
+            ..InputSettings::default()
+        };
+        let hovered = index.hover(DVec2::new(1.3, 0.05), 0.2, None, settings).unwrap();
+        let to_screen = |q: DVec2| Pos2::new(100.0 + 10.0 * q.x as f32, 100.0 - 10.0 * q.y as f32);
+        let ticks = division_ticks(&hovered, to_screen, Color32::RED);
+        assert_eq!(ticks.len(), 3);
+        for (tick, x) in ticks.iter().zip([110.0, 120.0, 130.0]) {
+            let Shape::LineSegment { points, .. } = tick else {
+                panic!("{tick:?} is no line");
+            };
+            let expected = [Pos2::new(x, 96.0), Pos2::new(x, 104.0)];
+            assert!(
+                *points == expected || *points == [expected[1], expected[0]],
+                "{points:?} is not across the edge at x = {x}"
+            );
         }
     }
 }

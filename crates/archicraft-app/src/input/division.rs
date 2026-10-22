@@ -13,7 +13,8 @@ use archicraft_model::MODEL_TOLERANCE;
 use archicraft_model::glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::snap::ArcTarget;
+use super::snap::{ArcTarget, Snap, SnapKind, closest_on_segment};
+use super::targets::EdgeKey;
 
 /// The most division points of one curve, which bounds the cost per frame.
 pub const MAX_DIVISION_POINTS: usize = 100;
@@ -172,6 +173,113 @@ pub enum DivisionScope {
 pub fn divide(curve: &Curve, mode: DivisionMode, cursor: DVec2) -> Vec<DVec2> {
     let stations = mode.stations(curve.length(), curve.parameter(cursor));
     stations.into_iter().map(|s| curve.point_at(s)).collect()
+}
+
+/// A chain of edges (INP-010): one edge or a stretch of it, a wall's
+/// reference line, or a closed ring such as a slab's outline or a cut
+/// ring. It is measured along its edges from its first point.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Chain {
+    pub points: Vec<DVec2>,
+    /// The last point joins the first.
+    pub closed: bool,
+}
+
+impl Chain {
+    /// The chain of one edge.
+    pub fn segment([a, b]: [DVec2; 2]) -> Self {
+        Self {
+            points: vec![a, b],
+            closed: false,
+        }
+    }
+
+    /// The edges in order, the closing one last.
+    pub fn edges(&self) -> impl Iterator<Item = [DVec2; 2]> + '_ {
+        let n = self.points.len();
+        let count = if self.closed && n > 2 { n } else { n.saturating_sub(1) };
+        (0..count).map(move |i| [self.points[i], self.points[(i + 1) % n]])
+    }
+
+    /// The length along the edges.
+    pub fn length(&self) -> f64 {
+        self.edges().map(|[a, b]| a.distance(b)).sum()
+    }
+
+    /// The point `s` along the chain from its start.
+    pub fn point_at(&self, s: f64) -> DVec2 {
+        let mut rest = s;
+        let mut end = self.points.first().copied().unwrap_or_default();
+        for [a, b] in self.edges() {
+            let length = a.distance(b);
+            if rest <= length {
+                return Curve::Segment([a, b]).point_at(rest);
+            }
+            rest -= length;
+            end = b;
+        }
+        end
+    }
+
+    /// The edge nearest `p`, and how far along the chain the projection of
+    /// `p` onto it lies.
+    fn nearest(&self, p: DVec2) -> Option<([DVec2; 2], f64)> {
+        let mut along = 0.0;
+        let mut best: Option<(f64, [DVec2; 2], f64)> = None;
+        for [a, b] in self.edges() {
+            let q = closest_on_segment(p, [a, b]);
+            let distance = q.distance(p);
+            if best.is_none_or(|(d, ..)| distance < d) {
+                best = Some((distance, [a, b], along + a.distance(q)));
+            }
+            along += a.distance(b);
+        }
+        best.map(|(_, edge, s)| (edge, s))
+    }
+
+    /// Where the projection of `p` onto the nearest edge lies, as a share of
+    /// the length from the start, in [0, 1].
+    pub fn parameter(&self, p: DVec2) -> f64 {
+        let length = self.length();
+        match self.nearest(p) {
+            Some((_, s)) if length > 0.0 => (s / length).clamp(0.0, 1.0),
+            _ => 0.0,
+        }
+    }
+
+    /// The unit direction of the edge nearest `p`.
+    pub fn direction_at(&self, p: DVec2) -> DVec2 {
+        self.nearest(p)
+            .map_or(DVec2::ZERO, |([a, b], _)| (b - a).normalize_or_zero())
+    }
+
+    /// The division points of the chain in `mode`, the nearer end taken
+    /// from the cursor's projection onto it (INP-010).
+    pub fn divide(&self, mode: DivisionMode, cursor: DVec2) -> Vec<DVec2> {
+        let stations = mode.stations(self.length(), self.parameter(cursor));
+        stations.into_iter().map(|s| self.point_at(s)).collect()
+    }
+}
+
+/// The edge under the cursor and its division points (INP-010).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hovered {
+    pub key: EdgeKey,
+    pub edge: [DVec2; 2],
+    /// The stretch divided, by the scope: the edge, its part between
+    /// intersections with other elements, or the owner's whole chain.
+    pub span: Chain,
+    /// The active mode's division points on the span, drawn as ticks.
+    pub points: Vec<DVec2>,
+    /// Their snap kind: midpoints in mode half, division points otherwise.
+    pub kind: SnapKind,
+}
+
+impl Hovered {
+    /// The division points as snap targets (INP-008).
+    pub fn snaps(&self) -> impl Iterator<Item = Snap> + '_ {
+        self.points.iter().map(|&point| Snap { point, kind: self.kind })
+    }
 }
 
 /// The point-input settings kept in the preferences: the division mode and
@@ -348,6 +456,37 @@ mod tests {
             let beyond = divide(&curve, DivisionMode::Percent(25.0), centre + v(2.0, -0.3));
             assert!(beyond[0].distance(quarter[0]) < 1e-9, "{arc:?}");
         }
+    }
+
+    /// INP-010: a closed chain is measured along all its edges from its
+    /// first point, and the cursor's projection onto the nearest edge picks
+    /// the nearer end.
+    #[test]
+    fn a_closed_chain_is_divided_along_its_edges() {
+        let square = Chain {
+            points: vec![v(0.0, 0.0), v(2.0, 0.0), v(2.0, 2.0), v(0.0, 2.0)],
+            closed: true,
+        };
+        assert_eq!(square.edges().count(), 4);
+        assert!((square.length() - 8.0).abs() < 1e-12);
+        assert!(square.point_at(5.0).distance(v(1.0, 2.0)) < 1e-12);
+        assert!((square.parameter(v(-0.1, 1.0)) - 7.0 / 8.0).abs() < 1e-12);
+        assert!(square.direction_at(v(2.1, 1.0)).distance(v(0.0, 1.0)) < 1e-12);
+        let quarters = square.divide(DivisionMode::Equal(4), v(1.0, -0.1));
+        let expected = [v(2.0, 0.0), v(2.0, 2.0), v(0.0, 2.0)];
+        assert_eq!(quarters.len(), expected.len(), "{quarters:?}");
+        assert!(
+            quarters.iter().zip(expected).all(|(q, e)| q.distance(e) < 1e-12),
+            "{quarters:?}"
+        );
+        // 25 % from the end nearer the cursor: the last point, going back.
+        let back = square.divide(DivisionMode::Percent(25.0), v(-0.1, 0.5));
+        assert!(back[0].distance(v(0.0, 2.0)) < 1e-12, "{back:?}");
+        let open = Chain::segment([v(0.0, 0.0), v(3.5, 0.0)]);
+        assert_near(
+            &xs(&open.divide(DivisionMode::Equal(4), v(1.0, 0.1))),
+            &[0.875, 1.75, 2.625],
+        );
     }
 
     /// INP-010: out-of-range values are sanitised.

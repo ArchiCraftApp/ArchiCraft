@@ -460,6 +460,7 @@ mod tests {
             pending: &[],
             previous: consumer.reference_point(),
             guides: &[],
+            input: crate::input::InputSettings::default(),
             expects: step.as_ref().map_or(crate::input::Expect::Point, |s| s.expects),
             tracker: step.map_or(crate::input::TrackerMode::Relative, |s| s.tracker),
             tracker_xyz: false,

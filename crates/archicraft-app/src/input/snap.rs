@@ -10,12 +10,14 @@
 //! |--------------------|--------------------------------------------------|
 //! | 1 node             | node, handle, centre, axis point, centroid       |
 //! | 2 intersection     | intersection                                     |
-//! | 3 division point   | midpoint                                         |
+//! | 3 division point   | midpoint, division point                         |
 //! | 4 guide intersection | guide intersection                             |
 //! | 5 edge             | perpendicular foot, tangent point, point on edge |
 //! | 6 guide            | point on a guide                                 |
 //! | 7 grid             | grid point                                       |
 //!
+//! Division points are those of the hovered edge only, in the active mode
+//! and scope (INP-010, [`SnapIndex::hover`]): the midpoint in mode half.
 //! Derived points sit in the level whose nature they share. Perpendicular
 //! and tangent points outrank the plain point on the same edge, which is
 //! always nearer the cursor.
@@ -30,6 +32,7 @@ use archicraft_model::MODEL_TOLERANCE;
 use archicraft_model::glam::DVec2;
 use archicraft_model::tolerance::{coincident, is_parallel};
 
+use super::division::{Hovered, InputSettings};
 use super::guide::{Guide, GuideShape};
 use super::targets::SnapIndex;
 
@@ -63,6 +66,8 @@ pub enum SnapKind {
     Intersection,
     /// The midpoint of an edge, the division point of mode half (INP-010).
     Midpoint,
+    /// A division point of the other modes (INP-010).
+    Division,
     GuideIntersection,
     /// The foot of the perpendicular from the previous point.
     Perpendicular,
@@ -83,7 +88,7 @@ pub enum SnapKind {
 
 impl SnapKind {
     /// The kinds of snap targets, in order of precedence.
-    pub const TARGETS: [SnapKind; 13] = [
+    pub const TARGETS: [SnapKind; 14] = [
         SnapKind::Node,
         SnapKind::Handle,
         SnapKind::Centre,
@@ -91,6 +96,7 @@ impl SnapKind {
         SnapKind::Centroid,
         SnapKind::Intersection,
         SnapKind::Midpoint,
+        SnapKind::Division,
         SnapKind::GuideIntersection,
         SnapKind::Perpendicular,
         SnapKind::Tangent,
@@ -101,7 +107,7 @@ impl SnapKind {
 
     /// Every kind: the snap targets in order of precedence, then the points
     /// of point input that are no snap target.
-    pub const ALL: [SnapKind; 16] = [
+    pub const ALL: [SnapKind; 17] = [
         SnapKind::Node,
         SnapKind::Handle,
         SnapKind::Centre,
@@ -109,6 +115,7 @@ impl SnapKind {
         SnapKind::Centroid,
         SnapKind::Intersection,
         SnapKind::Midpoint,
+        SnapKind::Division,
         SnapKind::GuideIntersection,
         SnapKind::Perpendicular,
         SnapKind::Tangent,
@@ -128,7 +135,7 @@ impl SnapKind {
                 SnapLevel::Node
             }
             SnapKind::Intersection => SnapLevel::Intersection,
-            SnapKind::Midpoint => SnapLevel::Division,
+            SnapKind::Midpoint | SnapKind::Division => SnapLevel::Division,
             SnapKind::GuideIntersection => SnapLevel::GuideIntersection,
             SnapKind::Perpendicular | SnapKind::Tangent | SnapKind::Edge => SnapLevel::Edge,
             SnapKind::Guide => SnapLevel::Guide,
@@ -146,6 +153,7 @@ impl SnapKind {
             SnapKind::Centroid => "centroid",
             SnapKind::Intersection => "intersection",
             SnapKind::Midpoint => "midpoint",
+            SnapKind::Division => "division point",
             SnapKind::GuideIntersection => "guide intersection",
             SnapKind::Perpendicular => "perpendicular",
             SnapKind::Tangent => "tangent",
@@ -277,9 +285,10 @@ pub fn snap(
 /// order of precedence of INP-009 (see the module documentation), ties
 /// broken by the distance from the cursor. The targets are those of `index`
 /// near the cursor, the consumer's `pending` points, which are not in the
-/// index (NFR-PERF-005), and the `guides` shown; perpendicular feet and
-/// tangent points start at `previous`, and the snap grid has the spacing
-/// `grid_step` (none when zero).
+/// index (NFR-PERF-005), the `guides` shown and the division points of the
+/// edge hovered from scratch in the default division settings (INP-010);
+/// perpendicular feet and tangent points start at `previous`, and the snap
+/// grid has the spacing `grid_step` (none when zero).
 ///
 /// Candidates within the model tolerance are one point (NFR-ACC-003): a
 /// candidate coincident with one found before only raises its precedence and
@@ -294,23 +303,51 @@ pub fn candidates(
     previous: Option<DVec2>,
     guides: &[Guide],
 ) -> Vec<Snap> {
+    let hovered = index.hover(cursor, radius, None, InputSettings::default());
+    let beyond = Beyond {
+        pending,
+        guides,
+        hovered: hovered.as_ref(),
+    };
+    candidates_with(index, &beyond, cursor, radius, grid_step, previous)
+}
+
+/// The snap targets beyond the index: the consumer's pending points, the
+/// guides shown and the hovered edge with its division points.
+pub(super) struct Beyond<'a> {
+    pub pending: &'a [DVec2],
+    pub guides: &'a [Guide],
+    pub hovered: Option<&'a Hovered>,
+}
+
+/// The candidates of [`candidates`], with the division points of the edge
+/// `beyond` hovers.
+pub(super) fn candidates_with(
+    index: &SnapIndex,
+    beyond: &Beyond,
+    cursor: DVec2,
+    radius: f64,
+    grid_step: f64,
+    previous: Option<DVec2>,
+) -> Vec<Snap> {
     let mut nodes = index.targets_near(cursor, radius);
-    nodes.extend(pending.iter().map(|&point| Snap {
+    nodes.extend(beyond.pending.iter().map(|&point| Snap {
         point,
         kind: SnapKind::Node,
     }));
     let near = index.edges_near(cursor, radius);
     let arcs = index.arcs_near(cursor, radius);
-    let guides: Vec<GuideShape> = guides
-        .iter()
+    let guides: Vec<GuideShape> = (beyond.guides.iter())
         .map(|g| g.shape)
         .filter(|shape| shape.distance(cursor) <= radius)
         .collect();
+    let divisions: Vec<Snap> = beyond.hovered.into_iter().flat_map(Hovered::snaps).collect();
     let targets = Targets {
         nodes: &nodes,
         edges: &near,
         arcs: &arcs,
         guides: &guides,
+        divisions: &divisions,
     };
     collect(&targets, cursor, radius, grid_step, previous)
 }
@@ -322,6 +359,8 @@ pub(super) struct Targets<'a> {
     pub edges: &'a [[DVec2; 2]],
     pub arcs: &'a [ArcTarget],
     pub guides: &'a [GuideShape],
+    /// The hovered edge's division points (INP-010).
+    pub divisions: &'a [Snap],
 }
 
 /// The candidates among the `targets`, which lie within `radius` of the
@@ -332,6 +371,7 @@ pub(super) fn collect(
         edges: near,
         arcs,
         guides,
+        divisions,
     }: &Targets,
     cursor: DVec2,
     radius: f64,
@@ -358,8 +398,10 @@ pub(super) fn collect(
             }
         }
     }
+    for d in divisions {
+        add(d.kind, d.point);
+    }
     for e in near {
-        add(SnapKind::Midpoint, (e[0] + e[1]) / 2.0);
         if let Some(prev) = previous {
             let dir = (e[1] - e[0]).normalize_or_zero();
             let foot = e[0] + dir * (prev - e[0]).dot(dir);
@@ -510,8 +552,9 @@ mod tests {
 
     /// INP-009: seven candidates within the radius, one of each level and
     /// three edge points, come out in the SRS order: node, intersection,
-    /// division point, guide intersection, edge, guide, grid; points of one
-    /// level by their distance from the cursor.
+    /// division point (the midpoint of the hovered, nearest edge), guide
+    /// intersection, edge, guide, grid; points of one level by their
+    /// distance from the cursor.
     #[test]
     fn candidates_follow_the_seven_levels() {
         let targets = index_of(
@@ -519,7 +562,7 @@ mod tests {
             &[
                 [v(-0.3, -4.0), v(-0.3, 6.0)],
                 [v(-5.0, 0.4), v(7.0, 0.4)],
-                [v(0.2, -0.6), v(0.6, -0.6)],
+                [v(0.2, -0.2), v(0.6, -0.2)],
             ],
         );
         let guides = [Guide::new(
@@ -531,11 +574,11 @@ mod tests {
         let expected = [
             (SnapKind::Node, v(0.5, 0.3)),
             (SnapKind::Intersection, v(-0.3, 0.4)),
-            (SnapKind::Midpoint, v(0.4, -0.6)),
+            (SnapKind::Midpoint, v(0.4, -0.2)),
             (SnapKind::GuideIntersection, v(0.7, 0.4)),
+            (SnapKind::Edge, v(0.2, -0.2)),
             (SnapKind::Edge, v(-0.3, -0.03)),
             (SnapKind::Edge, v(0.02, 0.4)),
-            (SnapKind::Edge, v(0.2, -0.6)),
             (SnapKind::Guide, v(0.7, -0.03)),
             (SnapKind::Grid, v(0.0, 0.0)),
         ];
@@ -562,6 +605,56 @@ mod tests {
         assert_eq!(snap(&targets, &[], cursor, 1.0, 0.25, None).kind, SnapKind::Node);
     }
 
+    /// INP-009, INP-010: a division point of the hovered edge comes before
+    /// the point on the edge nearer the cursor, and after a real
+    /// intersection: in mode half the midpoint, in four equal parts the
+    /// quarter point.
+    #[test]
+    fn a_division_point_beats_the_edge_and_loses_to_an_intersection() {
+        use crate::input::{DivisionMode, InputSettings};
+        let targets = index_of(&[], &[[v(0.0, 0.0), v(4.0, 0.0)], [v(1.1, -2.0), v(1.1, 2.0)]]);
+        let found = |cursor: DVec2, division: DivisionMode| {
+            let settings = InputSettings {
+                division,
+                ..InputSettings::default()
+            };
+            let hovered = targets.hover(cursor, 0.2, None, settings);
+            assert_eq!(hovered.as_ref().map(|h| h.edge), Some([v(0.0, 0.0), v(4.0, 0.0)]));
+            let beyond = Beyond {
+                pending: &[],
+                guides: &[],
+                hovered: hovered.as_ref(),
+            };
+            candidates_with(&targets, &beyond, cursor, 0.2, 0.0, None)
+        };
+        let starts_with = |found: &[Snap], expected: &[(SnapKind, DVec2)]| {
+            assert!(found.len() >= expected.len(), "{found:?}");
+            for (snap, (kind, point)) in found.iter().zip(expected) {
+                assert_eq!(snap.kind, *kind, "{found:?}");
+                assert!(snap.point.distance(*point) < 1e-9, "{snap:?} is not at {point}");
+            }
+        };
+        let half = found(v(2.05, 0.04), DivisionMode::Half);
+        assert_eq!(half.len(), 2, "{half:?}");
+        starts_with(
+            &half,
+            &[(SnapKind::Midpoint, v(2.0, 0.0)), (SnapKind::Edge, v(2.05, 0.0))],
+        );
+        let quarters = found(v(1.04, 0.03), DivisionMode::Equal(4));
+        starts_with(
+            &quarters,
+            &[
+                (SnapKind::Intersection, v(1.1, 0.0)),
+                (SnapKind::Division, v(1.0, 0.0)),
+                (SnapKind::Edge, v(1.04, 0.0)),
+            ],
+        );
+        assert_eq!(
+            snap(&targets, &[], v(2.05, 0.04), 0.2, 0.0, None).kind,
+            SnapKind::Midpoint
+        );
+    }
+
     /// INP-009: every guide shape meets the edges and arcs near the cursor
     /// and the other guides at guide-intersection level, and the cursor
     /// projected onto it is a point on a guide.
@@ -581,6 +674,7 @@ mod tests {
             edges: &[edge],
             arcs: &[arc],
             guides: &guides,
+            divisions: &[],
         };
         let cursor = v(0.05, 0.1);
         let found = collect(&targets, cursor, 1.0, 0.0, None);

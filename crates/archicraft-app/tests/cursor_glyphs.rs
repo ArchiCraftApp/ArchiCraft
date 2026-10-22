@@ -7,7 +7,8 @@
 mod common;
 
 use archicraft_app::input::{
-    ArcTarget, CursorState, SnapIndex, SnapKind, SnapSource, SourceClass, TargetOwner, TargetSink, candidates,
+    ArcTarget, CursorState, DivisionMode, SnapIndex, SnapKind, SnapSource, SourceClass, TargetOwner, TargetSink,
+    candidates,
 };
 use archicraft_app::views::plan;
 use archicraft_geometry::ModelGeometry;
@@ -114,11 +115,9 @@ fn every_snap_kind_and_cursor_state_has_its_own_glyph() {
     harness.run();
 }
 
-/// INP-024, INP-008: in the plan view of two_storey_shell the wall tool's
-/// cursor snaps to the centroid of the ground slab, draws the centroid
-/// glyph without a command state and labels it 'centroid'.
-#[test]
-fn the_plan_view_labels_a_centroid_snap() {
+/// Opens two_storey_shell, written to an IFCX file under `name`, and
+/// chooses the wall tool.
+fn wall_tool_on_two_storey_shell(name: &str) -> Harness<'static, archicraft_app::ArchiCraftApp> {
     let project = samples::two_storey_shell();
     let geometry = ModelGeometry::evaluate(&project);
     let options = WriteOptions {
@@ -127,16 +126,24 @@ fn the_plan_view_labels_a_centroid_snap() {
         data_version: 1,
     };
     let (bytes, _) = archicraft_ifcx::save(&project, &geometry, &options, false);
-    let dir = data_dir("centroid-glyph");
+    let dir = data_dir(name);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("two-storey-shell.ifcx");
     std::fs::write(&path, bytes).unwrap();
-    let mut harness = harness("centroid-glyph-app");
+    let mut harness = harness(&format!("{name}-app"));
     harness.state_mut().open_path(&path);
     harness.run_steps(3);
     harness.get_by_label("Wall").click();
     harness.run_steps(2);
+    harness
+}
 
+/// INP-024, INP-008: in the plan view of two_storey_shell the wall tool's
+/// cursor snaps to the centroid of the ground slab, draws the centroid
+/// glyph without a command state and labels it 'centroid'.
+#[test]
+fn the_plan_view_labels_a_centroid_snap() {
+    let mut harness = wall_tool_on_two_storey_shell("centroid-glyph");
     let (storey, pos) = {
         let ws = harness.state_mut().workspace();
         let storey = ws.active_storey;
@@ -150,4 +157,32 @@ fn the_plan_view_labels_a_centroid_snap() {
     assert_eq!(state.glyph, Some((SnapKind::Centroid, CursorState::Normal)));
     let label = state.label.clone().unwrap_or_default();
     assert!(label.ends_with("\ncentroid"), "{label}");
+}
+
+/// INP-010, INP-008: with four equal parts chosen in the preferences, the
+/// plan view of two_storey_shell hovers the south wall, draws ticks at its
+/// three division points and snaps to the one near the cursor with the
+/// division glyph, labelled 'division point'.
+#[test]
+fn the_plan_view_draws_division_ticks_and_snaps_to_them() {
+    let mut harness = wall_tool_on_two_storey_shell("division-ticks");
+    harness.state_mut().workspace().prefs.input.division = DivisionMode::Equal(4);
+    let (storey, pos) = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.active_storey;
+        let state = &ws.plan_views[&storey];
+        (storey, state.camera.to_screen(state.last_rect, DVec2::new(3.0, -0.03)))
+    };
+    harness.hover_at(pos);
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let state = &ws.plan_views[&storey];
+    let expected = [3.0, 6.0, 9.0].map(|x| DVec2::new(x, 0.0));
+    assert_eq!(state.ticks.len(), expected.len(), "{:?}", state.ticks);
+    for (tick, x) in state.ticks.iter().zip(expected) {
+        assert!(tick.distance(x) < 1e-9, "{:?} is not {expected:?}", state.ticks);
+    }
+    assert_eq!(state.glyph, Some((SnapKind::Division, CursorState::Normal)));
+    let label = state.label.clone().unwrap_or_default();
+    assert!(label.ends_with("\ndivision point"), "{label}");
 }
