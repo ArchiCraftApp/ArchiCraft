@@ -6,18 +6,21 @@
 //! `edit.rs`, …), so adding a command means adding one spec there plus its
 //! label and description in `locales/en/commands.ftl`.
 //!
-//! Menus, shortcuts and the other places that run commands go through one
-//! entry, [`ArchiCraftApp::invoke`], which looks the command up here and
-//! runs its [`Handler`].
+//! The menu bar is built from the commands' [`MenuPlace`]s
+//! ([`Registry::menu`]), so a new command with a menu place appears in its
+//! menu without a change to `ui/shell.rs`. Menus, shortcuts, the toolbox and
+//! the status bar run commands through one entry,
+//! [`ArchiCraftApp::invoke`], which looks the command up here and runs its
+//! [`Handler`].
 
 pub mod binding;
 pub mod ctx;
 mod edit;
-mod file;
+pub mod file;
 mod help;
 mod project;
-mod tools;
-mod view;
+pub mod tools;
+pub mod view;
 
 use std::cmp::Reverse;
 use std::sync::LazyLock;
@@ -38,7 +41,7 @@ impl CommandId {
         Self(id)
     }
 
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         self.0
     }
 
@@ -62,6 +65,69 @@ impl std::fmt::Display for CommandId {
 
 /// The ids of the top-level menus, in menu-bar order (UI-011).
 pub const MENUS: [&str; 6] = ["file", "edit", "view", "design", "project", "help"];
+
+/// The title of the menu or submenu `path` in the current language, `None`
+/// for a path without a title. A new submenu adds its title here and in
+/// `locales/en/app.ftl`.
+pub fn menu_title(path: &str) -> Option<String> {
+    Some(match path {
+        "file" => crate::tr!("menu-file"),
+        "edit" => crate::tr!("menu-edit"),
+        "view" => crate::tr!("menu-view"),
+        "design" => crate::tr!("menu-design"),
+        "project" => crate::tr!("menu-project"),
+        "help" => crate::tr!("menu-help"),
+        _ => return None,
+    })
+}
+
+/// One entry of a menu built from the registry (UI-017).
+#[derive(Clone, Copy, Debug)]
+pub enum MenuEntry<'a> {
+    Command(&'a CommandSpec),
+    /// The submenu with this full path, such as `view/zoom`.
+    Submenu(&'a str),
+    /// The line between two groups.
+    Separator,
+}
+
+/// The entries of the menu `path` from the menu places of `specs`: the
+/// commands placed in it and its submenus, sorted by group and order (ties
+/// in registration order), with a separator between groups. A submenu sits
+/// at the place of its first command.
+pub fn menu_entries<'a>(specs: &'a [CommandSpec], path: &str) -> Vec<MenuEntry<'a>> {
+    let mut placed: Vec<((u16, u16, usize), MenuEntry<'a>)> = Vec::new();
+    for (i, spec) in specs.iter().enumerate() {
+        let Some(place) = spec.menu else {
+            continue;
+        };
+        let key = (place.group, place.order, i);
+        if place.path == path {
+            placed.push((key, MenuEntry::Command(spec)));
+        } else if let Some(rest) = place.path.strip_prefix(path).and_then(|r| r.strip_prefix('/')) {
+            let name = rest.split('/').next().unwrap_or(rest);
+            let sub = &place.path[..path.len() + 1 + name.len()];
+            match placed
+                .iter_mut()
+                .find(|(_, e)| matches!(e, MenuEntry::Submenu(s) if *s == sub))
+            {
+                Some((first, _)) => *first = (*first).min(key),
+                None => placed.push((key, MenuEntry::Submenu(sub))),
+            }
+        }
+    }
+    placed.sort_by_key(|(key, _)| *key);
+    let mut entries = Vec::new();
+    let mut group = None;
+    for ((g, _, _), entry) in placed {
+        if group.is_some_and(|previous| previous != g) {
+            entries.push(MenuEntry::Separator);
+        }
+        group = Some(g);
+        entries.push(entry);
+    }
+    entries
+}
 
 /// The area a command belongs to, for grouping in the command palette.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -276,6 +342,11 @@ impl Registry {
     /// The command with the given id.
     pub fn spec(&self, id: &str) -> Option<&CommandSpec> {
         self.specs.iter().find(|s| s.id.as_str() == id)
+    }
+
+    /// The entries of the menu `path` (see [`menu_entries`]).
+    pub fn menu(&self, path: &str) -> Vec<MenuEntry<'_>> {
+        menu_entries(&self.specs, path)
     }
 
     /// The default bindings with their commands, in match order.

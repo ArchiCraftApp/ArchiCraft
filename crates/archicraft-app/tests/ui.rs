@@ -12,7 +12,7 @@ use archicraft_app::i18n::{self, Localizer};
 use archicraft_app::input::{Field, InputConsumer, InputMode};
 use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::{ToolKind, WallMode};
-use archicraft_app::workspace::Consumer;
+use archicraft_app::workspace::{Consumer, Pane};
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_length};
@@ -409,6 +409,119 @@ fn edit_menu_undoes_and_redoes() {
     assert_eq!(harness.state_mut().workspace().doc.project.elements.len(), 1);
 }
 
+/// The commands invoked since the last call, with their origin.
+fn invoked(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<(&'static str, Origin)> {
+    harness
+        .state_mut()
+        .take_invocations()
+        .into_iter()
+        .map(|i| (i.id.as_str(), i.origin))
+        .collect()
+}
+
+/// UI-017, UI-001: the menus generated from the registry, the toolbox and the
+/// status bar of a plan invoke their commands by id through
+/// `ArchiCraftApp::invoke`, the menus with `Origin::Menu` and the toolbox and
+/// the status bar with `Origin::Toolbar`.
+#[test]
+fn menus_toolbox_and_status_bar_invoke_commands_by_id() {
+    let mut harness = harness("invoke-by-id");
+    harness.state_mut().record_invocations();
+    for (menu, item, id) in [
+        ("Help", "About ArchiCraft", "help.about"),
+        ("Design", "Wall tool", "tool.wall"),
+        ("View", "Show wall reference lines", "view.reference-lines"),
+        ("File", "Preferences…", "file.preferences"),
+    ] {
+        open_menu(&mut harness, menu);
+        harness.get_by_label_contains(item).click();
+        harness.run_steps(2);
+        assert_eq!(invoked(&mut harness), [(id, Origin::Menu)], "{menu} ▸ {item}");
+    }
+    for (label, id) in [
+        ("Select", "tool.select"),
+        ("Wall", "tool.wall"),
+        ("Slab", "tool.slab"),
+        ("Orbit", "view.orbit"),
+        ("Plan/3D", "view.switch-plan-3d"),
+        ("Next zoom ▶", "view.next-zoom"),
+        ("◀ Previous zoom", "view.previous-zoom"),
+        ("No problems", "view.problems"),
+    ] {
+        harness.get_by_label(label).click();
+        harness.run_steps(2);
+        assert_eq!(invoked(&mut harness), [(id, Origin::Toolbar)], "{label}");
+    }
+    // Fit is in the toolbox and in the status bar.
+    let fits: Vec<_> = harness.query_all_by_label("Fit").map(|n| n.rect().center()).collect();
+    assert_eq!(fits.len(), 2);
+    for pos in fits {
+        click_at(&mut harness, pos);
+        harness.run_steps(1);
+        assert_eq!(invoked(&mut harness), [("view.fit-window", Origin::Toolbar)]);
+    }
+}
+
+/// UI-017, VIEW-014: the status bar of a 3D view invokes Fit and Orbit by
+/// id with `Origin::Toolbar`.
+#[test]
+fn the_3d_status_bar_invokes_its_commands_by_id() {
+    let mut harness = harness("invoke-3d");
+    harness.get_by_label("Plan/3D").click();
+    harness.run_steps(2);
+    assert!(matches!(
+        harness.state_mut().workspace().active_pane,
+        Some(Pane::View3d(_))
+    ));
+    harness.state_mut().record_invocations();
+    for (label, id) in [("Fit", "view.fit-window"), ("Orbit", "view.orbit")] {
+        // The status bar's button lies below the toolbox's.
+        let pos = harness
+            .query_all_by_label(label)
+            .map(|n| n.rect())
+            .max_by(|a, b| a.min.y.total_cmp(&b.min.y))
+            .unwrap()
+            .center();
+        click_at(&mut harness, pos);
+        harness.run_steps(1);
+        assert_eq!(invoked(&mut harness), [(id, Origin::Toolbar)], "{label}");
+    }
+}
+
+/// UI-017, UI-008: an on/off menu entry shows its shortcut like the other
+/// entries; View ▸ Problems shows Primary+Shift+P.
+#[test]
+fn checked_menu_entries_show_their_shortcut() {
+    let mut harness = harness("checked-shortcut");
+    open_menu(&mut harness, "View");
+    let shortcut = harness
+        .ctx
+        .format_shortcut(&Binding::primary(Key::P).shift().shortcut());
+    harness.get_by_label(&format!("Problems {shortcut}"));
+    harness.get_by_label("Show wall reference lines");
+}
+
+/// UI-011, PRJ-003: File ▸ Open recent follows Open… and lists the recent
+/// projects, or says that there are none.
+#[test]
+fn open_recent_follows_open() {
+    let mut harness = harness("open-recent");
+    harness.state_mut().workspace().prefs.recent.clear();
+    harness.run_steps(1);
+    open_menu(&mut harness, "File");
+    let top =
+        |harness: &Harness<'static, ArchiCraftApp>, label: &str| harness.get_by_label_contains(label).rect().min.y;
+    let (open, recent, save) = (
+        top(&harness, "Open…"),
+        top(&harness, "Open recent"),
+        top(&harness, "Save as…"),
+    );
+    assert!(open < recent && recent < save, "{open} {recent} {save}");
+    harness.get_by_label_contains("Open recent").hover();
+    harness.run_steps(2);
+    harness.get_by_label("No recent projects");
+}
+
 /// Presses and releases `binding` with the modifier keys `os` reports for
 /// it: Cmd (with egui's logical `command`) on macOS, Ctrl elsewhere.
 fn press(harness: &mut Harness<'static, ArchiCraftApp>, binding: Binding, os: OperatingSystem) {
@@ -692,9 +805,8 @@ fn project_settings_unit_choices_come_from_the_catalogue() {
     harness.state_mut().set_localizer(Rc::clone(&pseudo));
     harness.run_steps(2);
     let label = |key: &str| i18n::with(Rc::clone(&pseudo), || tr!(key));
-    // Menu titles are migrated with archicraft-5eu.3; command labels come
-    // from the catalogue.
-    open_menu(&mut harness, "Project");
+    // Menu titles and command labels come from the catalogue.
+    open_menu(&mut harness, &label("menu-project"));
     harness.get_by_label(&label("cmd-project-settings-label")).click();
     harness.run_steps(4);
     let metre = label(LengthUnit::Meter.label_key());

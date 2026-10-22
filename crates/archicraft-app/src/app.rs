@@ -906,7 +906,7 @@ impl eframe::App for ArchiCraftApp {
             });
         }
         egui::Panel::left("toolbox").resizable(false).show(ui, |ui| {
-            let id = shell::toolbox(ui, &mut self.ws);
+            let id = shell::toolbox(ui, &self.ws);
             invoked.extend(id.map(|id| (id, Origin::Toolbar)));
         });
         egui::Panel::right("browser")

@@ -3,15 +3,23 @@
 use archicraft_model::project::Projection;
 use egui::Key;
 
-use super::{Binding, Category, CommandSpec, Enabled, Handler, Scope, Target};
+use super::{Binding, Category, CommandId, CommandSpec, Enabled, Handler, Scope, Target};
 use crate::ArchiCraftApp;
 use crate::views::view3d::View3dState;
 use crate::workspace::Pane;
 
+// The view commands the toolbox and the status bar invoke (UI-001).
+pub const FIT_WINDOW: CommandId = CommandId::new("view.fit-window");
+pub const PREVIOUS_ZOOM: CommandId = CommandId::new("view.previous-zoom");
+pub const NEXT_ZOOM: CommandId = CommandId::new("view.next-zoom");
+pub const SWITCH_PLAN_3D: CommandId = CommandId::new("view.switch-plan-3d");
+pub const ORBIT: CommandId = CommandId::new("view.orbit");
+pub const PROBLEMS: CommandId = CommandId::new("view.problems");
+
 pub(super) fn specs() -> Vec<CommandSpec> {
     let view = |id, handler: Handler| CommandSpec::new(id, Category::View, handler);
     vec![
-        view("view.fit-window", |app, _, target| app.zoom_pane(target.pane, None))
+        view(FIT_WINDOW.as_str(), |app, _, target| app.zoom_pane(target.pane, None))
             .menu("view", 0, 0)
             .bind(Binding::key(Key::F))
             .scope(Scope::Canvas),
@@ -24,7 +32,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         .menu("view", 0, 1)
         .bind(Binding::key(Key::F).shift())
         .enabled_when(|cx| Enabled::when(!cx.selection_empty, "cmd-reason-nothing-selected")),
-        view("view.previous-zoom", |app, _, target| {
+        view(PREVIOUS_ZOOM.as_str(), |app, _, target| {
             if let Some(Pane::Plan(storey)) = target.pane
                 && let Some(state) = app.ws.plan_views.get_mut(&storey)
             {
@@ -33,7 +41,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         })
         .menu("view", 0, 2)
         .bind(Binding::primary(Key::OpenBracket)),
-        view("view.next-zoom", |app, _, target| {
+        view(NEXT_ZOOM.as_str(), |app, _, target| {
             if let Some(Pane::Plan(storey)) = target.pane
                 && let Some(state) = app.ws.plan_views.get_mut(&storey)
             {
@@ -42,7 +50,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         })
         .menu("view", 0, 3)
         .bind(Binding::primary(Key::CloseBracket)),
-        view("view.switch-plan-3d", |app, _, target| {
+        view(SWITCH_PLAN_3D.as_str(), |app, _, target| {
             let pane = match target.pane {
                 Some(Pane::Plan(_)) => app.ws.doc.project.views.first().map(|v| Pane::View3d(v.id)),
                 _ => Some(Pane::Plan(target.storey)),
@@ -63,7 +71,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         view("view.previous-tab", |app, _, _| app.cycle_tab(-1))
             .menu("view", 1, 2)
             .bind(Binding::ctrl(Key::Tab).shift()),
-        view("view.orbit", toggle_orbit)
+        view(ORBIT.as_str(), toggle_orbit)
             .menu("view", 1, 3)
             .bind(Binding::key(Key::O))
             .scope(Scope::Canvas),
@@ -73,7 +81,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         })
         .menu("view", 2, 0)
         .checked_when(|cx| cx.reference_lines_shown),
-        view("view.problems", |app, _, _| {
+        view(PROBLEMS.as_str(), |app, _, _| {
             app.dialogs.problems = !app.dialogs.problems
         })
         .menu("view", 2, 1)

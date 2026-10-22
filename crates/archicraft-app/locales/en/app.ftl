@@ -4,5 +4,15 @@
 ### start with menu-, status- or browser- (see crates/archicraft-app/src/i18n).
 
 ## Menu bar (UI-011)
+## The titles of the menus; the items are commands (commands.ftl).
 
+menu-file = File
+menu-edit = Edit
+menu-view = View
+menu-design = Design
+menu-project = Project
 menu-help = Help
+
+# The submenu after File > Open… with the recently opened project files.
+menu-file-recent = Open recent
+menu-file-recent-empty = No recent projects
