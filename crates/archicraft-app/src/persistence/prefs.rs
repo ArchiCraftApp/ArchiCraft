@@ -7,6 +7,7 @@ use archicraft_model::units::NumberFormat;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::i18n::os_locale::{self, OsNumberLocale};
+use crate::input::ConstraintReference;
 use crate::input::InputMode;
 use crate::input::InputSettings;
 
@@ -46,15 +47,20 @@ pub struct Preferences {
     pub snap_radius: f32,
     /// Angle increment of the constraint modifier, in degrees (INP-006).
     pub angle_increment_deg: f64,
+    /// Whether the constraint directions are measured from the X axis or
+    /// from the orientation of the input frame (INP-006). An unknown value
+    /// reads as the X axis and keeps the rest of the file.
+    #[serde(deserialize_with = "lenient_or_default")]
+    pub constraint_reference: ConstraintReference,
     /// Click-click or press-drag-release point input (INP-020). An unknown
     /// value reads as click-click and keeps the rest of the file.
-    #[serde(deserialize_with = "lenient_input_mode")]
+    #[serde(deserialize_with = "lenient_or_default")]
     pub input_mode: InputMode,
     /// Step of the invisible snap grid in metres (INP-013).
     pub snap_step: f64,
     /// The division mode and scope of hovered edges (INP-010). An unknown
     /// value reads as the defaults and keeps the rest of the file.
-    #[serde(deserialize_with = "lenient_input_settings")]
+    #[serde(deserialize_with = "lenient_or_default")]
     pub input: InputSettings,
     /// Tracker behaviour (SET-001): show the absolute X, Y and Z beside
     /// the distance and angle (INP-002, default off).
@@ -82,6 +88,7 @@ impl Default for Preferences {
             digit_grouping: false,
             snap_radius: 8.0,
             angle_increment_deg: 45.0,
+            constraint_reference: ConstraintReference::XAxis,
             input_mode: InputMode::ClickClick,
             snap_step: 0.05,
             input: InputSettings::default(),
@@ -96,35 +103,21 @@ impl Default for Preferences {
 
 const MAX_RECENT: usize = 10;
 
-/// Reads an input mode, taking click-click for a value this version does not
-/// know (a newer version's mode, a typo), so the other preferences of the
-/// file stay (INP-020).
-fn lenient_input_mode<'de, D: Deserializer<'de>>(deserializer: D) -> Result<InputMode, D::Error> {
+/// Reads a value, taking its default for one this version does not know (a
+/// newer version's choice, a typo), so the other preferences of the file
+/// stay.
+fn lenient_or_default<'de, D: Deserializer<'de>, T: Deserialize<'de> + Default>(
+    deserializer: D,
+) -> Result<T, D::Error> {
     #[derive(Deserialize)]
     #[serde(untagged)]
-    enum Lenient {
-        Known(InputMode),
+    enum Lenient<T> {
+        Known(T),
         Unknown(serde::de::IgnoredAny),
     }
     Ok(match Lenient::deserialize(deserializer)? {
-        Lenient::Known(mode) => mode,
-        Lenient::Unknown(_) => InputMode::ClickClick,
-    })
-}
-
-/// Reads input settings, taking the defaults for a value this version does
-/// not know (a newer version's mode, a typo), so the other preferences of
-/// the file stay (INP-010).
-fn lenient_input_settings<'de, D: Deserializer<'de>>(deserializer: D) -> Result<InputSettings, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Lenient {
-        Known(InputSettings),
-        Unknown(serde::de::IgnoredAny),
-    }
-    Ok(match Lenient::deserialize(deserializer)? {
-        Lenient::Known(settings) => settings,
-        Lenient::Unknown(_) => InputSettings::default(),
+        Lenient::Known(value) => value,
+        Lenient::Unknown(_) => T::default(),
     })
 }
 
@@ -312,6 +305,34 @@ mod tests {
         }
         std::fs::write(&path, r#"{"author": "Ada", "input_mode": "DragRelease"}"#).unwrap();
         assert_eq!(Preferences::load(&path).input_mode, InputMode::DragRelease);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// INP-006: the constraint directions are measured from the X axis by
+    /// default; the choice survives a restart, and a file without it or
+    /// with a value this version does not know reads as the X axis and
+    /// keeps its other preferences.
+    #[test]
+    fn constraint_reference_persists_and_falls_back_to_the_x_axis() {
+        assert_eq!(Preferences::default().constraint_reference, ConstraintReference::XAxis);
+        let dir = std::env::temp_dir().join(format!("archicraft-prefs-constraint-{}", std::process::id()));
+        let path = dir.join("preferences.json");
+        let prefs = Preferences {
+            constraint_reference: ConstraintReference::Frame,
+            ..Preferences::default()
+        };
+        prefs.save(&path).unwrap();
+        assert_eq!(Preferences::load(&path), prefs);
+        for file in [
+            r#"{"author": "Ada", "snap_radius": 12.0}"#,
+            r#"{"author": "Ada", "constraint_reference": "Polar", "snap_radius": 12.0}"#,
+            r#"{"author": "Ada", "constraint_reference": 3, "snap_radius": 12.0}"#,
+        ] {
+            std::fs::write(&path, file).unwrap();
+            let read = Preferences::load(&path);
+            assert_eq!(read.constraint_reference, ConstraintReference::XAxis, "{file}");
+            assert_eq!((read.author.as_str(), read.snap_radius), ("Ada", 12.0), "{file}");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

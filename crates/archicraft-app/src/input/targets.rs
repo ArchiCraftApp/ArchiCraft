@@ -908,6 +908,8 @@ pub(crate) mod tests {
             units: &ws.doc.project.settings.units,
             number_format: &ws.prefs.number_format(),
             angle_increment_deg: 45.0,
+            constraint_reference: crate::input::ConstraintReference::XAxis,
+            frame_rotation: 0.0,
             snap_step: 0.0,
             frame: SurfaceFrame::plan(0.0),
             user_origin: crate::input::Frame2d::default(),

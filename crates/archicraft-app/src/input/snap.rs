@@ -352,6 +352,60 @@ pub(super) fn candidates_with(
     collect(&targets, cursor, radius, grid_step, previous)
 }
 
+/// The candidates for a cursor held on `guide` (INP-006, INP-009): the
+/// cursor projected onto the guide, then snapped along it. Edges and arcs
+/// of the index crossing the guide give their crossing at intersection
+/// level, the other guides shown theirs at guide-intersection level, and a
+/// node within `radius` of the projected cursor, of the index or pending,
+/// gives its projection onto the guide with the node's kind; the projected
+/// cursor itself is the last candidate, of kind `free`. Division points of
+/// a hovered edge are no candidates. Every candidate lies on the guide
+/// within `radius` of the projected cursor, ordered as in [`candidates`].
+pub(super) fn along(
+    index: &SnapIndex,
+    beyond: &Beyond,
+    guide: &GuideShape,
+    free: SnapKind,
+    cursor: DVec2,
+    radius: f64,
+) -> Vec<Snap> {
+    let on = guide.project(cursor);
+    let mut found: Vec<Snap> = Vec::new();
+    let mut add = |kind: SnapKind, point: DVec2| {
+        if point.distance(on) > radius {
+            return;
+        }
+        match found.iter_mut().find(|s| coincident(s.point, point)) {
+            Some(s) => s.kind = s.kind.min(kind),
+            None => found.push(Snap { point, kind }),
+        }
+    };
+    let pending = (beyond.pending.iter())
+        .filter(|p| p.distance(on) <= radius + 2.0 * MODEL_TOLERANCE)
+        .map(|&point| Snap {
+            point,
+            kind: SnapKind::Node,
+        });
+    for n in index.targets_near(on, radius).into_iter().chain(pending) {
+        add(n.kind, guide.project(n.point));
+    }
+    let edges = index.edges_near(on, radius).into_iter().map(GuideShape::Segment);
+    let arcs = index.arcs_near(on, radius).into_iter().map(GuideShape::Arc);
+    for other in edges.chain(arcs) {
+        for p in guide.intersect(&other) {
+            add(SnapKind::Intersection, p);
+        }
+    }
+    for other in beyond.guides.iter().filter(|g| g.shape != *guide) {
+        for p in guide.intersect(&other.shape) {
+            add(SnapKind::GuideIntersection, p);
+        }
+    }
+    add(free, on);
+    found.sort_by(|a, b| (a.kind.cmp(&b.kind)).then(a.point.distance(on).total_cmp(&b.point.distance(on))));
+    found
+}
+
 /// The targets near the cursor, from the index and beyond it.
 pub(super) struct Targets<'a> {
     /// Nodes with their node-level kind.

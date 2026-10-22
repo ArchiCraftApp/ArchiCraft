@@ -9,7 +9,9 @@ use std::rc::Rc;
 
 use archicraft_app::commands::{Binding, Origin, Registry};
 use archicraft_app::i18n::{self, Localizer};
-use archicraft_app::input::{DivisionMode, DivisionScope, Field, InputConsumer, InputMode};
+use archicraft_app::input::{
+    ConstraintReference, DivisionMode, DivisionScope, Field, GuideOrigin, InputConsumer, InputMode, SnapKind,
+};
 use archicraft_app::persistence::DataDirs;
 use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::{ToolKind, WallMode};
@@ -1191,6 +1193,86 @@ fn preferences_offer_the_input_mode_in_the_input_group() {
          · 0–9 types the coordinates · P switches polar and Cartesian \
          · Press-drag-release: press at a point, drag and release at the next",
     );
+}
+
+/// INP-006: holding Shift while drawing a wall holds the cursor on the
+/// constraint direction: the preview's end lies on the horizontal through
+/// the start point, the label names the constrained point and the plan view
+/// draws the constraint guide; releasing Shift frees the cursor again.
+#[test]
+fn shift_constrains_the_wall_preview() {
+    let mut harness = harness("shift-constrains");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let (start, storey) = {
+        let ws = harness.state_mut().workspace();
+        ws.tool.wall_mode = WallMode::Single;
+        let storey = ws.active_storey;
+        (ws.plan_views[&storey].last_rect.center(), storey)
+    };
+    click_at(&mut harness, start);
+    let first = harness.state_mut().workspace().tool.points[0];
+    harness.event(Event::ModifiersChanged(Modifiers::SHIFT));
+    harness.hover_at(start + egui::vec2(160.0, -14.0));
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let resolved = ws.input.last().cloned().expect("a resolved point");
+    assert_eq!(resolved.snap.kind, SnapKind::Constrained);
+    assert!(
+        (resolved.point.y - first.y).abs() < 1e-9,
+        "{} vs {first}",
+        resolved.point
+    );
+    assert!(resolved.point.x > first.x);
+    let state = &ws.plan_views[&storey];
+    assert!(
+        state.label.as_deref().is_some_and(|l| l.ends_with("constrained")),
+        "{:?}",
+        state.label
+    );
+    assert_eq!(state.guides.len(), 1);
+    assert_eq!(state.guides[0].origin, GuideOrigin::Constraint);
+
+    harness.event(Event::ModifiersChanged(Modifiers::NONE));
+    harness.hover_at(start + egui::vec2(160.0, -15.0));
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    assert_ne!(ws.input.last().map(|r| r.snap.kind), Some(SnapKind::Constrained));
+    assert!(ws.plan_views[&storey].guides.is_empty());
+}
+
+/// INP-006, Appendix D.1: the Preferences window offers 15° and 45° next
+/// to the angle increment, and the reference of the constraint
+/// directions; the choices apply with OK.
+#[test]
+fn preferences_offer_quick_angle_increments_and_the_constraint_reference() {
+    let mut harness = harness("angle-increment");
+    harness.get_by_label("File").click();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Preferences").click();
+    harness.run_steps(4);
+    for label in ["15°", "45°", "Constrain directions from", "X axis", "Grid orientation"] {
+        assert_present(&harness, label);
+    }
+    harness.get_by_label("15°").click();
+    harness.run_steps(2);
+    harness.get_by_label("Grid orientation").click();
+    harness.run_steps(2);
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    let prefs = &harness.state_mut().workspace().prefs;
+    assert_eq!(prefs.angle_increment_deg, 15.0);
+    assert_eq!(prefs.constraint_reference, ConstraintReference::Frame);
+
+    harness.get_by_label("File").click();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Preferences").click();
+    harness.run_steps(4);
+    harness.get_by_label("45°").click();
+    harness.run_steps(2);
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().prefs.angle_increment_deg, 45.0);
 }
 
 /// SET-001, INP-002: the Preferences window offers the tracker behaviour in
