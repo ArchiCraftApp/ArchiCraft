@@ -151,10 +151,14 @@ class OpenPullRequests(unittest.TestCase):
                "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-10-21T10:01:00Z"}
         passed = {"__typename": "StatusContext", "context": "User review", "state": "SUCCESS",
                   "startedAt": "2026-10-21T09:00:00Z"}
-        for rollup in (GREEN + [run], GREEN + [run, passed]):
-            with self.subTest(statuses=len(rollup) - 2):
+        for case, rollup in (("without a status", GREEN + [run]),
+                             ("beside a passed status", GREEN + [run, passed])):
+            with self.subTest(case=case):
                 checks = dashboard.summarize_checks(rollup)
                 self.assertEqual((checks["fail"], checks["failing"]), (1, ["User review check"]))
+        # The card says so too, rather than "green, merging" (land.sh turns auto-merge on).
+        view = dashboard.open_pr_view(open_pr(review=None, auto_merge=True, checks=GREEN + [run]))
+        self.assertEqual(view["status"]["text"], "checks failing")
         # A failed status beside the failed run still means waiting for the review.
         errored = dict(passed, state="ERROR", startedAt="2026-10-21T10:02:00Z")
         checks = dashboard.summarize_checks(GREEN + [run, errored])
