@@ -361,8 +361,12 @@ edited by hand. `scripts/status.py` (Python 3 standard library) does the work:
   are not checked) to a missing file, a done row that names no test or CI guard, and any
   difference between the document and what generate writes, so a hand edit inside the markers
   fails. A done row names a test or guard when its evidence or its row in the traceability table
-  above names a test function, a test file or guard script that exists, or the name of a CI job
-  or step.
+  above names a test function (a Rust `fn` marked `#[test]` or `#[<crate>::test]`, a Python
+  `test_` method; helpers in `tests/` do not count), a test file (a file under a `tests/`
+  directory that holds one), a script that a workflow's `run:` step calls, or the name of a CI
+  step that calls such a script or a test command (`cargo test`, `nextest`, `clippy`, `fmt`,
+  `fuzz run`) or uses `cargo-deny-action`, or of a job with such a step. Scripts no workflow
+  calls or only a comment names, and steps that only install tools or upload files do not count.
 - `python3 scripts/status.py merge-check --base <sha>` reads the `SRS:` lines of the
   pull-request body (`--body-file`, or the event payload in CI) and of the commit messages since
   the base, outside HTML comments. Every listed ID's row must differ from the base, and no row

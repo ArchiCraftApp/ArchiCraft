@@ -4,8 +4,9 @@
 # Fails when
 # - a tracked file names the maker or the product outside scripts/legal-allowlist.txt
 #   (docs/SRS.md, docs/technology-choices.md and docs/implementation-status.md cite the
-#   reference product nominatively throughout and are exempt; so is the beads export .beads/,
-#   whose task texts quote those documents);
+#   reference product nominatively throughout and are exempt; so are
+#   docs/status/requirements.json, from which docs/implementation-status.md is generated, and
+#   the beads export .beads/, whose task texts quote those documents);
 # - a tracked image, library-part or template file is not listed with its origin and licence
 #   in scripts/asset-allowlist.txt.
 # Usage: scripts/check-legal.sh
@@ -19,7 +20,7 @@ status=0
 pattern="graphi""soft|archi""cad"
 rc=0
 hits="$(git grep -n -I -i -E "$pattern" -- . ':!docs/SRS.md' ':!docs/technology-choices.md' \
-    ':!docs/implementation-status.md' ':!.beads/')" || rc=$?
+    ':!docs/implementation-status.md' ':!docs/status/requirements.json' ':!.beads/')" || rc=$?
 [ "$rc" -le 1 ] || { echo "git grep failed ($rc)" >&2; exit 2; }
 
 if [ -n "$hits" ]; then
