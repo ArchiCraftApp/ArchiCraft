@@ -24,6 +24,9 @@
 //! coincident nodes are one target, and coincident candidates are one
 //! candidate, at the point found first and with the best kind of them.
 
+use std::f64::consts::TAU;
+
+use archicraft_model::MODEL_TOLERANCE;
 use archicraft_model::glam::DVec2;
 use archicraft_model::tolerance::{coincident, is_parallel};
 
@@ -141,6 +144,74 @@ pub struct Snap {
     pub kind: SnapKind,
 }
 
+/// A circle or an arc among the snap targets (INP-008): its centre and
+/// radius, and the angles it spans, from `start` by `sweep` radians,
+/// counter-clockwise when the sweep is positive. A circle spans a full turn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArcTarget {
+    pub centre: DVec2,
+    pub radius: f64,
+    pub start: f64,
+    pub sweep: f64,
+}
+
+impl ArcTarget {
+    pub fn circle(centre: DVec2, radius: f64) -> Self {
+        Self {
+            centre,
+            radius,
+            start: 0.0,
+            sweep: TAU,
+        }
+    }
+
+    /// True if the point at `angle` lies on the arc, its ends within the
+    /// model tolerance along the curve (NFR-ACC-003).
+    pub fn spans(&self, angle: f64) -> bool {
+        let sweep = self.sweep.abs();
+        if sweep >= TAU {
+            return true;
+        }
+        let from = if self.sweep < 0.0 {
+            self.start - sweep
+        } else {
+            self.start
+        };
+        let past_start = (angle - from).rem_euclid(TAU);
+        let slack = MODEL_TOLERANCE / self.radius.max(MODEL_TOLERANCE);
+        past_start <= sweep + slack || past_start >= TAU - slack
+    }
+
+    /// The points where lines from `from` touch the arc (INP-008):
+    /// `c + r·(cos(θ ± φ), sin(θ ± φ))` with θ the direction from the centre
+    /// `c` to `from` and φ = acos(r / |from − c|). None from inside the
+    /// circle, one from a point on it, and of an arc only those it spans.
+    pub fn tangent_points(&self, from: DVec2) -> Vec<DVec2> {
+        let offset = from - self.centre;
+        let distance = offset.length();
+        if distance < self.radius - MODEL_TOLERANCE || distance == 0.0 {
+            return Vec::new();
+        }
+        let theta = offset.y.atan2(offset.x);
+        let phi = (self.radius / distance).min(1.0).acos();
+        let mut points: Vec<DVec2> = Vec::new();
+        for angle in [theta + phi, theta - phi] {
+            let point = self.centre + DVec2::from_angle(angle) * self.radius;
+            if self.spans(angle) && !points.iter().any(|p| coincident(*p, point)) {
+                points.push(point);
+            }
+        }
+        points
+    }
+
+    /// The distance from `p` to the nearer of the centre and the circle: no
+    /// more than the distance to any target of the arc.
+    pub(crate) fn reach(&self, p: DVec2) -> f64 {
+        let distance = p.distance(self.centre);
+        distance.min((distance - self.radius).abs())
+    }
+}
+
 pub(crate) fn closest_on_segment(p: DVec2, [a, b]: [DVec2; 2]) -> DVec2 {
     let ab = b - a;
     let len2 = ab.length_squared();
@@ -185,9 +256,9 @@ pub fn snap(
 /// order of precedence of INP-009 (see the module documentation), ties
 /// broken by the distance from the cursor. The targets are those of `index`
 /// near the cursor, the consumer's `pending` points, which are not in the
-/// index (NFR-PERF-005), and the `guides` shown; perpendicular feet start
-/// at `previous`, and the snap grid has the spacing `grid_step` (none when
-/// zero).
+/// index (NFR-PERF-005), and the `guides` shown; perpendicular feet and
+/// tangent points start at `previous`, and the snap grid has the spacing
+/// `grid_step` (none when zero).
 ///
 /// Candidates within the model tolerance are one point (NFR-ACC-003): a
 /// candidate coincident with one found before only raises its precedence and
@@ -202,23 +273,45 @@ pub fn candidates(
     previous: Option<DVec2>,
     guides: &[GuideShape],
 ) -> Vec<Snap> {
-    let mut nodes = index.nodes_near(cursor, radius);
-    nodes.extend_from_slice(pending);
+    let mut nodes = index.targets_near(cursor, radius);
+    nodes.extend(pending.iter().map(|&point| Snap {
+        point,
+        kind: SnapKind::Node,
+    }));
     let near = index.edges_near(cursor, radius);
+    let arcs = index.arcs_near(cursor, radius);
     let guides: Vec<[DVec2; 2]> = guides
         .iter()
         .map(|GuideShape::Line(line)| *line)
         .filter(|line| closest_on_segment(cursor, *line).distance(cursor) <= radius)
         .collect();
-    collect(&nodes, &near, &guides, cursor, radius, grid_step, previous)
+    let targets = Targets {
+        nodes: &nodes,
+        edges: &near,
+        arcs: &arcs,
+        guides: &guides,
+    };
+    collect(&targets, cursor, radius, grid_step, previous)
 }
 
-/// The candidates among `nodes`, the `near` edges and the `guides`, which
-/// lie within `radius` of the cursor, in the order of [`candidates`].
+/// The targets near the cursor, from the index and beyond it.
+pub(super) struct Targets<'a> {
+    /// Nodes with their node-level kind.
+    pub nodes: &'a [Snap],
+    pub edges: &'a [[DVec2; 2]],
+    pub arcs: &'a [ArcTarget],
+    pub guides: &'a [[DVec2; 2]],
+}
+
+/// The candidates among the `targets`, which lie within `radius` of the
+/// cursor, in the order of [`candidates`].
 pub(super) fn collect(
-    nodes: &[DVec2],
-    near: &[[DVec2; 2]],
-    guides: &[[DVec2; 2]],
+    &Targets {
+        nodes,
+        edges: near,
+        arcs,
+        guides,
+    }: &Targets,
     cursor: DVec2,
     radius: f64,
     grid_step: f64,
@@ -234,8 +327,8 @@ pub(super) fn collect(
             None => found.push(Snap { point, kind }),
         }
     };
-    for &n in nodes {
-        add(SnapKind::Node, n);
+    for n in nodes {
+        add(n.kind, n.point);
     }
     for (i, a) in near.iter().enumerate() {
         for b in &near[i + 1..] {
@@ -254,6 +347,12 @@ pub(super) fn collect(
             }
         }
         add(SnapKind::Edge, closest_on_segment(cursor, *e));
+    }
+    for arc in arcs {
+        add(SnapKind::Centre, arc.centre);
+        for t in previous.map(|prev| arc.tangent_points(prev)).unwrap_or_default() {
+            add(SnapKind::Tangent, t);
+        }
     }
     for (i, g) in guides.iter().enumerate() {
         for other in near.iter().chain(&guides[i + 1..]) {

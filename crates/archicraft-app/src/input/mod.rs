@@ -25,7 +25,7 @@ pub use constrain::constrain;
 pub use consumer::{CursorState, Expect, InputConsumer, KeyHint, Outcome, Preview, StepSpec, TrackerMode};
 pub use keys::{KeyInput, Modifiers};
 pub use pointer::{InputMode, PointerEvent};
-pub use snap::{Snap, SnapKind, SnapLevel, candidates, snap};
+pub use snap::{ArcTarget, Snap, SnapKind, SnapLevel, candidates, snap};
 pub use surface::{Frame2d, SurfaceFrame, ViewSurface};
 pub use targets::{IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
 pub use tracker::TrackerLine;

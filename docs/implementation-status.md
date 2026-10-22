@@ -14,8 +14,8 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
 | done | 66 | 8 | 1 | 75 |
-| partial | 111 | 34 | 6 | 151 |
-| missing | 137 | 157 | 47 | 341 |
+| partial | 111 | 35 | 6 | 152 |
+| missing | 137 | 156 | 47 | 340 |
 | **total** | 314 | 199 | 54 | 567 |
 
 Remaining effort of the 492 open requirements: S 115, M 216, L 136, XL 25.
@@ -34,7 +34,7 @@ Remaining effort of the 492 open requirements: S 115, M 216, L 136, XL 25.
 | 4.3 | Workspace and user interface | 1/7/0 | 1/6/1 | 0/0/1 | 17 |
 | 4.4 | Views and navigation | 2/8/8 | 0/2/15 | 0/0/3 | 38 |
 | 4.5 | Plan display and graphic attributes | 0/7/1 | 0/2/7 | 0/1/2 | 20 |
-| 4.6 | Drawing input and precision | 3/7/5 | 3/0/5 | 0/0/1 | 24 |
+| 4.6 | Drawing input and precision | 3/7/5 | 3/1/4 | 0/0/1 | 24 |
 | 4.7 | Selection | 0/5/1 | 0/0/3 | 0/0/1 | 10 |
 | 4.8 | Editing and transformation | 0/4/11 | 0/0/9 | 0/0/1 | 25 |
 | 4.9 | Common element behaviour | 3/5/4 | 0/2/5 | 0/0/1 | 20 |
@@ -334,9 +334,9 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | INP-006 | M | partial | M | Directions are measured from the X axis only (no construction grid to orient from); the alternative 'hold cursor on the nearest guide, including vertical guides in 3D' is missing (no guides, no 3D input); constrained mode bypasse… |
 | INP-007 | M | missing | M | No key command locks X, Y or distance; no X or Y lock exists at all; the lock is not drawn as a temporary guide (circle / vertical / horizontal line); no explicit release key. |
 | INP-023 | S | missing | S | No lock key, no temporary guide line drawn for the locked angle, no release. |
-| INP-008 | M | partial | L | 2D only: no snapping in 3D views. Missing targets: division points beyond the midpoint (INP-010), tangent points, arc/circle centres (no curved geometry exists), axis points of columns and beams (no such elements). Missing glyphs… |
-| INP-024 | S | missing | S | Polygon centroid snapping (slab outlines, cut polygons) absent. |
-| INP-009 | M | partial | S | The seven levels, their ranks and the candidate list are in place (input/snap.rs) and Tab cycles the candidates in range while nothing is typed (provisional binding until D.8). The guide intersection and guide levels have no producers yet: there are no guides (INP-011, INP-012). |
+| INP-008 | M | partial | L | 2D only: no snapping in 3D views. Missing targets: division points beyond the midpoint (INP-010); the nearest point on an arc or a circle and their intersections. Arc and circle centres, tangent points from the previous point, axis points and handles are snap targets (input/snap.rs ArcTarget, input/targets.rs TargetSink), but nothing produces them yet: no curved geometry, no columns or beams, no handle tool. Missing glyphs… |
+| INP-024 | S | partial | S | Plan views only: no snapping in 3D views (INP-016). The centroids of cut polygons (archicraft-geometry PlanElement::centroids) and of slab outlines are node-level snap targets (input/targets.rs), but the cursor has no centroid glyph yet. |
+| INP-009 | M | partial | S | The seven levels, their ranks and the candidate list are in place (input/snap.rs) and Tab cycles the candidates in range while nothing is typed (provisional binding until D.8). Every kind of the node and edge levels has a target (input/targets.rs). The guide intersection and guide levels have no producers yet: there are no guides (INP-011, INP-012); nor do handles, axis points and arcs. |
 | INP-010 | M | missing | M | Only the 'half' mode, hard-coded. Missing: N equal parts (2-100), percentage, repeated fixed distance, best equal division near a target distance; selection of exactly one active mode; scope option (between nodes / between inters… |
 | INP-011 | M | missing | L | Whole requirement: marking points/edges by dwell (default 1.0 s) or key, temporary guides (horizontal, vertical, angle increments, parallel, perpendicular, tangent, bisector, line through two centres), snappable guide intersectio… |
 | INP-012 | S | missing | L | Whole requirement: persistent guide lines/segments/circles/arcs per view, snappable with division points, drag-from-border creation aligned to an edge, numeric offset move/copy, delete individually/by sweep/all, global hide, excl… |

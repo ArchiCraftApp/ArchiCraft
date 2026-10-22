@@ -1127,17 +1127,17 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "2D only: no snapping in 3D views. Missing targets: division points beyond the midpoint (INP-010), tangent points, arc/circle centres (no curved geometry exists), axis points of columns and beams (no such elements). Missing glyphs…",
+      "gap": "2D only: no snapping in 3D views. Missing targets: division points beyond the midpoint (INP-010); the nearest point on an arc or a circle and their intersections. Arc and circle centres, tangent points from the previous point, axis points and handles are snap targets (input/snap.rs ArcTarget, input/targets.rs TargetSink), but nothing produces them yet: no curved geometry, no columns or beams, no handle tool. Missing glyphs…",
       "depends_on": []
     },
     {
       "id": "INP-024",
       "priority": "S",
       "section": "4.6",
-      "status": "missing",
+      "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Polygon centroid snapping (slab outlines, cut polygons) absent.",
+      "gap": "Plan views only: no snapping in 3D views (INP-016). The centroids of cut polygons (archicraft-geometry PlanElement::centroids) and of slab outlines are node-level snap targets (input/targets.rs), but the cursor has no centroid glyph yet.",
       "depends_on": []
     },
     {
@@ -1147,7 +1147,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The seven levels, their ranks and the candidate list are in place (input/snap.rs) and Tab cycles the candidates in range while nothing is typed (provisional binding until D.8). The guide intersection and guide levels have no producers yet: there are no guides (INP-011, INP-012).",
+      "gap": "The seven levels, their ranks and the candidate list are in place (input/snap.rs) and Tab cycles the candidates in range while nothing is typed (provisional binding until D.8). Every kind of the node and edge levels has a target (input/targets.rs). The guide intersection and guide levels have no producers yet: there are no guides (INP-011, INP-012); nor do handles, axis points and arcs.",
       "depends_on": []
     },
     {

@@ -1,6 +1,6 @@
 //! The spatial index of snap targets (INP-008, INP-017, NFR-PERF-005).
 //!
-//! A [`SnapIndex`] holds the nodes and edges of one storey in two R-trees,
+//! A [`SnapIndex`] holds the nodes, edges and arcs of one storey in R-trees,
 //! so that snapping looks only at the targets near the cursor instead of
 //! scanning the whole storey. It follows the model's revisions
 //! incrementally: every target belongs to an owner, and a new revision
@@ -9,7 +9,10 @@
 //! changes more than a quarter of the owners, bulk-load the trees instead.
 //!
 //! Targets come from [`SnapSource`]s: the plan's elements (cut rings,
-//! projected and overhead lines) and the walls' reference lines. Elements
+//! projected and overhead lines, centroids of the cut polygons), the walls'
+//! reference lines and the slabs' outline centroids (INP-024). A node
+//! carries its kind within the node level (INP-009): a plain node, a
+//! handle, a centre, an axis point or a centroid. Elements
 //! that are hidden or excluded from snapping, themselves or through their
 //! layer, provide none; locked elements stay snappable while they reject
 //! edits (INP-017). A whole source, such as a linked reference model, can
@@ -18,13 +21,13 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use archicraft_geometry::plan::{PlanDrawing, PlanElement, polygon_rings};
+use archicraft_geometry::plan::{PlanDrawing, PlanElement, outline_centroid, polygon_rings};
 use archicraft_model::glam::DVec2;
 use archicraft_model::tolerance::Welder;
 use archicraft_model::{Element, ElementId, MODEL_TOLERANCE, Project, StoreyId};
 use rstar::{AABB, PointDistance, RTree, RTreeObject};
 
-use super::snap::closest_on_segment;
+use super::snap::{ArcTarget, Snap, SnapKind, closest_on_segment};
 
 /// What a snap target belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -41,6 +44,8 @@ pub enum TargetOwner {
 pub enum SourceClass {
     /// A wall's reference line (WAL-007).
     ReferenceLine,
+    /// An outline stored in the model, such as a slab's.
+    Outline,
     /// A ring of a cut polygon in the plan.
     Cut,
     /// A projected line below the cut plane.
@@ -63,10 +68,11 @@ struct TargetKey {
     class: SourceClass,
 }
 
-/// A node in the index.
+/// A node in the index, with its kind within the node level.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct IndexedPoint {
     point: DVec2,
+    kind: SnapKind,
     key: TargetKey,
 }
 
@@ -74,6 +80,13 @@ struct IndexedPoint {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct IndexedEdge {
     edge: [DVec2; 2],
+    key: TargetKey,
+}
+
+/// An arc or a circle in the index.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct IndexedArc {
+    arc: ArcTarget,
     key: TargetKey,
 }
 
@@ -106,6 +119,22 @@ impl PointDistance for IndexedEdge {
     }
 }
 
+/// The whole circle: no arc reaches beyond it.
+impl RTreeObject for IndexedArc {
+    type Envelope = AABB<[f64; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        let r = DVec2::splat(self.arc.radius);
+        AABB::from_corners((self.arc.centre - r).to_array(), (self.arc.centre + r).to_array())
+    }
+}
+
+impl PointDistance for IndexedArc {
+    fn distance_2(&self, point: &[f64; 2]) -> f64 {
+        self.arc.reach(DVec2::from_array(*point)).powi(2)
+    }
+}
+
 /// Collects the targets of one source, in order.
 #[derive(Debug)]
 pub struct TargetSink {
@@ -113,6 +142,7 @@ pub struct TargetSink {
     source: u8,
     points: Vec<IndexedPoint>,
     edges: Vec<IndexedEdge>,
+    arcs: Vec<IndexedArc>,
 }
 
 impl TargetSink {
@@ -125,14 +155,42 @@ impl TargetSink {
         }
     }
 
-    pub fn node(&mut self, class: SourceClass, point: DVec2) {
+    fn point(&mut self, class: SourceClass, kind: SnapKind, point: DVec2) {
         let key = self.key(self.points.len(), class);
-        self.points.push(IndexedPoint { point, key });
+        self.points.push(IndexedPoint { point, kind, key });
+    }
+
+    /// An element node: a corner or an end.
+    pub fn node(&mut self, class: SourceClass, point: DVec2) {
+        self.point(class, SnapKind::Node, point);
+    }
+
+    /// The hook for handles (INP-008): a node that a selected element's
+    /// handle provides. Wall ends stay plain nodes.
+    pub fn handle(&mut self, class: SourceClass, point: DVec2) {
+        self.point(class, SnapKind::Handle, point);
+    }
+
+    /// An axis point of a column or a beam (INP-008).
+    pub fn axis_point(&mut self, class: SourceClass, point: DVec2) {
+        self.point(class, SnapKind::AxisPoint, point);
+    }
+
+    /// The centroid of a polygon (INP-024).
+    pub fn centroid(&mut self, class: SourceClass, point: DVec2) {
+        self.point(class, SnapKind::Centroid, point);
     }
 
     pub fn edge(&mut self, class: SourceClass, edge: [DVec2; 2]) {
         let key = self.key(self.edges.len(), class);
         self.edges.push(IndexedEdge { edge, key });
+    }
+
+    /// A circle or an arc: its centre and its tangent points from the
+    /// previous point are targets (INP-008).
+    pub fn arc(&mut self, class: SourceClass, arc: ArcTarget) {
+        let key = self.key(self.arcs.len(), class);
+        self.arcs.push(IndexedArc { arc, key });
     }
 }
 
@@ -145,8 +203,9 @@ pub trait SnapSource {
     fn targets(&self, sink: &mut TargetSink);
 }
 
-/// A wall's reference line: its points are stored in the model, so they
-/// come before the points computed for the plan.
+/// A wall's reference line and a slab's outline centroid (INP-024): they
+/// come from the model, so they come before the points computed for the
+/// plan.
 impl SnapSource for Element {
     fn owner(&self) -> TargetOwner {
         TargetOwner::Element(self.id)
@@ -158,11 +217,15 @@ impl SnapSource for Element {
             sink.node(SourceClass::ReferenceLine, wall.end);
             sink.edge(SourceClass::ReferenceLine, [wall.start, wall.end]);
         }
+        if let Some(centroid) = self.as_slab().and_then(|s| outline_centroid(&s.outline, &s.holes)) {
+            sink.centroid(SourceClass::Outline, centroid);
+        }
     }
 }
 
 /// An element's plan: the corners and sides of its cut rings, then its
-/// projected and overhead lines.
+/// projected and overhead lines, then the centroids of its cut polygons
+/// (INP-024).
 impl SnapSource for PlanElement {
     fn owner(&self) -> TargetOwner {
         TargetOwner::Element(self.id)
@@ -185,6 +248,9 @@ impl SnapSource for PlanElement {
             }
             sink.edge(class, *segment);
         }
+        for centroid in self.centroids() {
+            sink.centroid(SourceClass::Cut, centroid);
+        }
     }
 }
 
@@ -194,6 +260,7 @@ struct OwnerTargets {
     sources: u8,
     points: Vec<IndexedPoint>,
     edges: Vec<IndexedEdge>,
+    arcs: Vec<IndexedArc>,
     fingerprint: u64,
 }
 
@@ -202,7 +269,7 @@ impl OwnerTargets {
     /// content gives equal fingerprints whatever allocation it came from.
     fn fingerprint(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        (self.sources, self.points.len()).hash(&mut h);
+        (self.sources, self.points.len(), self.edges.len()).hash(&mut h);
         let points = self.points.iter().map(|p| (p.key, [p.point, p.point]));
         for (key, ends) in points.chain(self.edges.iter().map(|e| (e.key, e.edge))) {
             (key.source, key.index, key.class).hash(&mut h);
@@ -210,18 +277,76 @@ impl OwnerTargets {
                 (p.x.to_bits(), p.y.to_bits()).hash(&mut h);
             }
         }
+        for p in &self.points {
+            p.kind.hash(&mut h);
+        }
+        for IndexedArc { arc, key } in &self.arcs {
+            (key.source, key.index, key.class).hash(&mut h);
+            let numbers = [arc.centre.x, arc.centre.y, arc.radius, arc.start, arc.sweep];
+            numbers.map(f64::to_bits).hash(&mut h);
+        }
         h.finish()
     }
 }
 
-/// Inserts the targets of one owner into the trees.
-fn insert_targets(points: &mut RTree<IndexedPoint>, edges: &mut RTree<IndexedEdge>, targets: &OwnerTargets) {
-    for p in &targets.points {
-        points.insert(*p);
+/// The R-trees of the targets.
+#[derive(Clone, Debug, Default)]
+struct Trees {
+    points: RTree<IndexedPoint>,
+    edges: RTree<IndexedEdge>,
+    arcs: RTree<IndexedArc>,
+}
+
+impl Trees {
+    fn bulk_load<'a>(owners: impl Iterator<Item = &'a OwnerTargets> + Clone) -> Self {
+        Self {
+            points: RTree::bulk_load(owners.clone().flat_map(|t| t.points.iter().copied()).collect()),
+            edges: RTree::bulk_load(owners.clone().flat_map(|t| t.edges.iter().copied()).collect()),
+            arcs: RTree::bulk_load(owners.flat_map(|t| t.arcs.iter().copied()).collect()),
+        }
     }
-    for e in &targets.edges {
-        edges.insert(*e);
+
+    /// Inserts the targets of one owner.
+    fn insert(&mut self, targets: &OwnerTargets) {
+        for p in &targets.points {
+            self.points.insert(*p);
+        }
+        for e in &targets.edges {
+            self.edges.insert(*e);
+        }
+        for a in &targets.arcs {
+            self.arcs.insert(*a);
+        }
     }
+
+    /// Removes the targets of one owner.
+    fn remove(&mut self, targets: &OwnerTargets) {
+        for p in &targets.points {
+            self.points.remove(p);
+        }
+        for e in &targets.edges {
+            self.edges.remove(e);
+        }
+        for a in &targets.arcs {
+            self.arcs.remove(a);
+        }
+    }
+}
+
+/// Nodes in the order given, nodes within the model tolerance merged into
+/// the first one with the best kind of them (NFR-ACC-003, INP-009).
+pub(super) fn weld_nodes(nodes: impl IntoIterator<Item = Snap>) -> Vec<Snap> {
+    let mut welder = Welder::new();
+    let mut kinds: Vec<SnapKind> = Vec::new();
+    for node in nodes {
+        let group = welder.weld(node.point);
+        match kinds.get_mut(group) {
+            Some(kind) => *kind = (*kind).min(node.kind),
+            None => kinds.push(node.kind),
+        }
+    }
+    let points = welder.into_points().into_iter();
+    points.zip(kinds).map(|(point, kind)| Snap { point, kind }).collect()
 }
 
 /// How often the index was built and updated, for tests and diagnostics.
@@ -241,8 +366,7 @@ pub struct IndexStats {
 #[derive(Clone, Debug, Default)]
 pub struct SnapIndex {
     revision: Option<u64>,
-    points: RTree<IndexedPoint>,
-    edges: RTree<IndexedEdge>,
+    trees: Trees,
     owners: HashMap<TargetOwner, OwnerTargets>,
     /// The position of each source in the order the sources were given.
     order: HashMap<(TargetOwner, u8), u32>,
@@ -296,12 +420,14 @@ impl SnapIndex {
                 source: targets.sources,
                 points: Vec::new(),
                 edges: Vec::new(),
+                arcs: Vec::new(),
             };
             source.targets(&mut sink);
             order.insert((owner, targets.sources), position as u32);
             targets.sources += 1;
             targets.points.append(&mut sink.points);
             targets.edges.append(&mut sink.edges);
+            targets.arcs.append(&mut sink.arcs);
         }
         for targets in owners.values_mut() {
             targets.fingerprint = targets.fingerprint();
@@ -324,9 +450,8 @@ impl SnapIndex {
             .collect();
         let edits = changed.len() + gone.len();
         if self.revision.is_none() || edits * 4 > owners.len() {
-            let included = || owners.iter().filter(|(owner, _)| !self.excluded.contains(owner));
-            self.points = RTree::bulk_load(included().flat_map(|(_, t)| t.points.iter().copied()).collect());
-            self.edges = RTree::bulk_load(included().flat_map(|(_, t)| t.edges.iter().copied()).collect());
+            let included = owners.iter().filter(|(owner, _)| !self.excluded.contains(owner));
+            self.trees = Trees::bulk_load(included.map(|(_, t)| t));
             self.stats.full_builds += 1;
         } else {
             for owner in gone.iter().chain(&changed) {
@@ -334,7 +459,7 @@ impl SnapIndex {
             }
             for owner in &changed {
                 if !self.excluded.contains(owner) {
-                    insert_targets(&mut self.points, &mut self.edges, &owners[owner]);
+                    self.trees.insert(&owners[owner]);
                     self.stats.inserted_owners += 1;
                 }
             }
@@ -358,7 +483,7 @@ impl SnapIndex {
         } else if self.excluded.remove(&source)
             && let Some(targets) = self.owners.get(&source)
         {
-            insert_targets(&mut self.points, &mut self.edges, targets);
+            self.trees.insert(targets);
             self.stats.inserted_owners += 1;
         }
     }
@@ -370,12 +495,7 @@ impl SnapIndex {
             return;
         }
         if let Some(old) = self.owners.get(&owner) {
-            for p in &old.points {
-                self.points.remove(p);
-            }
-            for e in &old.edges {
-                self.edges.remove(e);
-            }
+            self.trees.remove(old);
             self.stats.removed_owners += 1;
         }
     }
@@ -391,17 +511,23 @@ impl SnapIndex {
     /// search reaches beyond the radius by twice the tolerance, so a node
     /// within the radius merges with the same node as in the whole storey.
     pub fn nodes_near(&self, cursor: DVec2, radius: f64) -> Vec<DVec2> {
+        self.targets_near(cursor, radius).iter().map(|s| s.point).collect()
+    }
+
+    /// The nodes of [`Self::nodes_near`] with their kinds: a merged node has
+    /// the best kind of the nodes merged into it (INP-009).
+    pub fn targets_near(&self, cursor: DVec2, radius: f64) -> Vec<Snap> {
         let reach = radius + 2.0 * MODEL_TOLERANCE;
         let mut found: Vec<&IndexedPoint> = self
+            .trees
             .points
             .locate_within_distance(cursor.to_array(), reach * reach)
             .collect();
         found.sort_by_key(|p| self.rank(&p.key));
-        let mut nodes = Welder::new();
-        for p in found {
-            nodes.weld(p.point);
-        }
-        nodes.into_points()
+        weld_nodes(found.into_iter().map(|p| Snap {
+            point: p.point,
+            kind: p.kind,
+        }))
     }
 
     /// The edges whose closest point lies within `radius` of `cursor`, in
@@ -409,6 +535,7 @@ impl SnapIndex {
     pub fn edges_near(&self, cursor: DVec2, radius: f64) -> Vec<[DVec2; 2]> {
         let reach = radius + MODEL_TOLERANCE;
         let mut found: Vec<&IndexedEdge> = self
+            .trees
             .edges
             .locate_within_distance(cursor.to_array(), reach * reach)
             .filter(|e| closest_on_segment(cursor, e.edge).distance(cursor) <= radius)
@@ -416,10 +543,25 @@ impl SnapIndex {
         found.sort_by_key(|e| self.rank(&e.key));
         found.into_iter().map(|e| e.edge).collect()
     }
+
+    /// The arcs whose centre or circle lies within `radius` of `cursor`, in
+    /// source order: every arc with a centre or a tangent point that near.
+    pub fn arcs_near(&self, cursor: DVec2, radius: f64) -> Vec<ArcTarget> {
+        let reach = radius + MODEL_TOLERANCE;
+        let mut found: Vec<&IndexedArc> = self
+            .trees
+            .arcs
+            .locate_within_distance(cursor.to_array(), reach * reach)
+            .filter(|a| a.arc.reach(cursor) <= reach)
+            .collect();
+        found.sort_by_key(|a| self.rank(&a.key));
+        found.into_iter().map(|a| a.arc).collect()
+    }
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::f64::consts::PI;
     use std::time::Instant;
 
     use archicraft_model::template::default_metric_project;
@@ -427,10 +569,10 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::document::Document;
-    use crate::input::snap::{collect, segment_intersection};
+    use crate::input::snap::{ArcTarget, Targets, collect, segment_intersection};
     use crate::input::{
-        Expect, InputContext, Modifiers, PointInput, Resolved, Snap, SnapKind, SurfaceFrame, TrackerMode, candidates,
-        snap,
+        Expect, InputContext, Modifiers, PointInput, Resolved, Snap, SnapKind, SnapLevel, SurfaceFrame, TrackerMode,
+        candidates, snap,
     };
     use crate::persistence::prefs::Preferences;
     use crate::workspace::Workspace;
@@ -466,39 +608,48 @@ pub(crate) mod tests {
     /// The path the index replaces: every node and edge of the storey,
     /// collected each frame and scanned for each cursor position.
     struct BruteForce {
-        nodes: Vec<DVec2>,
+        nodes: Vec<Snap>,
         edges: Vec<[DVec2; 2]>,
     }
 
     impl BruteForce {
         fn from_plan(plan: &PlanDrawing, project: &Project, storey: StoreyId) -> Self {
-            let mut nodes = Welder::new();
+            let mut nodes = Vec::new();
+            let node = |point| Snap {
+                point,
+                kind: SnapKind::Node,
+            };
+            let centroid = |point| Snap {
+                point,
+                kind: SnapKind::Centroid,
+            };
             let mut edges = Vec::new();
             for element in project.elements_on(storey).filter(|e| project.is_visible(e)) {
                 if let Some(wall) = element.as_wall() {
-                    nodes.weld(wall.start);
-                    nodes.weld(wall.end);
+                    nodes.extend([node(wall.start), node(wall.end)]);
                     edges.push([wall.start, wall.end]);
+                }
+                if let Some(slab) = element.as_slab() {
+                    nodes.extend(outline_centroid(&slab.outline, &slab.holes).map(centroid));
                 }
             }
             for element in &plan.elements {
                 for polygon in &element.cut {
                     for ring in polygon_rings(polygon) {
                         for i in 0..ring.len() {
-                            nodes.weld(ring[i]);
+                            nodes.push(node(ring[i]));
                             edges.push([ring[i], ring[(i + 1) % ring.len()]]);
                         }
                     }
                 }
                 for segment in element.projected.iter().chain(&element.overhead) {
-                    for &p in segment {
-                        nodes.weld(p);
-                    }
+                    nodes.extend(segment.map(node));
                     edges.push(*segment);
                 }
+                nodes.extend(element.centroids().into_iter().map(centroid));
             }
             Self {
-                nodes: nodes.into_points(),
+                nodes: weld_nodes(nodes),
                 edges,
             }
         }
@@ -512,11 +663,20 @@ pub(crate) mod tests {
             previous: Option<DVec2>,
         ) -> Vec<Snap> {
             let mut nodes = self.nodes.clone();
-            nodes.extend_from_slice(pending);
+            nodes.extend(pending.iter().map(|&point| Snap {
+                point,
+                kind: SnapKind::Node,
+            }));
             let near: Vec<[DVec2; 2]> = (self.edges.iter().copied())
                 .filter(|e| closest_on_segment(cursor, *e).distance(cursor) <= radius)
                 .collect();
-            collect(&nodes, &near, &[], cursor, radius, grid, previous)
+            let targets = Targets {
+                nodes: &nodes,
+                edges: &near,
+                arcs: &[],
+                guides: &[],
+            };
+            collect(&targets, cursor, radius, grid, previous)
         }
     }
 
@@ -597,13 +757,13 @@ pub(crate) mod tests {
             let pad = DVec2::splat(1.0);
             let crossings: Vec<DVec2> = (brute.edges.iter().enumerate())
                 .flat_map(|(i, a)| brute.edges[i + 1..].iter().filter_map(|b| segment_intersection(*a, *b)))
-                .filter(|p| brute.nodes.iter().all(|n| n.distance(*p) > 0.05))
+                .filter(|p| brute.nodes.iter().all(|n| n.point.distance(*p) > 0.05))
                 .collect();
             for i in 0..500 {
                 // Half anywhere, half near a node, a crossing of edges or an
                 // edge's midpoint, where targets compete.
                 let at = match i % 6 {
-                    1 => *random.pick(&brute.nodes),
+                    1 => random.pick(&brute.nodes).point,
                     3 if !crossings.is_empty() => *random.pick(&crossings),
                     5 => {
                         let [a, b] = random.pick(&brute.edges);
@@ -629,6 +789,7 @@ pub(crate) mod tests {
         }
         for kind in [
             SnapKind::Node,
+            SnapKind::Centroid,
             SnapKind::Intersection,
             SnapKind::Midpoint,
             SnapKind::Perpendicular,
@@ -858,6 +1019,172 @@ pub(crate) mod tests {
         index.sync(3, &[&explicit, &reference]);
         assert_eq!(offered(&index), (2, 1));
         assert_eq!(index.stats().full_builds, built.full_builds);
+    }
+
+    /// A synthetic source of arcs, axis points and handles, which no
+    /// element provides yet.
+    #[derive(Default)]
+    struct Synthetic {
+        arcs: Vec<ArcTarget>,
+        axis_points: Vec<DVec2>,
+        handles: Vec<DVec2>,
+    }
+
+    impl SnapSource for Synthetic {
+        fn owner(&self) -> TargetOwner {
+            TargetOwner::Guide(1)
+        }
+
+        fn targets(&self, sink: &mut TargetSink) {
+            for &arc in &self.arcs {
+                sink.arc(SourceClass::Guide, arc);
+            }
+            for &p in &self.axis_points {
+                sink.axis_point(SourceClass::Guide, p);
+            }
+            for &p in &self.handles {
+                sink.handle(SourceClass::Guide, p);
+            }
+        }
+    }
+
+    fn index_with(sources: &[&dyn SnapSource]) -> SnapIndex {
+        let mut index = SnapIndex::default();
+        index.sync(0, sources);
+        index
+    }
+
+    fn assert_candidates(found: &[Snap], expected: &[(SnapKind, DVec2)]) {
+        assert_eq!(found.len(), expected.len(), "{found:?}");
+        for (snap, (kind, point)) in found.iter().zip(expected) {
+            assert_eq!(snap.kind, *kind, "{found:?}");
+            assert!(snap.point.distance(*point) < 1e-9, "{snap:?} is not at {point}");
+        }
+    }
+
+    /// INP-008: a circle offers its centre and both tangent points from the
+    /// previous point, at c + r(cos(θ ± φ), sin(θ ± φ)); an arc offers only
+    /// the tangent point inside its sweep, either way round; from inside
+    /// the circle there is none.
+    #[test]
+    fn circles_and_arcs_offer_centres_and_tangent_points() {
+        let centre = DVec2::new(1.0, 2.0);
+        let previous = Some(centre + DVec2::new(2.0, 0.0));
+        // |p - c| = 2r: φ = 60°.
+        let (upper, lower) = (
+            centre + DVec2::new(0.5, 0.75_f64.sqrt()),
+            centre + DVec2::new(0.5, -(0.75_f64.sqrt())),
+        );
+        let cursor = centre + DVec2::new(0.5, 0.0);
+        let circle = ArcTarget::circle(centre, 1.0);
+        let index = index_with(&[&Synthetic {
+            arcs: vec![circle],
+            ..Synthetic::default()
+        }]);
+        assert_candidates(
+            &candidates(&index, &[], cursor, 1.0, 0.0, previous, &[]),
+            &[
+                (SnapKind::Centre, centre),
+                (SnapKind::Tangent, upper),
+                (SnapKind::Tangent, lower),
+            ],
+        );
+        let near_upper = upper + DVec2::new(0.03, 0.02);
+        let s = snap(&index, &[], near_upper, 0.1, 0.0, previous);
+        assert_eq!((s.kind, s.kind.label()), (SnapKind::Tangent, "tangent"));
+        assert!(s.point.distance(upper) < 1e-12);
+        assert_eq!(snap(&index, &[], near_upper, 0.1, 0.0, None).kind, SnapKind::Free);
+        let inside = Some(centre + DVec2::new(0.2, 0.1));
+        assert_candidates(
+            &candidates(&index, &[], cursor, 1.0, 0.0, inside, &[]),
+            &[(SnapKind::Centre, centre)],
+        );
+
+        let half = |sweep: f64| ArcTarget {
+            centre,
+            radius: 1.0,
+            start: 0.0,
+            sweep,
+        };
+        for (arc, kept) in [(half(PI), upper), (half(-PI), lower)] {
+            let index = index_with(&[&Synthetic {
+                arcs: vec![arc],
+                ..Synthetic::default()
+            }]);
+            assert_candidates(
+                &candidates(&index, &[], cursor, 1.0, 0.0, previous, &[]),
+                &[(SnapKind::Centre, centre), (SnapKind::Tangent, kept)],
+            );
+        }
+    }
+
+    /// INP-024: the ground slab of two_storey_shell, 12 m by 9 m, offers its
+    /// centroid.
+    #[test]
+    fn the_ground_slab_offers_its_centroid() {
+        let mut ws = workspace(samples::two_storey_shell());
+        let ground = ws.doc.project.storeys.ground();
+        let index = ws.snap_index(ground);
+        let s = snap(&index, &[], DVec2::new(6.05, 4.47), 0.2, 0.0, None);
+        assert_eq!((s.kind, s.kind.label()), (SnapKind::Centroid, "centroid"));
+        assert!(s.point.distance(DVec2::new(6.0, 4.5)) < 1e-12, "{s:?}");
+    }
+
+    /// INP-024: an L-shaped cut polygon offers its centroid, which geo
+    /// computes.
+    #[test]
+    fn an_l_shaped_cut_polygon_offers_its_centroid() {
+        use archicraft_geometry::geo::{Centroid, LineString, Polygon};
+        let l_shape = Polygon::new(
+            LineString::from(vec![
+                (0.0, 0.0),
+                (6.0, 0.0),
+                (6.0, 3.0),
+                (3.0, 3.0),
+                (3.0, 6.0),
+                (0.0, 6.0),
+            ]),
+            Vec::new(),
+        );
+        let expected = l_shape.centroid().unwrap();
+        let expected = DVec2::new(expected.x(), expected.y());
+        assert!(expected.distance(DVec2::splat(2.5)) < 1e-12);
+        let element = PlanElement {
+            id: ElementId::new(),
+            cut: vec![l_shape],
+            projected: Vec::new(),
+            overhead: Vec::new(),
+            reference_line: None,
+        };
+        let index = index_with(&[&element]);
+        let found = candidates(&index, &[], expected + DVec2::new(0.05, -0.04), 0.2, 0.0, None, &[]);
+        assert_candidates(&found, &[(SnapKind::Centroid, expected)]);
+    }
+
+    /// INP-008, INP-009: axis points and handles are node-level candidates
+    /// with their own labels; a handle on a plain node stays a node.
+    #[test]
+    fn axis_points_and_handles_are_node_candidates() {
+        let (axis, handle, corner) = (DVec2::new(1.0, 1.0), DVec2::new(3.0, 1.0), DVec2::new(5.0, 1.0));
+        let plain = Explicit {
+            nodes: &[corner],
+            edges: &[],
+        };
+        let synthetic = Synthetic {
+            axis_points: vec![axis],
+            handles: vec![handle, corner],
+            ..Synthetic::default()
+        };
+        let index = index_with(&[&plain, &synthetic]);
+        for (point, kind, label) in [
+            (axis, SnapKind::AxisPoint, "axis point"),
+            (handle, SnapKind::Handle, "handle"),
+            (corner, SnapKind::Node, "node"),
+        ] {
+            let found = candidates(&index, &[], point + DVec2::new(0.04, 0.03), 0.2, 0.0, None, &[]);
+            assert_candidates(&found, &[(kind, point)]);
+            assert_eq!((kind.level(), kind.label()), (Some(SnapLevel::Node), label));
+        }
     }
 
     /// The average time of `count` resolves at seeded cursor positions in
