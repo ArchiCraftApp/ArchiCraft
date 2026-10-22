@@ -9,12 +9,12 @@
 use indexmap::IndexMap;
 use serde_json::{Value, json};
 
-use super::writer::IFCX_VERSION;
-use crate::container::{Header, IfcxFile};
-
 use archicraft_model::material::{FillPattern, MaterialCategory};
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, VolumeUnit};
 use archicraft_model::{KindTag, Position, SlabReference};
+
+use super::writer::IFCX_VERSION;
+use crate::container::{Header, IfcxFile};
 
 /// Version of the ArchiCraft schema written by this release.
 pub const FORMAT_VERSION: u32 = 1;
