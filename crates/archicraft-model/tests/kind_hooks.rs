@@ -14,8 +14,7 @@ use archicraft_model::kinds::{StoreyLinkRef, VerticalLink};
 use archicraft_model::template::default_metric_project;
 use archicraft_model::transform::PlanTransform;
 use archicraft_model::{
-    Command, Element, ElementKind, History, MODEL_TOLERANCE, Project, ReferenceLine, Storey, StoreyId, StoreyList,
-    TopLink,
+    Command, Element, History, MODEL_TOLERANCE, Project, ReferenceLine, Storey, StoreyId, StoreyList, TopLink,
 };
 use common::{ground, wall};
 
@@ -53,7 +52,7 @@ fn rotating_a_wall_quarter_turn_about_a_point() {
 fn mirroring_a_wall_keeps_its_exterior_side() {
     let p = default_metric_project();
     let mut w = wall(&p, (1.0, 0.0), (4.0, 0.0));
-    if let ElementKind::Wall(wall) = &mut w.kind {
+    if let Some(wall) = w.as_wall_mut() {
         wall.reference_line = ReferenceLine::Outside;
     }
     w.kind
@@ -183,7 +182,7 @@ fn top_links(p: &Project) -> [TopLink; 3] {
 
 fn linked_wall(p: &Project, home: StoreyId, top: TopLink) -> Element {
     let mut w = p.new_wall(home, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
-    if let ElementKind::Wall(wall) = &mut w.kind {
+    if let Some(wall) = w.as_wall_mut() {
         wall.base_offset = -0.2;
         wall.top = top;
     }
@@ -371,7 +370,7 @@ fn linked_tops_and_bases_follow_storey_changes() {
 fn plan_bounds_cover_the_footprint() {
     let p = default_metric_project();
     let mut w = wall(&p, (1.0, 2.0), (5.0, 2.0));
-    if let ElementKind::Wall(wall) = &mut w.kind {
+    if let Some(wall) = w.as_wall_mut() {
         wall.thickness = 0.3;
         wall.reference_line = ReferenceLine::Center;
     }
