@@ -1154,10 +1154,10 @@
       "id": "INP-010",
       "priority": "M",
       "section": "4.6",
-      "status": "missing",
+      "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Only the 'half' mode, hard-coded. Missing: N equal parts (2-100), percentage, repeated fixed distance, best equal division near a target distance; selection of exactly one active mode; scope option (between nodes / between inters…",
+      "gap": "The five modes divide segments, circles and arcs, and the mode, its value and the scope are stored in the preferences (input/division.rs, InputSettings), but snapping still offers only the hard-coded midpoint: hovering an edge shows no ticks, the scopes are not resolved on the snap index, and no control chooses the mode.",
       "depends_on": []
     },
     {

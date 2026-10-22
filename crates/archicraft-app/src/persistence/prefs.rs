@@ -8,6 +8,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::i18n::os_locale::{self, OsNumberLocale};
 use crate::input::InputMode;
+use crate::input::InputSettings;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ThemeChoice {
@@ -51,6 +52,10 @@ pub struct Preferences {
     pub input_mode: InputMode,
     /// Step of the invisible snap grid in metres (INP-013).
     pub snap_step: f64,
+    /// The division mode and scope of hovered edges (INP-010). An unknown
+    /// value reads as the defaults and keeps the rest of the file.
+    #[serde(deserialize_with = "lenient_input_settings")]
+    pub input: InputSettings,
     /// Tracker behaviour (SET-001): show the absolute X, Y and Z beside
     /// the distance and angle (INP-002, default off).
     pub tracker_xyz: bool,
@@ -79,6 +84,7 @@ impl Default for Preferences {
             angle_increment_deg: 45.0,
             input_mode: InputMode::ClickClick,
             snap_step: 0.05,
+            input: InputSettings::default(),
             tracker_xyz: false,
             show_reference_lines: false,
             indented_ifcx: false,
@@ -103,6 +109,22 @@ fn lenient_input_mode<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Inpu
     Ok(match Lenient::deserialize(deserializer)? {
         Lenient::Known(mode) => mode,
         Lenient::Unknown(_) => InputMode::ClickClick,
+    })
+}
+
+/// Reads input settings, taking the defaults for a value this version does
+/// not know (a newer version's mode, a typo), so the other preferences of
+/// the file stay (INP-010).
+fn lenient_input_settings<'de, D: Deserializer<'de>>(deserializer: D) -> Result<InputSettings, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Lenient {
+        Known(InputSettings),
+        Unknown(serde::de::IgnoredAny),
+    }
+    Ok(match Lenient::deserialize(deserializer)? {
+        Lenient::Known(settings) => settings,
+        Lenient::Unknown(_) => InputSettings::default(),
     })
 }
 
@@ -140,6 +162,7 @@ impl Preferences {
         if !(self.snap_step > 0.0 && self.snap_step <= 10.0) {
             self.snap_step = 0.05;
         }
+        self.input = self.input.sanitized();
         self.recent.truncate(MAX_RECENT);
         self
     }
@@ -350,5 +373,56 @@ mod tests {
         let french = OsNumberLocale::from_tag("fr-FR");
         let nf = with(SeparatorChoice::Automatic, true).number_format_in(&french);
         assert_eq!((nf.decimal_separator, nf.grouping), (',', Some('\u{A0}')));
+    }
+
+    /// INP-010: the division mode, its value and the scope survive a
+    /// restart; files without them read as half between nodes, an unknown
+    /// mode reads as the defaults and keeps the other preferences, and
+    /// out-of-range values are sanitised.
+    #[test]
+    fn division_settings_round_trip_and_are_sanitised() {
+        use crate::input::{DivisionMode, DivisionScope};
+        let defaults = InputSettings::default();
+        assert_eq!(
+            (defaults.division, defaults.scope),
+            (DivisionMode::Half, DivisionScope::BetweenNodes)
+        );
+        let dir = std::env::temp_dir().join(format!("archicraft-prefs-division-{}", std::process::id()));
+        let path = dir.join("preferences.json");
+        for (division, scope) in [
+            (DivisionMode::Equal(7), DivisionScope::BetweenIntersections),
+            (DivisionMode::Percent(12.5), DivisionScope::WholeElement),
+            (DivisionMode::Repeated(0.625), DivisionScope::BetweenNodes),
+            (DivisionMode::BestEqualNear(1.1), DivisionScope::WholeElement),
+        ] {
+            let prefs = Preferences {
+                input: InputSettings { division, scope },
+                ..Preferences::default()
+            };
+            prefs.save(&path).unwrap();
+            assert_eq!(Preferences::load(&path), prefs);
+        }
+        let read = |json: &str| {
+            std::fs::write(&path, json).unwrap();
+            Preferences::load(&path)
+        };
+        assert_eq!(read(r#"{"author": "Ada"}"#).input, defaults);
+        let unknown = read(r#"{"author": "Ada", "input": {"division": {"Spiral": 3}, "scope": "WholeElement"}}"#);
+        assert_eq!((unknown.author.as_str(), unknown.input), ("Ada", defaults));
+        let out_of_range = [
+            (r#"{"Equal": 1}"#, DivisionMode::Equal(2)),
+            (r#"{"Equal": 200}"#, DivisionMode::Equal(100)),
+            (r#"{"Percent": 140.0}"#, DivisionMode::Percent(100.0)),
+            (r#"{"Repeated": -1.0}"#, DivisionMode::Repeated(1.0)),
+            (r#"{"BestEqualNear": 0.0}"#, DivisionMode::BestEqualNear(1.0)),
+        ];
+        for (json, expected) in out_of_range {
+            let prefs = read(&format!(
+                r#"{{"input": {{"division": {json}, "scope": "BetweenIntersections"}}}}"#
+            ));
+            assert_eq!(prefs.input.division, expected, "{json}");
+            assert_eq!(prefs.input.scope, DivisionScope::BetweenIntersections, "{json}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
