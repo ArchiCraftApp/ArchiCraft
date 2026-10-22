@@ -165,6 +165,87 @@ fn click_at(harness: &mut Harness<'static, ArchiCraftApp>, pos: egui::Pos2) {
     harness.run_steps(2);
 }
 
+/// Enters `points` of a wall chain on the active storey, as clicks would.
+fn pending_chain(harness: &mut Harness<'static, ArchiCraftApp>, points: &[(f64, f64)]) {
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    assert_eq!(ws.tool.wall_mode, WallMode::Chain);
+    let storey = ws.active_storey;
+    for &(x, y) in points {
+        let outcome = ws.tool.commit(&ws.doc.project, storey, DVec2::new(x, y));
+        assert_eq!(outcome, archicraft_app::input::Outcome::Continue);
+    }
+}
+
+/// UND-003, WAL-001: clicking a wall mode button while three chain points
+/// are pending ends the chain: its two walls are created as one undo step
+/// before the mode changes.
+#[test]
+fn a_wall_mode_button_commits_the_pending_chain() {
+    let mut harness = harness("mode-commits-chain");
+    pending_chain(&mut harness, &[(0.0, 0.0), (5.0, 0.0), (5.0, 4.0)]);
+    harness.get_by_label(WallMode::Single.label()).click();
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    assert_eq!(ws.tool.wall_mode, WallMode::Single);
+    assert!(!ws.tool.is_drawing());
+    let walls = ws
+        .doc
+        .project
+        .elements
+        .values()
+        .filter(|e| e.as_wall().is_some())
+        .count();
+    assert_eq!(walls, 2);
+    ws.undo();
+    assert!(ws.doc.project.elements.is_empty(), "the chain is one undo step");
+}
+
+/// UND-003, WAL-007: the plan of the chain's storey previews the walls of
+/// the pending chain and marks its points; once the plan of another storey
+/// is active, that plan shows neither, and the chain is still pending.
+#[test]
+fn another_storeys_plan_shows_no_preview_of_the_pending_chain() {
+    let mut harness = harness("chain-other-storey");
+    pending_chain(&mut harness, &[(0.0, 0.0), (5.0, 0.0)]);
+    let (ground, upper) = {
+        let ws = harness.state_mut().workspace();
+        let ground = ws.active_storey;
+        let upper = ws.doc.project.storeys.iter().find(|s| s.id != ground).unwrap();
+        (ground, (upper.id, upper.name.clone()))
+    };
+    let center = |harness: &mut Harness<'static, ArchiCraftApp>, storey| {
+        harness.state_mut().workspace().plan_views[&storey].last_rect.center()
+    };
+    let pos = center(&mut harness, ground);
+    harness.hover_at(pos);
+    harness.run_steps(2);
+    {
+        let state = &harness.state_mut().workspace().plan_views[&ground];
+        assert!(!state.preview.is_empty(), "the chain's own plan previews it");
+        assert_eq!(state.pending.len(), 2);
+    }
+
+    let row = harness
+        .query_all_by_label_contains(&upper.1)
+        .filter_map(|n| n.accesskit_node().label())
+        .find(|label| !label.starts_with("Plan: "))
+        .unwrap();
+    harness.get_by_label(&row).click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().active_storey, upper.0);
+    let pos = center(&mut harness, upper.0);
+    harness.hover_at(pos);
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let state = &ws.plan_views[&upper.0];
+    assert!(state.glyph.is_some(), "the pointer is over the upper plan");
+    assert_eq!(state.preview, [], "no preview of another storey's chain");
+    assert_eq!(state.pending, []);
+    assert_eq!(ws.tool.points.len(), 2, "the chain is still pending");
+}
+
 /// INP-003: in the plan view Esc cancels one step per press: the typed text,
 /// then the last point, then the selection, then the drawing tool.
 /// Backspace removes one typed character, then one point.

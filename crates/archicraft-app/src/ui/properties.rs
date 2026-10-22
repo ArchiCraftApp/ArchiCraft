@@ -728,8 +728,7 @@ fn tool_modes(ui: &mut Ui, ws: &mut Workspace) {
     match ws.tool.kind {
         ToolKind::Wall => {
             for mode in WallMode::ALL {
-                if ui.selectable_label(ws.tool.wall_mode == mode, mode.label()).clicked() {
-                    ws.end_chain();
+                if ui.selectable_label(ws.tool.wall_mode == mode, mode.label()).clicked() && ws.end_chain() {
                     ws.tool.wall_mode = mode;
                     ws.reset_input();
                 }
