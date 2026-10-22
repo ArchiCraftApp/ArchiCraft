@@ -1,7 +1,7 @@
 //! The performance instrumentation of the `perf` feature (NFR-PERF-001): the
 //! recorder samples frames and edit latency in the running application, the
-//! View menu opens its window, and the results file has the shape documented
-//! in docs/performance/README.md.
+//! View menu opens its window, a scripted run drives the camera and quits, and
+//! the results file has the shape documented in docs/performance/README.md.
 //!
 //! Run with `cargo test -p archicraft-app --features perf`; without the
 //! feature this file is empty.
@@ -13,8 +13,9 @@ mod common;
 use std::path::PathBuf;
 
 use archicraft_app::ArchiCraftApp;
-use archicraft_app::perf::{Metric, PerfRecorder, Script, ScriptRun};
+use archicraft_app::perf::{Metric, PerfRecorder, Script, ScriptRun, WARM_UP_FRAMES};
 use archicraft_app::tools::ToolKind;
+use archicraft_app::workspace::Pane;
 use archicraft_geometry::ModelGeometry;
 use archicraft_ifcx::WriteOptions;
 use archicraft_model::glam::DVec2;
@@ -176,4 +177,59 @@ fn nfr_perf_001_records_pointer_feedback_in_the_plan() {
         h.run_steps(1);
     }
     assert!(h.state_mut().perf().histogram(Metric::PointerFeedback).count() >= 2);
+}
+
+/// Whether the last frame asked the root viewport to close.
+fn close_requested(h: &App) -> bool {
+    h.output()
+        .viewport_output
+        .get(&egui::ViewportId::ROOT)
+        .is_some_and(|v| v.commands.contains(&egui::ViewportCommand::Close))
+}
+
+/// NFR-PERF-001 (measuring NFR-PERF-004): a scripted plan-pan run opens the
+/// plan of the active storey, pans its camera every frame, drops the samples
+/// of the warm-up and closes the application after its recorded frames.
+#[test]
+fn nfr_perf_001_scripted_run_pans_the_plan_and_quits() {
+    let mut h = two_storey_shell("script");
+    let storey = h.state_mut().workspace().active_storey;
+    // Close the plan the file opened, so the run has to open it.
+    let tree = h.state_mut().tree_mut();
+    let tile = tree.tiles.find_pane(&Pane::Plan(storey)).unwrap();
+    tree.remove_recursively(tile);
+    h.state_mut().workspace().active_pane = None;
+    h.state_mut().workspace().perf = PerfRecorder::with_script(ScriptRun::new(Script::PlanPan, 3));
+    // The first frames open and fit the plan; the camera after the warm-up
+    // is where the recorded frames start.
+    for _ in 0..WARM_UP_FRAMES {
+        h.step();
+        assert!(!close_requested(&h), "no close during the warm-up");
+    }
+    let warm = h.state_mut().workspace().plan_views[&storey].camera;
+    let warm_frames = h.state_mut().perf().histogram(Metric::FrameTime).count();
+    assert_eq!(u64::from(WARM_UP_FRAMES), warm_frames, "every warm-up frame is sampled");
+
+    for _ in 0..3 {
+        h.step();
+        assert!(!close_requested(&h), "no close during the recorded frames");
+    }
+    h.step();
+    assert!(close_requested(&h), "the run closes the application at its end");
+
+    assert!(
+        h.state_mut().tree_mut().tiles.find_pane(&Pane::Plan(storey)).is_some(),
+        "the run opened the plan"
+    );
+    let ws = h.state_mut().workspace();
+    assert_eq!(ws.active_pane, Some(Pane::Plan(storey)));
+    assert_ne!(
+        ws.plan_views[&storey].camera.center, warm.center,
+        "the plan camera moved"
+    );
+    let frames = h.state_mut().perf().histogram(Metric::FrameTime).count();
+    assert!(
+        (3..=4).contains(&frames),
+        "the warm-up samples are dropped, {frames} recorded frames"
+    );
 }

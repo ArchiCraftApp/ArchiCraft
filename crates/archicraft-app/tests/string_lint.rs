@@ -56,8 +56,6 @@ const PENDING: &[&str] = &[
     "crates/archicraft-app/src/tools/mod.rs",
     "crates/archicraft-app/src/tools/slab.rs",
     "crates/archicraft-app/src/tools/wall.rs",
-    // archicraft-yso8: the Performance window (feature `perf`).
-    "crates/archicraft-app/src/perf.rs",
     // archicraft-emg: dialogs, properties and widgets.
     "crates/archicraft-app/src/ui/dialogs.rs::Dialogs::delete_storey_window",
     "crates/archicraft-app/src/ui/dialogs.rs::Dialogs::layers_window",

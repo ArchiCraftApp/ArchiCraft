@@ -5,6 +5,12 @@
 //!
 //! Samples go into fixed histograms with logarithmic buckets from 10 µs to
 //! 10 s, so recording never allocates and a long session costs no memory.
+//!
+//! The View menu's Performance entry and the Performance window are literal
+//! English, not `tr!` (NFR-L10N-001): the window is a developer diagnostic
+//! that exists only in builds with the `perf` feature, which releases do not
+//! enable, so no user ever sees it; its metric names match the keys of the
+//! results file and docs/performance/README.md, which are English too.
 
 use std::f32::consts::TAU;
 use std::fmt::Write as _;
