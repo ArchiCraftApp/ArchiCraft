@@ -35,6 +35,11 @@ criterion.workspace = true
 insta.workspace = true
 jsonschema.workspace = true
 
+# Runs the example's unit tests (the timestamp check) with `cargo test`.
+[[example]]
+name = "archicraft_schema"
+test = true
+
 [[bench]]
 name = "ifcx"
 harness = false

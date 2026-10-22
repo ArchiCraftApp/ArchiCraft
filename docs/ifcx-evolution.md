@@ -88,8 +88,9 @@ optional and not done yet; the code is ready for it:
   declarations of `schema::declarations()`, no imports, no data, `header.id` `archicraft` and
   `header.dataVersion` the `FORMAT_VERSION` it describes.
 - The example `archicraft_schema` writes it, indented:
-  `cargo run -p archicraft-ifcx --example archicraft_schema -- archicraft@v1.ifcx [timestamp]`.
-  Without a timestamp (ISO 8601 UTC) the header gets the current time; pass the published one to
+  `cargo run -p archicraft-ifcx --example archicraft_schema -- archicraft@v1.ifcx <timestamp>`.
+  The timestamp is required and must be ISO 8601 UTC with seconds (`YYYY-MM-DDTHH:MM:SSZ`, for
+  example `2026-10-20T08:15:00Z`); anything else is a usage error. Pass the published one to
   reproduce a published file byte for byte.
 - `validate::validate_with(file, extra)` resolves imports from extra schema documents before the
   bundled ones. `tests/schema_publication.rs` uses it to check that each golden file, with its

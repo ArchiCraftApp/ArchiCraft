@@ -7,7 +7,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Template supplies no layer structures (the concept does not exist in the model yet). The 'template' is a hard-coded Rust function, not a selectable template artefact: New always uses it, there is no template choice and no templat…",
+      "gap": "The default metric template (default_metric_project, crates/archicraft-model/src/template.rs:340) supplies settings, two storeys, the LAY-004 layers, the MAT-003 materials, tool defaults and two 3D views, but no layer structures: the model has no layer-structure resource yet (needs PRF-001). The template is a hard-coded Rust function, not a shipped template file (templates are IFCX files, D-11): New always uses it (ArchiCraftApp::proceed, crates/archicraft-app/src/app.rs:330), so there is no template choice and no loading of a template from a file (PRJ-002, PRJ-009).",
       "depends_on": []
     },
     {
@@ -27,7 +27,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Window title shows the file name once the project is saved (Document::display_name prefers the path over project.info.name, document.rs:125-131), so renaming the project in Project settings does not change the title; every other…",
+      "gap": "The window title shows the file name once the project is saved (Document::display_name, crates/archicraft-app/src/document.rs:135, prefers the path over project.info.name), so after the first save it no longer shows the project name, and renaming the project in Project settings does not change the title. Everything else is in place: New, Open, Open recent, Save, Save as (the first save opens a file dialog prefilled with the project name), Close, Quit, the unsaved-changes marker (ArchiCraftApp::update_title_and_theme, crates/archicraft-app/src/app.rs:615) and the Save/Don't save/Cancel prompt before New, Open, Close and Quit, including the window's close button (ArchiCraftApp::handle_close_request, crates/archicraft-app/src/app.rs:635).",
       "depends_on": []
     },
     {
@@ -67,7 +67,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Layer structures, profiles, presets and stair rule defaults are not in the model, so not stored (they belong to other areas). Personal settings: the tab/split layout is not persisted (tile tree rebuilt by default_tree, app.rs:81-…",
+      "gap": "Units, storeys, location, layers, materials, 3D views (name and projection only), tessellation tolerances and the cut-plane default are stored (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs:200). Layer structures, profiles, presets and stair rule defaults are not in the model, so not stored (PRF-001, PRF-004, ELM-002, stairs). Personal settings: the tab/split layout is not persisted (the tile tree is rebuilt by default_tree, crates/archicraft-app/src/app.rs:117, at start and on every New/Open/Close via ArchiCraftApp::replace_document, crates/archicraft-app/src/app.rs:231); only egui's own memory (panel sizes) survives through eframe's persistence feature; shortcuts are not customisable (UI-009), so no keymap is stored; Preferences (crates/archicraft-app/src/persistence/prefs.rs:33) has no navigation-scheme setting.",
       "depends_on": []
     },
     {
@@ -147,7 +147,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs derives Default, dialogs.rs:36-39), so by default changing a height moves only the next storey (the SRS alternative) instead of shifting all storeys above. Elevation and height changes that would leave a storey-linked element lower than 1 mm are refused with a message naming it (NFR-REL-005).",
+      "gap": "The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs, crates/archicraft-app/src/ui/dialogs.rs:37, derives Default), so by default changing a height moves only the next storey (StoreyList::set_height, crates/archicraft-model/src/storey.rs:303), the SRS alternative, instead of shifting all storeys above. One checkbox governs both edits, so the SRS defaults (height: shift the storeys above; elevation: keep them and change the height of the storey below) cannot both apply at once; the choice is a sticky dialog toggle, not a per-edit choice, and it resets on restart. Elevation and height changes that would leave a storey-linked element lower than 1 mm are refused with a message naming it (NFR-REL-005).",
       "depends_on": []
     },
     {
@@ -197,7 +197,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No named reference levels (project zero, sea level, user-defined), no selection of the display/entry datum, no conversion in elevation fields (storey dialog, properties panel) or readouts; storage must stay relative to project ze…",
+      "gap": "No named reference levels (project zero, sea level, user-defined): the only datum in the model is Location::altitude, the altitude of project zero above sea level (crates/archicraft-model/src/project.rs:140), edited in Project settings. Missing: a reference-level list in the project (model, commands, IFCX storage), selection of the datum for entry and display, and conversion in every elevation field (Storeys dialog, properties panel) and readout, while stored elevations stay relative to project zero.",
       "depends_on": []
     },
     {
@@ -247,7 +247,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "'IFCX export writes it (IFX-070)' is not met: no `SurveyPoint` child node on the site with usd::xformop and epsg<code> eastings/northings/height attributes, no second +Y reference point for true north, no in-file epsg schema decl…",
+      "gap": "The model stores the survey point (eastings, northings) and the angle to true north (Location, crates/archicraft-model/src/project.rs:140), editable in Project settings and saved only in archicraft::project location (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs:200); the site gets RefElevation. 'IFCX export writes it (IFX-070)' is not met: no `SurveyPoint` child node on the site with usd::xformop and epsg<code> eastings/northings and an EPSG-named height attribute, no second reference point on the project +Y axis for true north, no in-file epsg schema declarations; the model has no EPSG code to name them (STR-015).",
       "depends_on": []
     },
     {
@@ -277,7 +277,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "Several buildings per site each with its own storey set: storeys moved under Building, element home storey lookup across buildings, browser grouping, plan panes, IFCX tree with several IfcBuilding children, ground-storey numberin…",
+      "gap": "The project has exactly one building (Project::building, crates/archicraft-model/src/project.rs:307) and one storey list for it; the reader takes only the first IfcBuilding under the site (the IfcBuilding lookup in read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1085). Missing: several buildings per site, each with its own storey set (storeys moved under Building), element home-storey lookup across buildings, browser grouping by building, plan panes and storey numbering per building, and an IFCX tree with several IfcBuilding children written and read back.",
       "depends_on": []
     },
     {
@@ -287,7 +287,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No 2D/annotation tool group (no such tools exist); the view-control bar has no view rotation (VIEW-060), no real drawing scale (shell.rs:241 is a hard-coded label, VIEW-013 absent), no active display settings for plan views, and…",
+      "gap": "Menu bar, properties strip, project browser, view tabs and a status line with the step prompt exist. Missing: a 2D/annotation tool group (no such tools exist; the palette has selection, wall/slab and view tools, toolbox in crates/archicraft-app/src/ui/shell.rs:135). The view-control bar (status_bar, crates/archicraft-app/src/ui/shell.rs:182) has no view rotation (VIEW-060), no real drawing scale (the 'Scale 1:100' label at crates/archicraft-app/src/ui/shell.rs:285 is hard-coded, VIEW-013 missing), no active display settings for plan views (only 3D views have a display-mode combo) and no restriction indicator (VIEW-043).",
       "depends_on": []
     },
     {
@@ -297,7 +297,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The Locked checkbox has no mixed/indeterminate state for selections that mix locked and unlocked elements (properties.rs:627-647), and summary() omits the editable count whenever it equals the selected count (properties.rs:528-53…",
+      "gap": "Tool defaults show when nothing is selected, differing values show 'Mixed', and edits go to every editable selected element. Missing: the Locked and Snap targets checkboxes (lock_toggle, crates/archicraft-app/src/ui/properties.rs:592) have no mixed/indeterminate state, so a selection mixing locked and unlocked elements shows plain unchecked; and summary() (crates/archicraft-app/src/ui/properties.rs:472) omits the editable count whenever it equals the selected count, while the SRS asks to show both counts for every multiple selection.",
       "depends_on": []
     },
     {
@@ -317,7 +317,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Panels cannot be docked elsewhere, floated or (except the problems panel) hidden; the tab/split layout and open views are never saved per user (tree rebuilt from scratch); egui-memory persistence is an untested side effect of efr…",
+      "gap": "Panels are fixed egui panels laid out in ArchiCraftApp::ui (crates/archicraft-app/src/app.rs:930): they cannot be docked elsewhere or floated, and only the problems panel can be hidden. Views can be split and rearranged as tiles, but the tab/split layout and open views are never saved per user: the tree is rebuilt by default_tree (crates/archicraft-app/src/app.rs:117) at start and on every document change. Panel sizes survive only through egui memory under eframe's persistence feature, an untested side effect outside Preferences.",
       "depends_on": []
     },
     {
@@ -327,7 +327,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No context menu on tabs (Behavior in app.rs:727-788 adds none; egui_tiles tab_ui not overridden); no context menu on 3D-view items (browser.rs:86-96) or the Project section; VIEW-003's rename/delete/settings/\"save as view\" for vi…",
+      "gap": "Context menus exist on the plan canvas (context_menu, crates/archicraft-app/src/views/plan.rs:996), the 3D canvas (crates/archicraft-app/src/views/view3d.rs:258) and storey items in the browser (crates/archicraft-app/src/ui/browser.rs:51). Missing: no context menu on tabs (Behavior::on_tab_button, crates/archicraft-app/src/app.rs:890, only activates the pane); none on 3D-view items in the browser or the Project section (browser::ui, crates/archicraft-app/src/ui/browser.rs:24); VIEW-003's rename/delete/settings/'save as view' for views; the 3D canvas menu lacks Settings.",
       "depends_on": []
     },
     {
@@ -357,7 +357,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "D.8 commands without shortcuts because the commands do not exist: cut, copy, paste, command palette; move, copy-move, rotate, mirror, vertical move, array, trim, split, offset; measure, column, beam, roof, opening, door, window,…",
+      "gap": "Default shortcuts exist for every D.8 command that exists (Action::shortcut, crates/archicraft-app/src/ui/actions.rs:122): save, undo, redo, delete, select all, wall, slab, plan/3D switch, next/previous tab, fit, zoom to selection, orbit; single-key shortcuts do not fire while a text field has focus (ArchiCraftApp::shortcuts, crates/archicraft-app/src/app.rs:555). Missing because the commands do not exist: cut, copy, paste, command palette (NFR-USE-005); move, copy-move, rotate, mirror, vertical move, array, trim, split, offset; measure and the column, beam, roof, opening, door, window, stair and free-form solid tools; show all, hide selection, isolate selection.",
       "depends_on": []
     },
     {
@@ -377,7 +377,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Canvas background is hard-coded per dark/light mode (plan Palette views/plan.rs:92-139, 3D background views/view3d.rs:93-99) with no preference; no automatic 3:1 contrast adjustment (material cut-fill colours drawn as stored plan…",
+      "gap": "Light, dark and follow-system themes exist (ThemeChoice in Preferences). Missing: the canvas background is hard-coded per dark/light mode (plan Palette::new, crates/archicraft-app/src/views/plan.rs:258; 3D background, crates/archicraft-app/src/views/view3d.rs:93) with no preference to configure it; no automatic 3:1 contrast adjustment: material cut-fill colours are drawn as stored (draw_plan, crates/archicraft-app/src/views/plan.rs:402), and no contrast check exists anywhere.",
       "depends_on": []
     },
     {
@@ -397,7 +397,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Dangling references (Project::integrity_problems model/src/project.rs:327-342) are never listed; load problems (Problem.path ifcx/src/validate.rs:35-39) are plain labels, not clickable (dialogs.rs:874-881); missing definitions (O…",
+      "gap": "The problems panel (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:866) lists failed geometry, and clicking an entry selects the element and requests a zoom, but a failed element has no geometry or fallback representation, so the zoom finds no bounds (NFR-REL-006). Load problems are plain labels, not clickable, even when Problem.path names a node (crates/archicraft-ifcx/src/validate.rs:45). Dangling references (Project::integrity_problems, crates/archicraft-model/src/project.rs:427) are never listed. Missing definitions cannot be listed because referenced definitions do not exist yet (OBJ-005).",
       "depends_on": []
     },
     {
@@ -447,7 +447,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No command palette (NFR-USE-005); shortcuts are not bindable (UI-009); several commands are not Actions and exist in one place only: R cycles the reference line plan.rs:712-720, wall/slab geometry modes properties.rs:745-768 (str…",
+      "gap": "No command palette (NFR-USE-005); shortcuts are not bindable (UI-009). Several commands are not Actions and are reachable from one place only, without a menu entry: R cycles the wall reference line and P/Shift+P switch the input fields (handle_keys, crates/archicraft-app/src/views/plan.rs:916); the wall and slab geometry modes are buttons in the properties strip (tool_modes, crates/archicraft-app/src/ui/properties.rs:727); the 3D display mode, view presets and projection switch are in the status bar only (status_bar, crates/archicraft-app/src/ui/shell.rs:182); Locked and Snap targets are properties checkboxes (lock_toggle, crates/archicraft-app/src/ui/properties.rs:592).",
       "depends_on": []
     },
     {
@@ -487,7 +487,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Single click already opens the plan (browser.rs:48 `double_clicked() || clicked()`) instead of only selecting; no sections, elevations, saved views or folders; no 'save as view' or 'settings' item; 3D views have no context menu…",
+      "gap": "Storeys are listed highest first and new storeys appear automatically. Missing: single click already opens the plan (browser::ui, crates/archicraft-app/src/ui/browser.rs:48 `double_clicked() || clicked()`; 3D views the same at crates/archicraft-app/src/ui/browser.rs:92) instead of only selecting; no sections, elevations, saved views (VIEW-004) or folders; the storey context menu has no 'save as view' and no settings item, and 3D views have no context menu (no rename, delete or settings).",
       "depends_on": []
     },
     {
@@ -497,7 +497,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Saved-view resource (camera or zoom+rotation, scale, layer states, kind filters, storey range, cut planes, hidden elements, display style, sun), re-apply to live model, redefine keeping ID/name, visual distinction, IFCX persisten…",
+      "gap": "Missing entirely: a project view is only View3d with ID, name and projection (crates/archicraft-model/src/project.rs:188); the camera lives in session state. Needed: a saved-view resource storing camera or zoom and rotation, drawing scale, layer states, kind filters, storey range, cut planes, hidden elements, display style and sun; re-applying it to the live model; redefining it from the current window while keeping ID and name; visual distinction from plain viewpoints; IFCX persistence; commands with undo. Depends on VIEW-013, VIEW-060 and VIEW-043 restrictions.",
       "depends_on": []
     },
     {
@@ -577,7 +577,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No numeric editing of eye position, target or field of view (fov fixed at 45 deg, camera.rs:154; no camera properties UI); no 'custom' preset with rotation angles and azimuth; projection switch exists only as a status-bar toggle,…",
+      "gap": "Perspective and parallel projection, orbit/pan/zoom and the top, front, side, isometric and dimetric presets exist (Camera3d::apply_preset, crates/archicraft-app/src/views/camera.rs:218). Missing: numeric editing of eye position, target or field of view (fov fixed at 45 degrees in Camera3d::new, crates/archicraft-app/src/views/camera.rs:148; no camera properties UI); direct manipulation of the field of view; a 'custom' preset with rotation angles and azimuth; the projection switch is only a status-bar toggle (status_bar, crates/archicraft-app/src/ui/shell.rs:182), not an Action with a menu entry or shortcut.",
       "depends_on": []
     },
     {
@@ -837,7 +837,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No pen, line-type, fill or cover-fill attributes exist. Outline colours and weights are hard-coded constants (plan.rs:91-143 Palette, CUT_WIDTH/PROJECTED_WIDTH). Elements carry no graphic-property references other than the materi…",
+      "gap": "No pen, line-type, fill or cover-fill attributes exist; the project holds only materials as graphic resources (Project, crates/archicraft-model/src/project.rs:302). Outline colours and weights are hard-coded: Palette (crates/archicraft-app/src/views/plan.rs:243) and CUT_WIDTH/PROJECTED_WIDTH (crates/archicraft-app/src/views/plan.rs:292), and the overhead dash pattern is fixed in draw_plan (crates/archicraft-app/src/views/plan.rs:402). Elements carry no graphic-property references other than the material (Wall::material, Slab::material), whose cut-fill foreground colour is the only attribute-driven 2D property and updates all elements when edited; its pattern is ignored (DSP-010). Per-element outline pen, line type, cut-fill pens and cover fill are missing.",
       "depends_on": []
     },
     {
@@ -857,7 +857,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Pens, line types, fills, layer structures and profiles do not exist as attributes. FillPattern is a closed enum (material.rs:94-102) serialised as an IFCX enum restriction (schema.rs:188), not an ID-referenced resource with name/…",
+      "gap": "Pens, line types, fills, layer structures (PRF-001) and profiles (PRF-004) do not exist as attributes. Only materials meet the requirement: Material has a stable id, name, short code and description (crates/archicraft-model/src/material.rs:143), and deleting one requires a replacement (plan_delete_material, crates/archicraft-model/src/command.rs:596). FillPattern is a closed enum (crates/archicraft-model/src/material.rs:95) serialised as an IFCX enum restriction (cutFill pattern in project, crates/archicraft-ifcx/src/alpha/schema.rs:157), not an ID-referenced resource with a name, short code and description, so fills cannot be added, renamed or deleted with a replacement. Views reference no attributes.",
       "depends_on": []
     },
     {
@@ -867,7 +867,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Weights do not come from pens (none exist). Widths are logical points, never multiplied by pixels_per_point, so at 100% DPI the 0.9-pt projected and overhead lines are below one device pixel and take epaint's faded thin-line path…",
+      "gap": "Weights do not come from pens (none exist, DSP-001): they are the screen-point constants CUT_WIDTH 1.8 and PROJECTED_WIDTH 0.9 (crates/archicraft-app/src/views/plan.rs:292). Widths are logical points, never scaled by pixels_per_point or clamped to one device pixel, so at 100% scaling the 0.9-pt projected and overhead lines are 0.9 device pixels wide and take epaint's thin-line path, which draws them at reduced opacity instead of a full pixel. Cut outlines are drawn heavier than projected ones at every zoom (constant 2:1 ratio), so that part holds.",
       "depends_on": []
     },
     {
@@ -887,7 +887,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No pen resource in the project, no weights (hairline, 0.13…0.50 mm), no structural/non-structural cut distinction, no fill/annotation/drafting pens, nothing saved or editable. The existing palette can seed the default values but…",
+      "gap": "No pen resource in the project, no weights (hairline, 0.13, 0.18, 0.25, 0.35 and 0.50 mm at 1:100, DSP-019), no structural/non-structural cut distinction, no cut-fill, cover-fill, fill-background, drafting, annotation-line or annotation-text pens, nothing saved in the project or editable (DSP-006). The plan Palette (crates/archicraft-app/src/views/plan.rs:243) can seed the default colours: it has cut, projected and overhead colours and screen-only roles (selection, hover as pre-selection, preview, snap), but it is a hard-coded light/dark pair with widths in screen points and has no guide role.",
       "depends_on": []
     },
     {
@@ -937,7 +937,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Every pattern is drawn as a flat tone of the foreground colour (plan.rs:264-282; comment material.rs:91-92). No hatch definition (angle, spacing, pen) exists; background is stored but never rendered nor editable; no transparency…",
+      "gap": "Every pattern is drawn as a flat tone of the material's cut-fill foreground colour (cut-region mesh in draw_plan, crates/archicraft-app/src/views/plan.rs:402; see the FillPattern doc comment, crates/archicraft-model/src/material.rs:92). FillPattern (crates/archicraft-model/src/material.rs:95) names solid, concrete, masonry, timber, insulation, soil and diagonal, but no hatch definition (angle, spacing, pen) exists. The optional background (CutFill, crates/archicraft-model/src/material.rs:135) is read and written in IFCX but never rendered and not editable in material_editor (crates/archicraft-app/src/ui/dialogs.rs:782); solid fills have no transparency option; fills take colours, not pens (needs DSP-001, DSP-005).",
       "depends_on": []
     },
     {
@@ -987,7 +987,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Projected and overhead lines are drawn as independent line_segments (plan.rs:220-221,248-262), so corners have no joins; epaint strokes have butt caps only and its thin-line path has no caps at all (tessellator.rs:1007-1008), whi…",
+      "gap": "Projected and overhead lines are drawn as independent two-point segments (draw_plan, crates/archicraft-app/src/views/plan.rs:402; PlanElement stores them as pairs, crates/archicraft-geometry/src/plan.rs:25), so their corners have no joins; epaint 0.36 strokes have butt caps only, and its thin-line path, which the 0.9-pt projected and overhead lines take at 100% scaling, has no caps at all, leaving notches at corners. Cut outlines are closed paths and are joined. Anti-aliasing is epaint feathering, independent of multisampling, so that part holds. Missing: chaining segments into polylines, defined caps, and a check at several zoom levels (DSP-018 golden images).",
       "depends_on": []
     },
     {
@@ -1097,7 +1097,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Directions are measured from the X axis only by constrain (crates/archicraft-app/src/input/constrain.rs:9; no construction grid to orient from); the constrained branch of PointInput::resolve (crates/archicraft-app/src/input/mod.rs:235) bypasses snapping, so nothing snaps along the constrained direction. The guide geometry the alternative needs exists (GuideShape lines, rays, segments, circles and arcs with intersect, project and clip; GuideOrigin; crates/archicraft-app/src/input/guide.rs:40), and snapping meets guides with edges, arcs and other guides (collect, crates/archicraft-app/src/input/snap.rs:329), but Shift does not yet hold the cursor on the nearest guide, and vertical guides in 3D are missing (no 3D input).",
+      "gap": "Directions are measured from the model X axis only (constrain, crates/archicraft-app/src/input/constrain.rs:9): neither the plan-grid rotation (PlanGrid, crates/archicraft-model/src/project.rs:56) nor a construction grid (GRD-001, not implemented) orients them. The guide geometry for holding the cursor on a guide exists (GuideShape lines, rays, segments, circles and arcs with intersect, project and clip; GuideOrigin; crates/archicraft-app/src/input/guide.rs:40), and snapping meets guides with edges, arcs and other guides (collect, crates/archicraft-app/src/input/snap.rs:329), but no guides are produced yet (PlanInput::ctx passes none, crates/archicraft-app/src/views/plan.rs:191), Shift does not hold the cursor on the nearest guide, and 3D views take no point input (no vertical guides). Constrained mode bypasses snapping (PointInput::resolve, crates/archicraft-app/src/input/mod.rs:235): with Shift held the constrained point is the only candidate, so nodes and edges along the direction cannot be snapped.",
       "depends_on": []
     },
     {
@@ -1127,7 +1127,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "2D only: no snapping in 3D views. Missing targets: division points beyond the midpoint (INP-010); the nearest point on an arc or a circle and their intersections. Arc and circle centres, tangent points from the previous point, axis points and handles are snap targets (input/snap.rs ArcTarget, input/targets.rs TargetSink), but nothing produces them yet: no curved geometry, no columns or beams, no handle tool. The plan view draws a glyph for every snap kind, the crosshair for no snap, and an overlay for the command states copy, multiple copy, trim target and choose side (views/plan.rs snap_glyph, cursor_state_glyph), but no command sets those states yet: there are no copy, trim or side-choosing tools.",
+      "gap": "2D only: no point input or snapping in 3D views. Missing: division points beyond the midpoint (INP-010); the nearest point on an arc or a circle and intersections involving arcs and circles (collect, crates/archicraft-app/src/input/snap.rs:329, adds only arc centres, tangent points and guide intersections with arcs; no edge–arc intersections). Arc and circle centres, tangent points from the previous point, axis points and handles are snap targets (ArcTarget, crates/archicraft-app/src/input/snap.rs:172; TargetSink, crates/archicraft-app/src/input/targets.rs:140), but nothing produces them yet: no curved geometry, no columns or beams, no handle tool. The plan view draws a glyph for every snap kind, the crosshair for no snap (snap_glyph, crates/archicraft-app/src/views/plan.rs:493) and an overlay for the command states copy, multiple copy, trim target and choose side (cursor_state_glyph, crates/archicraft-app/src/views/plan.rs:555; CursorState, crates/archicraft-app/src/input/consumer.rs:123), but no command sets those states yet: there are no copy, trim or side-choosing tools.",
       "depends_on": []
     },
     {
@@ -1137,7 +1137,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Plan views only: no snapping in 3D views (INP-016). The centroids of cut polygons (archicraft-geometry PlanElement::centroids) and of slab outlines are node-level snap targets (input/targets.rs) with their own glyph in the plan view (views/plan.rs snap_glyph).",
+      "gap": "Plan views only: no snapping in 3D views (INP-016). The centroids of cut polygons (PlanElement::centroids, crates/archicraft-geometry/src/plan.rs:227) and of slab outlines are node-level snap targets (crates/archicraft-app/src/input/targets.rs) with their own glyph in the plan view (snap_glyph, crates/archicraft-app/src/views/plan.rs:493).",
       "depends_on": []
     },
     {
@@ -1157,7 +1157,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "The five modes divide segments, circles and arcs, and the mode, its value and the scope are stored in the preferences (input/division.rs, InputSettings), but snapping still offers only the hard-coded midpoint: hovering an edge shows no ticks, the scopes are not resolved on the snap index, and no control chooses the mode.",
+      "gap": "The five modes divide segments, circles and arcs (DivisionMode, crates/archicraft-app/src/input/division.rs:97; divide at :172), and the mode, its value and the scope are stored in the preferences (InputSettings, crates/archicraft-app/src/input/division.rs:181; Preferences::input, crates/archicraft-app/src/persistence/prefs.rs:58), but snapping still offers only the hard-coded midpoint (collect, crates/archicraft-app/src/input/snap.rs:329): hovering an edge shows no ticks, the scopes are not resolved on the snap index, and no control chooses the mode.",
       "depends_on": []
     },
     {
@@ -1167,7 +1167,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: marking points/edges by dwell (default 1.0 s) or key, temporary guides (horizontal, vertical, angle increments, parallel, perpendicular, tangent, bisector, line through two centres), snappable guide intersectio…",
+      "gap": "Whole requirement: marking points and edges as snap references by hovering for a dwell time (default 1.0 s, Appendix D.1; no such preference) or instantly with a key; temporary inference guides (horizontal, vertical, angle increments, parallel, perpendicular, tangent, the bisector of two marked edges, the line through two circle centres) and their drawing; clearing marks when the input ends or on Esc. Only hooks exist: GuideShape (crates/archicraft-app/src/input/mod.rs:39), guide and guide-intersection candidates in collect (crates/archicraft-app/src/input/snap.rs:329) and InputContext::marked, but the plan passes no guides and no marked point (PlanInput::ctx, crates/archicraft-app/src/views/plan.rs:191).",
       "depends_on": []
     },
     {
@@ -1177,7 +1177,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: persistent guide lines/segments/circles/arcs per view, snappable with division points, drag-from-border creation aligned to an edge, numeric offset move/copy, delete individually/by sweep/all, global hide, excl…",
+      "gap": "Whole requirement: persistent guide lines, segments, circles and arcs in plan and 3D views, stored per view, snappable including their division points, created by dragging from the view border onto an edge (aligned to it), moved by a numeric offset (also as a copy), deleted individually, by sweep or all at once, hidden globally, and excluded from export and the model. Only hooks exist: GuideShape (crates/archicraft-app/src/input/mod.rs:39) has a single Line variant and the snap candidates rank guide points and guide intersections (collect, crates/archicraft-app/src/input/snap.rs:329); nothing creates or stores guides.",
       "depends_on": []
     },
     {
@@ -1287,7 +1287,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No option limiting picking to edges and nodes. Esc does not clear the selection while a 3D view is active (Escape handled only in plan.rs:701). Elements drawn only projected (e.g. the default slab below the 1.10 m cut plane) are…",
+      "gap": "No option limiting picking to edges and nodes. Esc does not clear the selection while a 3D view is active: Esc reaches the selection only through handle_keys and apply of the plan (crates/archicraft-app/src/views/plan.rs:916, crates/archicraft-app/src/views/plan.rs:898), which run for the active plan pane only; the 3D view handles no keys. In 3D, clicks pick bodies by ray (pick, crates/archicraft-app/src/views/view3d.rs:75), not edges or nodes. Elements drawn only projected (e.g. the default slab below the 1.10 m cut plane) are picked only within the tolerance of their projected lines, not by clicking inside their area (PlanDrawing::pick, crates/archicraft-geometry/src/plan.rs:276, tests containment for cut polygons only).",
       "depends_on": []
     },
     {
@@ -1337,7 +1337,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: criteria dialog combining kind with storey, layer, material, layer structure, dimensions, name/ID, IFC class; operators; add/remove to selection; fill from picked element; named criteria sets saved in the proje…",
+      "gap": "Whole requirement: no criteria dialog combining element kind with storey, layer, material, layer structure (PRF-001), dimensions, name/ID and IFC class; no operators (equals, not equals, contains, does not contain); no adding results to or removing them from the selection; no filling criteria values from a picked element; no named criteria sets saved in the project. The only bulk selection is Select all for the active tool's kind (Workspace::select_all, crates/archicraft-app/src/workspace.rs:386, SEL-004).",
       "depends_on": []
     },
     {
@@ -1377,7 +1377,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Move exists only as a model command: no tool, menu item, shortcut, drag or context-menu entry invokes it, no live preview, no INP-001 point input for the vector. Rotate, mirror and vertical move (signed dZ = base_offset/offset ch…",
+      "gap": "Move exists only as a model command (Command::MoveElements, crates/archicraft-model/src/command.rs:45): no tool, menu item, shortcut, drag or context-menu entry invokes it, so there is no live preview and no INP-001 point input for the vector in the app; point input supports the needed steps (Expect, crates/archicraft-app/src/input/consumer.rs:34), exercised only by test stubs. Rotate and mirror exist as PlanTransform (crates/archicraft-model/src/transform.rs:21) with per-kind hooks (Kind::transform, crates/archicraft-model/src/kinds/mod.rs:142), but no command applies them. Vertical move (signed ΔZ changing base_offset/offset) has no command: MoveElements takes a plan vector only.",
       "depends_on": []
     },
     {
@@ -1467,7 +1467,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No contextual edit palette, no node/edge hit-testing (PlanDrawing::pick returns whole elements only, geometry/plan.rs:270-282), none of the node commands (move/insert/delete node, fillet/chamfer) or edge commands (offset edge, of…",
+      "gap": "No contextual edit palette and no node or edge hit-testing: PlanDrawing::pick (crates/archicraft-geometry/src/plan.rs:276) returns whole elements only, and TargetSink::handle (crates/archicraft-app/src/input/targets.rs:170) has no producer. None of the node commands (move, insert or delete node, fillet/chamfer corner, EDT-014) or edge commands (offset edge, offset all edges, curve edge, straighten edge) exist as model commands or tools, and nothing remembers the last-used command. Curve edge needs arc segments, which walls and slabs lack (Slab::outline is a plain point list, crates/archicraft-model/src/kinds/slab.rs:43). The whole-element transforms depend on EDT-001.",
       "depends_on": []
     },
     {
@@ -1557,7 +1557,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No union/difference of a drawn polygon with a slab outline; the geo crate (already a dependency, geometry/plan.rs:156 unary_union) provides BooleanOps, so this is mostly tool/UI work plus hole handling via validate_slab_polygon (…",
+      "gap": "No union or difference of a drawn polygon with a slab outline: no model command, tool or menu entry. The geo crate is a dependency of the geometry crate only (unary_union in plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and provides BooleanOps, so this is mostly a command and tool with polygon input, plus result handling: a polygon inside the outline becomes a hole, a difference may split the slab, and every result must pass validate_slab_polygon (crates/archicraft-model/src/validate.rs:198), which rejects holes touching the outline. Slabs are the only polygon-based kind so far.",
       "depends_on": []
     },
     {
@@ -1577,7 +1577,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "For mixed kinds the panel offers the union of parameters, not only those common to all kinds: a field is shown if ANY target has it (properties.rs:176-178, 204-206), so a wall+slab selection still shows Reference line, Base offse…",
+      "gap": "For mixed kinds the panel offers the union of parameters, not only those common to all kinds: a field is shown if ANY target has it (Fields::length, crates/archicraft-app/src/ui/properties.rs:135; Fields::choice, crates/archicraft-app/src/ui/properties.rs:162), so a wall+slab selection still shows Reference line, Base offset and Top (wall-only) and Reference plane and Elevation offset (slab-only), each applied only to the elements that have it. The mixed state (common, crates/archicraft-app/src/ui/widgets.rs:293) and assigning a committed value to every editable target already work.",
       "depends_on": []
     },
     {
@@ -1597,7 +1597,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Thresholds are compile-time constants, not project settings: ProjectSettings (project.rs:47-52) has no tolerance fields, no UI in the project settings dialog (dialogs.rs:479-626), nothing written to IFCX (writer.rs:154-165). Edit…",
+      "gap": "Thresholds are compile-time constants, not project settings: MIN_EDGE_LENGTH and MIN_CORNER_ANGLE_DEG (crates/archicraft-model/src/validate.rs:19 and 21) and MODEL_TOLERANCE (crates/archicraft-model/src/tolerance.rs:41). ProjectSettings (crates/archicraft-model/src/project.rs:118) has no tolerance fields, the project settings dialog (project_window, crates/archicraft-app/src/ui/dialogs.rs:491) shows none, and project_attribute (crates/archicraft-ifcx/src/alpha/writer.rs:200) writes none. Short edges in rings are repaired (clean_ring, crates/archicraft-model/src/validate.rs:73), but sliver corners are rejected with a message (validate_ring, crates/archicraft-model/src/validate.rs:150), as are walls shorter than 0.1 mm (validate_wall, crates/archicraft-model/src/validate.rs:245), rather than repaired or listed in the problems panel (UI-012).",
       "depends_on": []
     },
     {
@@ -1607,7 +1607,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "None of trim, split, extend, parameter pick-up/inject or contour detection exist as explicit commands or as gestures; previews exist only for element creation (tools/mod.rs:310-335). Effort here is wiring each operation as a co…",
+      "gap": "None of trim (EDT-011), extend (EDT-012), split (EDT-013), parameter pick-up/inject (ELM-003) or contour detection (INP-018) exist, neither as modifier gestures nor as explicit commands; the command registry (crates/archicraft-app/src/commands/) has only file, edit, view, project, help and tool commands. Live previews exist only for element creation (ToolState::outlines, crates/archicraft-app/src/tools/mod.rs:274) and the user origin, through the point-input framework (InputConsumer with Preview, crates/archicraft-app/src/input/consumer.rs:167); move, rotate and stretch exist only as test stubs (TransformStub, crates/archicraft-app/src/input/mod.rs:547). Effort here is wiring each operation, once it exists under its own requirement, as a menu command that runs as an InputConsumer with a preview, besides its gesture.",
       "depends_on": []
     },
     {
@@ -1647,7 +1647,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No pick-up or inject commands, no latch mode, no compatibility filter between kinds. Building blocks exist: an element of a kind maps onto its tool defaults slot (`DefaultsSlot` in project.rs; properties.rs `apply` writes an edited prototype back), 3D picking exists (views/view3d.r…",
+      "gap": "No pick-up or inject commands, no latch mode, no compatibility filter between kinds. Building blocks exist: an element of a kind maps onto its tool defaults slot (DefaultsSlot, crates/archicraft-model/src/project.rs:199: layer, position, IFC class, kind parameters), the properties panel's apply (crates/archicraft-app/src/ui/properties.rs:75) already writes an edited prototype back with SetToolDefaults, and elements can be picked in plan (PlanDrawing::pick, crates/archicraft-geometry/src/plan.rs:276) and 3D (pick, crates/archicraft-app/src/views/view3d.rs:75). Missing: pick-up of a picked element's settings (not its geometry) into the active tool's slot, inject of the slot into clicked elements via UpdateElements (locked ones refused, ELM-013), latch mode, transfer of only the compatible settings between kinds (for example layer and material from a wall to a slab), and section views (none exist).",
       "depends_on": []
     },
     {
@@ -1667,7 +1667,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Names count up per kind from the project's name counters, which the file stores; the reader repairs an invalid, missing or out-of-range counter to the number of elements of its kind (crates/archicraft-ifcx/src/alpha/reader.rs read_counters, test out_of_range_counters_are_repaired_to_the_element_count). Missing: the prefix is fixed per kind in its KindDescriptor (name_prefix); not configurable in the project or template.",
+      "gap": "Names count up per kind from the project's name counters (NameCounters, crates/archicraft-model/src/project.rs:261; Project::next_element_name, crates/archicraft-model/src/project.rs:398, formats <prefix>-<nnn>), which the file stores; the reader repairs an invalid, missing or out-of-range counter to the number of elements of its kind (read_counters, crates/archicraft-ifcx/src/alpha/reader.rs:596; test out_of_range_counters_are_repaired_to_the_element_count, crates/archicraft-ifcx/tests/corrupt.rs:469). Missing: the prefix is fixed per kind in its KindDescriptor (name_prefix, crates/archicraft-model/src/kinds/mod.rs:69: W, SL) and is not configurable in the project settings or template, nor stored in the file.",
       "depends_on": []
     },
     {
@@ -1677,7 +1677,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Absolute elevation is not shown anywhere (properties show only Base offset / Elevation offset, properties.rs:314-324,453-463; derived() 541-575 shows length/area/volume only). Changing the home storey always relinks; there is no…",
+      "gap": "Absolute elevation is not shown anywhere: the properties show only the wall's Base offset and the slab's Elevation offset relative to the home storey (geometry_fields, crates/archicraft-app/src/ui/properties.rs:214, fields at lines 278 and 417), and derived (crates/archicraft-app/src/ui/properties.rs:506) shows length, area and volume only. Changing the home storey in the properties always relinks, keeping the absolute position (selection_only_fields, crates/archicraft-app/src/ui/properties.rs:542, calling relink_to_storey, crates/archicraft-model/src/command.rs:497); there is no choice to keep the offset instead, which would move the element with the new storey.",
       "depends_on": []
     },
     {
@@ -1697,7 +1697,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No vertical move exists, so nothing offers re-association after a move; editing Base offset / Elevation offset in the properties panel does not trigger an offer; no bulk 're-associate selection with storeys by elevation' command…",
+      "gap": "No vertical move exists: MoveElements (crates/archicraft-model/src/command.rs:45) translates in plan only, and the UI has no move, drag or elevate tool at all (move, rotate and stretch are test stubs), so nothing offers re-association after a move. Editing Base offset or Elevation offset in the properties panel (crates/archicraft-app/src/ui/properties.rs:278 and 417) does not trigger an offer either. No bulk 're-associate selection with storeys by elevation' command. Building blocks exist: StoreyList::storey_at_elevation (crates/archicraft-model/src/storey.rs:141) finds the storey for an elevation, and relink_to_storey (crates/archicraft-model/src/command.rs:497) changes the home storey without moving the element.",
       "depends_on": []
     },
     {
@@ -1707,7 +1707,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No storey display range on elements, no drawing of elements on other storeys' plans, no project-wide above/below outline style, no editing from other storeys' plans; snap targets likewise only from the home storey (input/targets.rs…",
+      "gap": "No storey display range on elements (Element, crates/archicraft-model/src/element.rs:132, has no such field, and the IFCX schema and reader none either), no drawing of elements on other storeys' plans (plan_drawing, crates/archicraft-geometry/src/plan.rs:111, takes project.elements_on(storey) only), no project-wide above/below outline style (default dashed), no editing from other storeys' plans; snap targets likewise only from the home storey (SnapIndex::update, crates/archicraft-app/src/input/targets.rs:392). VIEW-011 (drawing per display range) and ELM-009 (custom ranges for slabs) build on it.",
       "depends_on": []
     },
     {
@@ -1737,7 +1737,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "IfcClass enum has no IfcBeam, IfcMember, IfcColumn and none of the Appendix D.5 list for free-form solids, objects and imported elements (those kinds do not exist). Tool defaults slots are checked against their kind's class set by `SetToolDefaults` and on reading. Reader downgrades unknown classes to the kind default with a war…",
+      "gap": "IfcClass (crates/archicraft-model/src/element.rs:15) has only IfcWall, IfcSlab, IfcFooting, IfcCovering and IfcBuildingElementProxy: no IfcBeam, IfcMember, IfcColumn and none of the rest of the Appendix D.5 list for free-form solids, objects and imported elements (those kinds do not exist yet). For walls and slabs the requirement is met: the class defaults from the KindDescriptor, is selectable among the kind's classes in the properties (classification_fields, crates/archicraft-app/src/ui/properties.rs:442), is checked by validate_prototype (crates/archicraft-model/src/validate.rs:310) and for tool defaults by SetToolDefaults (check_slot, crates/archicraft-model/src/command.rs:651), and the reader downgrades an unknown or disallowed class to the kind default with a repair report (read_element, crates/archicraft-ifcx/src/alpha/reader.rs:880; read_defaults_slot, crates/archicraft-ifcx/src/alpha/reader.rs:688).",
       "depends_on": []
     },
     {
@@ -1767,7 +1767,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No ghosted handles (no handles exist at all; a locked selection is highlighted like any other, views/plan.rs:309-318). On hover only name and kind are shown (views/plan.rs:621-632); the lock cause is only reported in the status l…",
+      "gap": "No ghosted handles: no element handles exist at all, and a locked selection is outlined like any other (draw_plan, crates/archicraft-app/src/views/plan.rs:402, selection loop at line 474). On hover only name and kind are shown (crates/archicraft-app/src/views/plan.rs:877). The lock cause is known (Project::edit_lock_reason, crates/archicraft-model/src/project.rs:358, tells element lock from layer lock) but reaches the user only as a status-line error when an edit is rejected; the properties strip says just 'The selected elements are locked.' (crates/archicraft-app/src/ui/properties.rs:644). Rejecting moves, deletion and parameter changes of locked elements works (plan_update_elements, crates/archicraft-model/src/command.rs:430).",
       "depends_on": []
     },
     {
@@ -1807,7 +1807,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Dependent values do not update live while editing: fields commit on Enter/focus loss (widgets.rs:52-57) and derived rows (properties.rs:541-575) refresh only after the command; no kind with dependent parameters (stairs) exists yet. Range checks hold across storey edits: a storey move that would leave a linked wall lower than 1 mm is rejected with a message naming it (NFR-REL-005).",
+      "gap": "Range checks work: values are validated when committed (validate_element, crates/archicraft-model/src/validate.rs:299) and rejected with an explanation in the status line, and a storey move that would leave a linked wall lower than 1 mm is rejected with a message naming it (NFR-REL-005). Dependent values do not update live while editing: fields parse and commit only on Enter or focus loss (committed_text, crates/archicraft-app/src/ui/widgets.rs:24), so an invalid value is also flagged only after the commit, and the derived rows (derived, crates/archicraft-app/src/ui/properties.rs:506) refresh only after the command has run. No kind with dependent parameters (stairs, STA) exists yet, so nothing is recomputed live.",
       "depends_on": []
     },
     {
@@ -1827,7 +1827,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Everything: grid-system resource/element (two axis sets with individual spacings, label series, bubbles at one/both ends, extension lengths, rotation, origin), its drawing in plan, a creation tool and an edit dialog, persistence…",
+      "gap": "Everything: no grid-system resource or element (two axis sets with individual spacings, label series such as A, B, C and 1, 2, 3, bubbles at one or both ends, extension lengths, rotation angle, origin), no drawing in plan, no creation tool or edit dialog, no persistence in the IFCX schema, writer and reader, and no IfcGrid export (GRD-006). The existing plan grid (PlanGrid, crates/archicraft-model/src/project.rs:56: snap step, main and auxiliary spacing, rotation, origin) is a drafting aid for point input (INP-013), not a grid system.",
       "depends_on": []
     },
     {
@@ -1927,7 +1927,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "Arc wall geometry (centre/radius/sweep, three points, tangent continuation), exact arc storage, tessellated body per IFX-034, closed circular wall without seam, arc junctions, plan drawing, snapping to arcs, IFCX schema and reade…",
+      "gap": "Nothing exists for arc walls: the wall is straight (Wall, crates/archicraft-model/src/kinds/wall.rs:66, start and end only) and the tool offers single, chain, rectangle and rotated rectangle (WallMode, crates/archicraft-app/src/tools/wall.rs:5). Missing: creation by centre, radius and sweep, by three points and by tangent continuation; exact arc storage; a body tessellated per IFX-034 (the tolerances are stored, Tessellation, crates/archicraft-model/src/project.rs:31, but nothing tessellates); a closed circular wall without seam; arc junctions (footprints, crates/archicraft-geometry/src/wall.rs:236, handles straight walls only); plan drawing; the IFCX schema (declarations, crates/archicraft-ifcx/src/alpha/schema.rs:244), writer and reader. Snapping to arcs is prepared: the snap index holds ArcTarget (crates/archicraft-app/src/input/snap.rs:172) with centre and tangent snaps, but no element provides arcs yet.",
       "depends_on": []
     },
     {
@@ -1977,7 +1977,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Reference lines are shown only in plan views, not in 3D (render3d.rs build_scene draws meshes/feature edges only); no direction arrow on the in-progress preview; beams n/a. The R key records a SetToolDefaults command in the undo…",
+      "gap": "Reference lines with direction arrows are drawn in plan views only (reference_line, crates/archicraft-app/src/views/plan.rs:390, for selected walls, or all walls with View > Reference lines), not in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102, draws meshes and feature edges only). The in-progress preview draws the pending reference line as a plain polyline without a direction arrow (preview loop in plan::ui, crates/archicraft-app/src/views/plan.rs:842). Beams do not exist. The R key (handle_keys, crates/archicraft-app/src/views/plan.rs:916) cycles the location by executing SetToolDefaults, so every press is an undo step of its own and changes the wall tool's defaults for later walls; the cycle (ReferenceLine::next, crates/archicraft-model/src/kinds/wall.rs:55) covers exterior, centre and interior only, not core faces (PRF-003) or a custom offset.",
       "depends_on": []
     },
     {
@@ -2037,7 +2037,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "X (crossing) junctions not handled; three or more walls at one node fall back to square ends (wall.rs:223-227); only single-skin bodies, no skin trimming; walls on different home storeys never join even if they overlap vertically…",
+      "gap": "X (crossing) junctions are not handled; three or more walls at one node, or an end touching more than one other wall, fall back to square ends (resolve_end, crates/archicraft-geometry/src/wall.rs:207), as do very acute L junctions (l_junction, crates/archicraft-geometry/src/wall.rs:131). Only single-skin bodies exist, so there is no skin trimming (needs PRF-001 layer structures and WAL-023 priorities). Walls on different home storeys never join even if they overlap vertically (WallInput::overlaps_vertically, crates/archicraft-geometry/src/wall.rs:99; footprints groups by storey, crates/archicraft-geometry/src/wall.rs:236). Joins are resolved on the plan footprints and extruded, not trimmed in 3D, so walls of different heights at a junction keep the mitred or trimmed end over their full height.",
       "depends_on": []
     },
     {
@@ -2117,7 +2117,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Sections and solid operations do not exist, so agreement there cannot be exercised; plan merges same-material regions regardless of 3D adjacency (plan.rs:153-157), so two overlapping unjoined walls show as one region although 3D…",
+      "gap": "Sections and solid operations do not exist, so agreement there cannot be exercised. Plan cuts, 3D views and the IFCX export do derive from the same evaluated bodies (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:64). But the plan merges all cut polygons of one material by union regardless of joins (plan_drawing, crates/archicraft-geometry/src/plan.rs:111, union at line 156), so two overlapping unjoined walls of the same material show as one region in plan although 3D and IFCX keep two separate overlapping bodies. Material-priority cleanup (WAL-023) exists in no view.",
       "depends_on": []
     },
     {
@@ -2177,7 +2177,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "The SRS limit is 10,000 points per slab in outline and holes together, arcs counted by the points they become (SLB-003, D.9); the code still caps at 1,000 (MAX_SLAB_POINTS, archicraft-lnow, NFR-SEC-003) until archicraft-91jj raises it with a sweep-line self-intersection check. No arc edges (outline is Vec<DVec2>; validate_ring, extrude, triangulate, the snap sources, IFCX schema outline=array(point2) all assume polylines). No circle mode (SlabMode has only Polygon/Rectangle/RotatedRectangle). No snapping to…",
+      "gap": "The SRS limit is 10,000 points per slab in outline and holes together, arcs counted by the points they become (SLB-003, D.9); the code still caps at 1,000 (MAX_SLAB_POINTS, crates/archicraft-model/src/validate.rs:42; archicraft-lnow, NFR-SEC-003) until archicraft-91jj raises it with a sweep-line self-intersection check. No arc edges: the outline is Vec<DVec2> (Slab, crates/archicraft-model/src/kinds/slab.rs:43), and validate_ring (crates/archicraft-model/src/validate.rs:150), extrude (crates/archicraft-geometry/src/extrude.rs:21), triangulate (crates/archicraft-geometry/src/triangulate.rs:42), the snap sources and the IFCX schema (outline = array(point2)) assume polylines. No circle mode (SlabMode, crates/archicraft-app/src/tools/slab.rs:5). Snapping to wall faces, reference lines and other outlines works; no snapping to wall core faces (needs PRF-001) or 2D shapes (no 2D kinds), and no contour detection (INP-018).",
       "depends_on": []
     },
     {
@@ -2197,7 +2197,7 @@
       "status": "missing",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Core top / core bottom reference planes need layer structures with core skins, new SlabReference variants, UI options, schema enumeration extension and reader leniency, and vertical_extent computing the core offset within the str…",
+      "gap": "Nothing exists: SlabReference (crates/archicraft-model/src/kinds/slab.rs:18) has only Top and Bottom. Core top and core bottom reference planes need layer structures with core skins (PRF-001, PRF-003), new SlabReference variants, options in the properties' Reference plane choice (crates/archicraft-app/src/ui/properties.rs:405), an extended IFCX schema enumeration (crates/archicraft-ifcx/src/alpha/schema.rs:288) with reader leniency (an unknown code is repaired to top today, read_element, crates/archicraft-ifcx/src/alpha/reader.rs:880), and Slab::vertical_extent (crates/archicraft-model/src/kinds/slab.rs:137) computing the core offset within the structure.",
       "depends_on": []
     },
     {
@@ -2207,7 +2207,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "The SRS bounds the holes at 10,000 points per slab in outline and holes together (D.9); the code still caps at 1,000 (MAX_SLAB_POINTS, archicraft-lnow, NFR-SEC-003), so at most 249 holes, until archicraft-91jj raises it with a sweep-line self-intersection check. No UI path creates a hole: every tool completion passes Vec::new() for holes (tools/mod.rs:273, 276, 290). Holes are not editable (no polygon editing commands at all, no node/edge handles in plan.rs) and cannot be traced (INP-018 abs…",
+      "gap": "The SRS bounds the holes at 10,000 points per slab in outline and holes together (D.9); the code still caps at 1,000 (MAX_SLAB_POINTS, crates/archicraft-model/src/validate.rs:42; archicraft-lnow, NFR-SEC-003), so a rectangular slab takes at most 249 rectangular holes, until archicraft-91jj raises it with a sweep-line self-intersection check. Holes are stored, validated (validate_slab_polygon, crates/archicraft-model/src/validate.rs:198), extruded and read from IFCX, but no UI path creates one: every slab completion passes Vec::new() for holes (ToolState::complete and ToolState::close, crates/archicraft-app/src/tools/mod.rs:219 and 242). Holes are not editable (no polygon editing commands, EDT-008 and EDT-009, no node or edge handles in plan) and cannot be traced (INP-018 contour detection is absent).",
       "depends_on": []
     },
     {
@@ -2217,7 +2217,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Needs arc walls (WAL-002), arc edges in slab outlines, a shared deterministic tessellation of coincident curves (same chord deviation/angle parameters, same seed points) used by wall body, slab body, plan cut and IFCX writer, and…",
+      "gap": "Nothing exists yet. Needs arc walls (WAL-002), arc edges in slab outlines (SLB-001), tracing or snapping that takes the exact curve from a wall's reference line or face (INP-018; the snap index can already hold ArcTarget, crates/archicraft-app/src/input/snap.rs:172, but no element provides arcs), core faces for the core-face case (PRF-003), and one shared deterministic tessellation of coincident curves (same chord deviation and angle parameters, same seed points) used by wall body, slab body, plan cut and IFCX writer. Only the project's tessellation tolerances exist (Tessellation, crates/archicraft-model/src/project.rs:31, stored in IFCX and editable in the project settings); nothing tessellates with them. Acceptance fixture F8 is registered without a constructor (crates/archicraft-model/src/fixtures.rs:92).",
       "depends_on": []
     },
     {
@@ -2237,7 +2237,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Inclined top plane and optional independent bottom plane (sloped constant-thickness and tapered slabs), parameters (pitch/direction or three-point plane), geometry (cut prism by planes), plan projection still works via mesh outli…",
+      "gap": "No inclined top or bottom plane: Slab (crates/archicraft-model/src/kinds/slab.rs:43) has only outline, holes, thickness, reference and offset, and evaluate_element (crates/archicraft-geometry/src/evaluate.rs:154) builds slabs with extrude (crates/archicraft-geometry/src/extrude.rs:21), which only extrudes between two horizontal planes. Missing: plane parameters for the top and an optional independent bottom (pitch and direction or a three-point plane) for sloped constant-thickness and tapered slabs, validation, geometry that bounds the prism by these planes, properties fields, and IFCX schema/writer/reader attributes (element_attributes, crates/archicraft-ifcx/src/alpha/writer.rs:263). Plan display should keep working, since plan_drawing (crates/archicraft-geometry/src/plan.rs:111) slices the meshes and projects TriMesh::up_facing_outline (crates/archicraft-geometry/src/mesh.rs:193).",
       "depends_on": []
     },
     {
@@ -2257,7 +2257,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No polygon editing commands (EDT-008 node/edge palette, EDT-015 union/difference) exist anywhere; plan view handles only tool points and selection (plan.rs:497-563). No dragging of the slab elevation: there are no section/elevati…",
+      "gap": "Numeric elevation editing exists: the Elevation offset and Reference plane fields of geometry_fields (crates/archicraft-app/src/ui/properties.rs:214). No polygon editing commands (EDT-008 node/edge palette, EDT-009 stretching, EDT-015 union/difference) exist anywhere, so slab outlines and holes cannot be edited after creation; the plan view ui (crates/archicraft-app/src/views/plan.rs:596) handles only tool points and selection. No dragging of the slab elevation: there are no section or elevation views (VIEW-030, VIEW-032), the 3D view only navigates and picks (pick, crates/archicraft-app/src/views/view3d.rs:75), and no handle/grip drag framework exists (SnapKind::Handle, crates/archicraft-app/src/input/snap.rs:56, is a snap target only).",
       "depends_on": []
     },
     {
@@ -2267,7 +2267,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Column element kind with rectangular/circular/profile cross-section, base offset, TopLink (reusable: element.rs:71-79), nine-point anchor, rotation; geometry (prism from cross-section), properties fields, defaults (D.2: 0.30 x 0.…",
+      "gap": "No column kind: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:364) has only Wall and Slab, and IfcClass (crates/archicraft-model/src/element.rs:15) has no Column. Missing: a Column payload implementing Kind (crates/archicraft-model/src/kinds/mod.rs:124) with rectangular (width x depth), circular (diameter) or profile cross-section (profiles need PRF-004), base offset and fixed or storey-linked top (reuse VerticalLink, crates/archicraft-model/src/kinds/vertical.rs:21), nine-point anchor and rotation about the axis; geometry (a prism from the cross-section, e.g. via extrude, crates/archicraft-geometry/src/extrude.rs:21; circles need tessellation per IFX-034), properties fields, IFCX schema/writer/reader, and the D.2 defaults (0.30 x 0.30 m reinforced concrete, centre anchor, top linked to home storey + 1; pending row in crates/archicraft-model/tests/defaults.rs:148).",
       "depends_on": []
     },
     {
@@ -2327,7 +2327,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Beam element between two points with width/height or profile, nine-point anchor, lateral offset, roll angle, elevation relative to home storey, inclination by end elevations or pitch; geometry (swept rectangle/profile along an in…",
+      "gap": "No beam kind: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:364) has only Wall and Slab, and IfcClass (crates/archicraft-model/src/element.rs:15) has no Beam. Missing: a Beam payload created between two points with width/height or a profile (needs PRF-004), nine-point anchor, lateral offset of the axis, roll angle, elevation relative to the home storey, and inclination by end elevations or pitch angle; geometry sweeping the rectangle or profile along an inclined axis (extrude, crates/archicraft-geometry/src/extrude.rs:21, only extrudes vertically); validation, properties fields, IFCX schema/writer/reader, a tool (BEA-010 chains), and the D.2 defaults (0.25 x 0.50 m reinforced concrete, top-centre anchor, top at home storey + 2.80 m; pending row in crates/archicraft-model/tests/defaults.rs:149).",
       "depends_on": []
     },
     {
@@ -2427,7 +2427,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Named layer structure resource with ordered skins (material, thickness, role core/finish/other, at least one core, 48+ skins), Add/Update/Delete commands and Edits (command.rs:616-633 has only layer/material resource edits), edit…",
+      "gap": "No layer structures: Project (crates/archicraft-model/src/project.rs:302) holds visibility layers (LAY-001) and materials only, and Command (crates/archicraft-model/src/command.rs:40) and Edit (crates/archicraft-model/src/command.rs:702) have add/update/delete only for those. Missing: a named layer structure resource with ordered skins (material, thickness, role core/finish/other; at least one core skin; 48 or more skins), its Add/Update/Delete commands and edits, an editor dialog, a choice of thickness or structure on Wall (crates/archicraft-model/src/kinds/wall.rs:66) and Slab (crates/archicraft-model/src/kinds/slab.rs:43) (roofs need ROF-001), multi-part bodies with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:23; IFX-017 Skin_n), IFCX schema/writer/reader, and update propagation (PRF-002).",
       "depends_on": []
     },
     {
@@ -2457,7 +2457,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "Named profile resource (closed regions with holes, material per region, insertion origin, usage flags), a profile editor (2D drawing of regions), use by columns and beams, update propagation, IFCX schema/writer/reader, IFX-025 ho…",
+      "gap": "No profiles exist. Missing: a named profile resource (one or more closed regions with holes, a material per region, an insertion origin, flags for the element kinds that may use it), commands and edits for it, a profile editor (2D drawing of regions, reusing point input and validate_ring, crates/archicraft-model/src/validate.rs:150), use by columns and beams (COL-001 and BEA-001 do not exist yet), propagation of profile edits to every element using it, and IFCX schema/writer/reader; holes in profiles are geometry, not openings (IFX-025). triangulate (crates/archicraft-geometry/src/triangulate.rs:42) and extrude (crates/archicraft-geometry/src/extrude.rs:21) already handle regions with holes for straight prisms.",
       "depends_on": []
     },
     {
@@ -2537,7 +2537,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Everything: Roof element kind (outline, pivot line, slope side, pitch, pivot elevation, thickness or layer structure), roof defaults (D.2: 35°, 0.30 m, 0.50 m overhang), slope parsing in angle/percent/rise-run, geometry evaluatio…",
+      "gap": "Everything except slope input: parse_slope (crates/archicraft-model/src/units.rs:467) and format_slope (crates/archicraft-model/src/units.rs:430) already read and show pitch as angle, percent or rise/run. Missing: a Roof element kind (outline polygon, pivot line, slope side, pitch, pivot elevation relative to the home storey, thickness or layer structure per PRF-001) in the kinds! list (crates/archicraft-model/src/kinds/mod.rs:364), a Roof IfcClass (crates/archicraft-model/src/element.rs:15), validation, the D.2 roof defaults (35 degrees, 0.30 m, 0.50 m overhang; pending row in crates/archicraft-model/tests/defaults.rs:152), geometry (an outline prism bounded by the inclined plane; extrude, crates/archicraft-geometry/src/extrude.rs:21, is horizontal only), properties fields, and IFCX schema/writer/reader.",
       "depends_on": []
     },
     {
@@ -2547,7 +2547,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "A roof tool: draw pivot line, indicate slope side, then draw outline (rectangle, rotated rectangle, polygon) that may extend beyond the pivot line on both sides; toolbox/menu/shortcut entry (actions.rs:18-20 has only ToolSelect/T…",
+      "gap": "No roof tool: ToolKind (crates/archicraft-app/src/tools/mod.rs:23) is Select, Wall and Slab only, as are the tool commands in specs (crates/archicraft-app/src/commands/tools.rs:7) and Action (crates/archicraft-app/src/ui/actions.rs:9). Missing: a roof tool that draws the pivot line, asks for the slope side, then draws the outline as rectangle, rotated rectangle or polygon (the slab tool's SlabMode, crates/archicraft-app/src/tools/slab.rs:5, has the same outline modes) that may extend beyond the pivot line on both sides, with toolbox, menu and shortcut entries and preview. Needs the ROF-001 roof kind first.",
       "depends_on": []
     },
     {
@@ -2557,7 +2557,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "Multi-plane roof element (closed pivot polygon; per edge pitch, overhang, sloped/gable type), weighted straight skeleton for non-convex footprints with different pitches, plane/hip/valley/ridge generation to 0.1 mm closure, gable…",
+      "gap": "No multi-plane roof. Missing: a roof element with a closed pivot polygon and per-edge pitch, eaves overhang and edge type (sloped or gable); a straight skeleton weighted by edge pitch for non-convex footprints with different pitches (own code per docs/technology-choices.md:198; nothing in crates/archicraft-geometry); generation of planes, hips, valleys and ridges closing within 0.1 mm; vertical gable ends; one child node per plane (IFX-016, via Kind::parts, crates/archicraft-model/src/kinds/mod.rs:177); IFCX schema/writer/reader; and the L-shaped acceptance test. Needs ROF-001.",
       "depends_on": []
     },
     {
@@ -2597,7 +2597,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Layer structures measured perpendicular to the roof plane; reference-surface choice (bottom, top, top of core) for the pivot elevation; multi-part body per skin (writer already emits one child per BodyPart, writer.rs:486-494, IFX…",
+      "gap": "No roofs and no layer structures (needs ROF-001 and PRF-001). Missing: skins measured perpendicular to the roof plane, a selectable reference surface (bottom, top, or top of the core skin) for the pivot elevation, and a multi-part body with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:23). The IFCX writer already emits one child per BodyPart (write_element, crates/archicraft-ifcx/src/alpha/writer.rs:475), so skins need only names per IFX-017 (Skin_1 to Skin_n).",
       "depends_on": []
     },
     {
@@ -2607,7 +2607,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Numeric editing of pitch, pivot elevation, overhangs, edge types, outline; direct manipulation of pivot line, edges and nodes (needs a handle/grip framework that does not exist for walls or slabs either); full-model re-evaluation…",
+      "gap": "No roofs exist (needs ROF-001, ROF-003). Missing: numeric editing of pitch, pivot elevation, overhangs, edge types and outline in the properties panel (geometry_fields, crates/archicraft-app/src/ui/properties.rs:214, covers walls and slabs only); direct manipulation of pivot line, edges and nodes, which needs a handle/grip drag framework that does not exist for walls or slabs either (EDT-008, EDT-009; SnapKind::Handle, crates/archicraft-app/src/input/snap.rs:56, is a snap target only); and proof of immediate regeneration: Document::geometry (crates/archicraft-app/src/document.rs:97) re-evaluates the whole model on every revision, which must stay within the 200 ms of NFR-PERF-006 with roofs.",
       "depends_on": []
     },
     {
@@ -2677,7 +2677,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No opening element kind exists: ElementKind/KindTag are {Wall, Slab} only (crates/archicraft-model/src/element.rs:191-201), Element has no host field (element.rs:275-286), no host relation anywhere in Project (project.rs:165-186)…",
+      "gap": "No opening element kind exists: the kinds! list (crates/archicraft-model/src/kinds/mod.rs:364) has only Wall and Slab, Element (crates/archicraft-model/src/element.rs:132) has no host field, Project (crates/archicraft-model/src/project.rs:302) has no host relation, and IfcClass (crates/archicraft-model/src/element.rs:15) has no OpeningElement. Missing: the opening kind with exactly one host (wall, slab, roof; roofs need ROF-001) and a position relative to it, moving with the host (MoveElements, crates/archicraft-model/src/command.rs:45, moves only the listed ids), deletion with the host (plan_delete_elements, crates/archicraft-model/src/command.rs:401), void subtraction in the host geometry, and IFCX writing as an IfcOpeningElement with a Void child (IFX-017, IFX-025) and reading.",
       "depends_on": []
     },
     {
@@ -2697,7 +2697,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No cut-element list, no host reassignment command, no multi-element void subtraction. Cutting elements other than the host needs a general 3D Boolean (technology-choices.md:156 names OPN-002 as a Manifold case). Move semantics (c…",
+      "gap": "No cut-element list, no host reassignment command, no multi-element void subtraction; openings themselves do not exist yet (OPN-001). Cutting elements other than the host needs a general 3D Boolean: docs/technology-choices.md:196 names OPN-002 as a Manifold case, and Manifold is not yet a dependency. Move semantics are also missing: moving a cut element that is not the host must leave the opening in place, while moving the host moves it.",
       "depends_on": []
     },
     {
@@ -2707,7 +2707,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No opening cross-section type. Needs rectangle/circle/polygon profile on the opening, circle tessellation with project.settings.tessellation (project.rs:28-44 exists), and validation via validate_ring (validate.rs). Polygon input…",
+      "gap": "No opening cross-section type; openings do not exist yet (OPN-001). Needs a rectangle, circle or polygon profile on the opening, circle tessellation with the project tessellation settings (Tessellation, crates/archicraft-model/src/project.rs:31; no tessellation function exists yet, the settings are only stored, validated and written), and validation with validate_ring (crates/archicraft-model/src/validate.rs:150). Polygon input can reuse the slab tool's outline modes (SlabMode, crates/archicraft-app/src/tools/slab.rs:5).",
       "depends_on": []
     },
     {
@@ -2717,7 +2717,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No opening orientation parameter (perpendicular to host face vs vertical). Needs orientation enum, host face normal from ReferenceLine::face_offsets (element.rs:99) for walls and slab/roof face normals, and matching void generati…",
+      "gap": "No opening orientation parameter (perpendicular to the host face or vertical); openings do not exist yet (OPN-001). Needs an orientation enum, the host face frame: for walls from the wall axis and ReferenceLine::face_offsets (crates/archicraft-model/src/kinds/wall.rs:34), for slabs the horizontal top or bottom face, for roofs the roof plane (ROF-001), and void generation along that direction (a perpendicular void in a sloped roof is not a vertical extrusion).",
       "depends_on": []
     },
     {
@@ -2737,7 +2737,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No depth mode (through/limited with start/end offsets). A limited-depth niche cannot be produced by the planned 2D cut before extrusion (extrude.rs:18 only extrudes outline+holes vertically); it needs either a wall-plane extrusio…",
+      "gap": "No depth mode (through, or limited by start and end offsets from the host face); openings do not exist yet (OPN-001). A limited-depth niche cannot come from a plan cut before vertical extrusion (extrude, crates/archicraft-geometry/src/extrude.rs:21, only extrudes outline and holes vertically); it needs either an extrusion in the wall's own plane (as docs/technology-choices.md:193 plans for openings) or a 3D Boolean (Manifold, docs/technology-choices.md:196). Through depth must span every cut element (OPN-002). Acceptance: a 0 to 0.40 m opening in a 0.50 m wall leaves a 0.10 m back.",
       "depends_on": []
     },
     {
@@ -2747,7 +2747,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No storey-spanning opening, no multi-host cutting, roofs absent. TopLink::Storey/Relative (element.rs:71-80) and Project::top_elevation (project.rs:231) give the storey-following datum pattern to reuse. Needs shaft element with b…",
+      "gap": "No storey-spanning opening, no multi-host cutting (OPN-002), roofs absent (ROF-001); openings do not exist yet (OPN-001). VerticalLink (crates/archicraft-model/src/kinds/vertical.rs:21), TopLink::elevation (crates/archicraft-model/src/element.rs:112) and StoreyList::relative_elevation (crates/archicraft-model/src/storey.rs:123) give the storey-following datum pattern to reuse. Needs a shaft opening with base and top storey links that cuts every slab and roof in its range and follows later storey elevation changes (STR-006).",
       "depends_on": []
     },
     {
@@ -2757,7 +2757,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No opening tool: ToolKind is {Select, Wall, Slab} (tools/mod.rs:19-23), add_point is plan-only (tools/mod.rs:214, StoreyId + DVec2), the 3D view has picking (view3d.rs:75) but no tool input, and previews are polylines only (tools/mod.rs:310)…",
+      "gap": "No opening tool: ToolKind (crates/archicraft-app/src/tools/mod.rs:23) is Select, Wall and Slab only, InputConsumer::commit (crates/archicraft-app/src/input/consumer.rs:177) takes a StoreyId and a plan DVec2, the 3D view has picking (pick, crates/archicraft-app/src/views/view3d.rs:75) but no point input or tool, and previews are 2D outlines only (Preview, crates/archicraft-app/src/input/consumer.rs:149). Missing: host detection under the pointer in plan (PlanDrawing::pick, crates/archicraft-geometry/src/plan.rs:276) and 3D, a live preview of the void over that host, and placement relative to the host. Needs OPN-001.",
       "depends_on": []
     },
     {
@@ -2767,7 +2767,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Bodies are single-material (BodyPart per element, evaluate.rs:22-28); Material has no per-face override (material.rs:142-156); no layer structures/skins exist. Needs reveal/end faces as separate parts or face material overrides,…",
+      "gap": "No opening element exists (OPN-001 missing), so no reveal or end faces are generated. Bodies are single-material parts (BodyPart, crates/archicraft-geometry/src/evaluate.rs:23; walls and slabs get one part named Body in evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154), Material has no per-face override (crates/archicraft-model/src/material.rs:143), and no layer structures or skins exist (PRF-001). Needs the faces an opening cuts emitted as separate parts or tagged faces whose material defaults to the cut element's (or cut skin's) material, a per-opening override for reveal and end faces, and handling of faces that coincide with a skin boundary.",
       "depends_on": []
     },
     {
@@ -2777,7 +2777,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "PlanElement has only cut/projected/overhead/reference_line (geometry/plan.rs:23-33); no symbol layer and no per-view display settings (plan views are implicit per storey, project.rs:117-123 defines only View3d). Needs opening out…",
+      "gap": "No opening element (OPN-001) and no vertical openings through slabs: slab holes are part of the outline (Slab.holes, crates/archicraft-model/src/kinds/slab.rs:47). PlanElement has only cut/projected/overhead/reference_line (crates/archicraft-geometry/src/plan.rs:25), no symbol geometry. Plan views are implicit per storey with only camera state in the app (PlanViewState, crates/archicraft-app/src/views/plan.rs:32); Project::views holds View3d only (crates/archicraft-model/src/project.rs:188), so there are no per-view display settings (VIEW-004). Needs the opening outline plus an optional cross (diagonals) in the plan output and a per-plan-view setting to show or hide the cross.",
       "depends_on": []
     },
     {
@@ -2807,7 +2807,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No Door or Window element kinds, no host relation, no tool, no feedback path for 'no host under pointer' (Workspace::error exists, workspace.rs:190, usable). Needs hosted-element data (host wall id, position along wall, vertical…",
+      "gap": "No Door or Window element kinds (the kinds! registry lists only wall and slab, crates/archicraft-model/src/kinds/mod.rs:364), no host relation on Element (crates/archicraft-model/src/element.rs:132), no tool (ToolKind has Select, Wall, Slab, crates/archicraft-app/src/tools/mod.rs:23). Workspace::error (crates/archicraft-app/src/workspace.rs:281) is usable for the 'no host under pointer' feedback. Needs hosted-element data (host wall id, position along the wall, vertical position per DW-007), the storey taken from the host, moving with it (plan_transform_elements, crates/archicraft-model/src/command.rs:464, moves only the listed elements) and cascading deletion (plan_delete_elements, crates/archicraft-model/src/command.rs:401, removes only the listed ids).",
       "depends_on": []
     },
     {
@@ -2827,7 +2827,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No preview of a door/window or its void; tool previews are polylines (tools/mod.rs:310). No host-candidate cycling key (the select tool's Tab cycling in plan.rs is the only precedent). Needs candidate host list at the pointer (walls…",
+      "gap": "No preview of a door or window or its void: tool previews are outlines only (Preview, crates/archicraft-app/src/input/consumer.rs:149; ToolState::outlines, crates/archicraft-app/src/tools/mod.rs:274). No host-candidate cycling; Tab already cycles snap candidates during point input (PointInput::cycles, crates/archicraft-app/src/input/mod.rs:229) and picks in the select tool (handle_keys, crates/archicraft-app/src/views/plan.rs:916), so a key without that conflict is needed. Needs the list of candidate hosts under the pointer (walls at junctions and overlaps), the chosen host highlighted, and a live preview of the unit and its void on that host (depends on DW-001, DW-009).",
       "depends_on": []
     },
     {
@@ -2837,7 +2837,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No exterior-side parameter. ReferenceLine::face_offsets (element.rs:99-107) gives both face lines to pick the nearest face at the click. Needs a flip flag stored on the unit, shown in preview and reversible via inspector without…",
+      "gap": "No exterior-side parameter (no door or window kind exists, DW-001). ReferenceLine::face_offsets (crates/archicraft-model/src/kinds/wall.rs:34) gives both face lines of a host wall, so the face nearest the click can be picked. Needs an exterior-side (flip) flag stored on the unit, shown in the placement preview (DW-002), and reversible later through the inspector or a command without changing position, size or opening configuration (DW-004).",
       "depends_on": []
     },
     {
@@ -2867,7 +2867,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No width/height parameters and no door/window defaults in ToolDefaults (project.rs:146-149 holds wall and slab only; D.2 defaults 0.90×2.10 / 1.20×1.40 absent). The defaults-vs-selection editing pattern exists (properties.rs:35-5…",
+      "gap": "No door or window kinds, so no width/height parameters and no tool-default slots: ToolDefaults (crates/archicraft-model/src/project.rs:217) holds a slot per kind with template defaults (KindDescriptor::template_defaults, crates/archicraft-model/src/kinds/mod.rs:83), today wall and slab only; the D.2 defaults 0.90 x 2.10 m (door) and 1.20 x 1.40 m (window) are absent. The defaults-vs-selection editing pattern exists (gather and apply in crates/archicraft-app/src/ui/properties.rs:47 and crates/archicraft-app/src/ui/properties.rs:75) and is reusable. Needs width and height on the wall-opening part of DW-001's hosted element, kept by the DW-005 anchor and DW-007 pinned edge, with element and void re-evaluated on change (DW-009).",
       "depends_on": []
     },
     {
@@ -2877,7 +2877,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No vertical-position model (pinned edge, reference host base/top/any storey, offset). TopLink (element.rs:71-80) and Project::top_elevation (project.rs:231) are reusable for the storey reference; a sill/head pin and resize-keeps-…",
+      "gap": "No vertical-position model (pinned edge sill or head, reference host base, host top or any storey, offset). VerticalLink (crates/archicraft-model/src/kinds/vertical.rs:21), TopLink::elevation (crates/archicraft-model/src/element.rs:112) and StoreyList::relative_elevation (crates/archicraft-model/src/storey.rs:123) are reusable for resolving a storey reference, and Wall::link (crates/archicraft-model/src/kinds/wall.rs:87) gives the host's base and top. Needs the pinned edge and reference enums on the unit, resize logic that keeps the pinned edge fixed, a reference storey that may differ from the host's and can be reassigned, and storey-deletion handling via Kind::storey_links and unlink_storey (crates/archicraft-model/src/kinds/mod.rs:152 and crates/archicraft-model/src/kinds/mod.rs:172).",
       "depends_on": []
     },
     {
@@ -2897,7 +2897,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No host cutting at all; walls have one skin (Wall.material, element.rs:130-139). Needs void subtraction from every skin part, re-evaluation when unit or host changes (ModelGeometry::evaluate at evaluate.rs:63 evaluates elements i…",
+      "gap": "No host cutting at all: walls are one extruded prism with one material (Wall.material, crates/archicraft-model/src/kinds/wall.rs:74; evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154), there are no skins (PRF-001) and archicraft-geometry has no 3D Boolean operations. Needs a void solid per unit subtracted from every skin part of the host, re-evaluation of the host when the unit or the host changes (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:64, evaluates each element on its own and would need the hosted units of each wall), and the host restored when the unit is deleted.",
       "depends_on": []
     },
     {
@@ -2927,7 +2927,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No catalogue and no object-definition resource (Project has only layers and materials, project.rs:165-186). Needs parametric generators for: single/double hinged doors, single sliding (pocket/surface), sidelight/transom parameter…",
+      "gap": "No catalogue and no component-definition resource (OBJ-001, OBJ-002): Project holds layers, materials, elements, tool defaults and 3D views only (crates/archicraft-model/src/project.rs:302). Needs parametric generators for: single- and double-leaf hinged doors, single sliding doors (pocket or surface-mounted), doors with sidelight and/or transom as parameters; fixed, side-hung, tilt-and-turn, top-hung and horizontal sliding windows, multi-sash windows with configurable columns and rows (each sash with its own opening type), windows with transom or sidelight; and empty openings (DW-010). Depends on DW-001, DW-009 and DW-012.",
       "depends_on": []
     },
     {
@@ -2937,7 +2937,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No door/window parameters and the inspector is hard-coded per ElementKind (properties.rs:253-264 geometry_fields), not schema-driven. Needs a parameter-schema type (name, kind, unit, range, enum options), per-type schemas for fra…",
+      "gap": "No door or window parameters, and the inspector is hard-coded per ElementKind (geometry_fields, crates/archicraft-app/src/ui/properties.rs:214, matches Wall and Slab per field), not schema-driven. Needs a parameter-schema type (name, type, unit, default, range, enum options, grouping; OBJ-002), per-type schemas for frame width and depth, leaf or sash thickness, number and division of leaves or sashes, opening angle in plan, glazing thickness, threshold on/off, inside and outside sill boards with depth, and a material per part (frame, leaf, glazing, sill), and inspector fields generated from the schema.",
       "depends_on": []
     },
     {
@@ -2947,7 +2947,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No plan symbol generation; PlanElement has no symbol/annotation geometry (geometry/plan.rs:23-33) and cut fills are merged per material (plan.rs:119-160). Needs parametric symbol builders (leaf + swing arc, sliding arrows; frame/…",
+      "gap": "No plan symbol generation: PlanElement has no symbol or annotation geometry (crates/archicraft-geometry/src/plan.rs:25), and plan_drawing (crates/archicraft-geometry/src/plan.rs:111) only slices bodies and merges cut regions per material. Needs parametric symbol builders (leaf and swing arc from the opening angle, sliding-direction arrows for doors; frame, sash and glass lines and sill boards for windows) driven by the DW-012 parameters, and the host's cut fill masked inside the opening (follows from cutting the host, DW-009, or an explicit mask polygon). Detail levels are DSP-015.",
       "depends_on": []
     },
     {
@@ -2967,7 +2967,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No derived values (sill/head elevation, nominal size, clear opening) and no named key points. The snap index (input/targets.rs) only collects plan nodes/edges and reference lines; needs typed key points (jamb faces, clear-opening edges) exposed to snap…",
+      "gap": "No door or window kinds, so no derived values (sill and head elevation, nominal size, clear opening width and height) and no named key points. The inspector's read-only derived rows (derived, crates/archicraft-app/src/ui/properties.rs:506) show length, area and volume only. Snap targets come from SnapSource for Element (wall reference lines, slab centroids) and for PlanElement (cut rings, projected and overhead lines, centroids) in crates/archicraft-app/src/input/targets.rs:209 and crates/archicraft-app/src/input/targets.rs:229. Needs the derived values computed from the DW-012 parameters and typed key points (jamb faces, clear-opening edges) exposed to snapping and dimensioning.",
       "depends_on": []
     },
     {
@@ -2977,7 +2977,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No corner window; a unit spanning two hosts contradicts the single-host model and must cut both walls at the L junction (wall.rs:138 l_junction gives the corner geometry). Needs two-host placement, corner connection types (frame…",
+      "gap": "No corner window; a unit spanning two hosts contradicts the single-host model planned for DW-001 and must cut both walls at the L junction (l_junction, crates/archicraft-geometry/src/wall.rs:131, gives the mitred corner geometry). Needs two-host placement, a corner connection type (frame or corner post) with a connection angle per side, cutting both hosts (DW-009), and inspector options a type does not support shown disabled with the reason.",
       "depends_on": []
     },
     {
@@ -2997,7 +2997,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No handedness computation, no convention setting (DIN 107 default, Appendix D.6), no plan labels. Needs convention enum in preferences/project settings, derivation from hinge side × swing side (DW-004), display in inspector and p…",
+      "gap": "No handedness computation, no convention setting (DIN 107 default, Appendix D.6) and no plan labels. Needs a convention enum in the preferences (Preferences, crates/archicraft-app/src/persistence/prefs.rs:33) or project settings (ProjectSettings, crates/archicraft-model/src/project.rs:118), handedness derived from hinge side and opening side (DW-004), and display in the inspector and in plan labels (PlanElement has no label geometry, crates/archicraft-geometry/src/plan.rs:25).",
       "depends_on": []
     },
     {
@@ -3007,7 +3007,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Writer writes only Body/Axis children (writer.rs:486-503), no Void child, no usd::usdgeom::visibility, no type nodes or inherits.type (IFX-050/051); every element is a direct storey child (writer.rs:432-441) so hosted children (I…",
+      "gap": "write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) writes only Body parts and an Axis child, no Void child and no usd::usdgeom::visibility; IfcClass has no Door or Window (crates/archicraft-model/src/element.rs:15); every element is a direct storey child (crates/archicraft-ifcx/src/alpha/writer.rs:436), so a door or window cannot be written below its host wall as Table 5-1 asks; there are no type nodes or inherits.type (IFX-050, IFX-051). Needs IfcDoor/IfcWindow occurrences with a Void child (IFX-036) and material parts, host bodies with the void removed (IFX-033, DW-009), and later shared types with mirrored types for mirrored occurrences.",
       "depends_on": []
     },
     {
@@ -3017,7 +3017,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Arc walls do not exist (Wall is start/end only, element.rs:130-139; WAL-002 missing). Needs arc walls, chord-aligned placement, and a void that cuts the full curved thickness (not a planar 2D cut; needs a radial prism or 3D Boole…",
+      "gap": "Arc walls do not exist (Wall is start/end only, crates/archicraft-model/src/kinds/wall.rs:66; WAL-002 missing), and walls are planar prisms (extrude, crates/archicraft-geometry/src/extrude.rs:21) with no 3D Boolean operations. Needs arc walls, placement of straight units aligned to the chord, and a void that cuts the full curved thickness (deep enough to cover the sagitta, subtracted in 3D rather than as a planar 2D cut). Depends on DW-001 and DW-009.",
       "depends_on": []
     },
     {
@@ -3037,7 +3037,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No curtain wall kind; no compound element concept (BodyPart list exists per element, evaluate.rs:22-28, usable for frames/panels). Needs path (straight segments), base elevation, TopLink (exists, element.rs:71) and boundary frame…",
+      "gap": "No curtain wall kind (the kinds! registry lists wall and slab, crates/archicraft-model/src/kinds/mod.rs:364) and no tool; IfcClass has no CurtainWall, Member or Plate (crates/archicraft-model/src/element.rs:15). Compound support exists: Kind::parts with PartSpec (crates/archicraft-model/src/kinds/mod.rs:177 and crates/archicraft-model/src/kinds/mod.rs:101) and per-element BodyPart lists (crates/archicraft-geometry/src/evaluate.rs:23), usable for frames and panels. Needs a base path of straight segments (arcs C), a base elevation and a fixed or storey-linked top (VerticalLink, crates/archicraft-model/src/kinds/vertical.rs:21), boundary-frame placement inside, centred on or outside the path, and the grid, frame and panel classes of CW-002 to CW-004.",
       "depends_on": []
     },
     {
@@ -3047,7 +3047,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No grid model. Needs columns/rows with sizes, distribution modes (fixed, best fit, number of divisions), per-item locks with the at-least-one-flexible rule, and validation in Command::plan (command.rs) via validate_element (valid…",
+      "gap": "No grid model (no curtain wall kind, CW-001). Needs per axis a list of column or row sizes, a distribution mode (fixed sizes, best fit ending exactly at the segment end, number of divisions), per-item locks in the flexible modes with the rule that at least one column and one row stay flexible, enforced in Kind::validate (crates/archicraft-model/src/kinds/mod.rs:136), which validate_element (crates/archicraft-model/src/validate.rs:299) calls from Command::plan (crates/archicraft-model/src/command.rs:169); D.2 default grid 1.50 x 3.00 m.",
       "depends_on": []
     },
     {
@@ -3057,7 +3057,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No frame-class resource. The Material resource pattern (command.rs AddMaterial/UpdateMaterial/DeleteMaterial with replacement; dialogs.rs:376 materials dialog; writer/reader material records) is the template for named project-wid…",
+      "gap": "No frame-class resource. The material resource is the template for named project-wide definitions: Command::AddMaterial/UpdateMaterial/DeleteMaterial with a replacement (crates/archicraft-model/src/command.rs:82, plan_delete_material at :596), Project::materials (crates/archicraft-model/src/project.rs:310), Dialogs::materials_window (crates/archicraft-app/src/ui/dialogs.rs:388) and the IFCX records material_record (crates/archicraft-ifcx/src/alpha/writer.rs:178) and read_material (crates/archicraft-ifcx/src/alpha/reader.rs:301). Missing: a FrameClass type (name, width, depth, offset to the glazing plane, material), the four template defaults boundary/corner/mullion/transom (D.2: 0.05 x 0.15 m aluminium), a guard against removing boundary and corner classes, commands, a dialog and IFCX records. Needs the CW-001 curtain wall to use them.",
       "depends_on": []
     },
     {
@@ -3087,7 +3087,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No compound edit mode (SEL-008) exists; selection is per element id (workspace.rs:53 HashSet<ElementId>). Needs part addressing (cell/frame ids stable across grid edits), per-instance override storage, delete-division-frame merge…",
+      "gap": "No compound edit mode (SEL-008) exists; selection is per element id (Workspace::selection, a HashSet<ElementId>, crates/archicraft-app/src/workspace.rs:121). Needs the CW-001 curtain wall kind first, then part addressing (cell and frame ids that stay stable across grid edits), per-instance override storage for frame and panel classes (CW-003, CW-004), a command that deletes a division frame and merges the adjacent panels, and re-application of overrides after grid edits wherever the cell still exists.",
       "depends_on": []
     },
     {
@@ -3147,7 +3147,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "IfcClass lacks IfcCurtainWall/IfcMember/IfcPlate (element.rs:15-23); writer has no compound-part children with their own class (IFX-016; writer.rs:486-503 writes Body/Axis only); reader ignores non-storey children (reader.rs:854-…",
+      "gap": "IfcClass lacks IfcCurtainWall, IfcMember and IfcPlate (crates/archicraft-model/src/element.rs:15). The model has a Kind::parts hook returning PartSpec children with their own class (crates/archicraft-model/src/kinds/mod.rs:101, :177), but write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) does not use it and writes only unclassed Body meshes and the Axis as children (IFX-016). The reader takes elements only from storey children (read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1048), reads no part children and skips kinds other than wall and slab (read_element, reader.rs:880). Needs the CW-001 curtain wall kind with frames and panels as parts.",
       "depends_on": []
     },
     {
@@ -3157,7 +3157,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No stair element exists. ElementKind/KindTag are closed wall/slab enums (crates/archicraft-model/src/element.rs:191-204); ToolKind has Select/Wall/Slab only (crates/archicraft-app/src/tools/mod.rs:19-23). Needs a Stair struct (…",
+      "gap": "No stair element exists. The kind registry lists only wall and slab (kinds! invocation, crates/archicraft-model/src/kinds/mod.rs:364; adding a kind is one module plus one line), ToolKind has Select/Wall/Slab only (crates/archicraft-app/src/tools/mod.rs:23), and evaluate_element returns UnsupportedKind for other kinds (crates/archicraft-geometry/src/evaluate.rs:154). Needs a Stair payload (baseline with at least two nodes, width, home storey, top storey link and bottom/top offsets, reusable from VerticalLink at crates/archicraft-model/src/kinds/vertical.rs:21, and a STA-005 rule set), the rise/going solver (STA-004 to STA-011), a generator for steps, landings and supports re-run on every revision, a stair tool and IFCX records. The D.2 stair defaults are still pending in crates/archicraft-model/tests/defaults.rs:153.",
       "depends_on": []
     },
     {
@@ -3167,7 +3167,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No stair body side/offset, no upward/downward input mode, no live riser-count preview. Tool preview exists only as 2D outlines (tools/mod.rs:282-310) and the 3D view has no tool preview at all (crates/archicraft-app/src/views/view3d.…",
+      "gap": "No stair body side (left, centre, right of the baseline) with an offset, no upward/downward input mode and no live riser-count preview. The wall's ReferenceLine (crates/archicraft-model/src/kinds/wall.rs:22) is a pattern for the side choice. Tool previews are 2D outlines only: ToolState::outlines (crates/archicraft-app/src/tools/mod.rs:274) fills Preview (crates/archicraft-app/src/input/consumer.rs:149), which only the plan view draws (plan::ui, crates/archicraft-app/src/views/plan.rs:596); the 3D view (view3d::ui, crates/archicraft-app/src/views/view3d.rs:102) shows no tool preview at all. Needs the STA-001 stair kind and solver.",
       "depends_on": []
     },
     {
@@ -3177,7 +3177,7 @@
       "status": "missing",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No total-rise computation. Storey-link infrastructure exists (Project::top_elevation project.rs:232-238; StoreyList::relative_elevation crates/archicraft-model/src/storey.rs:108-119) and geometry is re-evaluated on every revision…",
+      "gap": "No stair, so no total-rise computation for it. The generic formula exists: VerticalLink::extent (crates/archicraft-model/src/kinds/vertical.rs:30) returns bottom = home elevation + base offset and top = linked storey elevation + offset through TopLink::elevation (crates/archicraft-model/src/element.rs:112), so top minus bottom is the STA-003 rise; storey links are resolved at evaluation time and Document::geometry re-evaluates on every revision (crates/archicraft-app/src/document.rs:97). Missing: the STA-001 stair kind using it as its total rise and tests with the two STA-003 cases (3.000 m and 3.300 m).",
       "depends_on": []
     },
     {
@@ -3197,7 +3197,7 @@
       "status": "missing",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No rule-set type with independent enable flags and min/max for R, G, 2R+G, R/G, R+G, pitch, walking-line distance; Appendix D.3 defaults not in the template (template.rs has only wall/slab tool defaults, crates/archicraft-model/s…",
+      "gap": "No rule-set type with independent enable flags and inclusive min/max for R, G, 2R+G, R/G, R+G, pitch atan(R/G) and the minimum walking-line distance from the inner edge. The Appendix D.3 defaults are not in the template (template_tool_defaults, crates/archicraft-model/src/template.rs:330, covers only the wall and slab kinds); their rows are pending in crates/archicraft-model/tests/defaults.rs:159. Also missing: storing the rule set in the project file as stair rule defaults (PRJ-007), a stair payload that holds it (STA-001) and a UI to edit it.",
       "depends_on": []
     },
     {
@@ -3257,7 +3257,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No conflict detection, no naming of conflicting rules, no alternatives, no keep-last-valid behaviour. ModelGeometry records only a failure string and drops the body (crates/archicraft-geometry/src/evaluate.rs:57,78-85); ElementGe…",
+      "gap": "No conflict detection, no naming of conflicting rules, no alternatives and no keep-last-valid behaviour. ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:64) records only an error string in ModelGeometry::problems (:58) and keeps no body for a failing element; ElementGeometry (:32) holds no last valid result. Needs the solver (STA-004 to STA-008) to return the violated rules with actual and limit values, a dialog that offers the alternatives (change N, relax a bound, unlock the baseline STA-029, change an offset) and storage of the last valid stair while the conflict lasts.",
       "depends_on": []
     },
     {
@@ -3377,7 +3377,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No flight/landing structure choice (none / monolithic smooth / stepped) with materials; D.2 default (monolithic, smooth) absent. Per-part materials are supported by BodyPart (evaluate.rs:22-28) but Element exposes a single materi…",
+      "gap": "No flight/landing structure choice (none, or monolithic with smooth or stepped underside, stepped with separate vertical and horizontal thickness), each with a material; the D.2 default (monolithic, smooth) is pending in crates/archicraft-model/tests/defaults.rs:153. Per-part materials are supported by BodyPart (crates/archicraft-geometry/src/evaluate.rs:23), but Kind::material and Kind::set_material expose one main material per element (crates/archicraft-model/src/kinds/mod.rs:128), so separate flight and landing structure materials need their own parameters and editing. Needs the STA-001 stair kind.",
       "depends_on": []
     },
     {
@@ -3417,7 +3417,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No stair plan symbol: no step lines, walking line, arrow, up/down label, break line or configurable break height. Generic plan classification is per part against one cut height (crates/archicraft-geometry/src/plan.rs:133-143) and…",
+      "gap": "No stair plan symbol: no step lines, walking line, direction arrow, up/down label, break line or configurable break height (cut-plane height, custom height or n-th riser). plan_drawing (crates/archicraft-geometry/src/plan.rs:111) classifies each body part against the one cut height into cut, projected or overhead lines (loop at :131), and PlanElement (:25) carries no symbolic lines besides the wall reference line. The plan view already draws overhead lines dashed (draw_plan, crates/archicraft-app/src/views/plan.rs:402), which the part above the break line can reuse. Needs the STA-001 stair kind and a kind-specific plan-symbol hook.",
       "depends_on": []
     },
     {
@@ -3477,7 +3477,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "IfcClass has only Wall/Slab/Footing/Covering (element.rs:10-32); writer emits body parts as unclassed mesh children (crates/archicraft-ifcx/src/alpha/writer.rs:419-443); reader skips unknown kinds (crates/archicraft-ifcx/src/alph…",
+      "gap": "IfcClass has only Wall/Slab/Footing/Covering/BuildingElementProxy (crates/archicraft-model/src/element.rs:15); IfcStair, IfcStairFlight and IfcMember are missing. write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) writes body parts as unclassed mesh children and ignores the Kind::parts hook (crates/archicraft-model/src/kinds/mod.rs:177); element_attributes (writer.rs:263) and read_element (crates/archicraft-ifcx/src/alpha/reader.rs:880) handle only wall and slab, and the schema knows only the wall and slab kinds (KINDS, crates/archicraft-ifcx/src/alpha/schema.rs:30). Needs the STA-001 stair kind, its parts and an ArchiCraft attribute for solver inputs and results.",
       "depends_on": []
     },
     {
@@ -3587,7 +3587,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No IfcRailing class or part writing (IfcClass closed, element.rs:15-23; writer parts unclassed, writer.rs:486-494).",
+      "gap": "No railing kind, no IfcRailing class (IfcClass, crates/archicraft-model/src/element.rs:15) and no part writing: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) writes body parts unclassed and does not use the Kind::parts hook (crates/archicraft-model/src/kinds/mod.rs:177). Needs the RAI-001 railing kind with its components (RAI-003) as parts.",
       "depends_on": []
     },
     {
@@ -3597,7 +3597,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "FreeFormSolid element kind holding an editable planar-faced mesh (own half-edge/face structure per technology-choices.md:157), box tool, extrude polygon/rectangle/circle with height (no circle generator exists), toolbox entry, IF…",
+      "gap": "No free-form solid kind holding an editable planar-faced mesh (own half-edge/face structure per docs/technology-choices.md:197; TriMesh at crates/archicraft-geometry/src/mesh.rs:13 is a triangle output mesh, not editable). Missing: a box tool, extrusion of a polygon, rectangle or circle with a height (extrude at crates/archicraft-geometry/src/extrude.rs:21 and the slab tool's polygon and rectangle input in SlabMode, crates/archicraft-app/src/tools/slab.rs:5, can be reused; no circle-to-polygon generator exists), a ToolKind entry (crates/archicraft-app/src/tools/mod.rs:23), IFCX writing and reading (element_attributes, crates/archicraft-ifcx/src/alpha/writer.rs:263; read_element, crates/archicraft-ifcx/src/alpha/reader.rs:880) and conversion of selected elements (SOL-004).",
       "depends_on": []
     },
     {
@@ -3697,7 +3697,7 @@
       "status": "missing",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No free-form solid kind; the D.5 list (20 classes incl. IfcBuildingElementProxy as default and IfcRoof) is absent from IfcClass; needs a KindTag::FreeFormSolid arm in ifc_classes, writer/reader codes and the reader's class fallba…",
+      "gap": "No free-form solid kind. IfcClass (crates/archicraft-model/src/element.rs:15) has 5 of the 20 D.5 classes (IfcBuildingElementProxy, IfcWall, IfcSlab, IfcCovering, IfcFooting); IfcRoof, IfcColumn, IfcBeam, IfcMember, IfcPlate, IfcPile, IfcRailing, IfcStair, IfcRamp, IfcChimney, IfcShadingDevice, IfcCurtainWall, IfcFurniture, IfcSpace and IfcGeographicElement are missing. The ELM-011 machinery exists: KindDescriptor default_class and ifc_classes (crates/archicraft-model/src/kinds/mod.rs:54), the class choice in classification_fields (crates/archicraft-app/src/ui/properties.rs:442) and the reader's fallback to the default class (crates/archicraft-ifcx/src/alpha/reader.rs:911). Needs the SOL-001 kind with IfcBuildingElementProxy as default and the D.5 list.",
       "depends_on": []
     },
     {
@@ -3707,7 +3707,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "Boolean engine integration (Manifold or alternative), solid-operation relation model (targets, operators, kind), command and UI to create operations, application in evaluate, terrain/free-form solids as participants, failure hand…",
+      "gap": "No solid operations. Missing: integration of a Boolean engine (Manifold planned, docs/technology-choices.md:196; it must use MODEL_TOLERANCE as merge tolerance, crates/archicraft-model/src/tolerance.rs:41), a relation model of operations (targets, operators, subtract/intersect/add), commands and UI to create them, application of the operations in ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:64) with every operator acting with its unmodified body (SOL-024), terrain (TER-001) and free-form solids (SOL-001) as participants, failure handling that keeps the unmodified body and reports the element (NFR-REL-006), and persistence in IFCX (SOL-022).",
       "depends_on": []
     },
     {
@@ -3737,7 +3737,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Select related targets/operators, show modifiers of an element (properties panel), remove relations (all targets, all operators, between selected), restore unmodified geometry on operator delete (DeleteElements at command.rs:38 k…",
+      "gap": "No solid-operation relations exist (SOL-020), so none of this is possible: select related targets or operators, show which elements modify an element (properties panel, crates/archicraft-app/src/ui/properties.rs), remove relations against all targets, all operators or only the other selected elements, and restore the unmodified target geometry when an operator is deleted. Command::DeleteElements (crates/archicraft-model/src/command.rs:42, plan_delete_elements at :401) only removes the elements and has no relations to clean up.",
       "depends_on": []
     },
     {
@@ -3837,7 +3837,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: terrain element kind with 3D points, optional breaklines, editable boundary polygon, TIN top surface, flat bottom at elevation or thickness, body mesh evaluation, plan and 3D drawing. A constrained Delaunay tri…",
+      "gap": "Whole requirement: a terrain element kind with 3D points, optional breaklines, an editable boundary polygon, a TIN top surface, a flat bottom at an elevation or thickness (D.2: 5.00 m below the lowest point, pending in crates/archicraft-model/tests/defaults.rs:156), body mesh evaluation as a closed solid, and plan and 3D drawing. A constrained Delaunay triangulation (spade) exists in triangulate (crates/archicraft-geometry/src/triangulate.rs:42), but only for planar polygons with holes, without interior points, breaklines or elevations. Container::Site (crates/archicraft-model/src/kinds/mod.rs:111) lets a kind sit below the site, but the IFCX writer and reader still handle only elements below storeys.",
       "depends_on": []
     },
     {
@@ -4247,7 +4247,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Cut fills are a FillPattern label plus one flat RGB tone (template.rs:286-290, plan.rs:264-282): no hatch definitions or pens behind the 16 hatch-pattern materials (DSP-010/DSP-005); names, colours and D.4 priorities are complete…",
+      "gap": "The 25 materials with names, colours, categories and D.4 priorities are complete (MATERIALS, crates/archicraft-model/src/template.rs:32; priorities checked in crates/archicraft-model/tests/defaults.rs:383). Their cut fill is only a FillPattern label plus one foreground tone (template material at template.rs:275; FillPattern at crates/archicraft-model/src/material.rs:95), and draw_plan fills cut regions with that flat colour (crates/archicraft-app/src/views/plan.rs:402). No hatch definitions (angle, spacing, pen) or pens stand behind the 16 hatch-pattern materials (DSP-010, DSP-005).",
       "depends_on": []
     },
     {
@@ -4287,7 +4287,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No warning when a new element is placed on a hidden or locked layer: tools/mod.rs:214-281 and plan.rs:522-534 execute AddElements without checking the default layer; plan_add_elements (command.rs:320-342) accepts additions to locked…",
+      "gap": "No warning when a new element is placed on a hidden or locked layer: Project::new_element (crates/archicraft-model/src/project.rs:407) takes the layer from the tool defaults, ToolState::complete (crates/archicraft-app/src/tools/mod.rs:219) and ToolState::chain_walls (crates/archicraft-app/src/tools/mod.rs:146) build AddElements without looking at that layer, and Workspace::execute (crates/archicraft-app/src/workspace.rs:300) only reports the result. plan_add_elements (crates/archicraft-model/src/command.rs:380) accepts additions to hidden and locked layers silently, so the new element vanishes or cannot be edited without a message. Named layers, visibility and lock flags, and the edit lock (Project::edit_lock_reason, crates/archicraft-model/src/project.rs:358) exist.",
       "depends_on": []
     },
     {
@@ -4367,7 +4367,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Walls: length of both faces missing; net-after-openings is trivially true only because openings do not exist. Slabs: single area, not top and bottom; perimeter missing. Roofs, columns, beams, doors/windows (DW-015), stairs (STA-0…",
+      "gap": "derived (crates/archicraft-app/src/ui/properties.rs:506) shows values for a single selected element only: walls get reference-line length and volume, slabs get one net area (outline minus holes) and volume. Missing: the length of both wall faces; slab top and bottom area and perimeter. Net volume after openings and solid operations is trivially true only because openings (OPN-001) and solid operations do not exist. Roofs (ROF-011), columns, beams, doors/windows (DW-015) and stairs (STA-009) have no values because these element kinds do not exist (only Wall and Slab are registered in crates/archicraft-model/src/kinds/mod.rs:364).",
       "depends_on": []
     },
     {
@@ -4447,7 +4447,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Missing preference items: UI language (strings are inline literals, NFR-L10N-001 not done), navigation scheme (SET-003), snap dwell time (INP-011), default units for new projects (New always uses defa…",
+      "gap": "Preferences (crates/archicraft-app/src/persistence/prefs.rs:33) stores theme, autosave interval, backups, snap radius, angle increment, tracker behaviour and author outside the project. Missing preference items: UI language (the message catalogue has only English, crates/archicraft-app/locales/en, and there is no language choice), navigation scheme (SET-003), snap dwell time (INP-011, not implemented), and default units for new projects: New always uses default_metric_project (ArchiCraftApp::proceed, crates/archicraft-app/src/app.rs:330).",
       "depends_on": []
     },
     {
@@ -4507,7 +4507,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Imports needed by preserved foreign data are not kept, because IFX-066 (preservation of foreign attributes/nodes and their imports) is not implemented; the import list is hard-coded rather than derived from the attributes actuall…",
+      "gap": "Imports needed by preserved foreign data are not kept, because IFX-066 (preservation of foreign attributes and nodes and their imports) is not implemented: the reader only resolves a file's imports for validation (SchemaSet::for_file, crates/archicraft-ifcx/src/validate.rs:143) and drops them. The written import list is hard-coded (imports, crates/archicraft-ifcx/src/alpha/writer.rs:331: ifc core, prop and usd at the registry pins) rather than derived from the attributes actually written; it matches today's output, but a new attribute family (for example ifc-mat, registry::IFC_MAT in crates/archicraft-ifcx/src/registry.rs:9) needs a manual edit.",
       "depends_on": []
     },
     {
@@ -4577,7 +4577,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Save As (crates/archicraft-app/src/app.rs:189-211) only asks for a path; there is no \"new project\" (new UUIDs + new header.id) versus \"copy of this project\" choice and no function to re-identify a Project. Copy, duplicate and arr…",
+      "gap": "Save As (ArchiCraftApp::save, crates/archicraft-app/src/app.rs:272) only asks for a path; there is no \"new project\" (new UUIDs and a new header.id) versus \"copy of this project\" (identities kept) choice and no function to re-identify a Project. Copy, duplicate and array operations do not exist in the app yet (only the test-only TransformStub in crates/archicraft-app/src/input/mod.rs gives copies new ElementIds), so new identities on copy are not provided. New projects from the template get fresh UUIDs (default_metric_project, crates/archicraft-model/src/template.rs:340).",
       "depends_on": []
     },
     {
@@ -4587,7 +4587,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Site-level elements (terrain) are not placed under the site, and hosted elements / compound parts are not contained through their host, because none of these element kinds exist; the writer always nests elements under their home…",
+      "gap": "Site-level elements (terrain) are not placed under the site, and hosted elements (IFX-015) and compound parts (IFX-016) are not contained through their host, because none of these element kinds exist (only walls and slabs). The model hook is ready: Kind::container (crates/archicraft-model/src/kinds/mod.rs:182) returns Container (crates/archicraft-model/src/kinds/mod.rs:111) with a Site variant, used only by the test kind Dummy. The writer ignores it: nodes (crates/archicraft-ifcx/src/alpha/writer.rs:379) always nests elements under their home storey via Project::elements_on, and the site node gets no element children. Element has no host reference yet.",
       "depends_on": []
     },
     {
@@ -4637,7 +4637,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Only a single \"Body\" part is ever produced (evaluate.rs:169-171,180-182); Skin_1…n parts for layer structures, Frame/Panel/Glazing parts and Void children are not generated. The writer path is generic and needs little change once…",
+      "gap": "Only a single \"Body\" part is ever produced (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154, for walls and slabs); Skin_1 to Skin_n parts for layer structures (PRF-001), Frame/Panel/Glazing parts (doors, windows, curtain walls) and Void children for openings (IFX-036, OPN-001) are not generated because these do not exist. Axis children are written for walls. The writer path is generic and needs little change once multi-part bodies exist: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) already writes one child per BodyPart under its name with its material; Void children need a new path (invisible mesh).",
       "depends_on": []
     },
     {
@@ -4737,7 +4737,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Only wall L/T junction cleanup exists. Layer-structure intersections, openings and hosted doors/windows, trims to roofs/slabs, solid operations and beam junctions are not in the geometry crate yet; the writer needs no change but…",
+      "gap": "Only wall L and T junction cleanup exists (footprints, crates/archicraft-geometry/src/wall.rs:236); nodes of three or more walls and crossings stay square. Layer-structure intersections (PRF-001), openings and hosted doors/windows (OPN-001), trims to roofs and slabs, solid operations and beam junctions are not in the geometry crate yet, as these elements and operations do not exist; slab holes are cut by extrusion (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154). The writer needs no change: it writes the bodies that ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:64) produces.",
       "depends_on": []
     },
     {
@@ -4787,7 +4787,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No splitting of large bodies into closed Body_<n> sub-solids (the writer writes a part of any size, writer.rs:486-494); sharing vertices across smooth edges is not needed until curved/free-form solids exist",
+      "gap": "No splitting of large bodies into closed Body_<n> sub-solids: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:475) writes a part of any size, and the 65,535-point limit MAX_MESH_POINTS (crates/archicraft-geometry/src/mesh.rs:53) is checked only by TriMesh::check_closed (crates/archicraft-geometry/src/mesh.rs:125), which neither evaluation nor the writer calls. Per-face vertices across hard edges hold (extrude, crates/archicraft-geometry/src/extrude.rs:21). Sharing vertices across smooth edges is not needed until curved or free-form solids exist (SOL-003); splitting matters first for terrain (TER-012).",
       "depends_on": []
     },
     {
@@ -4857,7 +4857,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Junction settings, layer structures, profiles and presets named by the requirement are not stored because neither the model nor the writer has them; project settings, layers, materials, tool defaults, views, counters, storey, ele…",
+      "gap": "Junction settings, layer structures (PRF-001), profiles (PRF-004) and presets named by the requirement are not stored because neither the model nor the writer has them. Views are stored only as id, name and projection, since View3d (crates/archicraft-model/src/project.rs:188) holds nothing more (saved-view state of VIEW-004 is missing). Project settings, location, layers, materials, tool defaults, views, counters (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs:200), storeys, and element parameters with reference lines and storey links (element_attributes, crates/archicraft-ifcx/src/alpha/writer.rs:263) are written under archicraft:: attributes.",
       "depends_on": []
     },
     {
@@ -4957,7 +4957,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No SurveyPoint child with usd::xformop, no epsg<code> attributes (eastings/northings/height) with in-file schemas, no second reference point on +Y for true north, no epsg4326 latitude/longitude (Location at crates/archicraft-mode…",
+      "gap": "Only RefElevation is written on the site node, from Location::altitude (nodes, crates/archicraft-ifcx/src/alpha/writer.rs:379). No SurveyPoint child with usd::xformop, no epsg<code> attributes (eastings, northings, height) with in-file schemas, no second reference point on +Y for true north, and no epsg4326 latitude/longitude. Location (crates/archicraft-model/src/project.rs:140) holds survey_point and true_north, written only inside archicraft::project, but no EPSG code and no latitude/longitude (STR-015), so the epsg attribute names cannot be formed yet.",
       "depends_on": []
     },
     {
@@ -4977,7 +4977,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "inherits are not expanded into the inheriting node's attributes/children; no local-file import resolution; no remote fetch with user consent; a third-party file cannot be opened at all (requires archicraft::project); no R2-style…",
+      "gap": "Within one file, flatten (crates/archicraft-ifcx/src/validate.rs:107) merges entries per path (later entries win attribute by attribute, null removes inheritances), but inherits are not expanded into the inheriting node's attributes and children, and several IFCX files are not composed. Imports resolve only from the bundled schema copies (SchemaSet::for_file, crates/archicraft-ifcx/src/validate.rs:143): no local-file import resolution and no remote fetch with user consent (NFR-SEC-004). A third-party file cannot be opened at all: read_migrated (crates/archicraft-ifcx/src/alpha/reader.rs:1048) rejects a file without an archicraft::project node, so imported elements (IFX-082) are also missing.",
       "depends_on": []
     },
     {
@@ -5027,7 +5027,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "The migration path is ready: `load` picks the reader from the adapter table `ADAPTERS` (crates/archicraft-ifcx/src/lib.rs:65), `ReadOutcome::source_version` (crates/archicraft-ifcx/src/alpha/reader.rs:62) names the version read and `migrated_from` (69) the format migrated from, and crates/archicraft-ifcx/src/alpha/migrate.rs:60 upgrade() applies MIGRATIONS (39) to a file of an earlier ArchiCraft format step by step before validating and reading it, proven by a synthetic v1->v2 step (alpha/migrate.rs tests) and the frozen fixture crates/archicraft-ifcx/tests/formats/format-1.ifcx (tests/formats.rs). A mock successor `ifcx_successor_mock` behind the cargo feature `successor-stub` (src/successor/) proves that a second IFCX version plugs into `ADAPTERS` without a model or geometry change (tests/successor.rs); docs/ifcx-evolution.md is the runbook. Missing: a published successor of ifcx_alpha, and with it its adapter module, Table 5-2 pins, bundled schemas, the writer switch and the app's migration notice. Tests: `format_1_loads_without_problems_into_the_expected_project` (crates/archicraft-ifcx/tests/formats.rs), `a_successor_file_routes_to_the_stub_and_loads_to_the_same_project` (crates/archicraft-ifcx/tests/successor.rs, CI step \"Test with the successor-stub feature\").",
+      "gap": "The migration path is ready: `load` picks the reader from `ADAPTERS` (crates/archicraft-ifcx/src/lib.rs:67), `ReadOutcome` (crates/archicraft-ifcx/src/alpha/reader.rs:61) names the version read and the format migrated from, and `upgrade` (crates/archicraft-ifcx/src/alpha/migrate.rs:65) applies `MIGRATIONS` step by step, proven by a synthetic v1->v2 step and the frozen fixture crates/archicraft-ifcx/tests/formats/format-1.ifcx. A mock successor behind the cargo feature `successor-stub` (crates/archicraft-ifcx/src/successor/mod.rs) plugs into `ADAPTERS` without a model or geometry change (crates/archicraft-ifcx/tests/successor.rs:56); docs/ifcx-evolution.md is the runbook. Missing: a published successor of ifcx_alpha, and with it its adapter module, Table 5-2 pins, bundled schemas, the writer switch and the app's migration notice. Tests: `format_1_loads_without_problems_into_the_expected_project` (crates/archicraft-ifcx/tests/formats.rs:65), `a_successor_file_routes_to_the_stub_and_loads_to_the_same_project` (crates/archicraft-ifcx/tests/successor.rs:56, CI step \"Test with the successor-stub feature\").",
       "depends_on": []
     },
     {
@@ -5057,7 +5057,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Pan vs zoom is decided solely by MouseWheelUnit::Point. winit reports Windows precision-touchpad scrolling as line deltas, so on the Windows minimum/reference laptops a two-finger drag would zoom instead of pan; horizontal deltas…",
+      "gap": "Pan versus zoom is decided solely by MouseWheelUnit::Point in the plan view (ui, crates/archicraft-app/src/views/plan.rs:596) and the 3D view (ui, crates/archicraft-app/src/views/view3d.rs:102). winit reports Windows precision-touchpad scrolling as line deltas, so on the Windows minimum/reference laptops a two-finger drag would zoom instead of pan; horizontal deltas of line-unit events are dropped (only delta.y feeds the zoom). Pinch zoom (Event::Zoom) works in both views; no test covers line-unit two-finger input on Windows hardware.",
       "depends_on": []
     },
     {
@@ -5067,7 +5067,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Shift + two-finger drag can only yaw on macOS: AppKit turns Shift+vertical scroll into horizontal deltas (egui 0.36.2 wheel_state.rs:127) while Camera3d::orbit maps delta.y to pitch (camera.rs:185-188); the shortcuts window docum…",
+      "gap": "Shift + two-finger drag can only yaw on macOS: AppKit turns Shift+vertical scroll into horizontal deltas, while Camera3d::orbit (crates/archicraft-app/src/views/camera.rs:185) maps delta.y to pitch, so the trackpad gesture cannot tilt the view. On Windows, line-unit touchpad events never reach the orbit branch of the 3D view (ui, crates/archicraft-app/src/views/view3d.rs:102; see HW-002). The shortcuts window (shortcuts_window, crates/archicraft-app/src/ui/dialogs.rs:621) does not list the trackpad orbit gesture (its Orbit row names only Shift + middle drag, Alt + drag and orbit mode).",
       "depends_on": []
     },
     {
@@ -5077,7 +5077,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Only the commands that exist have shortcuts; the D.8 set (cut/copy/paste, command palette, move/rotate/mirror/array/trim/split/offset, measure, other element tools, show all/hide/isolate) is absent. Menus and dialogs are not keyb…",
+      "gap": "Only the commands that exist have shortcuts (Action::shortcut, crates/archicraft-app/src/ui/actions.rs:122); the rest of the D.8 set (cut/copy/paste, command palette, move, copy-move, rotate, mirror, vertical move, array, trim, split, offset, measure, the column, beam, roof, opening, door, window, stair and free-form solid tools, show all/hide/isolate) is absent because those commands do not exist. Menus and dialogs are not keyboard-navigable beyond egui's built-in Tab focus: no code for opening the menu bar from the keyboard (F10 or Alt access keys) was found in crates/archicraft-app/src/ui. Typed numeric entry works through point input (INP-003, crates/archicraft-app/src/input/typed.rs).",
       "depends_on": []
     },
     {
@@ -5107,7 +5107,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "UI scaling 100-200% is available only through the OS scale factor and egui's built-in Ctrl/Cmd +/-/0 zoom (NFR-PORT-005 holds by inspection); egui's zoom_factor is not exposed in Preferences (prefs.rs:27-53) nor persisted; DPI ch…",
+      "gap": "UI scaling 100-200% is available only through the OS scale factor and egui's built-in Ctrl/Cmd +/-/0 zoom (NFR-PORT-005 holds by inspection and test); egui's zoom factor is not exposed in Preferences (crates/archicraft-app/src/persistence/prefs.rs:33) nor persisted across restarts. DPI changes when the window moves between monitors with different scale factors rely on egui/winit and the per-frame 3D viewport size (ui, crates/archicraft-app/src/views/view3d.rs:102), with no test or recorded manual check on a mixed-DPI multi-monitor setup; the app has a single main window (panes cannot be detached to a second monitor).",
       "depends_on": []
     },
     {
@@ -5117,7 +5117,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Registering as handler for .ifcx with the user's consent at first start is not implemented on any platform (no first-start flag in Preferences, no Windows HKCU registry/ProgID, no macOS CFBundleDocumentTypes/LSSetDefaultRoleHandl…",
+      "gap": "Registering as handler for .ifcx with the user's consent at first start is not implemented on any platform: no first-start flag or consent prompt in Preferences (crates/archicraft-app/src/persistence/prefs.rs:33), no Windows HKCU registry ProgID, no macOS document-type registration (scripts/package-macos.sh deliberately omits CFBundleDocumentTypes) or LSSetDefaultRoleHandlerForContentType call, and no Linux MimeType/xdg-mime registration (scripts/package-linux.sh omits it). A path passed on the command line is opened (crates/archicraft-app/src/main.rs:18), but macOS open-document events are not handled. Native file dialogs (rfd) and the recent-projects list (Preferences::add_recent, crates/archicraft-app/src/persistence/prefs.rs:171) exist.",
       "depends_on": []
     },
     {
@@ -5137,7 +5137,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Needs EDT-016 copy/paste first, a serialised clipboard payload (elements + referenced materials, layer structures, profiles), conflict resolution UI (use existing / keep both / overwrite, PRF-009), and either multiple open projec…",
+      "gap": "Needs EDT-016 copy/paste first: there is no clipboard and no Cut/Copy/Paste action (Action, crates/archicraft-app/src/ui/actions.rs:9). Also missing: a serialised clipboard payload (elements plus the materials and layers they reference; layer structures and profiles do not exist in the model yet, PRF-001, PRF-004), the conflict resolution UI (use existing / keep both / overwrite, PRF-009), and a second open project, either as a second window (PRJ-011; ArchiCraftApp, crates/archicraft-app/src/app.rs:80, holds one Workspace with one Document, crates/archicraft-app/src/workspace.rs:110) or as a second process exchanging the payload through the OS clipboard.",
       "depends_on": []
     },
     {
@@ -5167,7 +5167,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No RM-M/RM-L models, so the ≤10 s / ≤5 s / ≤30 s targets are unmeasured; the `ifcx/save` and `ifcx/load` benches (docs/performance/README.md) run only on the 12-element shell and the provisional 972-element `tiled_shell`. Likely hotspots: file flattened twice with full attribute clones (validate.rs:342 and reader.r…",
+      "gap": "No RM-M/RM-L models (SRS 7.3, epic perf-tuning-rm-m-l), so the 10 s / 5 s / 30 s targets are unmeasured, and no reference hardware exists to measure on. The `ifcx/save` and `ifcx/load` benches (docs/performance/README.md) run only on the 12-element shell and the provisional 972-element `tiled_shell` (about 20 ms each on a developer machine, docs/performance/2026-10-20-dev-mbp-m3max.md). The 5,000 and 20,000-element stand-ins exist (stand_in, crates/archicraft-model/src/samples.rs:430) but are not registered in bench_models (samples.rs:521); only an ignored round-trip test runs the 5,000 one. The earlier double flattening is gone: read_migrated flattens once (crates/archicraft-ifcx/src/alpha/reader.rs:1048).",
       "depends_on": []
     },
     {
@@ -5177,7 +5177,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Unmeasured (no RM-M/RM-L; the `perf` feature's orbit, pan and zoom scripts measure frame rates, docs/performance/README.md). Design limits: non-indexed vertices, 40 B each, 3 per triangle plus 2 per feature edge (render3d.rs:58-64,151-172) → ~240 MB for RM-M, ~1 GB for RM-L; no culling or LOD; 4× MSAA…",
+      "gap": "Unmeasured: no RM-S/RM-M/RM-L. The `perf` feature's orbit, pan and zoom scripts measure frame rates (docs/performance/README.md), but they have only run on the 12-element shell, and there is no walk navigation or walk script. Design limits: non-indexed vertices of 40 B (Vertex, crates/archicraft-app/src/views/render3d.rs:60), 3 per triangle plus 2 per feature edge (build_scene, render3d.rs:102), so about 240 MB for RM-M and about 1 GB for RM-L. There is no culling or LOD (VIEW-054), 4x MSAA is fixed (SAMPLE_COUNT, render3d.rs:19), and every selection change rebuilds and re-uploads the whole scene (SceneKey, crates/archicraft-app/src/workspace.rs:91).",
       "depends_on": []
     },
     {
@@ -5187,7 +5187,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Unmeasured. The plan is drawn with egui's painter, which re-tessellates every line and fill every frame (plan.rs:247-289) and does no viewport culling; technology-choices.md:118-126 already states this is too slow for large plans…",
+      "gap": "Unmeasured: no RM-M, and the `plan-pan` perf script has only run on small models. The plan geometry is cached per storey and revision (Document::plan, crates/archicraft-app/src/document.rs:106), and cut fills come pre-triangulated. But draw_plan (crates/archicraft-app/src/views/plan.rs:402) still transforms every point to screen space and hands every stroke, dashed overhead line and fill mesh to egui's painter each frame, which re-tessellates the strokes, with no viewport culling. docs/technology-choices.md:166 already rejects egui's painter for large plans; the lyon/wgpu plan renderer chosen there does not exist yet (no lyon dependency). Hatches (DSP-013) are not drawn yet, so their cost is not included.",
       "depends_on": []
     },
     {
@@ -5217,7 +5217,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Save (serialise + write + backup copy) runs on the UI thread with no progress indicator (crates/archicraft-app/src/app.rs:214-235); geometry regeneration is synchronous inside the frame (document.rs:97-103); no progress UI, no ca…",
+      "gap": "Opening (ArchiCraftApp::open_path, crates/archicraft-app/src/app.rs:242) and saving (ArchiCraftApp::save_to, app.rs:298: serialising, then the write and backup copy in save_atomically, crates/archicraft-app/src/persistence/mod.rs:70) run synchronously on the UI thread with no progress indicator. Geometry regeneration is synchronous inside the frame: Document::geometry (crates/archicraft-app/src/document.rs:97) re-evaluates the whole model on any revision change. There is no progress UI, no background job framework and no cancellation; export does not exist yet. Only autosave runs on a background thread (Autosaver, crates/archicraft-app/src/persistence/autosave.rs:235). Frames over 1 s are only counted and logged with the `perf` feature, and nothing has been measured on RM-M.",
       "depends_on": []
     },
     {
@@ -5227,7 +5227,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No measurement and no RM-L. Expected pressure points: non-indexed f32 vertex arrays (~1 GB CPU + GPU for RM-L, render3d.rs:151-172), full Pr…",
+      "gap": "No measurement and no RM-L. The 20,000-element stand-in exists (stand_in, crates/archicraft-model/src/samples.rs:430), but nothing measures the running application's memory: the `perf` recorder has no memory metric, and the `memory` example (crates/archicraft-ifcx/examples/memory.rs) only counts the heap of headless load, evaluation and save. Expected pressure points: non-indexed f32 vertex arrays of 40 B per vertex and 3 per triangle (Vertex, crates/archicraft-app/src/views/render3d.rs:60), about 1 GB of GPU buffers for RM-L's 8 million triangles plus the transient CPU copy built by build_scene (render3d.rs:102); the evaluated f64 meshes and the per-storey plan cache next to them; and a full Project clone handed to the autosave thread on every autosave (Autosaver::request, crates/archicraft-app/src/persistence/autosave.rs:287).",
       "depends_on": []
     },
     {
@@ -5277,7 +5277,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Hosts and types do not exist in the model yet, so those checks are absent. A wall whose top-linked storey is missing is skipped (validate.rs:267-271 via reader.rs:724-730) instead of being repaired deterministically to a fixed he…",
+      "gap": "Hosts and types do not exist in the model yet, so those checks are absent. Storeys, layers and materials are checked while reading: an unknown layer or material falls back to the first one and is reported (read_element, crates/archicraft-ifcx/src/alpha/reader.rs:880), and an empty material or layer list gets a default (the empty-list checks in read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1098 and 1116). A wall whose top-linked storey is missing is still skipped, not repaired (validate_element at reader.rs:1013 rejects it through <Wall as Kind>::validate, crates/archicraft-model/src/kinds/wall.rs:171). A deterministic repair, for example to a fixed height as unlink_storey does when a storey is deleted, is missing. A wall whose top ends below its base is skipped the same way.",
       "depends_on": []
     },
     {
@@ -5287,7 +5287,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Storey edits (insert, delete, elevation, height) refuse to leave an element whose top is linked to a storey lower than the 1 mm minimum height, naming the element (check_linked_heights in crates/archicraft-model/src/command.rs; tests storey_moves_refuse_to_drop_linked_walls_below_the_minimum_height and inserting_or_deleting_a_storey_refuses_to_drop_linked_walls_below_the_minimum_height in crates/archicraft-model/tests/commands.rs). Still open: storey edits do not check the 1000 m maximum height (validate.rs MAX_HEIGHT) of linked elements, and Boolean operations, whose failures must be rejected, do not exist yet.",
+      "gap": "Storey edits (insert, delete, elevation, height) refuse to leave an element whose top is linked to a storey lower than the 1 mm minimum height, naming the element (check_linked_heights, crates/archicraft-model/src/command.rs:344; tests storey_moves_refuse_to_drop_linked_walls_below_the_minimum_height and inserting_or_deleting_a_storey_refuses_to_drop_linked_walls_below_the_minimum_height in crates/archicraft-model/tests/commands.rs). Still open: storey edits do not check the 1000 m maximum height (MAX_HEIGHT, crates/archicraft-model/src/validate.rs:32) of linked elements, and Boolean operations, whose failures must be rejected, do not exist yet.",
       "depends_on": []
     },
     {
@@ -5297,7 +5297,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No fallback representation: a failed element is skipped in plan (plan.rs:121-123) and 3D (render3d.rs:111-113), so it cannot be picked, highlighted or zoomed to from the panel (ZoomTo finds no bounds). The global panic hook (cras…",
+      "gap": "No fallback representation: an element whose geometry failed is skipped in the plan (plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so it cannot be seen, picked or highlighted. The problems panel link (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:866) selects it, but PlanViewState::zoom_to (crates/archicraft-app/src/views/plan.rs:90) finds no bounds and does nothing. The global panic hook (install, crates/archicraft-app/src/persistence/crash.rs:66) also fires for panics that ModelGeometry::evaluate catches (crates/archicraft-geometry/src/evaluate.rs:64). A caught geometry panic therefore still writes a crash report, and the next start reports it as a crash.",
       "depends_on": []
     },
     {
@@ -5347,7 +5347,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "The survey point is stored but never applied: no readout or input of coordinates in the survey system, no IFX-070 SurveyPoint/second reference point in the written file (writer.rs:268-280 writes only RefElevation), no EPSG code /…",
+      "gap": "Model coordinates are limited to 100 km from the origin (MAX_COORDINATE, crates/archicraft-model/src/validate.rs:24, checked in check_coordinates at :138), so 6 and 7-digit eastings are rejected as modelling coordinates. The survey point (Location, crates/archicraft-model/src/project.rs:140) is edited in Project settings (crates/archicraft-app/src/ui/dialogs.rs:546) and saved in the ArchiCraft project attribute (crates/archicraft-ifcx/src/alpha/writer.rs:232). But it is never applied: there is no readout or input of coordinates in the survey system, no IFX-070 SurveyPoint or second reference point in the written file (the site node gets only RefElevation, writer.rs:411), no EPSG code or CRS in Location, and no import that subtracts the offset from incoming survey coordinates (IFX-081).",
       "depends_on": []
     },
     {
@@ -5377,7 +5377,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Only two element tools exist. The clause 'the same edit commands for nodes, edges and polygons' has nothing behind it: no node/edge/polygon editing (EDT-008, EDT-009), no transforms, no stretch. Consistency can only be inspected…",
+      "gap": "Only two element tools exist (wall and slab; ToolKind, crates/archicraft-app/src/tools/mod.rs:23). Their numeric input and snapping already go through one shared layer (PointInput, crates/archicraft-app/src/input/mod.rs:175; InputConsumer, crates/archicraft-app/src/input/consumer.rs:167), and both offer rectangle and rotated-rectangle methods. The clause 'the same edit commands for nodes, edges and polygons' has nothing behind it: no node, edge or polygon editing (EDT-008, EDT-009), and no move, rotate or stretch tool in the application (these exist only as test stubs in the input module's tests, crates/archicraft-app/src/input/mod.rs:526). Consistency can only be inspected once more element kinds and the edit palette exist.",
       "depends_on": []
     },
     {
@@ -5527,7 +5527,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No X junction, no three-wall node (fixture F6), no layered walls with skin priorities (F2, F7), no openings at element boundaries, no curved walls (F8), no beams or trims; most Section 4 cases are not implemented yet, so the regr…",
+      "gap": "Regression tests cover only the cases implemented so far: L and T junctions in the unit tests of crates/archicraft-geometry/src/wall.rs (from l_junction_mitres_both_walls_identically at :292), the stand-in check of L and T junctions on every storey (crates/archicraft-geometry/tests/stand_ins.rs:48) and the two golden IFCX files. Not covered: X junctions, the three-wall node (F6), layered walls with skin priorities (F2, F7), openings at element boundaries, curved walls (F8), beams and trims. The fixture registry (D7, crates/archicraft-model/src/fixtures.rs:54) lists F1 to F9, but none has a constructor yet. Most Section 4 cases are not implemented, so the suite cannot cover them yet.",
       "depends_on": []
     },
     {
@@ -5547,7 +5547,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Only Rust panics produce a crash report (crash.rs:66-89); native crashes in the GPU driver or a future C++ kernel, aborts and stack overflows are not captured (deferred in technology-choices.md:194, 271). The no-telemetry clause…",
+      "gap": "Only Rust panics produce a crash report (install, crates/archicraft-app/src/persistence/crash.rs:66). Native crashes in the GPU driver or a future C++ kernel, aborts and stack overflows are not captured; a minidump handler is deferred (docs/technology-choices.md:234 and :312). The report is shown at the next start (ArchiCraftApp::startup_windows, crates/archicraft-app/src/app.rs:728). The no-telemetry clause holds because nothing sends data, and deny.toml bans HTTP client crates. Side effect: the hook also writes a report for panics that ModelGeometry::evaluate catches (NFR-REL-006), so the next start reports a crash that did not happen.",
       "depends_on": []
     },
     {
@@ -5617,7 +5617,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "The first point of an element can be typed as absolute X/Y (INP-003, INP-004), but selection is mouse-only; context-menu-…",
+      "gap": "The first point of an element can be typed as absolute X/Y (INP-003, INP-004), later points are typed, Enter finishes and Esc cancels (handle_keys, crates/archicraft-app/src/views/plan.rs:916), and the file, edit, view and tool commands have shortcuts. But selection needs the mouse (only Select all, Ctrl+A, works without it; Tab cycles only the candidates under the cursor). Plan and 3D navigation need the pointer (no arrow-key panning, zoom keys or keyboard orbit). The plan context menu (context_menu, plan.rs:996) cannot be opened from the keyboard. Commands without a shortcut (Preferences, the Project menu, Help, reference lines, place and reset user origin) can only be reached through egui's menu bar, which cannot be opened from the keyboard. The command palette that would cover them (NFR-USE-005) is missing.",
       "depends_on": []
     },
     {
@@ -5627,7 +5627,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Many inputs have no accessible name: checkboxes with empty labels (dialogs.rs:308, 316, 728, 744), text fields, combo boxes and DragValues whose visible label is a separate ui.label() not associated with the control (crates/archi…",
+      "gap": "eframe's `accesskit` feature is on (the workspace Cargo.toml:35), so widgets expose roles, but many inputs have no accessible name. The layer manager's Visible, Locked and Snaps checkboxes have empty labels (crates/archicraft-app/src/ui/dialogs.rs:311, 319, 328), as do the Preferences checkboxes for digit grouping and reference lines (dialogs.rs:718, 721). Text fields, combo boxes and DragValues from the helpers in crates/archicraft-app/src/ui/widgets.rs (length at :70, angle at :87) have their visible label in a separate ui.label() that is never linked to the control (labelled_by is not used anywhere). The UI tests find widgets by accessible label (crates/archicraft-app/tests/ui.rs), but nothing checks that every control has a name, and no screen-reader test has been run.",
       "depends_on": []
     },
     {
@@ -5637,7 +5637,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours (weak/small status text crates/archicraft-app/src/ui/shell.rs:170, 239-241). Selection/hover/reference/snap/preview colours (plan.rs:116-120, 130-134) a…",
+      "gap": "Light and dark themes exist (ThemeChoice, crates/archicraft-app/src/persistence/prefs.rs:14). No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours has been done: small weak text in the toolbox headings and the status bar (crates/archicraft-app/src/ui/shell.rs:152, 283, 285) is unchecked. In the plan palette (Palette::new, crates/archicraft-app/src/views/plan.rs:258) on white paper, hover reaches about 2.6:1 and preview and overhead about 3.0:1, at or below the 3:1 for graphics. Selection and hover are two shades of one blue. Reference red against snap green depends on a red-green difference. No colour-vision-deficiency check exists, and the 3D SELECTION_COLOR (crates/archicraft-app/src/views/render3d.rs:91) is also unchecked.",
       "depends_on": []
     },
     {
@@ -5647,7 +5647,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No inventory artifact is committed or published (cargo deny list / cargo-about output, THIRD-PARTY notices). The bundled IFCx.dev schema files are shipped third-party content with no identified licence (crates/archicraft-ifcx/sch…",
+      "gap": "The licence policy is enforced: deny.toml is checked by the CI job 'Licences and sources' (.github/workflows/ci.yml) and by scripts/loop/gate.sh when manifests change. But no inventory artifact is committed or published: no `cargo deny list` or cargo-about output, and no THIRD-PARTY notices shipped with the binaries. The bundled IFCx.dev schema files are third-party content with no stated licence (crates/archicraft-ifcx/schemas/README.md), and egui's default fonts (OFL-1.1, Ubuntu Font Licence) pass only as a deny.toml exception to be rechecked (O-5). The test-only Node.js dependencies of the conformance harness (conformance/package.json) are not inventoried.",
       "depends_on": []
     },
     {
@@ -5667,7 +5667,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No test consumes the R2 examples yet (RX-1…n of SRS 7.3 need third-party IFCX reading, IFX-081/082, increment 3); a fetch-at-test-time harness that feeds the examples to the reader is missing, and the reader currently rejects thi…",
+      "gap": "The R2 examples are already fetched at test time and never committed: scripts/fuzz-corpus.sh takes Hello Wall, the PCERT scene, Tekla House and the ACCA building from a blob-filtered clone of IFC5-development at the pinned commit and seeds the nightly fuzz corpora, which only check that nothing crashes. No test checks what the reader makes of them (RX-1 to RX-n of SRS 7.3 need third-party IFCX reading, IFX-081 and IFX-082, increment 3). The reader still rejects third-party files ('holds no ArchiCraft project', read_migrated, crates/archicraft-ifcx/src/alpha/reader.rs:1048), so a test of their content is missing.",
       "depends_on": []
     }
   ]
