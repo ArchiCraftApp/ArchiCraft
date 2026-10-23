@@ -5,8 +5,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use archicraft_model::{Command, CommandError, ElementId, Message, StoreyId, ViewId};
+use archicraft_model::{Command, CommandError, ElementId, ElementKind, KindTag, Message, StoreyId, ViewId};
 
+use crate::commands::{CommandId, Keymap};
 use crate::document::Document;
 use crate::input::{Frame2d, InputConsumer, PointInput, SnapIndex};
 use crate::persistence::prefs::Preferences;
@@ -136,6 +137,13 @@ pub struct Workspace {
     pub active_pane: Option<Pane>,
     pub status: Option<Status>,
     pub requests: Vec<Request>,
+    /// The keys of the commands; the plan view matches its local keys
+    /// against it (UI-009).
+    pub keymap: Keymap,
+    /// Local commands of the plan view invoked other than by their key (the
+    /// palette), for the active plan view to run; the app drops the ones
+    /// no plan view ran by the end of the frame (HW-003).
+    pub view_commands: Vec<CommandId>,
     /// Frame and latency samples (NFR-PERF-001).
     #[cfg(feature = "perf")]
     pub perf: crate::perf::PerfRecorder,
@@ -162,6 +170,8 @@ impl Workspace {
             active_pane: Some(Pane::Plan(active_storey)),
             status: None,
             requests: Vec::new(),
+            keymap: Keymap::default(),
+            view_commands: Vec::new(),
             #[cfg(feature = "perf")]
             perf: crate::perf::PerfRecorder::from_env(),
         }
@@ -282,6 +292,20 @@ impl Workspace {
             self.frames.user_origin = frame;
             self.end_consumer();
             self.info("User origin placed");
+        }
+    }
+
+    /// Moves the wall tool's reference line to its next location (WAL-007). The tool defaults are part of the
+    /// project, so the change is an undoable command.
+    pub fn cycle_wall_reference_line(&mut self) {
+        let mut defaults = self.doc.project.tool_defaults.clone();
+        let Some(ElementKind::Wall(wall)) = defaults.get_mut(KindTag::Wall).map(|slot| &mut slot.kind) else {
+            return;
+        };
+        wall.reference_line = wall.reference_line.next();
+        let label = crate::tr!(wall.reference_line.label_key());
+        if self.execute(Command::SetToolDefaults(defaults)) {
+            self.info(format!("Wall reference line: {label}"));
         }
     }
 

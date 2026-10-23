@@ -641,10 +641,7 @@ impl Dialogs {
                         ("Pan", "Middle mouse drag, or two-finger drag"),
                         ("Zoom at cursor", "Mouse wheel, or pinch"),
                         ("Orbit (3D)", "Shift + middle drag, Alt + drag, or orbit mode"),
-                        ("Cycle reference line (wall tool)", "R"),
                         ("Constrain angle", "Hold Shift"),
-                        ("Next typed field", "Tab"),
-                        ("Remove last point", "Backspace"),
                     ] {
                         ui.label(label);
                         ui.monospace(keys);
