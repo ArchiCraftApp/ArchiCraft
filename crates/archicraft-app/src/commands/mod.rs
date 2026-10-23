@@ -18,9 +18,11 @@ pub mod ctx;
 mod edit;
 pub mod file;
 mod help;
+pub mod keymap;
 mod project;
 pub mod tools;
 pub mod view;
+pub mod view_keys;
 
 use std::cmp::Reverse;
 use std::sync::LazyLock;
@@ -28,6 +30,7 @@ use std::sync::LazyLock;
 pub use binding::Binding;
 pub use ctx::{CommandCtx, Enabled, Invocation, Origin, Target};
 use egui::InputState;
+pub use keymap::Keymap;
 
 use crate::ArchiCraftApp;
 
@@ -167,14 +170,14 @@ pub enum Scope {
 impl Scope {
     /// Whether a key can be active in both scopes at once, so two commands
     /// must not share it. Global and TextSafe bindings are active everywhere;
-    /// Canvas and PointInput count as overlapping, so that a key keeps one
-    /// meaning in the views.
+    /// Canvas and PointInput are never active together ([`Scope::is_active`]),
+    /// so Backspace can delete the selection in one and remove the last point
+    /// in the other. A key the views handle both while and while not drawing
+    /// (R cycles the wall reference line already before the first point) is
+    /// Global, so no Canvas or PointInput binding can take it.
     pub fn overlaps(self, other: Scope) -> bool {
         use Scope::*;
-        matches!(
-            (self, other),
-            (Global | TextSafe, _) | (_, Global | TextSafe) | (Canvas | PointInput, Canvas | PointInput)
-        )
+        matches!((self, other), (Global | TextSafe, _) | (_, Global | TextSafe)) || self == other
     }
 
     /// Whether bindings of this scope are active while a text field has
@@ -211,6 +214,13 @@ pub struct CommandSpec {
     /// The default key bindings; the first is shown in menus.
     pub default_bindings: Vec<Binding>,
     pub scope: Scope,
+    /// The view that has the keys matches the command's bindings itself,
+    /// against the [`Keymap`] and the state of its tool, so the shortcut loop
+    /// leaves them to it (the plan view's local keys, HW-003).
+    pub local: bool,
+    /// The bindings cannot be changed: Enter and Esc of point input keep
+    /// their standard meaning, as in text fields and dialogs (UI-009).
+    pub fixed: bool,
     /// Whether the command can run now; menus grey it out otherwise. The
     /// handler still copes with a disabled state, because a shortcut runs it
     /// regardless (Undo reports that there is nothing to undo).
@@ -235,6 +245,8 @@ impl CommandSpec {
             context_only: false,
             default_bindings: Vec::new(),
             scope: Scope::Global,
+            local: false,
+            fixed: false,
             enabled: |_| Enabled::Yes,
             checked: None,
             dynamic_label: None,
@@ -257,6 +269,25 @@ impl CommandSpec {
 
     pub fn scope(mut self, scope: Scope) -> Self {
         self.scope = scope;
+        self
+    }
+
+    /// Lists the command in the palette only, without a menu entry.
+    pub fn palette_only(mut self) -> Self {
+        self.palette_only = true;
+        self
+    }
+
+    /// Leaves the command's keys to the view that has them (see
+    /// [`CommandSpec::local`]).
+    pub fn local(mut self) -> Self {
+        self.local = true;
+        self
+    }
+
+    /// Makes the default bindings the only ones (see [`CommandSpec::fixed`]).
+    pub fn fixed(mut self) -> Self {
+        self.fixed = true;
         self
     }
 
@@ -315,6 +346,7 @@ impl Registry {
             tools::specs(),
             project::specs(),
             help::specs(),
+            view_keys::specs(),
         ]
         .into_iter()
         .flatten()
@@ -357,10 +389,11 @@ impl Registry {
     /// Consumes the key presses of this frame that match a binding whose
     /// scope is `active`, in match order, and returns their commands
     /// (UI-008, HW-003). Bindings of inactive scopes leave their key press
-    /// to the text field or tool that has the keys.
+    /// to the text field or tool that has the keys, and so do the bindings
+    /// of [local](CommandSpec::local) commands.
     pub fn consume_shortcuts(&self, input: &mut InputState, active: impl Fn(Scope) -> bool) -> Vec<CommandId> {
         self.bindings_in_match_order()
-            .filter(|(_, spec)| active(spec.scope))
+            .filter(|(_, spec)| !spec.local && active(spec.scope))
             .filter(|(binding, _)| input.consume_shortcut(&binding.shortcut()))
             .map(|(_, spec)| spec.id)
             .collect()

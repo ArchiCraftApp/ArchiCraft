@@ -944,6 +944,9 @@ impl eframe::App for ArchiCraftApp {
                 }
             }
         });
+        // Local commands that no plan view ran this frame are dropped
+        // (HW-003); the ones invoked below wait for the next frame's views.
+        self.ws.view_commands.clear();
 
         #[cfg(feature = "perf")]
         crate::perf::window(&ctx, &self.ws.perf);

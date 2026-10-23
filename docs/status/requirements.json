@@ -36,7 +36,7 @@
       "section": "4.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/persistence/prefs.rs:38 autosave_minutes (default 5 at 83, clamped to 1–120 at 148 in Preferences::sanitized), editable in Preferences (crates/archicraft-app/src/ui/dialogs.rs:688-689). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
+      "evidence": "Done: crates/archicraft-app/src/persistence/prefs.rs:38 autosave_minutes (default 5 at 83, clamped to 1–120 at 148 in Preferences::sanitized), editable in Preferences (crates/archicraft-app/src/ui/dialogs.rs:685-689). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -327,7 +327,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Context menus exist on the plan canvas (context_menu, crates/archicraft-app/src/views/plan.rs:1083), the 3D canvas (crates/archicraft-app/src/views/view3d.rs:258) and storey items in the browser (browser::ui, crates/archicraft-app/src/ui/browser.rs:51). Missing: no context menu on tabs (Behavior::on_tab_button, crates/archicraft-app/src/app.rs:839, only activates the pane); none on 3D-view items in the browser or the Project section (browser::ui, crates/archicraft-app/src/ui/browser.rs:24); VIEW-003's rename/delete/settings/'save as view' for views; the 3D canvas menu lacks Settings.",
+      "gap": "Context menus exist on the plan canvas (context_menu, crates/archicraft-app/src/views/plan.rs:1123), the 3D canvas (crates/archicraft-app/src/views/view3d.rs:258) and storey items in the browser (browser::ui, crates/archicraft-app/src/ui/browser.rs:51). Missing: no context menu on tabs (Behavior::on_tab_button, crates/archicraft-app/src/app.rs:839, only activates the pane); none on 3D-view items in the browser or the Project section (browser::ui, crates/archicraft-app/src/ui/browser.rs:24); VIEW-003's rename/delete/settings/'save as view' for views; the 3D canvas menu lacks Settings.",
       "depends_on": []
     },
     {
@@ -346,7 +346,7 @@
       "section": "4.3",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/app.rs:937 (tree.ui) shows the views as one egui_tiles tree, so dragging a tab beside another puts two or more views side by side; every view shows the workspace's one selection (crates/archicraft-app/src/workspace.rs:124 Workspace::selection), which the 3D views take through SceneKey::of (102). There is no explicit split command and the split is not persisted (UI-004). Regression check: Test: `ui_007_plan_and_3d_side_by_side_share_the_selection` (app)",
+      "evidence": "Done: crates/archicraft-app/src/app.rs:937 (tree.ui) shows the views as one egui_tiles tree, so dragging a tab beside another puts two or more views side by side; every view shows the workspace's one selection (crates/archicraft-app/src/workspace.rs:125 Workspace::selection), which the 3D views take through SceneKey::of (102). There is no explicit split command and the split is not persisted (UI-004). Regression check: Test: `ui_007_plan_and_3d_side_by_side_share_the_selection` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -357,7 +357,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Default shortcuts exist for every D.8 command that exists (default bindings of the command registry, Registry, crates/archicraft-app/src/commands/mod.rs:300): save, undo, redo, delete, select all, wall, slab, plan/3D switch, next/previous tab, fit, zoom to selection, orbit; single-key shortcuts do not fire while a text field has focus (Scope::is_active, crates/archicraft-app/src/commands/mod.rs:186, used by ArchiCraftApp::shortcuts, crates/archicraft-app/src/app.rs:516). Missing because the commands do not exist: cut, copy, paste, command palette (NFR-USE-005); move, copy-move, rotate, mirror, vertical move, array, trim, split, offset; measure and the column, beam, roof, opening, door, window, stair and free-form solid tools; show all, hide selection, isolate selection.",
+      "gap": "Default shortcuts exist for every D.8 command that exists (default bindings of the command registry, Registry, crates/archicraft-app/src/commands/mod.rs:331): save, undo, redo, delete, select all, wall, slab, plan/3D switch, next/previous tab, fit, zoom to selection, orbit; single-key shortcuts do not fire while a text field has focus (Scope::is_active, crates/archicraft-app/src/commands/mod.rs:189, used by ArchiCraftApp::shortcuts, crates/archicraft-app/src/app.rs:516). Missing because the commands do not exist: cut, copy, paste, command palette (NFR-USE-005); move, copy-move, rotate, mirror, vertical move, array, trim, split, offset; measure and the column, beam, roof, opening, door, window, stair and free-form solid tools; show all, hide selection, isolate selection.",
       "depends_on": []
     },
     {
@@ -367,7 +367,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No reassignment UI, no keymap stored in Preferences (crates/archicraft-app/src/persistence/prefs.rs:34-77 has none), no conflict detection or confirmation; view-local keys (R, Tab, Backspace in handle_keys, crates/archicraft-app/src/views/plan.rs:1003-1078) are outside the Action system and cannot be rebound.",
+      "gap": "No reassignment UI, no keymap stored in Preferences (crates/archicraft-app/src/persistence/prefs.rs:34-77 has none), no conflict detection or confirmation. The plan view's local keys (R, Tab, Backspace, Enter, Esc) are registered commands that the view matches through Keymap::effective_bindings (crates/archicraft-app/src/commands/keymap.rs), but the keymap holds only the defaults until the user keymap exists (archicraft-qb2); Enter and Esc of point input are fixed by design.",
       "depends_on": []
     },
     {
@@ -377,7 +377,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Light, dark and follow-system themes exist (ThemeChoice in Preferences). Missing: the canvas background is hard-coded per dark/light mode (plan Palette::new, crates/archicraft-app/src/views/plan.rs:283; 3D background, view3d::background, crates/archicraft-app/src/views/view3d.rs:93) with no preference to configure it; no automatic 3:1 contrast adjustment: material cut-fill colours are drawn as stored (draw_plan, crates/archicraft-app/src/views/plan.rs:427), and no contrast check exists anywhere.",
+      "gap": "Light, dark and follow-system themes exist (ThemeChoice in Preferences). Missing: the canvas background is hard-coded per dark/light mode (plan Palette::new, crates/archicraft-app/src/views/plan.rs:288; 3D background, view3d::background, crates/archicraft-app/src/views/view3d.rs:93) with no preference to configure it; no automatic 3:1 contrast adjustment: material cut-fill colours are drawn as stored (draw_plan, crates/archicraft-app/src/views/plan.rs:432), and no contrast check exists anywhere.",
       "depends_on": []
     },
     {
@@ -397,7 +397,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The problems panel (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:890) lists failed geometry, and clicking an entry selects the element and requests a zoom; each entry is the element's name and its reason from the catalogue (geometry_problems_show_as_localized_text, crates/archicraft-app/tests/ui.rs). But a failed element has no geometry or fallback representation, so the zoom finds no bounds (NFR-REL-006). Load problems are plain labels, not clickable, even when Problem.path names a node (crates/archicraft-ifcx/src/validate.rs:50). Dangling references (Project::integrity_problems, crates/archicraft-model/src/project.rs:427) are never listed. Missing definitions cannot be listed because referenced definitions do not exist yet (OBJ-005).",
+      "gap": "The problems panel (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:887) lists failed geometry, and clicking an entry selects the element and requests a zoom; each entry is the element's name and its reason from the catalogue (geometry_problems_show_as_localized_text, crates/archicraft-app/tests/ui.rs). But a failed element has no geometry or fallback representation, so the zoom finds no bounds (NFR-REL-006). Load problems are plain labels, not clickable, even when Problem.path names a node (crates/archicraft-ifcx/src/validate.rs:50). Dangling references (Project::integrity_problems, crates/archicraft-model/src/project.rs:427) are never listed. Missing definitions cannot be listed because referenced definitions do not exist yet (OBJ-005).",
       "depends_on": []
     },
     {
@@ -447,7 +447,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No command palette (NFR-USE-005); shortcuts are not bindable (UI-009). Every registered command has a menu place and appears in its menu, because the menu bar is built from the registry's menu places (Registry::menu, crates/archicraft-app/src/commands/mod.rs:348; menu_bar, crates/archicraft-app/src/ui/shell.rs:111), but several commands are not in the command registry and are reachable from one place only, without a menu entry: R cycles the wall reference line and P/Shift+P switch the input fields (handle_keys, crates/archicraft-app/src/views/plan.rs:1003); the wall and slab geometry modes are buttons in the properties strip (tool_modes, crates/archicraft-app/src/ui/properties.rs:728); the 3D display mode, view presets and projection switch are in the status bar only (status_bar, crates/archicraft-app/src/ui/shell.rs:169); Locked and Snap targets are properties checkboxes (lock_toggle, crates/archicraft-app/src/ui/properties.rs:593).",
+      "gap": "No command palette (NFR-USE-005); shortcuts are not bindable (UI-009). Every registered command has a menu place and appears in its menu, because the menu bar is built from the registry's menu places (Registry::menu, crates/archicraft-app/src/commands/mod.rs:380; menu_bar, crates/archicraft-app/src/ui/shell.rs:111), but several commands are not in the command registry and are reachable from one place only, without a menu entry: R cycles the wall reference line and P/Shift+P switch the input fields (handle_keys, crates/archicraft-app/src/views/plan.rs:1014); the wall and slab geometry modes are buttons in the properties strip (tool_modes, crates/archicraft-app/src/ui/properties.rs:728); the 3D display mode, view presets and projection switch are in the status bar only (status_bar, crates/archicraft-app/src/ui/shell.rs:169); Locked and Snap targets are properties checkboxes (lock_toggle, crates/archicraft-app/src/ui/properties.rs:593).",
       "depends_on": []
     },
     {
@@ -466,7 +466,7 @@
       "section": "4.4",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/workspace.rs:20-22 Pane::{Plan(StoreyId), View3d(ViewId)} (one implicit plan per storey). Regression check: Test: `view_002_a_new_project_has_a_plan_per_storey_and_two_3d_views` (app)",
+      "evidence": "Done: crates/archicraft-app/src/workspace.rs:21-22 Pane::{Plan(StoreyId), View3d(ViewId)} (one implicit plan per storey). Regression check: Test: `view_002_a_new_project_has_a_plan_per_storey_and_two_3d_views` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -527,7 +527,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "View range (bottom/top limits) cannot be overridden; no per-plan-view settings object (plan views keyed by StoreyId, Workspace::plan_views, crates/archicraft-app/src/workspace.rs:126), so split-level use case not covered",
+      "gap": "View range (bottom/top limits) cannot be overridden; no per-plan-view settings object (plan views keyed by StoreyId, Workspace::plan_views, crates/archicraft-app/src/workspace.rs:127), so split-level use case not covered",
       "depends_on": []
     },
     {
@@ -546,7 +546,7 @@
       "section": "4.4",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/views/plan.rs:654 ui pans by middle-button drag (720-721) and two-finger scroll (698-699) and zooms about the cursor by wheel (706) and pinch (711); crates/archicraft-app/src/commands/view.rs:22 runs fit to window, 26 zoom to selection and 35/44 previous/next zoom over crates/archicraft-app/src/views/camera.rs:68 ZoomHistory (73 ZOOM_STEPS = 50). Observation: a Point-unit wheel without modifier always pans, so a smooth-scrolling mouse cannot zoom without Cmd/Ctrl. Shift+F runs zoom to selection (it ran fit to window before shortcuts were matched most modifiers first). Regression check: Test: `view_014_plan_navigation_pans_zooms_and_fits` (app), `zoom_history_keeps_20_steps` (camera.rs); also `plan_round_trip_and_zoom_anchor`, `zoom_history` (camera.rs)",
+      "evidence": "Done: crates/archicraft-app/src/views/plan.rs:664 ui pans by middle-button drag (720-721) and two-finger scroll (698-699) and zooms about the cursor by wheel (706) and pinch (711); crates/archicraft-app/src/commands/view.rs:22 runs fit to window, 26 zoom to selection and 35/44 previous/next zoom over crates/archicraft-app/src/views/camera.rs:68 ZoomHistory (73 ZOOM_STEPS = 50). Observation: a Point-unit wheel without modifier always pans, so a smooth-scrolling mouse cannot zoom without Cmd/Ctrl. Shift+F runs zoom to selection (it ran fit to window before shortcuts were matched most modifiers first). Regression check: Test: `view_014_plan_navigation_pans_zooms_and_fits` (app), `zoom_history_keeps_20_steps` (camera.rs); also `plan_round_trip_and_zoom_anchor`, `zoom_history` (camera.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -837,7 +837,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No pen, line-type, fill or cover-fill attributes exist; the project holds only materials as graphic resources (Project, crates/archicraft-model/src/project.rs:302). Outline colours and weights are hard-coded: Palette (crates/archicraft-app/src/views/plan.rs:268) and CUT_WIDTH/PROJECTED_WIDTH (crates/archicraft-app/src/views/plan.rs:317), and the overhead dash pattern is fixed in draw_plan (crates/archicraft-app/src/views/plan.rs:427). Elements carry no graphic-property references other than the material (Wall::material, Slab::material), whose cut-fill foreground colour is the only attribute-driven 2D property and updates all elements when edited; its pattern is ignored (DSP-010). Per-element outline pen, line type, cut-fill pens and cover fill are missing.",
+      "gap": "No pen, line-type, fill or cover-fill attributes exist; the project holds only materials as graphic resources (Project, crates/archicraft-model/src/project.rs:302). Outline colours and weights are hard-coded: Palette (crates/archicraft-app/src/views/plan.rs:273) and CUT_WIDTH/PROJECTED_WIDTH (crates/archicraft-app/src/views/plan.rs:322), and the overhead dash pattern is fixed in draw_plan (crates/archicraft-app/src/views/plan.rs:432). Elements carry no graphic-property references other than the material (Wall::material, Slab::material), whose cut-fill foreground colour is the only attribute-driven 2D property and updates all elements when edited; its pattern is ignored (DSP-010). Per-element outline pen, line type, cut-fill pens and cover fill are missing.",
       "depends_on": []
     },
     {
@@ -867,7 +867,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Weights do not come from pens (none exist, DSP-001): they are the screen-point constants CUT_WIDTH 1.8 and PROJECTED_WIDTH 0.9 (crates/archicraft-app/src/views/plan.rs:317). Widths are logical points, never scaled by pixels_per_point or clamped to one device pixel, so at 100% scaling the 0.9-pt projected and overhead lines are 0.9 device pixels wide and take epaint's thin-line path, which draws them at reduced opacity instead of a full pixel. Cut outlines are drawn heavier than projected ones at every zoom (constant 2:1 ratio), so that part holds.",
+      "gap": "Weights do not come from pens (none exist, DSP-001): they are the screen-point constants CUT_WIDTH 1.8 and PROJECTED_WIDTH 0.9 (crates/archicraft-app/src/views/plan.rs:322). Widths are logical points, never scaled by pixels_per_point or clamped to one device pixel, so at 100% scaling the 0.9-pt projected and overhead lines are 0.9 device pixels wide and take epaint's thin-line path, which draws them at reduced opacity instead of a full pixel. Cut outlines are drawn heavier than projected ones at every zoom (constant 2:1 ratio), so that part holds.",
       "depends_on": []
     },
     {
@@ -887,7 +887,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No pen resource in the project, no weights (hairline, 0.13, 0.18, 0.25, 0.35 and 0.50 mm at 1:100, DSP-019), no structural/non-structural cut distinction, no cut-fill, cover-fill, fill-background, drafting, annotation-line or annotation-text pens, nothing saved in the project or editable (DSP-006). The plan Palette (crates/archicraft-app/src/views/plan.rs:268) can seed the default colours: it has cut, projected and overhead colours and screen-only roles (selection, hover as pre-selection, preview, snap), but it is a hard-coded light/dark pair with widths in screen points and has no guide role.",
+      "gap": "No pen resource in the project, no weights (hairline, 0.13, 0.18, 0.25, 0.35 and 0.50 mm at 1:100, DSP-019), no structural/non-structural cut distinction, no cut-fill, cover-fill, fill-background, drafting, annotation-line or annotation-text pens, nothing saved in the project or editable (DSP-006). The plan Palette (crates/archicraft-app/src/views/plan.rs:273) can seed the default colours: it has cut, projected and overhead colours and screen-only roles (selection, hover as pre-selection, preview, snap), but it is a hard-coded light/dark pair with widths in screen points and has no guide role.",
       "depends_on": []
     },
     {
@@ -937,7 +937,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Every pattern is drawn as a flat tone of the material's cut-fill foreground colour (cut-region mesh in draw_plan, crates/archicraft-app/src/views/plan.rs:427; see the FillPattern doc comment, crates/archicraft-model/src/material.rs:92). FillPattern (crates/archicraft-model/src/material.rs:95) names solid, concrete, masonry, timber, insulation, soil and diagonal, but no hatch definition (angle, spacing, pen) exists. The optional background (CutFill, crates/archicraft-model/src/material.rs:135) is read and written in IFCX but never rendered and not editable in material_editor (crates/archicraft-app/src/ui/dialogs.rs:805); solid fills have no transparency option; fills take colours, not pens (needs DSP-001, DSP-005).",
+      "gap": "Every pattern is drawn as a flat tone of the material's cut-fill foreground colour (cut-region mesh in draw_plan, crates/archicraft-app/src/views/plan.rs:432; see the FillPattern doc comment, crates/archicraft-model/src/material.rs:92). FillPattern (crates/archicraft-model/src/material.rs:95) names solid, concrete, masonry, timber, insulation, soil and diagonal, but no hatch definition (angle, spacing, pen) exists. The optional background (CutFill, crates/archicraft-model/src/material.rs:135) is read and written in IFCX but never rendered and not editable in material_editor (crates/archicraft-app/src/ui/dialogs.rs:802); solid fills have no transparency option; fills take colours, not pens (needs DSP-001, DSP-005).",
       "depends_on": []
     },
     {
@@ -987,7 +987,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Projected and overhead lines are drawn as independent two-point segments (draw_plan, crates/archicraft-app/src/views/plan.rs:427; PlanElement stores them as pairs, crates/archicraft-geometry/src/plan.rs:25), so their corners have no joins; epaint 0.36 strokes have butt caps only, and its thin-line path, which the 0.9-pt projected and overhead lines take at 100% scaling, has no caps at all, leaving notches at corners. Cut outlines are closed paths and are joined. Anti-aliasing is epaint feathering, independent of multisampling, so that part holds. Missing: chaining segments into polylines, defined caps, and a check at several zoom levels (DSP-018 golden images).",
+      "gap": "Projected and overhead lines are drawn as independent two-point segments (draw_plan, crates/archicraft-app/src/views/plan.rs:432; PlanElement stores them as pairs, crates/archicraft-geometry/src/plan.rs:25), so their corners have no joins; epaint 0.36 strokes have butt caps only, and its thin-line path, which the 0.9-pt projected and overhead lines take at 100% scaling, has no caps at all, leaving notches at corners. Cut outlines are closed paths and are joined. Anti-aliasing is epaint feathering, independent of multisampling, so that part holds. Missing: chaining segments into polylines, defined caps, and a check at several zoom levels (DSP-018 golden images).",
       "depends_on": []
     },
     {
@@ -1157,7 +1157,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The five modes divide segments, circles, arcs and chains of edges (DivisionMode, crates/archicraft-app/src/input/division.rs:98; divide at :197; Chain at :206). The 'Division' control of the drawing tools in the properties strip chooses the mode, its value (equal parts, a percentage or a length in the project's units) and the scope, and keeps them in the preferences (division, crates/archicraft-app/src/ui/properties.rs:779; InputSettings, crates/archicraft-app/src/input/division.rs:313; Preferences::input, crates/archicraft-app/src/persistence/prefs.rs:64). Hovering an edge in a plan view resolves the scope on the snap index (between nodes, between intersections with other elements' edges, or the owner's whole chain: a wall's reference line, a slab's outline, a cut ring), keeps the edge within 1.5 times the snap radius and offers its division points as division-level snap targets, drawn as ticks that follow the control on the next frame (SnapIndex::hover, crates/archicraft-app/src/input/targets.rs:678; division_ticks, crates/archicraft-app/src/views/plan.rs:578; the_division_control_chooses_the_mode_its_value_and_the_scope, crates/archicraft-app/tests/ui.rs:1601). Of coincident edges, such as a slab's outline under walls' reference lines, a selected element's edge is hovered, otherwise the first in source order, so a selected slab's whole perimeter can be divided (hovered_edge, crates/archicraft-app/src/input/targets.rs:640; the_selected_slabs_outline_is_hovered_under_reference_lines, crates/archicraft-app/tests/cursor_glyphs.rs:246). Missing: model elements have no arcs, so no arc is hovered.",
+      "gap": "The five modes divide segments, circles, arcs and chains of edges (DivisionMode, crates/archicraft-app/src/input/division.rs:98; divide at :197; Chain at :206). The 'Division' control of the drawing tools in the properties strip chooses the mode, its value (equal parts, a percentage or a length in the project's units) and the scope, and keeps them in the preferences (division, crates/archicraft-app/src/ui/properties.rs:779; InputSettings, crates/archicraft-app/src/input/division.rs:313; Preferences::input, crates/archicraft-app/src/persistence/prefs.rs:64). Hovering an edge in a plan view resolves the scope on the snap index (between nodes, between intersections with other elements' edges, or the owner's whole chain: a wall's reference line, a slab's outline, a cut ring), keeps the edge within 1.5 times the snap radius and offers its division points as division-level snap targets, drawn as ticks that follow the control on the next frame (SnapIndex::hover, crates/archicraft-app/src/input/targets.rs:678; division_ticks, crates/archicraft-app/src/views/plan.rs:578; the_division_control_chooses_the_mode_its_value_and_the_scope, crates/archicraft-app/tests/ui.rs:1781). Of coincident edges, such as a slab's outline under walls' reference lines, a selected element's edge is hovered, otherwise the first in source order, so a selected slab's whole perimeter can be divided (hovered_edge, crates/archicraft-app/src/input/targets.rs:640; the_selected_slabs_outline_is_hovered_under_reference_lines, crates/archicraft-app/tests/cursor_glyphs.rs:246). Missing: model elements have no arcs, so no arc is hovered.",
       "depends_on": []
     },
     {
@@ -1177,7 +1177,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: persistent guide lines, segments, circles and arcs in plan and 3D views, stored per view, snappable including their division points, created by dragging from the view border onto an edge (aligned to it), moved by a numeric offset (also as a copy), deleted individually, by sweep or all at once, hidden globally, and excluded from export and the model. Only hooks exist: GuideShape (crates/archicraft-app/src/input/guide.rs:40) covers lines, rays, segments, circles and arcs with a Persistent GuideOrigin (:25), and the snap candidates rank guide points and guide intersections (collect, crates/archicraft-app/src/input/snap.rs:422); nothing creates or stores guides.",
+      "gap": "Whole requirement: persistent guide lines, segments, circles and arcs in plan and 3D views, stored per view, snappable including their division points, created by dragging from the view border onto an edge (aligned to it), moved by a numeric offset (also as a copy), deleted individually, by sweep or all at once, hidden globally, and excluded from export and the model. Only hooks exist: GuideShape (crates/archicraft-app/src/input/guide.rs:41) covers lines, rays, segments, circles and arcs with a Persistent GuideOrigin (:25), and the snap candidates rank guide points and guide intersections (collect, crates/archicraft-app/src/input/snap.rs:422); nothing creates or stores guides.",
       "depends_on": []
     },
     {
@@ -1287,7 +1287,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No option limiting picking to edges and nodes. Esc does not clear the selection while a 3D view is active: Esc reaches the selection only through handle_keys and apply of the plan (crates/archicraft-app/src/views/plan.rs:1003, crates/archicraft-app/src/views/plan.rs:985), which run for the active plan pane only; the 3D view handles no keys. In 3D, clicks pick bodies by ray (pick, crates/archicraft-app/src/views/view3d.rs:75), not edges or nodes. Elements drawn only projected (e.g. the default slab below the 1.10 m cut plane) are picked only within the tolerance of their projected lines, not by clicking inside their area (PlanDrawing::pick, crates/archicraft-geometry/src/plan.rs:270, tests containment for cut polygons only).",
+      "gap": "No option limiting picking to edges and nodes. Esc does not clear the selection while a 3D view is active: Esc reaches the selection only through handle_keys and apply of the plan (crates/archicraft-app/src/views/plan.rs:1014, crates/archicraft-app/src/views/plan.rs:995), which run for the active plan pane only; the 3D view handles no keys. In 3D, clicks pick bodies by ray (pick, crates/archicraft-app/src/views/view3d.rs:75), not edges or nodes. Elements drawn only projected (e.g. the default slab below the 1.10 m cut plane) are picked only within the tolerance of their projected lines, not by clicking inside their area (PlanDrawing::pick, crates/archicraft-geometry/src/plan.rs:270, tests containment for cut polygons only).",
       "depends_on": []
     },
     {
@@ -1337,7 +1337,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: no criteria dialog combining element kind with storey, layer, material, layer structure (PRF-001), dimensions, name/ID and IFC class; no operators (equals, not equals, contains, does not contain); no adding results to or removing them from the selection; no filling criteria values from a picked element; no named criteria sets saved in the project. The only bulk selection is Select all for the active tool's kind (Workspace::select_all, crates/archicraft-app/src/workspace.rs:401, SEL-004).",
+      "gap": "Whole requirement: no criteria dialog combining element kind with storey, layer, material, layer structure (PRF-001), dimensions, name/ID and IFC class; no operators (equals, not equals, contains, does not contain); no adding results to or removing them from the selection; no filling criteria values from a picked element; no named criteria sets saved in the project. The only bulk selection is Select all for the active tool's kind (Workspace::select_all, crates/archicraft-app/src/workspace.rs:425, SEL-004).",
       "depends_on": []
     },
     {
@@ -1477,7 +1477,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No handles, no dragging of nodes or edges, no numeric input during a stretch. Plan view handles only click/area selection (plan::ui, crates/archicraft-app/src/views/plan.rs:771-795 and 857-882).",
+      "gap": "No handles, no dragging of nodes or edges, no numeric input during a stretch. Plan view handles only click/area selection (plan::ui, crates/archicraft-app/src/views/plan.rs:776-795 and 857-882).",
       "depends_on": []
     },
     {
@@ -1607,7 +1607,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "None of trim (EDT-011), extend (EDT-012), split (EDT-013), parameter pick-up/inject (ELM-003) or contour detection (INP-018) exist, neither as modifier gestures nor as explicit commands; the command registry (crates/archicraft-app/src/commands/) has only file, edit, view, project, help and tool commands. Live previews exist only for element creation (ToolState::outlines, crates/archicraft-app/src/tools/mod.rs:274) and the user origin, through the point-input framework (InputConsumer with Preview, crates/archicraft-app/src/input/consumer.rs:167); move, rotate and stretch exist only as test stubs (TransformStub, crates/archicraft-app/src/input/mod.rs:592). Effort here is wiring each operation, once it exists under its own requirement, as a menu command that runs as an InputConsumer with a preview, besides its gesture.",
+      "gap": "None of trim (EDT-011), extend (EDT-012), split (EDT-013), parameter pick-up/inject (ELM-003) or contour detection (INP-018) exist, neither as modifier gestures nor as explicit commands; the command registry (crates/archicraft-app/src/commands/) has only file, edit, view, project, help and tool commands. Live previews exist only for element creation (ToolState::outlines, crates/archicraft-app/src/tools/mod.rs:274) and the user origin, through the point-input framework (InputConsumer with Preview, crates/archicraft-app/src/input/consumer.rs:167); move, rotate and stretch exist only as test stubs (TransformStub, crates/archicraft-app/src/input/mod.rs:595). Effort here is wiring each operation, once it exists under its own requirement, as a menu command that runs as an InputConsumer with a preview, besides its gesture.",
       "depends_on": []
     },
     {
@@ -1767,7 +1767,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No ghosted handles: no element handles exist at all, and a locked selection is outlined like any other (draw_plan, crates/archicraft-app/src/views/plan.rs:427, selection loop at line 499). On hover only name and kind are shown (ui, crates/archicraft-app/src/views/plan.rs:964). The lock cause is known (Project::edit_lock_reason, crates/archicraft-model/src/project.rs:358, tells element lock from layer lock) but reaches the user only as a status-line error when an edit is rejected; the properties strip says just 'The selected elements are locked.' (strip, crates/archicraft-app/src/ui/properties.rs:645). Rejecting moves, deletion and parameter changes of locked elements works (plan_update_elements, crates/archicraft-model/src/command.rs:449).",
+      "gap": "No ghosted handles: no element handles exist at all, and a locked selection is outlined like any other (draw_plan, crates/archicraft-app/src/views/plan.rs:432, selection loop at line 499). On hover only name and kind are shown (ui, crates/archicraft-app/src/views/plan.rs:969). The lock cause is known (Project::edit_lock_reason, crates/archicraft-model/src/project.rs:358, tells element lock from layer lock) but reaches the user only as a status-line error when an edit is rejected; the properties strip says just 'The selected elements are locked.' (strip, crates/archicraft-app/src/ui/properties.rs:645). Rejecting moves, deletion and parameter changes of locked elements works (plan_update_elements, crates/archicraft-model/src/command.rs:449).",
       "depends_on": []
     },
     {
@@ -1977,7 +1977,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Reference lines with direction arrows are drawn in plan views only (reference_line, crates/archicraft-app/src/views/plan.rs:415, for selected walls, or all walls with View > Reference lines), not in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102, draws meshes and feature edges only). The in-progress preview draws the pending reference line as a plain polyline without a direction arrow (preview loop in plan::ui, crates/archicraft-app/src/views/plan.rs:910). Beams do not exist. The R key (handle_keys, crates/archicraft-app/src/views/plan.rs:1003) cycles the location by executing SetToolDefaults, so every press is an undo step of its own and changes the wall tool's defaults for later walls; the cycle (ReferenceLine::next, crates/archicraft-model/src/kinds/wall.rs:55) covers exterior, centre and interior only, not core faces (PRF-003) or a custom offset.",
+      "gap": "Reference lines with direction arrows are drawn in plan views only (reference_line, crates/archicraft-app/src/views/plan.rs:420, for selected walls, or all walls with View > Reference lines), not in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102, draws meshes and feature edges only). The in-progress preview draws the pending reference line as a plain polyline without a direction arrow (preview loop in plan::ui, crates/archicraft-app/src/views/plan.rs:920). Beams do not exist. The R key (Workspace::cycle_wall_reference_line, crates/archicraft-app/src/workspace.rs:300) cycles the location by executing SetToolDefaults, so every press is an undo step of its own and changes the wall tool's defaults for later walls; the cycle (ReferenceLine::next, crates/archicraft-model/src/kinds/wall.rs:55) covers exterior, centre and interior only, not core faces (PRF-003) or a custom offset.",
       "depends_on": []
     },
     {
@@ -2047,7 +2047,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No auto-join option/toggle; no extension or trimming when a point is placed off the reference line (typed distances bypass snapping, PointInput::resolve, crates/archicraft-app/src/input/mod.rs:296); no auto-join when editing/moving existing walls.",
+      "gap": "No auto-join option/toggle; no extension or trimming when a point is placed off the reference line (typed distances bypass snapping, PointInput::resolve, crates/archicraft-app/src/input/mod.rs:299); no auto-join when editing/moving existing walls.",
       "depends_on": []
     },
     {
@@ -2257,7 +2257,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Numeric elevation editing exists: the Elevation offset and Reference plane fields of geometry_fields (crates/archicraft-app/src/ui/properties.rs:215). No polygon editing commands (EDT-008 node/edge palette, EDT-009 stretching, EDT-015 union/difference) exist anywhere, so slab outlines and holes cannot be edited after creation; the plan view ui (crates/archicraft-app/src/views/plan.rs:654) handles only tool points and selection. No dragging of the slab elevation: there are no section or elevation views (VIEW-030, VIEW-032), the 3D view only navigates and picks (pick, crates/archicraft-app/src/views/view3d.rs:75), and no handle/grip drag framework exists (SnapKind::Handle, crates/archicraft-app/src/input/snap.rs:59, is a snap target only).",
+      "gap": "Numeric elevation editing exists: the Elevation offset and Reference plane fields of geometry_fields (crates/archicraft-app/src/ui/properties.rs:215). No polygon editing commands (EDT-008 node/edge palette, EDT-009 stretching, EDT-015 union/difference) exist anywhere, so slab outlines and holes cannot be edited after creation; the plan view ui (crates/archicraft-app/src/views/plan.rs:664) handles only tool points and selection. No dragging of the slab elevation: there are no section or elevation views (VIEW-030, VIEW-032), the 3D view only navigates and picks (pick, crates/archicraft-app/src/views/view3d.rs:75), and no handle/grip drag framework exists (SnapKind::Handle, crates/archicraft-app/src/input/snap.rs:59, is a snap target only).",
       "depends_on": []
     },
     {
@@ -2727,7 +2727,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No section or elevation views exist (Pane is Plan or View3d only, crates/archicraft-app/src/workspace.rs:20); no opening tool. Needs section/elevation view type plus profile input mapped to the host face plane.",
+      "gap": "No section or elevation views exist (Pane is Plan or View3d only, crates/archicraft-app/src/workspace.rs:21); no opening tool. Needs section/elevation view type plus profile input mapped to the host face plane.",
       "depends_on": []
     },
     {
@@ -2807,7 +2807,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No Door or Window element kinds (the kinds! registry lists only wall and slab, crates/archicraft-model/src/kinds/mod.rs:378), no host relation on Element (crates/archicraft-model/src/element.rs:132), no tool (ToolKind has Select, Wall, Slab, crates/archicraft-app/src/tools/mod.rs:23). Workspace::error (crates/archicraft-app/src/workspace.rs:296) is usable for the 'no host under pointer' feedback. Needs hosted-element data (host wall id, position along the wall, vertical position per DW-007), the storey taken from the host, moving with it (plan_transform_elements, crates/archicraft-model/src/command.rs:483, moves only the listed elements) and cascading deletion (plan_delete_elements, crates/archicraft-model/src/command.rs:420, removes only the listed ids).",
+      "gap": "No Door or Window element kinds (the kinds! registry lists only wall and slab, crates/archicraft-model/src/kinds/mod.rs:378), no host relation on Element (crates/archicraft-model/src/element.rs:132), no tool (ToolKind has Select, Wall, Slab, crates/archicraft-app/src/tools/mod.rs:23). Workspace::error (crates/archicraft-app/src/workspace.rs:320) is usable for the 'no host under pointer' feedback. Needs hosted-element data (host wall id, position along the wall, vertical position per DW-007), the storey taken from the host, moving with it (plan_transform_elements, crates/archicraft-model/src/command.rs:483, moves only the listed elements) and cascading deletion (plan_delete_elements, crates/archicraft-model/src/command.rs:420, removes only the listed ids).",
       "depends_on": []
     },
     {
@@ -2827,7 +2827,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No preview of a door or window or its void: tool previews are outlines only (Preview, crates/archicraft-app/src/input/consumer.rs:149; ToolState::outlines, crates/archicraft-app/src/tools/mod.rs:274). No host-candidate cycling; Tab already cycles snap candidates during point input (PointInput::cycles, crates/archicraft-app/src/input/mod.rs:262) and picks in the select tool (handle_keys, crates/archicraft-app/src/views/plan.rs:1003), so a key without that conflict is needed. Needs the list of candidate hosts under the pointer (walls at junctions and overlaps), the chosen host highlighted, and a live preview of the unit and its void on that host (depends on DW-001, DW-009).",
+      "gap": "No preview of a door or window or its void: tool previews are outlines only (Preview, crates/archicraft-app/src/input/consumer.rs:149; ToolState::outlines, crates/archicraft-app/src/tools/mod.rs:274). No host-candidate cycling; Tab already cycles snap candidates during point input (PointInput::cycles, crates/archicraft-app/src/input/mod.rs:265) and picks in the select tool (handle_keys, crates/archicraft-app/src/views/plan.rs:1014), so a key without that conflict is needed. Needs the list of candidate hosts under the pointer (walls at junctions and overlaps), the chosen host highlighted, and a live preview of the unit and its void on that host (depends on DW-001, DW-009).",
       "depends_on": []
     },
     {
@@ -3087,7 +3087,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No compound edit mode (SEL-008) exists; selection is per element id (Workspace::selection, a HashSet<ElementId>, crates/archicraft-app/src/workspace.rs:124). Needs the CW-001 curtain wall kind first, then part addressing (cell and frame ids that stay stable across grid edits), per-instance override storage for frame and panel classes (CW-003, CW-004), a command that deletes a division frame and merges the adjacent panels, and re-application of overrides after grid edits wherever the cell still exists.",
+      "gap": "No compound edit mode (SEL-008) exists; selection is per element id (Workspace::selection, a HashSet<ElementId>, crates/archicraft-app/src/workspace.rs:125). Needs the CW-001 curtain wall kind first, then part addressing (cell and frame ids that stay stable across grid edits), per-instance override storage for frame and panel classes (CW-003, CW-004), a command that deletes a division frame and merges the adjacent panels, and re-application of overrides after grid edits wherever the cell still exists.",
       "depends_on": []
     },
     {
@@ -3167,7 +3167,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No stair body side (left, centre, right of the baseline) with an offset, no upward/downward input mode and no live riser-count preview. The wall's ReferenceLine (crates/archicraft-model/src/kinds/wall.rs:22) is a pattern for the side choice. Tool previews are 2D outlines only: ToolState::outlines (crates/archicraft-app/src/tools/mod.rs:274) fills Preview (crates/archicraft-app/src/input/consumer.rs:149), which only the plan view draws (plan::ui, crates/archicraft-app/src/views/plan.rs:654); the 3D view (view3d::ui, crates/archicraft-app/src/views/view3d.rs:102) shows no tool preview at all. Needs the STA-001 stair kind and solver.",
+      "gap": "No stair body side (left, centre, right of the baseline) with an offset, no upward/downward input mode and no live riser-count preview. The wall's ReferenceLine (crates/archicraft-model/src/kinds/wall.rs:22) is a pattern for the side choice. Tool previews are 2D outlines only: ToolState::outlines (crates/archicraft-app/src/tools/mod.rs:274) fills Preview (crates/archicraft-app/src/input/consumer.rs:149), which only the plan view draws (plan::ui, crates/archicraft-app/src/views/plan.rs:664); the 3D view (view3d::ui, crates/archicraft-app/src/views/view3d.rs:102) shows no tool preview at all. Needs the STA-001 stair kind and solver.",
       "depends_on": []
     },
     {
@@ -3417,7 +3417,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No stair plan symbol: no step lines, walking line, direction arrow, up/down label, break line or configurable break height (cut-plane height, custom height or n-th riser). plan_drawing (crates/archicraft-geometry/src/plan.rs:111) classifies each body part against the one cut height into cut, projected or overhead lines (loop at :131), and PlanElement (:25) carries no symbolic lines besides the wall reference line. The plan view already draws overhead lines dashed (draw_plan, crates/archicraft-app/src/views/plan.rs:427), which the part above the break line can reuse. Needs the STA-001 stair kind and a kind-specific plan-symbol hook.",
+      "gap": "No stair plan symbol: no step lines, walking line, direction arrow, up/down label, break line or configurable break height (cut-plane height, custom height or n-th riser). plan_drawing (crates/archicraft-geometry/src/plan.rs:111) classifies each body part against the one cut height into cut, projected or overhead lines (loop at :131), and PlanElement (:25) carries no symbolic lines besides the wall reference line. The plan view already draws overhead lines dashed (draw_plan, crates/archicraft-app/src/views/plan.rs:432), which the part above the break line can reuse. Needs the STA-001 stair kind and a kind-specific plan-symbol hook.",
       "depends_on": []
     },
     {
@@ -4287,7 +4287,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No warning when a new element is placed on a hidden or locked layer: Project::new_element (crates/archicraft-model/src/project.rs:407) takes the layer from the tool defaults, ToolState::complete (crates/archicraft-app/src/tools/mod.rs:219) and ToolState::chain_walls (crates/archicraft-app/src/tools/mod.rs:146) build AddElements without looking at that layer, and Workspace::execute (crates/archicraft-app/src/workspace.rs:315) only reports the result. plan_add_elements (crates/archicraft-model/src/command.rs:399) accepts additions to hidden and locked layers silently, so the new element vanishes or cannot be edited without a message. Named layers, visibility and lock flags, and the edit lock (Project::edit_lock_reason, crates/archicraft-model/src/project.rs:358) exist.",
+      "gap": "No warning when a new element is placed on a hidden or locked layer: Project::new_element (crates/archicraft-model/src/project.rs:407) takes the layer from the tool defaults, ToolState::complete (crates/archicraft-app/src/tools/mod.rs:219) and ToolState::chain_walls (crates/archicraft-app/src/tools/mod.rs:146) build AddElements without looking at that layer, and Workspace::execute (crates/archicraft-app/src/workspace.rs:339) only reports the result. plan_add_elements (crates/archicraft-model/src/command.rs:399) accepts additions to hidden and locked layers silently, so the new element vanishes or cannot be edited without a message. Named layers, visibility and lock flags, and the edit lock (Project::edit_lock_reason, crates/archicraft-model/src/project.rs:358) exist.",
       "depends_on": []
     },
     {
@@ -4556,7 +4556,7 @@
       "section": "5.2.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Preferences → 'Indented IFCX (human-readable)' (crates/archicraft-app/src/persistence/prefs.rs:72 indented_ifcx, default compact at 97; crates/archicraft-app/src/ui/dialogs.rs:731 in preferences_window); crates/archicraft-app/src/app.rs:305 passes it to Document::to_bytes for Save, Save as and the IFX-062 overwrite. Autosaves stay compact (crates/archicraft-app/src/persistence/autosave.rs:134 write_autosave). The reference_models example writes every model compact and indented (`<name>-indented.ifcx`), so CI and the gate run conformance on both layouts. No per-save choice in the native file dialog (rfd has no custom controls). The indented layout round-trips: `indented_output_round_trips_to_the_golden_bytes` (crates/archicraft-ifcx/tests/determinism.rs); streamed, it has the bytes of the whole document formatted at once: `saving_node_by_node_writes_the_bytes_of_the_whole_document` (same file). Regression check: Test: `indented_ifcx_defaults_to_compact_and_persists` (prefs.rs), `indented_save_reads_back_and_leaves_compact_saves_unchanged` (document.rs), `autosaves_are_compact` (autosave.rs), `preferences_offer_indented_ifcx_output` (tests/ui.rs); conformance (CI and gate) on the `<name>-indented.ifcx` reference models",
+      "evidence": "Done: Preferences → 'Indented IFCX (human-readable)' (crates/archicraft-app/src/persistence/prefs.rs:72 indented_ifcx, default compact at 97; crates/archicraft-app/src/ui/dialogs.rs:728 in preferences_window); crates/archicraft-app/src/app.rs:305 passes it to Document::to_bytes for Save, Save as and the IFX-062 overwrite. Autosaves stay compact (crates/archicraft-app/src/persistence/autosave.rs:134 write_autosave). The reference_models example writes every model compact and indented (`<name>-indented.ifcx`), so CI and the gate run conformance on both layouts. No per-save choice in the native file dialog (rfd has no custom controls). The indented layout round-trips: `indented_output_round_trips_to_the_golden_bytes` (crates/archicraft-ifcx/tests/determinism.rs); streamed, it has the bytes of the whole document formatted at once: `saving_node_by_node_writes_the_bytes_of_the_whole_document` (same file). Regression check: Test: `indented_ifcx_defaults_to_compact_and_persists` (prefs.rs), `indented_save_reads_back_and_leaves_compact_saves_unchanged` (document.rs), `autosaves_are_compact` (autosave.rs), `preferences_offer_indented_ifcx_output` (tests/ui.rs); conformance (CI and gate) on the `<name>-indented.ifcx` reference models",
       "gap": "",
       "depends_on": []
     },
@@ -5046,7 +5046,7 @@
       "section": "5.4",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: plan navigation in crates/archicraft-app/src/views/plan.rs:654 ui: a middle-button drag pans (Camera2d::pan at 720-723), the scroll wheel zooms about the cursor (Event::MouseWheel at 694-708, Camera2d::zoom_at), and the secondary button opens the plan context menu (response.context_menu at 977, crates/archicraft-app/src/views/plan.rs:1083 context_menu). 3D navigation in crates/archicraft-app/src/views/view3d.rs:102 ui: a middle-button drag pans, Shift and a middle-button drag orbit (153-159, Camera3d::pan and Camera3d::orbit), the wheel zooms about the cursor (Event::MouseWheel at 129-146, Camera3d::zoom_at), and the secondary button opens the 3D context menu (response.context_menu at 258). Regression check: Test: `hw_001_middle_button_and_wheel_navigate_and_the_secondary_button_opens_context_menus` (crates/archicraft-app/tests/done_requirements.rs); also `view_014_plan_navigation_pans_zooms_and_fits` (app).",
+      "evidence": "Done: plan navigation in crates/archicraft-app/src/views/plan.rs:664 ui: a middle-button drag pans (Camera2d::pan at 720-723), the scroll wheel zooms about the cursor (Event::MouseWheel at 694-708, Camera2d::zoom_at), and the secondary button opens the plan context menu (response.context_menu at 977, crates/archicraft-app/src/views/plan.rs:1123 context_menu). 3D navigation in crates/archicraft-app/src/views/view3d.rs:102 ui: a middle-button drag pans, Shift and a middle-button drag orbit (153-159, Camera3d::pan and Camera3d::orbit), the wheel zooms about the cursor (Event::MouseWheel at 129-146, Camera3d::zoom_at), and the secondary button opens the 3D context menu (response.context_menu at 258). Regression check: Test: `hw_001_middle_button_and_wheel_navigate_and_the_secondary_button_opens_context_menus` (crates/archicraft-app/tests/done_requirements.rs); also `view_014_plan_navigation_pans_zooms_and_fits` (app).",
       "gap": "",
       "depends_on": []
     },
@@ -5057,7 +5057,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Pan versus zoom is decided solely by MouseWheelUnit::Point in the plan view (ui, crates/archicraft-app/src/views/plan.rs:654) and the 3D view (ui, crates/archicraft-app/src/views/view3d.rs:102). winit reports Windows precision-touchpad scrolling as line deltas, so on the Windows minimum/reference laptops a two-finger drag would zoom instead of pan; horizontal deltas of line-unit events are dropped (only delta.y feeds the zoom). Pinch zoom (Event::Zoom) works in both views; no test covers line-unit two-finger input on Windows hardware.",
+      "gap": "Pan versus zoom is decided solely by MouseWheelUnit::Point in the plan view (ui, crates/archicraft-app/src/views/plan.rs:664) and the 3D view (ui, crates/archicraft-app/src/views/view3d.rs:102). winit reports Windows precision-touchpad scrolling as line deltas, so on the Windows minimum/reference laptops a two-finger drag would zoom instead of pan; horizontal deltas of line-unit events are dropped (only delta.y feeds the zoom). Pinch zoom (Event::Zoom) works in both views; no test covers line-unit two-finger input on Windows hardware.",
       "depends_on": []
     },
     {
@@ -5077,7 +5077,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Only the commands that exist have shortcuts (default bindings of the command registry, Registry, crates/archicraft-app/src/commands/mod.rs:300); the rest of the D.8 set (cut/copy/paste, command palette, move, copy-move, rotate, mirror, vertical move, array, trim, split, offset, measure, the column, beam, roof, opening, door, window, stair and free-form solid tools, show all/hide/isolate) is absent because those commands do not exist. Menus and dialogs are not keyboard-navigable beyond egui's built-in Tab focus: no code for opening the menu bar from the keyboard (F10 or Alt access keys) was found in crates/archicraft-app/src/ui. Typed numeric entry works through point input (INP-003, crates/archicraft-app/src/input/typed.rs).",
+      "gap": "Only the commands that exist have shortcuts (default bindings of the command registry, Registry, crates/archicraft-app/src/commands/mod.rs:331); the rest of the D.8 set (cut/copy/paste, command palette, move, copy-move, rotate, mirror, vertical move, array, trim, split, offset, measure, the column, beam, roof, opening, door, window, stair and free-form solid tools, show all/hide/isolate) is absent because those commands do not exist. Menus and dialogs are not keyboard-navigable beyond egui's built-in Tab focus: no code for opening the menu bar from the keyboard (F10 or Alt access keys) was found in crates/archicraft-app/src/ui. Typed numeric entry works through point input (INP-003, crates/archicraft-app/src/input/typed.rs). The plan view's own keys (R cycles the wall reference line, Tab, Backspace, Enter, Esc) are registered commands that it matches through the keymap (crates/archicraft-app/src/commands/view_keys.rs), so they are listed with the other shortcuts.",
       "depends_on": []
     },
     {
@@ -5137,7 +5137,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Needs EDT-016 copy/paste first: there is no clipboard and no Cut/Copy/Paste command (the Edit commands, commands::edit::specs, crates/archicraft-app/src/commands/edit.rs:8). Also missing: a serialised clipboard payload (elements plus the materials and layers they reference; layer structures and profiles do not exist in the model yet, PRF-001, PRF-004), the conflict resolution UI (use existing / keep both / overwrite, PRF-009), and a second open project, either as a second window (PRJ-011; ArchiCraftApp, crates/archicraft-app/src/app.rs:79, holds one Workspace with one Document, crates/archicraft-app/src/workspace.rs:113) or as a second process exchanging the payload through the OS clipboard.",
+      "gap": "Needs EDT-016 copy/paste first: there is no clipboard and no Cut/Copy/Paste command (the Edit commands, commands::edit::specs, crates/archicraft-app/src/commands/edit.rs:8). Also missing: a serialised clipboard payload (elements plus the materials and layers they reference; layer structures and profiles do not exist in the model yet, PRF-001, PRF-004), the conflict resolution UI (use existing / keep both / overwrite, PRF-009), and a second open project, either as a second window (PRJ-011; ArchiCraftApp, crates/archicraft-app/src/app.rs:79, holds one Workspace with one Document, crates/archicraft-app/src/workspace.rs:114) or as a second process exchanging the payload through the OS clipboard.",
       "depends_on": []
     },
     {
@@ -5177,7 +5177,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Unmeasured: no RM-S/RM-M/RM-L. The `perf` feature's orbit, pan and zoom scripts measure frame rates (docs/performance/README.md), but they have only run on the 12-element shell, and there is no walk navigation or walk script. Design limits: non-indexed vertices of 40 B (Vertex, crates/archicraft-app/src/views/render3d.rs:60), 3 per triangle plus 2 per feature edge (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so about 240 MB for RM-M and about 1 GB for RM-L. There is no culling or LOD (VIEW-054), 4x MSAA is fixed (SAMPLE_COUNT, crates/archicraft-app/src/views/render3d.rs:19), and every selection change rebuilds and re-uploads the whole scene (SceneKey, crates/archicraft-app/src/workspace.rs:94).",
+      "gap": "Unmeasured: no RM-S/RM-M/RM-L. The `perf` feature's orbit, pan and zoom scripts measure frame rates (docs/performance/README.md), but they have only run on the 12-element shell, and there is no walk navigation or walk script. Design limits: non-indexed vertices of 40 B (Vertex, crates/archicraft-app/src/views/render3d.rs:60), 3 per triangle plus 2 per feature edge (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so about 240 MB for RM-M and about 1 GB for RM-L. There is no culling or LOD (VIEW-054), 4x MSAA is fixed (SAMPLE_COUNT, crates/archicraft-app/src/views/render3d.rs:19), and every selection change rebuilds and re-uploads the whole scene (SceneKey, crates/archicraft-app/src/workspace.rs:95).",
       "depends_on": []
     },
     {
@@ -5187,7 +5187,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Unmeasured: no RM-M, and the `plan-pan` perf script has only run on small models. Its run loop (opening the plan, the pan, dropping the warm-up samples, quitting) is pinned by nfr_perf_001_scripted_run_pans_the_plan_and_quits (crates/archicraft-app/tests/perf.rs, feature `perf`). The plan geometry is cached per storey and revision (Document::plan, crates/archicraft-app/src/document.rs:106), and cut fills come pre-triangulated. But draw_plan (crates/archicraft-app/src/views/plan.rs:427) still transforms every point to screen space and hands every stroke, dashed overhead line and fill mesh to egui's painter each frame, which re-tessellates the strokes, with no viewport culling. docs/technology-choices.md:166 (Plan views: lyon) already rejects egui's painter for large plans; the lyon/wgpu plan renderer chosen there does not exist yet (no lyon dependency). Hatches (DSP-013) are not drawn yet, so their cost is not included.",
+      "gap": "Unmeasured: no RM-M, and the `plan-pan` perf script has only run on small models. Its run loop (opening the plan, the pan, dropping the warm-up samples, quitting) is pinned by nfr_perf_001_scripted_run_pans_the_plan_and_quits (crates/archicraft-app/tests/perf.rs, feature `perf`). The plan geometry is cached per storey and revision (Document::plan, crates/archicraft-app/src/document.rs:106), and cut fills come pre-triangulated. But draw_plan (crates/archicraft-app/src/views/plan.rs:432) still transforms every point to screen space and hands every stroke, dashed overhead line and fill mesh to egui's painter each frame, which re-tessellates the strokes, with no viewport culling. docs/technology-choices.md:166 (Plan views: lyon) already rejects egui's painter for large plans; the lyon/wgpu plan renderer chosen there does not exist yet (no lyon dependency). Hatches (DSP-013) are not drawn yet, so their cost is not included.",
       "depends_on": []
     },
     {
@@ -5256,7 +5256,7 @@
       "section": "6.2",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Default 5 min, configurable 1–120: crates/archicraft-app/src/persistence/prefs.rs:38 autosave_minutes, 83 (default), 148 (clamp) and crates/archicraft-app/src/ui/dialogs.rs:688-689 (preferences_window). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
+      "evidence": "Done: Default 5 min, configurable 1–120: crates/archicraft-app/src/persistence/prefs.rs:38 autosave_minutes, 83 (default), 148 (clamp) and crates/archicraft-app/src/ui/dialogs.rs:685-689 (preferences_window). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -5297,7 +5297,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No fallback representation: an element whose geometry failed is skipped in the plan (plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so it cannot be seen, picked or highlighted. The problems panel link (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:890) selects it, but PlanViewState::zoom_to (crates/archicraft-app/src/views/plan.rs:106) finds no bounds and does nothing. The global panic hook (install, crates/archicraft-app/src/persistence/crash.rs:66) also fires for panics that ModelGeometry::evaluate catches (crates/archicraft-geometry/src/evaluate.rs:66). A caught geometry panic therefore still writes a crash report, and the next start reports it as a crash.",
+      "gap": "No fallback representation: an element whose geometry failed is skipped in the plan (plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so it cannot be seen, picked or highlighted. The problems panel link (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:887) selects it, but PlanViewState::zoom_to (crates/archicraft-app/src/views/plan.rs:106) finds no bounds and does nothing. The global panic hook (install, crates/archicraft-app/src/persistence/crash.rs:66) also fires for panics that ModelGeometry::evaluate catches (crates/archicraft-geometry/src/evaluate.rs:66). A caught geometry panic therefore still writes a crash report, and the next start reports it as a crash.",
       "depends_on": []
     },
     {
@@ -5377,7 +5377,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Only two element tools exist (wall and slab; ToolKind, crates/archicraft-app/src/tools/mod.rs:23). Their numeric input and snapping already go through one shared layer (PointInput, crates/archicraft-app/src/input/mod.rs:208; InputConsumer, crates/archicraft-app/src/input/consumer.rs:167), and both offer rectangle and rotated-rectangle methods. The clause 'the same edit commands for nodes, edges and polygons' has nothing behind it: no node, edge or polygon editing (EDT-008, EDT-009), and no move, rotate or stretch tool in the application (these exist only as test stubs in the input module's tests: TransformStub, RotateStub and StretchStub, crates/archicraft-app/src/input/mod.rs:592, 715, 780). Consistency can only be inspected once more element kinds and the edit palette exist.",
+      "gap": "Only two element tools exist (wall and slab; ToolKind, crates/archicraft-app/src/tools/mod.rs:23). Their numeric input and snapping already go through one shared layer (PointInput, crates/archicraft-app/src/input/mod.rs:211; InputConsumer, crates/archicraft-app/src/input/consumer.rs:167), and both offer rectangle and rotated-rectangle methods. The clause 'the same edit commands for nodes, edges and polygons' has nothing behind it: no node, edge or polygon editing (EDT-008, EDT-009), and no move, rotate or stretch tool in the application (these exist only as test stubs in the input module's tests: TransformStub, RotateStub and StretchStub, crates/archicraft-app/src/input/mod.rs:595, 715, 780). Consistency can only be inspected once more element kinds and the edit palette exist.",
       "depends_on": []
     },
     {
@@ -5396,7 +5396,7 @@
       "section": "6.4",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: deleting elements asks nothing (crates/archicraft-app/src/workspace.rs:377 delete_selection executes an undoable command, UND-001); the only questions before a model change are the storey deletion prompt (crates/archicraft-app/src/ui/dialogs.rs:207 delete_storey_window) and the unsaved-changes prompt (crates/archicraft-app/src/app.rs:331 guard, shown by 594 prompts). The permitted one-time notice with 'do not show again' for conversions (SOL-004, ROF-009, STA-048) has no infrastructure yet because those conversions do not exist; re-inspect when they arrive. Regression check: Test: `str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask` (app)",
+      "evidence": "Done: deleting elements asks nothing (crates/archicraft-app/src/workspace.rs:401 delete_selection executes an undoable command, UND-001); the only questions before a model change are the storey deletion prompt (crates/archicraft-app/src/ui/dialogs.rs:207 delete_storey_window) and the unsaved-changes prompt (crates/archicraft-app/src/app.rs:331 guard, shown by 594 prompts). The permitted one-time notice with 'do not show again' for conversions (SOL-004, ROF-009, STA-048) has no infrastructure yet because those conversions do not exist; re-inspect when they arrive. Regression check: Test: `str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -5407,7 +5407,7 @@
       "status": "missing",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No searchable command palette: no fuzzy search UI, no execution from a list, no shortcut to open it (D.8 lists 'command palette' among required shortcuts). Registry::specs with each command's label, description and bindings (crates/archicraft-app/src/commands/mod.rs:338) make this a small task.",
+      "gap": "No searchable command palette: no fuzzy search UI, no execution from a list, no shortcut to open it (D.8 lists 'command palette' among required shortcuts). Registry::specs with each command's label, description and bindings (crates/archicraft-app/src/commands/mod.rs:370) make this a small task.",
       "depends_on": []
     },
     {
@@ -5617,7 +5617,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "The first point of an element can be typed as absolute X/Y (INP-003, INP-004), later points are typed, Enter finishes and Esc cancels (handle_keys, crates/archicraft-app/src/views/plan.rs:1003), and the file, edit, view and tool commands have shortcuts. But selection needs the mouse (only Select all, Ctrl+A, works without it; Tab cycles only the candidates under the cursor). Plan and 3D navigation need the pointer (no arrow-key panning, zoom keys or keyboard orbit). The plan context menu (context_menu, crates/archicraft-app/src/views/plan.rs:1083) cannot be opened from the keyboard. Commands without a shortcut (Preferences, the Project menu, Help, reference lines, place and reset user origin) can only be reached through egui's menu bar, which cannot be opened from the keyboard. The command palette that would cover them (NFR-USE-005) is missing.",
+      "gap": "The first point of an element can be typed as absolute X/Y (INP-003, INP-004), later points are typed, and the plan view's own keys (Tab moves between typed fields, Backspace removes the last point, Enter finishes, Esc cancels, R cycles the wall reference line) are registered commands that can also be invoked without their key (crates/archicraft-app/src/commands/view_keys.rs); the file, edit, view and tool commands have shortcuts. But selection needs the mouse (only Select all, Ctrl+A, works without it; Tab cycles only the candidates under the cursor). Plan and 3D navigation need the pointer (no arrow-key panning, zoom keys or keyboard orbit). The plan context menu (context_menu, crates/archicraft-app/src/views/plan.rs:1123) cannot be opened from the keyboard. Commands without a shortcut (Preferences, the Project menu, Help, reference lines, place and reset user origin) can only be reached through egui's menu bar, which cannot be opened from the keyboard. The command palette that would cover them (NFR-USE-005) is missing.",
       "depends_on": []
     },
     {
@@ -5627,7 +5627,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "eframe's `accesskit` feature is on (eframe in [workspace.dependencies] of the workspace Cargo.toml:35), so widgets expose roles, but many inputs have no accessible name. The layer manager's Visible, Locked and Snaps checkboxes have empty labels (Dialogs::layers_window, crates/archicraft-app/src/ui/dialogs.rs:311, 319, 328), as do the Preferences checkboxes for digit grouping and reference lines (Dialogs::preferences_window, crates/archicraft-app/src/ui/dialogs.rs:724, 727). Text fields, combo boxes and DragValues from the helpers in crates/archicraft-app/src/ui/widgets.rs (length at :70, angle at :87) have their visible label in a separate ui.label() that is never linked to the control (labelled_by is not used anywhere). The UI tests find widgets by accessible label (crates/archicraft-app/tests/ui.rs), but nothing checks that every control has a name, and no screen-reader test has been run.",
+      "gap": "eframe's `accesskit` feature is on (eframe in [workspace.dependencies] of the workspace Cargo.toml:35), so widgets expose roles, but many inputs have no accessible name. The layer manager's Visible, Locked and Snaps checkboxes have empty labels (Dialogs::layers_window, crates/archicraft-app/src/ui/dialogs.rs:311, 319, 328), as do the Preferences checkboxes for digit grouping and reference lines (Dialogs::preferences_window, crates/archicraft-app/src/ui/dialogs.rs:721, 727). Text fields, combo boxes and DragValues from the helpers in crates/archicraft-app/src/ui/widgets.rs (length at :70, angle at :87) have their visible label in a separate ui.label() that is never linked to the control (labelled_by is not used anywhere). The UI tests find widgets by accessible label (crates/archicraft-app/tests/ui.rs), but nothing checks that every control has a name, and no screen-reader test has been run.",
       "depends_on": []
     },
     {
@@ -5637,7 +5637,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Light and dark themes exist (ThemeChoice, crates/archicraft-app/src/persistence/prefs.rs:15). No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours has been done: small weak text in the toolbox headings and the status bar (toolbox, crates/archicraft-app/src/ui/shell.rs:139, 142, 146; status_bar, :272, 274) is unchecked. In the plan palette (Palette::new, crates/archicraft-app/src/views/plan.rs:283) on white paper, hover reaches about 2.6:1 and preview and overhead about 3.0:1, at or below the 3:1 for graphics. Selection and hover are two shades of one blue. Reference red against snap green depends on a red-green difference. No colour-vision-deficiency check exists, and the 3D SELECTION_COLOR (crates/archicraft-app/src/views/render3d.rs:91) is also unchecked.",
+      "gap": "Light and dark themes exist (ThemeChoice, crates/archicraft-app/src/persistence/prefs.rs:15). No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours has been done: small weak text in the toolbox headings and the status bar (toolbox, crates/archicraft-app/src/ui/shell.rs:139, 142, 146; status_bar, :272, 274) is unchecked. In the plan palette (Palette::new, crates/archicraft-app/src/views/plan.rs:288) on white paper, hover reaches about 2.6:1 and preview and overhead about 3.0:1, at or below the 3:1 for graphics. Selection and hover are two shades of one blue. Reference red against snap green depends on a red-green difference. No colour-vision-deficiency check exists, and the 3D SELECTION_COLOR (crates/archicraft-app/src/views/render3d.rs:91) is also unchecked.",
       "depends_on": []
     },
     {

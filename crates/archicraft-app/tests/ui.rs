@@ -7,7 +7,7 @@ mod common;
 
 use std::rc::Rc;
 
-use archicraft_app::commands::{Binding, Origin, Registry};
+use archicraft_app::commands::{Binding, Origin, Registry, Target, view_keys};
 use archicraft_app::i18n::{self, Localizer};
 use archicraft_app::input::{
     ConstraintReference, DivisionMode, DivisionScope, Field, GuideOrigin, InputConsumer, InputMode, SnapKind,
@@ -20,7 +20,9 @@ use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_length};
 use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
-use archicraft_model::{Command, ElementId, ElementKind, IfcClass, KindTag, PredefinedType, ProjectSettings};
+use archicraft_model::{
+    Command, ElementId, ElementKind, IfcClass, KindTag, PredefinedType, ProjectSettings, ReferenceLine,
+};
 use common::{assert_present, data_dir, harness, harness_in};
 use egui::accesskit::Role;
 use egui::os::OperatingSystem;
@@ -437,7 +439,7 @@ fn typed_keys_address_a_field_and_take_an_expression() {
 
 /// UI-008, HW-003: Help ▸ Keyboard shortcuts lists the commands with all
 /// their default bindings from the registry, among them the second bindings
-/// of Redo and Delete.
+/// of Redo and Delete and the local keys of the plan view (HW-003).
 #[test]
 fn the_shortcuts_window_lists_every_binding() {
     let mut harness = harness("shortcuts-window");
@@ -463,11 +465,15 @@ fn the_shortcuts_window_lists_every_binding() {
         .iter()
         .filter(|s| !s.default_bindings.is_empty())
         .count();
-    assert_eq!(rows, 23);
+    // The 23 former actions and the 6 local commands of the plan view.
+    assert_eq!(rows, 29);
     for spec in Registry::get().specs() {
         if !spec.default_bindings.is_empty() {
             assert_present(&harness, &keys(&spec.default_bindings));
         }
+    }
+    for id in view_keys::ALL {
+        assert_present(&harness, &Registry::get().spec(id.as_str()).unwrap().label());
     }
 }
 
@@ -637,14 +643,15 @@ fn invoked_by_shortcut(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<&'s
 /// UI-008, HW-003, UI-017: every default binding of the registry, among them
 /// the 23 shortcuts of the former action list, Primary+Y (redo) and
 /// Backspace (delete), invokes its command when its keys are pressed, on
-/// macOS and elsewhere.
+/// macOS and elsewhere. The plan view runs its local commands itself
+/// (`the_plan_views_local_keys_run_their_commands`).
 #[test]
 fn every_default_shortcut_invokes_its_command() {
     let mut harness = harness("shortcuts");
     harness.state_mut().record_invocations();
     let mut pressed = 0;
     for os in [OperatingSystem::Mac, OperatingSystem::Nix] {
-        for spec in Registry::get().specs() {
+        for spec in Registry::get().specs().iter().filter(|s| !s.local) {
             for &binding in &spec.default_bindings {
                 press(&mut harness, binding, os);
                 assert_eq!(
@@ -694,6 +701,144 @@ fn single_key_shortcuts_stay_off_while_a_tool_is_drawing() {
     harness.run_steps(1);
     assert_eq!(invoked_by_shortcut(&mut harness), Vec::<&str>::new(), "Backspace");
     assert!(harness.state_mut().workspace().tool.points.is_empty());
+}
+
+/// The reference-line location of the wall tool's defaults.
+fn wall_reference_line(harness: &mut Harness<'static, ArchiCraftApp>) -> ReferenceLine {
+    let ws = harness.state_mut().workspace();
+    let slot = ws.doc.project.tool_defaults.get(KindTag::Wall).unwrap();
+    let ElementKind::Wall(wall) = &slot.kind else {
+        panic!("the wall slot holds a wall");
+    };
+    wall.reference_line
+}
+
+/// Presses `key` with `modifiers` and types its character, as a keyboard
+/// does, in one frame.
+fn type_key(harness: &mut Harness<'static, ArchiCraftApp>, key: Key, modifiers: Modifiers, text: &str) {
+    for pressed in [true, false] {
+        harness.event(Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers,
+        });
+    }
+    harness.event(Event::Text(text.into()));
+    harness.run_steps(2);
+}
+
+/// HW-003, NFR-A11Y-001, WAL-007, INP-003: the plan view's local keys run
+/// their commands: with the wall tool active R cycles the reference line
+/// before the first point and while drawing, with a status message; Tab
+/// moves to the next typed field while drawing; Backspace removes the last
+/// chain point. R typed into a focused text field is a letter and leaves the
+/// reference line alone (UI-008).
+#[test]
+fn the_plan_views_local_keys_run_their_commands() {
+    let mut harness = harness("local-keys");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let pos = {
+        let ws = harness.state_mut().workspace();
+        ws.plan_views[&ws.active_storey].last_rect.center()
+    };
+    harness.hover_at(pos);
+    harness.run_steps(2);
+
+    let first = wall_reference_line(&mut harness);
+    type_key(&mut harness, Key::R, Modifiers::NONE, "r");
+    let second = wall_reference_line(&mut harness);
+    assert_eq!(second, first.next(), "R before the first point");
+    let status = harness.state_mut().workspace().status.clone().unwrap();
+    assert!(status.text.starts_with("Wall reference line: "), "{}", status.text);
+
+    click_at(&mut harness, pos);
+    click_at(&mut harness, pos + egui::vec2(120.0, 0.0));
+    assert_eq!(harness.state_mut().workspace().tool.points.len(), 2);
+    type_key(&mut harness, Key::R, Modifiers::NONE, "r");
+    assert_eq!(wall_reference_line(&mut harness), second.next(), "R while drawing");
+
+    type_key(&mut harness, Key::Num2, Modifiers::NONE, "2");
+    let field = harness.state_mut().workspace().input.typed.field;
+    harness.key_press(Key::Tab);
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    assert_ne!(ws.input.typed.field, field, "Tab moved to the next field");
+    assert_eq!(ws.tool.points.len(), 2);
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    assert!(harness.state_mut().workspace().input.typed.is_empty());
+    harness.key_press(Key::Backspace);
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().tool.points.len(), 1, "Backspace");
+
+    let before = wall_reference_line(&mut harness);
+    harness.state_mut().workspace().doc.project.info.name = "Villa".to_owned();
+    open_menu(&mut harness, "Project");
+    harness.get_by_label("Project settings…").click();
+    harness.run_steps(2);
+    harness.get(By::new().role(Role::TextInput).value("Villa")).focus();
+    harness.run_steps(2);
+    assert!(harness.ctx.text_edit_focused());
+    type_key(&mut harness, Key::R, Modifiers::NONE, "r");
+    harness.get(By::new().role(Role::TextInput).value("Villar"));
+    assert_eq!(wall_reference_line(&mut harness), before, "R typed into the field");
+    assert_eq!(harness.state_mut().workspace().tool.points.len(), 1);
+}
+
+/// UI-009, HW-003: the plan view takes its local keys from the keymap: with
+/// the reference-line cycle bound to Shift+R, Shift+R cycles it and plain R
+/// does nothing.
+#[test]
+fn a_rebound_local_key_runs_its_command() {
+    let mut harness = harness("rebound-local-key");
+    harness
+        .state_mut()
+        .workspace()
+        .keymap
+        .set(view_keys::CYCLE_REFERENCE_LINE, vec![Binding::key(Key::R).shift()]);
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let first = wall_reference_line(&mut harness);
+    type_key(&mut harness, Key::R, Modifiers::NONE, "r");
+    assert_eq!(wall_reference_line(&mut harness), first, "plain R");
+    type_key(&mut harness, Key::R, Modifiers::SHIFT, "R");
+    assert_eq!(wall_reference_line(&mut harness), first.next(), "Shift+R");
+}
+
+/// HW-003, NFR-A11Y-001: invoked other than by their key (as the command
+/// palette will), the local commands act as their keys do: the reference
+/// line cycles at once, and Remove last point and Cancel step reach the
+/// active plan view in the next frame.
+#[test]
+fn invoked_local_commands_act_like_their_keys() {
+    let mut harness = harness("invoked-local");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    let pos = {
+        let ws = harness.state_mut().workspace();
+        ws.plan_views[&ws.active_storey].last_rect.center()
+    };
+    click_at(&mut harness, pos);
+    click_at(&mut harness, pos + egui::vec2(120.0, 0.0));
+    let invoke = |harness: &mut Harness<'static, ArchiCraftApp>, id| {
+        let ctx = harness.ctx.clone();
+        let app = harness.state_mut();
+        let target = Target::active(app.workspace());
+        app.invoke(&ctx, id, target, Origin::Test);
+        harness.run_steps(1);
+    };
+    let first = wall_reference_line(&mut harness);
+    invoke(&mut harness, view_keys::CYCLE_REFERENCE_LINE);
+    assert_eq!(wall_reference_line(&mut harness), first.next());
+    invoke(&mut harness, view_keys::REMOVE_LAST);
+    assert_eq!(harness.state_mut().workspace().tool.points.len(), 1);
+    invoke(&mut harness, view_keys::CANCEL_STEP);
+    let ws = harness.state_mut().workspace();
+    assert!(ws.tool.points.is_empty());
+    assert!(ws.view_commands.is_empty());
 }
 
 /// UI-008: typing W into a text field of the Project settings dialog types

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use archicraft_geometry::plan::{PlanDrawing, polygon_rings};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{NumberFormat, UnitSettings};
-use archicraft_model::{ElementId, ElementKind, KindTag, Project, StoreyId};
+use archicraft_model::{ElementId, Project, StoreyId};
 use egui::epaint::Vertex;
 use egui::{
     Align2, Color32, CursorIcon, Event, FontId, Key, Mesh, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
@@ -19,13 +19,13 @@ use egui::{
 };
 
 use super::camera::{Camera2d, ZoomHistory};
+use crate::commands::{CommandId, view_keys};
 use crate::input::{
     ConstraintReference, CursorState, Effect, Expect, Frame2d, Guide, GuideShape, Hovered, InputConsumer, InputContext,
     InputSettings, KeyInput, Modifiers, Outcome, PointInput, PointerEvent, Resolved, SnapIndex, SnapKind, SurfaceFrame,
     TrackerMode, ViewSurface,
 };
 use crate::tools::{ToolKind, ToolState};
-use crate::tr;
 use crate::workspace::{Consumer, InputFrames, Pane, Request, Workspace};
 
 /// Per-view state of a plan view.
@@ -1006,10 +1006,11 @@ fn apply(ws: &mut Workspace, effect: Effect) {
     ws.settle_consumer();
 }
 
-/// Translates the frame's key events into point input (INP-003) and handles
-/// the plan's own keys: Tab cycling of the selection tool and R. Tab goes to
-/// point input while a drawing tool takes typed values or has snap
-/// candidates to cycle through (INP-009).
+/// Translates the frame's key events into point input (INP-003) and runs
+/// the plan's local commands (HW-003): first those invoked since the last
+/// frame, then those whose keys the [keymap](crate::commands::Keymap)
+/// matches among the ones active now ([`local_commands`]). Typed characters
+/// stay text for point input.
 fn handle_keys(
     ui: &Ui,
     ws: &mut Workspace,
@@ -1017,74 +1018,103 @@ fn handle_keys(
     input: Option<&PlanInput>,
     cursor_world: Option<DVec2>,
 ) {
+    for id in std::mem::take(&mut ws.view_commands) {
+        local_command(ws, state, input, cursor_world, id);
+    }
     let events = ui.input(|i| i.events.clone());
     for event in events {
         let key = match event {
             Event::Text(text) if !ui.input(|i| i.modifiers.command) => KeyInput::Text(text),
+            // INP-004: provisional keys; Problems is Ctrl+Shift+P.
+            Event::Key {
+                key: Key::P,
+                pressed: true,
+                modifiers,
+                ..
+            } if !modifiers.command && ws.consumer().step().is_some() => {
+                if modifiers.shift {
+                    KeyInput::SwitchReference
+                } else {
+                    KeyInput::SwitchFields
+                }
+            }
             Event::Key {
                 key,
                 pressed: true,
                 modifiers,
                 ..
-            } => match key {
-                Key::Tab if ws.input.captures_keys(ws.consumer()) || (ws.takes_points() && ws.input.cycles()) => {
-                    KeyInput::Tab
+            } => {
+                if let Some(id) = ws.keymap.matching(&local_commands(ws), key, modifiers) {
+                    local_command(ws, state, input, cursor_world, id);
                 }
-                Key::Tab => {
-                    // Cycle the highlight through overlapping candidates
-                    // (SEL-001); the next click selects it.
-                    if let Some(world) = cursor_world {
-                        state.pick = Some(match state.pick {
-                            Some((p, i)) => (p, i + 1),
-                            None => (world, 1),
-                        });
-                    }
-                    continue;
-                }
-                // INP-004: provisional keys; Problems is Ctrl+Shift+P.
-                Key::P if !modifiers.command && ws.consumer().step().is_some() => {
-                    if modifiers.shift {
-                        KeyInput::SwitchReference
-                    } else {
-                        KeyInput::SwitchFields
-                    }
-                }
-                Key::Enter => KeyInput::Enter,
-                Key::Backspace => KeyInput::Backspace,
-                Key::Escape => KeyInput::Escape,
-                Key::R
-                    if ws.active_consumer == Consumer::Tool
-                        && ws.tool.kind == ToolKind::Wall
-                        && ws.input.typed.is_empty()
-                        && !modifiers.command =>
-                {
-                    // Cycle the reference-line location (WAL-007).
-                    let mut defaults = ws.doc.project.tool_defaults.clone();
-                    let Some(ElementKind::Wall(wall)) = defaults.get_mut(KindTag::Wall).map(|slot| &mut slot.kind)
-                    else {
-                        continue;
-                    };
-                    wall.reference_line = wall.reference_line.next();
-                    let label = tr!(wall.reference_line.label_key());
-                    if ws.execute(archicraft_model::Command::SetToolDefaults(defaults)) {
-                        ws.info(format!("Wall reference line: {label}"));
-                    }
-                    continue;
-                }
-                _ => continue,
-            },
+                continue;
+            }
             _ => continue,
         };
-        let effect = match input {
-            Some(input) => {
-                let ctx = input.ctx(&ws.doc.project, ws.frames, &ws.active_consumer, &ws.tool);
-                ws.input.key(key, ws.active_consumer.get_mut(&mut ws.tool), &ctx)
-            }
-            None if key == KeyInput::Escape => Effect::NothingToCancel,
-            None => Effect::None,
-        };
-        apply(ws, effect);
+        send_key(ws, input, key);
     }
+}
+
+/// The local commands whose keys the plan view handles in the current state
+/// (HW-003): the wall reference line while the wall tool waits for points
+/// and nothing is typed (WAL-007); Tab for point input while it takes the
+/// keys or cycles snap candidates, otherwise for the overlapping candidates
+/// under the cursor (SEL-001); Backspace, Enter and Esc for point input.
+fn local_commands(ws: &Workspace) -> Vec<CommandId> {
+    let mut ids = Vec::new();
+    if ws.active_consumer == Consumer::Tool && ws.tool.kind == ToolKind::Wall && ws.input.typed.is_empty() {
+        ids.push(view_keys::CYCLE_REFERENCE_LINE);
+    }
+    if ws.input.captures_keys(ws.consumer()) || (ws.takes_points() && ws.input.cycles()) {
+        ids.push(view_keys::NEXT_FIELD);
+    } else {
+        ids.push(view_keys::CYCLE_CANDIDATES);
+    }
+    ids.extend([view_keys::REMOVE_LAST, view_keys::FINISH, view_keys::CANCEL_STEP]);
+    ids
+}
+
+/// Runs the local command `id` of the plan view, pressed or invoked.
+fn local_command(
+    ws: &mut Workspace,
+    state: &mut PlanViewState,
+    input: Option<&PlanInput>,
+    cursor_world: Option<DVec2>,
+    id: CommandId,
+) {
+    let key = match id {
+        view_keys::CYCLE_REFERENCE_LINE => return ws.cycle_wall_reference_line(),
+        view_keys::CYCLE_CANDIDATES => {
+            // The next click selects the highlighted candidate (SEL-001).
+            if let Some(world) = cursor_world {
+                state.pick = Some(match state.pick {
+                    Some((p, i)) => (p, i + 1),
+                    None => (world, 1),
+                });
+            }
+            return;
+        }
+        view_keys::NEXT_FIELD => KeyInput::Tab,
+        view_keys::REMOVE_LAST => KeyInput::Backspace,
+        view_keys::FINISH => KeyInput::Enter,
+        view_keys::CANCEL_STEP => KeyInput::Escape,
+        _ => return,
+    };
+    send_key(ws, input, key);
+}
+
+/// Passes `key` to point input, or reports that Esc has nothing to cancel
+/// while no tool takes points.
+fn send_key(ws: &mut Workspace, input: Option<&PlanInput>, key: KeyInput) {
+    let effect = match input {
+        Some(input) => {
+            let ctx = input.ctx(&ws.doc.project, ws.frames, &ws.active_consumer, &ws.tool);
+            ws.input.key(key, ws.active_consumer.get_mut(&mut ws.tool), &ctx)
+        }
+        None if key == KeyInput::Escape => Effect::NothingToCancel,
+        None => Effect::None,
+    };
+    apply(ws, effect);
 }
 
 /// The plan's context menu. The user origin items come first, above the

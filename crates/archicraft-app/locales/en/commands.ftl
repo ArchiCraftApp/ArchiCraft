@@ -93,6 +93,21 @@ cmd-help-shortcuts-desc = List the keyboard shortcuts.
 cmd-help-about-label = About ArchiCraft
 cmd-help-about-desc = Show the version of ArchiCraft and the file format it writes.
 
+## Keys of the plan view (local commands)
+
+cmd-tool-wall-cycle-reference-line-label = Cycle wall reference line
+cmd-tool-wall-cycle-reference-line-desc = Move the reference line of the wall tool to its next location.
+cmd-canvas-cycle-candidates-label = Cycle overlapping elements
+cmd-canvas-cycle-candidates-desc = Highlight the next of the elements under the cursor; the next click selects it.
+cmd-input-next-field-label = Next typed field
+cmd-input-next-field-desc = Move to the next typed field, or to the next snap candidate while several are under the cursor.
+cmd-input-remove-last-label = Remove last point
+cmd-input-remove-last-desc = Remove the last typed character, or else the last point.
+cmd-input-finish-label = Finish input
+cmd-input-finish-desc = Take the typed point, or end the chain.
+cmd-input-cancel-step-label = Cancel step
+cmd-input-cancel-step-desc = Cancel one step: the typed text, the last point, the selection, then the tool.
+
 ## Reasons a command is disabled (Enabled::No in the command registry)
 
 cmd-reason-nothing-to-undo = There is nothing to undo.

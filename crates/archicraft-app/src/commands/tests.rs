@@ -112,6 +112,12 @@ fn command_ids_are_pinned() {
             "project.settings",
             "help.shortcuts",
             "help.about",
+            "tool.wall.cycle-reference-line",
+            "canvas.cycle-candidates",
+            "input.next-field",
+            "input.remove-last",
+            "input.finish",
+            "input.cancel-step",
         ]
     );
 }
@@ -188,11 +194,12 @@ const WORKS_WHILE_TYPING: [&str; 8] = [
 /// bindings (Primary+Y redoes, Backspace deletes) and no others; the
 /// commands that work while typing are TextSafe, and the single-key
 /// shortcuts and Ctrl+Tab, which stay off while a tool is drawing, are
-/// Canvas.
+/// Canvas. The plan view's local keys are pinned in
+/// `view_keys_are_local_commands`.
 #[test]
 fn registry_keeps_the_default_shortcuts() {
     let mut bound = 0;
-    for spec in Registry::get().specs() {
+    for spec in Registry::get().specs().iter().filter(|s| !s.local) {
         let id = spec.id.as_str();
         let expected = DEFAULT_SHORTCUTS.iter().find(|(i, _)| *i == id).map(|&(_, b)| b);
         assert_eq!(spec.default_bindings.first().copied(), expected, "{id}");
@@ -208,13 +215,90 @@ fn registry_keeps_the_default_shortcuts() {
     assert_eq!(spec("edit.delete").default_bindings[1], Binding::key(Key::Backspace));
 }
 
-/// UI-008: no two commands share a key combination, whatever their scope.
+/// UI-008: no two commands of the shortcut loop share a key combination,
+/// whatever their scope. The local commands of the plan view may share a
+/// key with them in a scope that is never active at the same time
+/// (`every_command_is_complete`): Backspace deletes the selection, or
+/// removes the last point while a tool takes point input.
 #[test]
 fn shortcuts_are_unique() {
     let mut seen = HashSet::new();
     for (binding, spec) in Registry::get().bindings_in_match_order() {
-        assert!(seen.insert(binding), "{} reuses {binding:?}", spec.id);
+        if !spec.local {
+            assert!(seen.insert(binding), "{} reuses {binding:?}", spec.id);
+        }
     }
+}
+
+/// HW-003, NFR-A11Y-001, UI-009: the keys the plan view handles itself are
+/// registered commands with their default keys, listed in the palette and
+/// local to the view: R cycles the wall reference line before and while
+/// drawing (Global), Tab cycles the elements under the cursor (Canvas) or
+/// moves to the next typed field (PointInput), Backspace removes the last
+/// point (PointInput), Enter and Esc work before and while drawing and
+/// cannot be rebound. No other command is local.
+#[test]
+fn view_keys_are_local_commands() {
+    use Scope::*;
+    let expected = [
+        (view_keys::CYCLE_REFERENCE_LINE, Key::R, Global, false),
+        (view_keys::CYCLE_CANDIDATES, Key::Tab, Canvas, false),
+        (view_keys::NEXT_FIELD, Key::Tab, PointInput, false),
+        (view_keys::REMOVE_LAST, Key::Backspace, PointInput, false),
+        (view_keys::FINISH, Key::Enter, Global, true),
+        (view_keys::CANCEL_STEP, Key::Escape, Global, true),
+    ];
+    assert_eq!(expected.map(|(id, ..)| id), view_keys::ALL);
+    for (id, key, scope, fixed) in expected {
+        let spec = spec(id.as_str());
+        assert_eq!(spec.default_bindings, [Binding::key(key)], "{id}");
+        assert_eq!((spec.scope, spec.fixed), (scope, fixed), "{id}");
+        assert!(spec.local && spec.palette_only && spec.menu.is_none(), "{id}");
+    }
+    let local: Vec<CommandId> = Registry::get()
+        .specs()
+        .iter()
+        .filter(|s| s.local || s.fixed)
+        .map(|s| s.id)
+        .collect();
+    assert_eq!(local, view_keys::ALL);
+}
+
+/// UI-009: the keymap gives a command's own bindings where it has them and
+/// the registry's defaults otherwise; a fixed command keeps its defaults.
+#[test]
+fn the_keymap_falls_back_to_the_defaults() {
+    let mut keymap = Keymap::default();
+    let shift_r = Binding::key(Key::R).shift();
+    assert_eq!(
+        keymap.effective_bindings(view_keys::CYCLE_REFERENCE_LINE),
+        [Binding::key(Key::R)]
+    );
+    keymap.set(view_keys::CYCLE_REFERENCE_LINE, vec![shift_r]);
+    keymap.set(view_keys::FINISH, vec![Binding::key(Key::Space)]);
+    assert_eq!(keymap.effective_bindings(view_keys::CYCLE_REFERENCE_LINE), [shift_r]);
+    assert_eq!(keymap.effective_bindings(view_keys::FINISH), [Binding::key(Key::Enter)]);
+    assert_eq!(keymap.effective_bindings(CommandId::new("no.such-command")), []);
+}
+
+/// HW-003, UI-009: a key press runs the local command the keymap binds to
+/// it: Shift+R only a command bound to Shift+R, R only one bound to R, and
+/// with both bound, each its own; Cmd or Ctrl held matches neither.
+#[test]
+fn the_keymap_matches_key_presses_to_local_commands() {
+    let ids = [view_keys::CYCLE_REFERENCE_LINE, view_keys::REMOVE_LAST];
+    let mut keymap = Keymap::default();
+    let shift = Modifiers::SHIFT;
+    let r = |keymap: &Keymap, modifiers| keymap.matching(&ids, Key::R, modifiers);
+    assert_eq!(r(&keymap, Modifiers::NONE), Some(view_keys::CYCLE_REFERENCE_LINE));
+    assert_eq!(r(&keymap, Modifiers::COMMAND), None);
+    keymap.set(view_keys::CYCLE_REFERENCE_LINE, vec![Binding::key(Key::R).shift()]);
+    assert_eq!(r(&keymap, Modifiers::NONE), None);
+    assert_eq!(r(&keymap, shift), Some(view_keys::CYCLE_REFERENCE_LINE));
+    keymap.set(view_keys::REMOVE_LAST, vec![Binding::key(Key::R)]);
+    assert_eq!(r(&keymap, Modifiers::NONE), Some(view_keys::REMOVE_LAST));
+    assert_eq!(r(&keymap, shift), Some(view_keys::CYCLE_REFERENCE_LINE));
+    assert_eq!(keymap.matching(&ids, Key::Backspace, Modifiers::NONE), None);
 }
 
 /// UI-008: a single key never works while a text field has focus, so no
@@ -329,15 +413,19 @@ fn modifier_count_orders_bindings() {
 }
 
 /// Global and TextSafe bindings can be active anywhere; Canvas and
-/// PointInput are both active in the views.
+/// PointInput are never active at the same time, so they do not overlap.
 #[test]
 fn scopes_overlap_as_documented() {
     use Scope::*;
     for a in [Global, TextSafe, Canvas, PointInput] {
         assert!(Global.overlaps(a) && a.overlaps(Global));
         assert!(TextSafe.overlaps(a) && a.overlaps(TextSafe));
+        assert!(a.overlaps(a));
     }
-    assert!(Canvas.overlaps(PointInput));
+    assert!(!Canvas.overlaps(PointInput) && !PointInput.overlaps(Canvas));
+    for (typing, drawing) in [(false, false), (false, true), (true, false), (true, true)] {
+        assert!(!(Canvas.is_active(typing, drawing) && PointInput.is_active(typing, drawing)));
+    }
 }
 
 /// UI-008: a binding is matched before every other binding on the same key
