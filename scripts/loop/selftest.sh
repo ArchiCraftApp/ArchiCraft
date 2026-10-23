@@ -571,6 +571,70 @@ hook review-verdict "$(verdict $'## Findings\nnone\nVERDICT: PASS')" >/dev/null
 expect_review "PASS on a gated tree" yes
 hook review-verdict "$(verdict $'1. Blocking\nVERDICT: FAIL')" >/dev/null
 expect_review "FAIL after a PASS" no
+# Claude Code (2.1.299) makes a subagent deliver its report through a SubagentHandback call that
+# ends its run: the hook input's last message is then empty, and the report is the call's input in
+# the agent transcript (JSONL) the input names (archicraft-wjdta).
+transcript="$work/agent.jsonl"
+row_prompt() { jq -nc --arg t "$1" '{type: "user", isMeta: true, message: {role: "user", content: $t}}'; }
+row_text() { jq -nc --arg t "$1" '{type: "assistant", message: {role: "assistant", content: [{type: "text", text: $t}]}}'; }
+row_handback() { jq -nc --arg m "$1" '{type: "assistant", message: {role: "assistant",
+    content: [{type: "tool_use", id: "toolu_h", name: "SubagentHandback", input: {message: $m}}]}}'; }
+row_result() { jq -nc '{type: "user", message: {role: "user", content: [{type: "tool_result", tool_use_id: "toolu_h",
+    content: [{type: "text", text: "{\"success\":true,\"message\":\"Report delivered to your caller.\"}"}]}]}}'; }
+row_hook() { jq -nc '{type: "attachment", attachment: {type: "hook_success", hookEvent: "SubagentStop"}}'; }
+handback() { # handback <last message> [transcript, "" for none]: the SubagentStop input
+    jq -nc --arg cwd "$repo" --arg m "$1" --arg t "${2-$transcript}" '{cwd: $cwd, agent_type: "bead-reviewer",
+        last_assistant_message: $m} + (if $t == "" then {} else {agent_transcript_path: $t} end)'; }
+pass_report=$'## Findings\nnone\nVERDICT: PASS'
+{ row_prompt "Review bead archicraft-ab12.1"; row_handback "$pass_report"; row_result; } >"$transcript"
+out="$(hook review-verdict "$(handback "")")"
+expect_review "PASS handed back on a gated tree" yes
+expect "the hook says it stamped a handed-back PASS" 1 "$(jq -r .systemMessage <<<"$out" | grep -c '^Review PASS stamped')"
+expect "review.md holds the handed-back report" $'## Findings\nnone' "$(cat "$(loop_dir)/review.md")"
+{ row_prompt "Review bead archicraft-ab12.1"; row_handback $'1. Blocking\nVERDICT: FAIL'; row_result; } >"$transcript"
+hook review-verdict "$(handback "")" >/dev/null
+expect_review "FAIL handed back after a PASS" no
+{ row_prompt "Review bead archicraft-ab12.1"; row_handback "$pass_report"; row_result; } >"$transcript"
+rm -f "$(loop_dir)/gate.ok"
+hook review-verdict "$(handback "")" >/dev/null
+expect_review "PASS handed back without a gate" no
+stamp gate.ok
+# A plain-text final message stamps; the harness then enforces the hand-back, whose stop must not
+# take the stamp away again.
+{
+    row_prompt "Review bead archicraft-ab12.1"
+    row_text "$pass_report"
+    row_prompt "[handback-send-enforce] Your report has not been delivered. Call SubagentHandback({message: <your full report>}) now; the call ends your run."
+    row_hook
+    row_handback "$pass_report"
+    row_result
+} >"$transcript"
+hook review-verdict "$(handback "$pass_report")" >/dev/null
+hook review-verdict "$(handback "")" >/dev/null
+expect_review "PASS in plain text, then the enforced hand-back" yes
+hook review-verdict "$(handback $'1. Blocking\nVERDICT: FAIL')" >/dev/null
+expect_review "FAIL in the last message, PASS in the transcript" no
+# A resumed reviewer whose new run has not handed back: an earlier run's verdict does not count.
+{
+    row_prompt "Review bead archicraft-ab12.1"
+    row_handback "$pass_report"
+    row_result
+    row_hook
+    row_prompt "The coordinator sent a message while you were working: the tree changed, review again."
+    row_text "Reading the new diff."
+} >"$transcript"
+hook review-verdict "$(handback "")" >/dev/null
+expect_review "PASS handed back in an earlier run" no
+# A row still being written when the hook reads the transcript is skipped.
+{ row_prompt "Review bead archicraft-ab12.1"; row_handback "$pass_report"; row_result; printf '{"type":"attach'; } >"$transcript"
+hook review-verdict "$(handback "")" >/dev/null
+expect_review "PASS handed back before a partly written row" yes
+out="$(hook review-verdict "$(handback "Reading the diff." "$work/missing.jsonl")")"
+expect_review "a missing transcript" no
+expect "a missing transcript leaves the last message in review.md" "Reading the diff." "$(cat "$(loop_dir)/review.md")"
+expect "the hook says a review without a transcript has no verdict" 1 "$(jq -r .systemMessage <<<"$out" | grep -c 'without verdict')"
+out="$(hook review-verdict "$(handback "" "")")"
+expect "the hook says a review without a transcript path has no verdict" 1 "$(jq -r .systemMessage <<<"$out" | grep -c 'without verdict')"
 
 # --- gate: the loop's guardrails, as CI's Loop policy checks them --------------------------------
 reset_state
