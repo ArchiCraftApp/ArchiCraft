@@ -42,13 +42,15 @@ fn an_element_of_an_unstorable_kind_is_saved_without_its_kind_and_warned_about()
     let geometry = ModelGeometry::evaluate(&p);
     let (bytes, warnings) = archicraft_ifcx::save(&p, &geometry, &options(), false);
     let d = p.elements.values().find(|e| e.tag() == KindTag::Dummy).unwrap();
-    let about: Vec<&str> = warnings
+    let about: Vec<String> = warnings
         .iter()
         .filter(|w| w.path.as_deref() == Some(d.id.to_string().as_str()))
-        .map(|w| w.message.as_str())
+        .map(|w| w.message.to_string())
         .collect();
     assert!(
-        about.iter().any(|m| m.starts_with("X-001 is of the kind “dummy”")),
+        about
+            .iter()
+            .any(|m| m.starts_with(r#"ifcx-kind-not-storable(name="X-001", kind=dummy)"#)),
         "{warnings:#?}"
     );
     assert!(
@@ -110,8 +112,8 @@ fn an_element_of_an_unreadable_kind_is_skipped_and_reported() {
     assert_eq!(loaded.project.elements.len(), p.elements.len() - 1);
     assert!(
         loaded.problems.iter().any(|p| p.severity == Severity::Error
-            && p.message.contains("W-002")
-            && p.message.contains("elements of the kind “dummy” cannot be read yet")),
+            && p.message.to_string().contains("W-002")
+            && p.message.to_string().contains("ifcx-kind-unreadable(kind=dummy)")),
         "{:#?}",
         loaded.problems
     );
@@ -136,9 +138,10 @@ fn tool_defaults_of_an_unstorable_kind_are_left_out_and_warned_about() {
     let geometry = ModelGeometry::evaluate(&p);
     let (bytes, warnings) = archicraft_ifcx::save(&p, &geometry, &options(), false);
     assert!(
-        warnings
-            .iter()
-            .any(|w| w.severity == Severity::Warning && w.message.contains("defaults of the “dummy” tool")),
+        warnings.iter().any(|w| w.severity == Severity::Warning
+            && w.message
+                .to_string()
+                .contains("ifcx-tool-defaults-not-saved(kind=dummy)")),
         "{warnings:#?}"
     );
     let file: Value = serde_json::from_slice(&bytes).unwrap();

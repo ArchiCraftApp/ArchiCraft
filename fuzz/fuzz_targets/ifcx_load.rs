@@ -25,6 +25,6 @@ fuzz_target!(|data: &[u8]| {
             let (saved, _warnings) = archicraft_ifcx::save(&outcome.project, &geometry, &options, false);
             let _ = archicraft_ifcx::load(&saved);
         }
-        Err(problem) => assert!(!problem.message.is_empty(), "rejected without a message"),
+        Err(problem) => assert!(!problem.message.key().is_empty(), "rejected without a message"),
     }
 });

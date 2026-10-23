@@ -79,10 +79,15 @@ fn thirty_two_imports_pass_the_limit() {
     let problems = validate::validate(&file);
     let unresolved = problems
         .iter()
-        .filter(|p| p.message.contains("is not available offline"))
+        .filter(|p| p.message.to_string().contains("ifcx-import-offline"))
         .count();
     assert_eq!(unresolved, MAX_IMPORTS, "{problems:#?}");
-    assert!(problems.iter().all(|p| !p.message.contains("imports")), "{problems:#?}");
+    assert!(
+        problems
+            .iter()
+            .all(|p| !p.message.to_string().contains("ifcx-file-too-many-imports")),
+        "{problems:#?}"
+    );
 }
 
 /// 33 imports are rejected (D.9, NFR-SEC-003).
@@ -90,7 +95,13 @@ fn thirty_two_imports_pass_the_limit() {
 fn thirty_three_imports_are_rejected() {
     let text = document(&unknown_imports(MAX_IMPORTS + 1), "0");
     let problem = validate::parse(text.as_bytes()).unwrap_err();
-    assert!(problem.message.contains("more than 32 imports"), "{problem}");
+    assert!(
+        problem
+            .message
+            .to_string()
+            .contains("ifcx-file-too-many-imports(max=32)"),
+        "{problem}"
+    );
 }
 
 /// The JSON nesting limit is serde_json's recursion limit: a document nested
@@ -112,7 +123,10 @@ fn json_nested_128_levels_or_more_is_rejected() {
         let text = nested_document(levels);
         let problem = validate::parse(text.as_bytes()).unwrap_err();
         assert!(
-            problem.message.contains("nested more than 127 levels deep"),
+            problem
+                .message
+                .to_string()
+                .contains("ifcx-file-nested-too-deep(max=127)"),
             "{levels}: {problem}"
         );
     }
@@ -131,14 +145,23 @@ fn the_raw_parser_enforces_the_same_limits() {
         let problem = validate::parse_raw(text.as_bytes()).unwrap_err();
         assert_eq!(problem, validate::parse(text.as_bytes()).unwrap_err(), "{levels}");
         assert!(
-            problem.message.contains("nested more than 127 levels deep"),
+            problem
+                .message
+                .to_string()
+                .contains("ifcx-file-nested-too-deep(max=127)"),
             "{levels}: {problem}"
         );
     }
     validate::parse_raw(document(&unknown_imports(MAX_IMPORTS), "0").as_bytes()).unwrap();
     let text = document(&unknown_imports(MAX_IMPORTS + 1), "0");
     let problem = validate::parse_raw(text.as_bytes()).unwrap_err();
-    assert!(problem.message.contains("more than 32 imports"), "{problem}");
+    assert!(
+        problem
+            .message
+            .to_string()
+            .contains("ifcx-file-too-many-imports(max=32)"),
+        "{problem}"
+    );
 }
 
 /// The walls-and-slab reference model with extra data entries appended.
@@ -165,7 +188,7 @@ fn too_deep(outcome: &ReadOutcome) -> Vec<&Problem> {
     outcome
         .problems
         .iter()
-        .filter(|p| p.message.contains("composition is nested too deeply"))
+        .filter(|p| p.message.to_string().contains("ifcx-composition-too-deep"))
         .collect()
 }
 
@@ -253,7 +276,13 @@ fn declared_length_above_the_limit_is_rejected_unread() {
     let mut reader = CountingReader::new(2048);
     let problem = read_bounded(&mut reader, Some(LIMIT + 1), LIMIT).unwrap_err();
     assert_eq!(reader.read, 0);
-    assert!(problem.message.contains("larger than the limit of 1 KB"), "{problem}");
+    assert!(
+        problem
+            .message
+            .to_string()
+            .contains("ifcx-file-too-large(limit=ifcx-size-kb(size=1))"),
+        "{problem}"
+    );
 }
 
 /// A stream that grows past the limit while it is read (or whose length is
@@ -264,7 +293,13 @@ fn stream_growing_past_the_limit_is_rejected() {
         let mut reader = CountingReader::new(10 * LIMIT as usize);
         let problem = read_bounded(&mut reader, declared, LIMIT).unwrap_err();
         assert!(reader.read as u64 <= LIMIT + 1, "{declared:?}: read {}", reader.read);
-        assert!(problem.message.contains("larger than the limit of 1 KB"), "{problem}");
+        assert!(
+            problem
+                .message
+                .to_string()
+                .contains("ifcx-file-too-large(limit=ifcx-size-kb(size=1))"),
+            "{problem}"
+        );
     }
 }
 
@@ -278,12 +313,16 @@ fn stream_at_exactly_the_limit_is_accepted() {
     }
 }
 
-/// The size message is user-facing English and names the D.9 limit.
+/// The size message names the D.9 limit in its largest whole unit, for the
+/// application to render (NFR-L10N-001).
 #[test]
 fn size_message_names_the_limit() {
     let mut reader = CountingReader::new(0);
     let problem = read_bounded(&mut reader, Some(MAX_FILE_SIZE as u64 + 1), MAX_FILE_SIZE as u64).unwrap_err();
-    assert_eq!(problem.message, "the file is larger than the limit of 2 GB");
+    assert_eq!(
+        problem.message.to_string(),
+        "ifcx-file-too-large(limit=ifcx-size-gb(size=2))"
+    );
     assert_eq!(reader.read, 0);
 }
 
@@ -296,8 +335,17 @@ fn load_path_reads_files_and_reports_missing_ones() {
     assert!(!outcome.project.elements.is_empty());
 
     let problem = archicraft_ifcx::load_path(&path.with_file_name("missing.ifcx")).unwrap_err();
-    assert!(problem.message.contains("cannot be read"), "{problem}");
+    assert!(
+        problem.message.to_string().contains("ifcx-file-unreadable"),
+        "{problem}"
+    );
 
     let problem = archicraft_ifcx::load_path_with_limit(&path, LIMIT).unwrap_err();
-    assert!(problem.message.contains("larger than the limit of 1 KB"), "{problem}");
+    assert!(
+        problem
+            .message
+            .to_string()
+            .contains("ifcx-file-too-large(limit=ifcx-size-kb(size=1))"),
+        "{problem}"
+    );
 }

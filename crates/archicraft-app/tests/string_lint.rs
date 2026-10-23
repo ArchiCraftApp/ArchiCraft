@@ -2,8 +2,8 @@
 //! (`crates/archicraft-app/locales/en/*.ftl`, looked up with `tr!`), not in
 //! string literals.
 //!
-//! The lint parses every source file of archicraft-app and archicraft-model
-//! with syn and reports string literals that reach the user:
+//! The lint parses every source file of archicraft-app, archicraft-model and
+//! archicraft-ifcx with syn and reports string literals that reach the user:
 //!
 //! - in archicraft-app, literal arguments (also the format string of
 //!   `format!`) of egui calls that show text ([`SINK_METHODS`],
@@ -12,7 +12,10 @@
 //!   that returns display text ([`TEXT_FUNCTIONS`], such as `CommandSpec::label`);
 //! - in archicraft-model, which has no catalogue and returns message keys,
 //!   every string literal with a space or an uppercase letter in its text;
-//! - in both, the messages of thiserror's `#[error("…")]`.
+//! - in archicraft-ifcx, which returns message keys too but is full of
+//!   camel-case file-format keywords (`groundStorey`, `IfcWall`), every
+//!   string literal with a space in its text, as every sentence has one;
+//! - in all of them, the messages of thiserror's `#[error("…")]`.
 //!
 //! Not checked: `#[cfg(test)]` and `#[test]` code, `tests/` directories,
 //! other attributes (doc comments, serde, cfg), log and panic messages
@@ -184,6 +187,8 @@ enum Rule {
     /// Every literal with a space or an uppercase letter counts
     /// (archicraft-model).
     AllText,
+    /// Every literal with a space counts (archicraft-ifcx).
+    Prose,
 }
 
 /// A user-visible literal.
@@ -274,6 +279,7 @@ impl Scanner<'_> {
         let counts = match self.rule {
             Rule::Sinks => has_letters,
             Rule::AllText => has_letters && (visible.contains(' ') || visible.chars().any(char::is_uppercase)),
+            Rule::Prose => has_letters && visible.contains(' '),
         };
         if counts {
             let start = lit.span().start();
@@ -490,13 +496,13 @@ impl<'ast> Visit<'ast> for Scanner<'_> {
                     self.visit_expr(arg);
                 }
             }
-            None if self.rule == Rule::AllText || self.text_functions > 0 => self.scan_tokens(mac.tokens.clone()),
+            None if self.rule != Rule::Sinks || self.text_functions > 0 => self.scan_tokens(mac.tokens.clone()),
             None => {}
         }
     }
 
     fn visit_lit_str(&mut self, lit: &'ast LitStr) {
-        if self.rule == Rule::AllText || self.text_functions > 0 {
+        if self.rule != Rule::Sinks || self.text_functions > 0 {
             self.record(lit);
         }
     }
@@ -551,6 +557,7 @@ fn rust_files(dir: &str) -> Vec<String> {
 const SCANNED: &[(&str, Rule)] = &[
     ("crates/archicraft-app/src", Rule::Sinks),
     ("crates/archicraft-model/src", Rule::AllText),
+    ("crates/archicraft-ifcx/src", Rule::Prose),
 ];
 
 fn repository_findings() -> Vec<Finding> {
@@ -876,6 +883,22 @@ fn lint_reports_text_in_the_model_crate() {
         ["Nothing to change.", "Create {} walls", "Not A Doc Comment"]
     );
     assert_eq!(findings[1].item, "Command::label");
+}
+
+/// NFR-L10N-001: in archicraft-ifcx every literal with a space is reported,
+/// but not the file-format keywords and message keys without one.
+#[test]
+fn lint_reports_sentences_in_the_ifcx_crate() {
+    let source = r#"
+        fn read(map: &Object) -> Result<f64, Message> {
+            let _ = map.get("groundStorey");
+            let _ = class("IfcBuildingStorey");
+            let _ = format!("{key} is missing");
+            Err(Message::new("ifcx-field-missing").text("key", "cutPlaneHeight"))
+        }
+    "#;
+    let findings = scan("reader.rs", source, Rule::Prose);
+    assert_eq!(texts(findings), ["{key} is missing"]);
 }
 
 /// NFR-L10N-001: stale pending and allowlist entries fail, so both lists only

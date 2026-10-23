@@ -457,7 +457,7 @@ mod tests {
                 let (saved, _warnings) = archicraft_ifcx::save(&outcome.project, &geometry, &options, false);
                 let _ = archicraft_ifcx::load(&saved);
             }
-            Err(problem) => assert!(!problem.message.is_empty(), "rejected without a message"),
+            Err(problem) => assert!(!problem.message.key().is_empty(), "rejected without a message"),
         }
     }
 
@@ -475,7 +475,11 @@ mod tests {
 
     /// The problems of a loaded seed that contain `text`.
     fn count(outcome: &ReadOutcome, text: &str) -> usize {
-        outcome.problems.iter().filter(|p| p.message.contains(text)).count()
+        outcome
+            .problems
+            .iter()
+            .filter(|p| p.message.to_string().contains(text))
+            .count()
     }
 
     /// NFR-REL-007: libFuzzer truncates a seed longer than `-max_len`, and
@@ -546,13 +550,19 @@ mod tests {
         assert_eq!(at_limit.project.elements.len(), 5, "{:#?}", at_limit.problems);
         let beyond = load("stress-slab-outline-32003-points");
         assert_eq!(beyond.project.elements.len(), 4);
-        assert_eq!(count(&beyond, "SL-001 skipped: model-error-slab-points"), 1);
+        assert_eq!(
+            count(
+                &beyond,
+                r#"ifcx-skipped(record=ifcx-record-element(name="SL-001"), reason=model-error-slab-points"#
+            ),
+            1
+        );
 
         let storey = load("stress-storey-listed-5000-times");
-        assert_eq!(count(&storey, "the building lists it more than once"), 5_000);
+        assert_eq!(count(&storey, "ifcx-storey-listed-twice"), 5_000);
         assert_eq!(storey.project.storeys.len(), 2);
         let slab = load("stress-slab-999-points-listed-20000-times");
-        assert_eq!(count(&slab, "SL-001 appears twice"), 20_000);
+        assert_eq!(count(&slab, r#"ifcx-duplicate(name="SL-001")"#), 20_000);
         assert_eq!(slab.project.elements.len(), 5);
 
         assert_eq!(load("stress-2000-storeys").project.storeys.len(), 2_002);
@@ -573,86 +583,77 @@ mod tests {
     #[test]
     fn each_coverage_seed_reaches_its_reader_branches() {
         let expected: &[(&str, &[&str])] = &[
-            ("optional-fields-absent", &["the ground storey is not defined"]),
+            ("optional-fields-absent", &["ifcx-ground-storey-undefined"]),
             (
                 "wall-variants",
                 &[
-                    "W-003 repaired: unknown reference-line location “outer”",
-                    "W-003 repaired: unknown top link “sideways”",
-                    "W-004 skipped: a point does not have two coordinates",
+                    r#"ifcx-repaired(record=ifcx-record-element(name="W-003"), reason=ifcx-default-used(reason=ifcx-field-unknown-value(key="referenceLine", value="outer")))"#,
+                    r#"ifcx-repaired(record=ifcx-record-element(name="W-003"), reason=ifcx-default-used(reason=ifcx-field-unknown-value(key="link", value="sideways")))"#,
+                    r#"ifcx-skipped(record=ifcx-record-element(name="W-004"), reason=ifcx-point-coordinates)"#,
                 ],
             ),
             (
                 "damaged-project-records",
                 &[
-                    "project repaired: “location” is not an object",
-                    "“auxiliarySpacing” is larger than “mainSpacing”",
-                    "material record 0 repaired: “ ”: model-error-material-name",
-                    "material record 25 skipped: it is not an object",
-                    "material record 26 skipped: “id” is not a UUID",
-                    "layer record 11 skipped: “id” is not text",
-                    "tool defaults repaired: “door” is not a tool this version knows",
-                    "tool defaults repaired: a tool's default material does not exist",
-                    "tool defaults repaired: IfcSlab is not an allowed class for the “wall” tool",
-                    "tool defaults repaired: “slab” is not an object",
+                    r#"ifcx-repaired(record=ifcx-record-project, reason=ifcx-default-used(reason=ifcx-field-not-object(key="location")))"#,
+                    "ifcx-grid-spacings",
+                    r#"ifcx-repaired(record=ifcx-record-material(index=0), reason=ifcx-material-corrected(name=" ", reason=model-error-material-name))"#,
+                    "ifcx-skipped(record=ifcx-record-material(index=25), reason=ifcx-not-object)",
+                    r#"ifcx-skipped(record=ifcx-record-material(index=26), reason=ifcx-field-not-uuid(key="id"))"#,
+                    r#"ifcx-skipped(record=ifcx-record-layer(index=11), reason=ifcx-field-not-text(key="id"))"#,
+                    r#"ifcx-repaired(record=ifcx-record-tool-defaults, reason=ifcx-tool-unknown(key="door"))"#,
+                    "ifcx-repaired(record=ifcx-record-tool-defaults, reason=ifcx-tool-material-missing)",
+                    r#"ifcx-repaired(record=ifcx-record-tool-defaults, reason=ifcx-tool-class-not-allowed(class="IfcSlab", kind=wall"#,
+                    r#"ifcx-repaired(record=ifcx-record-tool-defaults, reason=ifcx-tool-template-used(reason=ifcx-field-not-object(key="slab")))"#,
                 ],
             ),
             (
                 "damaged-elements",
                 &[
-                    "W-001 skipped: its ArchiCraft data is not an object",
-                    "W-002 skipped: “kind” has the unknown value “door”",
-                    "repaired: it has no name; “W-?” is used",
-                    "W-004 repaired: unsupported IFC class",
-                    "W-004 repaired: the material does not exist",
-                    "SL-001 repaired: the holes are left out",
-                    "Damaged 0 skipped: wall parameters are missing",
-                    "Damaged 1 skipped: a point is not a list",
-                    "Damaged 2 skipped: slab parameters are missing",
-                    "Damaged 3 skipped: a point list is not a list",
-                    "“Brick” has no ArchiCraft data and was not loaded",
-                    "refers to the unknown node “00000000-0000-0000-4e41-000000000063”",
-                    "SL-001 appears twice",
+                    r#"ifcx-skipped(record=ifcx-record-element(name="W-001"), reason=ifcx-element-data-not-object)"#,
+                    r#"ifcx-skipped(record=ifcx-record-element(name="W-002"), reason=ifcx-field-unknown-value(key="kind", value="door"))"#,
+                    r#"ifcx-no-name(name="W-?")"#,
+                    r#"ifcx-repaired(record=ifcx-record-element(name="W-004"), reason=ifcx-element-class-unsupported"#,
+                    r#"ifcx-repaired(record=ifcx-record-element(name="W-004"), reason=ifcx-element-material-missing"#,
+                    r#"ifcx-repaired(record=ifcx-record-element(name="SL-001"), reason=ifcx-holes-left-out"#,
+                    r#"ifcx-skipped(record=ifcx-record-element(name="Damaged 0"), reason=ifcx-parameters-missing(kind=wall))"#,
+                    r#"ifcx-skipped(record=ifcx-record-element(name="Damaged 1"), reason=ifcx-point-not-list)"#,
+                    r#"ifcx-skipped(record=ifcx-record-element(name="Damaged 2"), reason=ifcx-parameters-missing(kind=slab))"#,
+                    r#"ifcx-skipped(record=ifcx-record-element(name="Damaged 3"), reason=ifcx-points-not-list)"#,
+                    r#"ifcx-foreign-node(name="Brick")"#,
+                    r#"ifcx-unknown-node(target="00000000-0000-0000-4e41-000000000063")"#,
+                    r#"ifcx-duplicate(name="SL-001")"#,
                 ],
             ),
             (
                 "damaged-storey",
                 &[
-                    "repaired: it has no name; “Storey” is used",
-                    "repaired: it has no ArchiCraft data; elevation 0 and height 3 m are assumed",
+                    r#"ifcx-no-name(name="Storey")"#,
+                    "ifcx-storey-no-data(elevation=0m, height=3m)",
                 ],
             ),
             (
                 "storeys-unreadable",
                 &[
-                    "the storeys could not be read",
-                    "W-001 skipped: its storey “00 Ground floor” could not be read",
+                    "ifcx-storeys-unreadable",
+                    r#"ifcx-skipped(record=ifcx-record-element(name="W-001"), reason=ifcx-storey-lost(name="00 Ground floor"))"#,
                 ],
             ),
-            ("no-storeys", &["the building has no storeys"]),
+            ("no-storeys", &["ifcx-no-storeys"]),
             (
                 "bare-project",
                 &[
-                    "the project has no site",
-                    "the project has no building",
-                    "the project has no views",
-                    "the project has no materials",
-                    "the project has no layers",
-                    "the data version in the header is not a number",
+                    "ifcx-no-site",
+                    "ifcx-no-building",
+                    "ifcx-no-views",
+                    "ifcx-no-materials",
+                    "ifcx-no-layers",
+                    "ifcx-data-version-invalid",
                 ],
             ),
-            (
-                "format-version-newer",
-                &["written by a newer ArchiCraft version (format 2)"],
-            ),
-            (
-                "format-version-unreadable",
-                &["the ArchiCraft format version is missing or invalid"],
-            ),
-            (
-                "format-version-older",
-                &["no migration from ArchiCraft format 0 is known"],
-            ),
+            ("format-version-newer", &["ifcx-newer-format(version=2)"]),
+            ("format-version-unreadable", &["ifcx-format-version-invalid"]),
+            ("format-version-older", &["ifcx-migration-unknown(version=0)"]),
         ];
         for (name, messages) in expected {
             let outcome = load(&format!("coverage-{name}"));
@@ -694,6 +695,6 @@ mod tests {
         assert_eq!(count(&load("coverage-storeys-unreadable"), "Brick"), 0);
 
         let rejected = archicraft_ifcx::load(&seed("coverage-project-not-object")).unwrap_err();
-        assert_eq!(rejected.message, "the ArchiCraft project data is not an object");
+        assert_eq!(rejected.message.to_string(), "ifcx-project-not-object");
     }
 }

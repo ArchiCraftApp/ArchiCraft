@@ -3,15 +3,18 @@
 
 #![allow(clippy::unwrap_used)]
 
-use std::collections::{BTreeMap, BTreeSet};
+mod catalogue_check;
 
-use archicraft_app::i18n::{self, Localizer, catalogue, model::fluent_names};
+use std::collections::BTreeSet;
+
+use archicraft_app::i18n::{self, Localizer};
 use archicraft_model::message::ALL_KEYS;
 use archicraft_model::units::{
     AngleUnit, AreaUnit, LengthUnit, NumberFormat, ParseError, SlopeFormat, UnitSettings, VolumeUnit, format_length,
 };
 use archicraft_model::{IfcClass, KindTag, Message, ReferenceLine};
-use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};
+use catalogue_check::{assert_catalogue_matches, variables_of_pattern};
+use fluent_syntax::ast::Entry;
 use fluent_syntax::parser;
 
 /// A representative message for every key in `ALL_KEYS`, with the arguments
@@ -221,64 +224,6 @@ fn implicit_variables(key: &str) -> BTreeSet<String> {
     }
 }
 
-fn variables_of_inline(expression: &InlineExpression<&str>, out: &mut BTreeSet<String>) {
-    match expression {
-        InlineExpression::VariableReference { id } => {
-            out.insert(id.name.to_owned());
-        }
-        InlineExpression::Placeable { expression } => variables_of_expression(expression, out),
-        InlineExpression::FunctionReference { arguments, .. } => {
-            for arg in &arguments.positional {
-                variables_of_inline(arg, out);
-            }
-            for arg in &arguments.named {
-                variables_of_inline(&arg.value, out);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn variables_of_expression(expression: &Expression<&str>, out: &mut BTreeSet<String>) {
-    match expression {
-        Expression::Inline(inline) => variables_of_inline(inline, out),
-        Expression::Select { selector, variants } => {
-            variables_of_inline(selector, out);
-            for variant in variants {
-                variables_of_pattern(&variant.value, out);
-            }
-        }
-    }
-}
-
-fn variables_of_pattern(pattern: &Pattern<&str>, out: &mut BTreeSet<String>) {
-    for element in &pattern.elements {
-        if let PatternElement::Placeable { expression } = element {
-            variables_of_expression(expression, out);
-        }
-    }
-}
-
-/// The Fluent variables of each message in model.ftl.
-fn model_ftl_variables() -> BTreeMap<String, BTreeSet<String>> {
-    let file = catalogue::ENGLISH.iter().find(|f| f.name == "en/model.ftl").unwrap();
-    let resource = parser::parse(file.source).unwrap();
-    resource
-        .body
-        .iter()
-        .filter_map(|entry| match entry {
-            Entry::Message(m) => {
-                let mut vars = BTreeSet::new();
-                if let Some(value) = &m.value {
-                    variables_of_pattern(value, &mut vars);
-                }
-                Some((m.id.name.to_owned(), vars))
-            }
-            _ => None,
-        })
-        .collect()
-}
-
 #[test]
 fn the_variable_scan_follows_selectors_and_variants() {
     let resource = parser::parse("k = { $a ->\n    [one] { $b }\n   *[other] { NUMBER($c) }\n}\n").unwrap();
@@ -293,44 +238,7 @@ fn the_variable_scan_follows_selectors_and_variants() {
 /// (a count also as `<name>_text`).
 #[test]
 fn model_ftl_matches_the_model_keys_and_arguments() {
-    let defined = model_ftl_variables();
-    let messages = representatives();
-    let represented: BTreeSet<&str> = messages.iter().map(Message::key).collect();
-    let all: BTreeSet<&str> = ALL_KEYS.iter().copied().collect();
-    assert_eq!(represented, all, "the table has one message per key in ALL_KEYS");
-    let defined_keys: BTreeSet<&str> = defined.keys().map(String::as_str).collect();
-    assert_eq!(defined_keys, all, "model.ftl defines exactly the keys of ALL_KEYS");
-
-    for message in &messages {
-        let mut expected = implicit_variables(message.key());
-        for (name, arg) in message.args() {
-            expected.extend(fluent_names(name, arg));
-        }
-        let used = &defined[message.key()];
-        // A count may be used as the number, the text or both.
-        let counts: BTreeSet<String> = message
-            .args()
-            .iter()
-            .filter(|(_, a)| matches!(a, archicraft_model::Arg::Count(_)))
-            .flat_map(|(n, a)| fluent_names(n, a))
-            .collect();
-        assert!(
-            used.is_subset(&expected),
-            "{}: uses {used:?}, the model passes {expected:?}",
-            message.key()
-        );
-        let missing: Vec<&String> = expected.difference(used).filter(|v| !counts.contains(*v)).collect();
-        assert!(missing.is_empty(), "{}: does not use {missing:?}", message.key());
-        for (name, arg) in message.args() {
-            if matches!(arg, archicraft_model::Arg::Count(_)) {
-                assert!(
-                    fluent_names(name, arg).iter().any(|v| used.contains(v)),
-                    "{}: does not use the count {name}",
-                    message.key()
-                );
-            }
-        }
-    }
+    assert_catalogue_matches("en/model.ftl", ALL_KEYS, &representatives(), implicit_variables);
 }
 
 /// NFR-L10N-001: labels render as English sentences, the kind as a noun and

@@ -120,7 +120,7 @@ fn rejecting_a_damaged_file_needs_a_small_multiple_of_the_file_size() {
         let before = memory_probe::start();
         let problem = archicraft_ifcx::load(&damaged).expect_err("the damaged file is rejected");
         let peak = memory_probe::peak() - before;
-        assert!(problem.message.contains(message), "{problem}");
+        assert!(problem.message.to_string().contains(message), "{problem}");
         assert!(
             peak <= LOAD_FACTOR * damaged.len(),
             "rejecting {} bytes ({message}) needed a peak of {peak} bytes, {:.2} times the file",

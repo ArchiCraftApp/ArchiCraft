@@ -6,9 +6,12 @@
 //! (PRJ-008, NFR-REL-004). Nothing is dropped silently.
 //!
 //! Every report names its record and says what happened to it, as
-//! “<record> skipped: <reason>” (an error: the record was not loaded) or
-//! “<record> repaired: <reason>” (a warning: the record was loaded with a
-//! default or corrected value). The report's path is the node holding the
+//! “<record> skipped: <reason>” (`ifcx-skipped`, an error: the record was not
+//! loaded) or “<record> repaired: <reason>” (`ifcx-repaired`, a warning: the
+//! record was loaded with a default or corrected value). Records, reasons and
+//! the model's own errors are [`Message`]s nested in these, so the
+//! application renders the whole report in the user's language
+//! (NFR-L10N-001). The report's path is the node holding the
 //! record: the project node for project-level records (settings, materials,
 //! layers, views, tool defaults, counters), else the storey or element node.
 //!
@@ -28,7 +31,6 @@
 
 use std::borrow::Cow;
 use std::collections::HashSet;
-use std::fmt::Display;
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
@@ -54,6 +56,7 @@ use super::migrate::{self, Migration};
 use super::schema::{self, FORMAT_VERSION};
 use super::writer::IFCX_VERSION;
 use crate::container::{AttributeValue, IfcxFile};
+use crate::message::Message;
 use crate::validate::{self, FlatNode, Problem};
 
 /// A project read from a file, with everything worth reporting.
@@ -82,42 +85,46 @@ type Object = Map<String, Value>;
 struct Report<'a> {
     problems: &'a mut Vec<Problem>,
     path: String,
-    /// Names the record in every message, for example “layer record 1” or
-    /// “element W-001”.
-    record: String,
+    /// Names the record in every message, for example “layer record 1”
+    /// (`ifcx-record-layer`) or “element W-001” (`ifcx-record-element`).
+    record: Message,
 }
 
 impl<'a> Report<'a> {
-    fn new(problems: &'a mut Vec<Problem>, path: &str, record: impl Into<String>) -> Self {
+    fn new(problems: &'a mut Vec<Problem>, path: &str, record: Message) -> Self {
         Self {
             problems,
             path: path.to_owned(),
-            record: record.into(),
+            record,
         }
     }
 
-    fn warn(&mut self, message: impl Into<String>) {
+    fn warn(&mut self, message: Message) {
         self.problems.push(Problem::warning(Some(&self.path), message));
     }
 
     /// The record was not loaded (PRJ-008).
-    fn skipped(&mut self, reason: impl Display) {
-        let message = format!("{} skipped: {reason}", self.record);
+    fn skipped(&mut self, reason: Message) {
+        let message = Message::new("ifcx-skipped")
+            .nested("record", self.record.clone())
+            .nested("reason", reason);
         self.problems.push(Problem::error(Some(&self.path), message));
     }
 
     /// The record was loaded with a default or corrected value (PRJ-008).
-    fn repaired(&mut self, reason: impl Display) {
-        let message = format!("{} repaired: {reason}", self.record);
+    fn repaired(&mut self, reason: Message) {
+        let message = Message::new("ifcx-repaired")
+            .nested("record", self.record.clone())
+            .nested("reason", reason);
         self.warn(message);
     }
 
     /// Unwraps a field, or reports the record as repaired and uses `default`.
-    fn or<T>(&mut self, result: Result<T, String>, default: T) -> T {
+    fn or<T>(&mut self, result: Result<T, Message>, default: T) -> T {
         match result {
             Ok(v) => v,
             Err(e) => {
-                self.repaired(format!("{e}; a default value is used"));
+                self.repaired(Message::new("ifcx-default-used").nested("reason", e));
                 default
             }
         }
@@ -125,37 +132,49 @@ impl<'a> Report<'a> {
 
     /// An optional field the writer may leave out: absent is `None`, present
     /// but invalid is reported and left out.
-    fn optional<T>(&mut self, map: &Object, key: &str, read: impl Fn(&Object, &str) -> Result<T, String>) -> Option<T> {
+    fn optional<T>(
+        &mut self,
+        map: &Object,
+        key: &str,
+        read: impl Fn(&Object, &str) -> Result<T, Message>,
+    ) -> Option<T> {
         if !map.contains_key(key) {
             return None;
         }
         match read(map, key) {
             Ok(v) => Some(v),
             Err(e) => {
-                self.repaired(format!("{e}; it is left out"));
+                self.repaired(Message::new("ifcx-left-out").nested("reason", e));
                 None
             }
         }
     }
 }
 
-/// Names the record at `index` of a project-level list, like “layer record 1”.
-fn record(what: &str, index: usize) -> String {
-    format!("{what} record {index}")
+/// Names the record at `index` of a project-level list, like “layer record
+/// 1” for `ifcx-record-layer`.
+fn record(key: &'static str, index: usize) -> Message {
+    Message::new(key).count("index", index)
 }
 
-fn field<'v>(map: &'v Object, key: &str) -> Result<&'v Value, String> {
-    map.get(key).ok_or_else(|| format!("“{key}” is missing"))
+/// A reason about the field `key` of a record, such as
+/// `ifcx-field-missing`.
+fn about(reason: &'static str, key: &str) -> Message {
+    Message::new(reason).text("key", key)
 }
 
-fn real(map: &Object, key: &str) -> Result<f64, String> {
+fn field<'v>(map: &'v Object, key: &str) -> Result<&'v Value, Message> {
+    map.get(key).ok_or_else(|| about("ifcx-field-missing", key))
+}
+
+fn real(map: &Object, key: &str) -> Result<f64, Message> {
     field(map, key)?
         .as_f64()
         .filter(|v| v.is_finite())
-        .ok_or_else(|| format!("“{key}” is not a number"))
+        .ok_or_else(|| about("ifcx-field-not-number", key))
 }
 
-fn integer(map: &Object, key: &str) -> Result<i64, String> {
+fn integer(map: &Object, key: &str) -> Result<i64, Message> {
     let v = field(map, key)?;
     v.as_i64()
         .or_else(|| {
@@ -163,77 +182,82 @@ fn integer(map: &Object, key: &str) -> Result<i64, String> {
                 .filter(|f| f.fract() == 0.0 && f.abs() < 9e15)
                 .map(|f| f as i64)
         })
-        .ok_or_else(|| format!("“{key}” is not an integer"))
+        .ok_or_else(|| about("ifcx-field-not-integer", key))
 }
 
-fn text(map: &Object, key: &str) -> Result<String, String> {
+fn text(map: &Object, key: &str) -> Result<String, Message> {
     field(map, key)?
         .as_str()
         .map(str::to_owned)
-        .ok_or_else(|| format!("“{key}” is not text"))
+        .ok_or_else(|| about("ifcx-field-not-text", key))
 }
 
-fn boolean(map: &Object, key: &str) -> Result<bool, String> {
+fn boolean(map: &Object, key: &str) -> Result<bool, Message> {
     field(map, key)?
         .as_bool()
-        .ok_or_else(|| format!("“{key}” is not true or false"))
+        .ok_or_else(|| about("ifcx-field-not-boolean", key))
 }
 
-fn object<'v>(map: &'v Object, key: &str) -> Result<&'v Object, String> {
+fn object<'v>(map: &'v Object, key: &str) -> Result<&'v Object, Message> {
     field(map, key)?
         .as_object()
-        .ok_or_else(|| format!("“{key}” is not an object"))
+        .ok_or_else(|| about("ifcx-field-not-object", key))
 }
 
-fn array<'v>(map: &'v Object, key: &str) -> Result<&'v Vec<Value>, String> {
+fn array<'v>(map: &'v Object, key: &str) -> Result<&'v Vec<Value>, Message> {
     field(map, key)?
         .as_array()
-        .ok_or_else(|| format!("“{key}” is not a list"))
+        .ok_or_else(|| about("ifcx-field-not-list", key))
 }
 
-fn code<T>(map: &Object, key: &str, parse: impl Fn(&str) -> Option<T>) -> Result<T, String> {
+fn code<T>(map: &Object, key: &str, parse: impl Fn(&str) -> Option<T>) -> Result<T, Message> {
     let value = text(map, key)?;
-    parse(&value).ok_or_else(|| format!("“{key}” has the unknown value “{value}”"))
+    parse(&value).ok_or_else(|| about("ifcx-field-unknown-value", key).text("value", value))
 }
 
-fn uuid(map: &Object, key: &str) -> Result<Uuid, String> {
+fn uuid(map: &Object, key: &str) -> Result<Uuid, Message> {
     let value = text(map, key)?;
-    Uuid::parse_str(&value).map_err(|_| format!("“{key}” is not a UUID"))
+    Uuid::parse_str(&value).map_err(|_| about("ifcx-field-not-uuid", key))
 }
 
-fn point(value: &Value) -> Result<DVec2, String> {
-    let items = value.as_array().ok_or("a point is not a list")?;
+fn point(value: &Value) -> Result<DVec2, Message> {
+    let items = value.as_array().ok_or_else(|| Message::new("ifcx-point-not-list"))?;
     match items.as_slice() {
         [x, y] => match (x.as_f64(), y.as_f64()) {
             (Some(x), Some(y)) if x.is_finite() && y.is_finite() => Ok(DVec2::new(x, y)),
-            _ => Err("a point has non-numeric coordinates".into()),
+            _ => Err(Message::new("ifcx-point-not-numeric")),
         },
-        _ => Err("a point does not have two coordinates".into()),
+        _ => Err(Message::new("ifcx-point-coordinates")),
     }
 }
 
-fn points(value: &Value) -> Result<Vec<DVec2>, String> {
+fn points(value: &Value) -> Result<Vec<DVec2>, Message> {
     value
         .as_array()
-        .ok_or("a point list is not a list")?
+        .ok_or_else(|| Message::new("ifcx-points-not-list"))?
         .iter()
         .map(point)
         .collect()
 }
 
-fn rgb(map: &Object, key: &str) -> Result<Rgb, String> {
+/// A point in the field `key`, its problem named with the field.
+fn point_field(map: &Object, key: &str) -> Result<DVec2, Message> {
+    point(field(map, key)?).map_err(|e| about("ifcx-field-point", key).nested("reason", e))
+}
+
+fn rgb(map: &Object, key: &str) -> Result<Rgb, Message> {
     let values = array(map, key)?
         .iter()
         .map(Value::as_f64)
         .collect::<Option<Vec<f64>>>()
-        .ok_or_else(|| format!("“{key}” has a non-numeric component"))?;
+        .ok_or_else(|| about("ifcx-field-colour-component", key))?;
     match values.as_slice() {
         [r, g, b] if values.iter().all(|c| (0.0..=1.0).contains(c)) => Ok(Rgb([*r, *g, *b])),
-        _ => Err(format!("“{key}” is not a colour")),
+        _ => Err(about("ifcx-field-not-colour", key)),
     }
 }
 
-fn top_link(map: &Object) -> Result<TopLink, String> {
+fn top_link(map: &Object) -> Result<TopLink, Message> {
     let value = real(map, "value")?;
     match text(map, "link")?.as_str() {
         "fixed" => Ok(TopLink::Fixed { height: value }),
@@ -242,20 +266,21 @@ fn top_link(map: &Object) -> Result<TopLink, String> {
             offset: value,
         }),
         "relative" => Ok(TopLink::Relative {
-            storeys: i32::try_from(integer(map, "relative")?).map_err(|_| "“relative” is out of range")?,
+            storeys: i32::try_from(integer(map, "relative")?)
+                .map_err(|_| about("ifcx-field-out-of-range", "relative"))?,
             offset: value,
         }),
-        other => Err(format!("unknown top link “{other}”")),
+        other => Err(about("ifcx-field-unknown-value", "link").text("value", other)),
     }
 }
 
-fn reference_line(map: &Object) -> Result<ReferenceLine, String> {
+fn reference_line(map: &Object) -> Result<ReferenceLine, Message> {
     match text(map, "referenceLine")?.as_str() {
         "outside" => Ok(ReferenceLine::Outside),
         "center" => Ok(ReferenceLine::Center),
         "inside" => Ok(ReferenceLine::Inside),
         "custom" => Ok(ReferenceLine::Custom(real(map, "referenceOffset")?)),
-        other => Err(format!("unknown reference-line location “{other}”")),
+        other => Err(about("ifcx-field-unknown-value", "referenceLine").text("value", other)),
     }
 }
 
@@ -278,7 +303,7 @@ fn name<A: AttributeValue>(node: &FlatNode<A>) -> Option<String> {
 
 fn node_uuid(path: &str, report: &mut Report<'_>) -> Uuid {
     Uuid::parse_str(path).unwrap_or_else(|_| {
-        report.repaired("the path is not a UUID; the object gets a new identity");
+        report.repaired(Message::new("ifcx-path-not-uuid"));
         Uuid::new_v4()
     })
 }
@@ -299,9 +324,9 @@ fn children_with_class<'n, A: AttributeValue>(
 
 /// Material record `index` of the project at `path`.
 fn read_material(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem>) -> Option<Material> {
-    let mut report = Report::new(problems, path, record("material", index));
+    let mut report = Report::new(problems, path, record("ifcx-record-material", index));
     let Some(map) = value.as_object() else {
-        report.skipped("it is not an object");
+        report.skipped(Message::new("ifcx-not-object"));
         return None;
     };
     let id = match uuid(map, "id") {
@@ -325,7 +350,8 @@ fn read_material(index: usize, value: &Value, path: &str, problems: &mut Vec<Pro
         color,
         opacity: report.or(real(map, "opacity"), 1.0),
         priority: report.or(
-            integer(map, "priority").and_then(|p| u16::try_from(p).map_err(|_| "“priority” is out of range".into())),
+            integer(map, "priority")
+                .and_then(|p| u16::try_from(p).map_err(|_| about("ifcx-field-out-of-range", "priority"))),
             500,
         ),
         cut_fill: CutFill {
@@ -335,7 +361,11 @@ fn read_material(index: usize, value: &Value, path: &str, problems: &mut Vec<Pro
         },
     };
     if let Err(e) = material.validate() {
-        report.repaired(format!("“{}”: {e}; the values are corrected", material.name));
+        report.repaired(
+            Message::new("ifcx-material-corrected")
+                .text("name", material.name.clone())
+                .nested("reason", e),
+        );
         material.opacity = material.opacity.clamp(0.0, 1.0);
         material.priority = material.priority.clamp(Material::MIN_PRIORITY, Material::MAX_PRIORITY);
         if material.name.trim().is_empty() {
@@ -347,9 +377,9 @@ fn read_material(index: usize, value: &Value, path: &str, problems: &mut Vec<Pro
 
 /// Layer record `index` of the project at `path`.
 fn read_layer(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem>) -> Option<Layer> {
-    let mut report = Report::new(problems, path, record("layer", index));
+    let mut report = Report::new(problems, path, record("ifcx-record-layer", index));
     let Some(map) = value.as_object() else {
-        report.skipped("it is not an object");
+        report.skipped(Message::new("ifcx-not-object"));
         return None;
     };
     let id = match uuid(map, "id") {
@@ -371,9 +401,9 @@ fn read_layer(index: usize, value: &Value, path: &str, problems: &mut Vec<Proble
 /// View record `index` of the project at `path`. A view has no field with a
 /// sensible default, so an invalid one skips the view.
 fn read_view(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem>) -> Option<View3d> {
-    let mut report = Report::new(problems, path, record("view", index));
+    let mut report = Report::new(problems, path, record("ifcx-record-view", index));
     let Some(map) = value.as_object() else {
-        report.skipped("it is not an object");
+        report.skipped(Message::new("ifcx-not-object"));
         return None;
     };
     let view = uuid(map, "id").and_then(|id| {
@@ -387,12 +417,12 @@ fn read_view(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem
 }
 
 /// A two-component grid value, checked against the model's range.
-fn grid_vector(map: &Object, key: &str, valid: fn(DVec2) -> bool) -> Result<DVec2, String> {
-    let value = point(field(map, key)?).map_err(|e| format!("“{key}”: {e}"))?;
+fn grid_vector(map: &Object, key: &str, valid: fn(DVec2) -> bool) -> Result<DVec2, Message> {
+    let value = point_field(map, key)?;
     if valid(value) {
         Ok(value)
     } else {
-        Err(format!("“{key}” is out of range"))
+        Err(about("ifcx-field-out-of-range", key))
     }
 }
 
@@ -426,7 +456,7 @@ fn read_plan_grid(settings: &Object, report: &mut Report) -> PlanGrid {
     if !spacings_read {
         grid.auxiliary_spacing = grid.auxiliary_spacing.min(grid.main_spacing);
     } else if grid.auxiliary_spacing.cmpgt(grid.main_spacing).any() {
-        report.warn("“auxiliarySpacing” is larger than “mainSpacing”; the default spacings are used");
+        report.warn(Message::new("ifcx-grid-spacings"));
         grid.main_spacing = defaults.main_spacing;
         grid.auxiliary_spacing = defaults.auxiliary_spacing;
     }
@@ -449,7 +479,7 @@ struct ProjectData {
     tool_defaults: Option<Object>,
     views: Vec<View3d>,
     /// The `counters` object, read once the elements are known.
-    counters: Result<Object, String>,
+    counters: Result<Object, Message>,
     newer_format: bool,
 }
 
@@ -464,7 +494,7 @@ fn decimals(map: &Object, key: &str, default: u8, report: &mut Report<'_>) -> u8
     let value = report.or(integer(map, key), i64::from(default));
     let clamped = value.clamp(0, MAX_DECIMALS);
     if clamped != value {
-        report.repaired(format!("“{key}” is out of range; {clamped} is used"));
+        report.repaired(about("ifcx-out-of-range-replaced", key).count("value", usize::try_from(clamped).unwrap_or(0)));
     }
     u8::try_from(clamped).unwrap_or(default)
 }
@@ -494,16 +524,16 @@ fn read_settings(map: &Object, report: &mut Report<'_>) -> ProjectSettings {
 /// Reads the project attribute of a file migrated to format `current`.
 fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec<Problem>) -> ProjectData {
     let mut newer_format = false;
-    let mut report = Report::new(problems, path, "project");
+    let mut report = Report::new(problems, path, Message::new("ifcx-record-project"));
     match text(attr, "formatVersion").map(|v| v.parse::<u32>()) {
         Ok(Ok(version)) if version > current => {
             newer_format = true;
-            report.warn(format!(
-                "the file was written by a newer ArchiCraft version (format {version}); data this version does not know may be lost on saving"
-            ));
+            report.warn(
+                Message::new("ifcx-newer-format").count("version", usize::try_from(version).unwrap_or(usize::MAX)),
+            );
         }
         Ok(Ok(_)) => {}
-        _ => report.warn("the ArchiCraft format version is missing or invalid"),
+        _ => report.warn(Message::new("ifcx-format-version-invalid")),
     }
     let settings_map = report.or(object(attr, "settings").cloned(), Object::new());
     let location_map = report.or(object(attr, "location").cloned(), Object::new());
@@ -514,9 +544,7 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
         None => (None, false),
         Some(Ok(id)) => (Some(StoreyId::from_uuid(id)), false),
         Some(Err(e)) => {
-            report.repaired(format!(
-                "{e}; the lowest storey at or above project zero is the ground storey"
-            ));
+            report.repaired(Message::new("ifcx-ground-storey-repaired").nested("reason", e));
             (None, true)
         }
     };
@@ -525,22 +553,22 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
     let view_records = report.or(array(attr, "views").cloned(), Vec::new());
     let counters = object(attr, "counters").cloned();
 
-    let settings = read_settings(&settings_map, &mut Report::new(problems, path, "project settings"));
-    let mut report = Report::new(problems, path, "project location");
+    let settings = read_settings(
+        &settings_map,
+        &mut Report::new(problems, path, Message::new("ifcx-record-project-settings")),
+    );
+    let mut report = Report::new(problems, path, Message::new("ifcx-record-project-location"));
     let location = Location {
         altitude: report.or(real(&location_map, "altitude"), 0.0),
         survey_point: report.or(
-            field(&location_map, "surveyPoint")
-                .and_then(point)
-                .map(|p| [p.x, p.y])
-                .map_err(|e| format!("“surveyPoint”: {e}")),
+            point_field(&location_map, "surveyPoint").map(|p| [p.x, p.y]),
             [0.0, 0.0],
         ),
         true_north: report.or(real(&location_map, "trueNorth"), 0.0),
     };
     // A missing info object is reported once above, not field by field.
     let info = info_map.map_or_else(ProjectInfo::default, |map| {
-        let mut report = Report::new(problems, path, "project information");
+        let mut report = Report::new(problems, path, Message::new("ifcx-record-project-information"));
         ProjectInfo {
             number: report.or(text(&map, "number"), String::new()),
             client: report.or(text(&map, "client"), String::new()),
@@ -552,7 +580,8 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
     let tool_defaults = match object(attr, "toolDefaults") {
         Ok(map) => Some(map.clone()),
         Err(e) => {
-            Report::new(problems, path, "tool defaults").repaired(format!("{e}; the template defaults are used"));
+            Report::new(problems, path, Message::new("ifcx-record-tool-defaults"))
+                .repaired(Message::new("ifcx-template-defaults-used").nested("reason", e));
             None
         }
     };
@@ -586,6 +615,11 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
     }
 }
 
+/// A counter value as a message count.
+fn count_of(value: u32) -> usize {
+    usize::try_from(value).unwrap_or(usize::MAX)
+}
+
 /// The name counters (ELM-019), keyed by kind code. An invalid, negative,
 /// out-of-range or missing counter is repaired to the number of elements of
 /// its kind, so that automatic names do not repeat. Out of range is above the
@@ -594,7 +628,7 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
 /// of kinds this build does not know are ignored: their elements are skipped
 /// and reported on their own.
 fn read_counters(
-    map: Result<&Object, String>,
+    map: Result<&Object, Message>,
     project: &Project,
     path: &str,
     problems: &mut Vec<Problem>,
@@ -603,7 +637,7 @@ fn read_counters(
         let n = project.elements.values().filter(|e| e.tag() == tag).count();
         u32::try_from(n).unwrap_or(u32::MAX)
     };
-    let mut report = Report::new(problems, path, "counters");
+    let mut report = Report::new(problems, path, Message::new("ifcx-record-counters"));
     let mut counters = NameCounters::default();
     let map = match map {
         Ok(map) => map,
@@ -612,10 +646,11 @@ fn read_counters(
                 .iter()
                 .map(|&kind| format!("{}: {}", kind.code(), count(kind)))
                 .collect();
-            report.repaired(format!(
-                "{e}; the number of elements of each kind ({}) is used",
-                counts.join(", ")
-            ));
+            report.repaired(
+                Message::new("ifcx-counters-from-elements")
+                    .nested("reason", e)
+                    .text("counts", counts.join(", ")),
+            );
             for &kind in KindTag::ALL {
                 counters.set(kind, count(kind));
             }
@@ -626,19 +661,23 @@ fn read_counters(
         let (key, existing) = (kind.code(), count(kind));
         let value = match integer(map, key) {
             Ok(v) if v < 0 => {
-                report.repaired(format!("“{key}” is negative; {existing} is used"));
+                report.repaired(about("ifcx-counter-negative", key).count("value", count_of(existing)));
                 existing
             }
             Ok(v) => match u32::try_from(v) {
                 Ok(n) if n < u32::MAX => n,
                 _ => {
-                    report.repaired(format!("“{key}” is out of range; {existing} is used"));
+                    report.repaired(about("ifcx-out-of-range-replaced", key).count("value", count_of(existing)));
                     existing
                 }
             },
             Err(_) if !map.contains_key(key) && !kind.descriptor().has_tool && existing == 0 => 0,
             Err(e) => {
-                report.repaired(format!("{e}; {existing} is used"));
+                report.repaired(
+                    Message::new("ifcx-value-used")
+                        .nested("reason", e)
+                        .count("value", count_of(existing)),
+                );
                 existing
             }
         };
@@ -664,10 +703,10 @@ fn read_tool_defaults(
     let Some(map) = map else {
         return template;
     };
-    let mut report = Report::new(problems, path, "tool defaults");
+    let mut report = Report::new(problems, path, Message::new("ifcx-record-tool-defaults"));
     for key in map.keys() {
         if !template.iter().any(|(kind, _)| kind.code() == key) {
-            report.repaired(format!("“{key}” is not a tool this version knows; it is ignored"));
+            report.repaired(about("ifcx-tool-unknown", key));
         }
     }
     template
@@ -675,7 +714,7 @@ fn read_tool_defaults(
         .map(|(kind, default)| match object(map, kind.code()) {
             Ok(slot) => read_defaults_slot(slot, default, materials, layers, &mut report),
             Err(e) => {
-                report.repaired(format!("{e}; the template defaults of the tool are used"));
+                report.repaired(Message::new("ifcx-tool-template-used").nested("reason", e));
                 default.clone()
             }
         })
@@ -701,7 +740,7 @@ fn read_defaults_slot(
         if materials.iter().any(|m| m.id == id) {
             id
         } else {
-            report.repaired("a tool's default material does not exist; the template default is used");
+            report.repaired(Message::new("ifcx-tool-material-missing"));
             default.kind.material()
         }
     };
@@ -710,18 +749,18 @@ fn read_defaults_slot(
         if layers.iter().any(|l| l.id == id) {
             id
         } else {
-            report.repaired("a tool's default layer does not exist; the template default is used");
+            report.repaired(Message::new("ifcx-tool-layer-missing"));
             default.layer
         }
     };
     let mut ifc_class = report.or(code(map, "ifcClass", IfcClass::from_code), default.ifc_class);
     if !kind.ifc_classes().contains(&ifc_class) {
-        report.repaired(format!(
-            "{} is not an allowed class for the “{}” tool; {} is used",
-            ifc_class.code(),
-            kind.code(),
-            default.ifc_class.code()
-        ));
+        report.repaired(
+            Message::new("ifcx-tool-class-not-allowed")
+                .text("class", ifc_class.code())
+                .kind("kind", kind)
+                .text("default", default.ifc_class.code()),
+        );
         ifc_class = default.ifc_class;
     }
     let mut payload = match &default.kind {
@@ -763,22 +802,26 @@ fn read_storeys<A: AttributeValue>(
         let mut report = Report::new(
             problems,
             path,
-            format!("storey {}", name(node).as_deref().unwrap_or(path)),
+            Message::new("ifcx-record-storey").text("name", name(node).as_deref().unwrap_or(path)),
         );
         // NFR-SEC-003: a storey listed again is read once, so a file cannot
         // multiply it (found by the first fuzz campaign, docs/testing.md).
         if !seen.insert(path) {
-            report.skipped("the building lists it more than once");
+            report.skipped(Message::new("ifcx-storey-listed-twice"));
             continue;
         }
         let id = StoreyId::from_uuid(node_uuid(path, &mut report));
         let name = name(node).unwrap_or_else(|| {
-            report.repaired("it has no name; “Storey” is used");
+            report.repaired(Message::new("ifcx-no-name").text("name", "Storey"));
             "Storey".into()
         });
         let attr = attribute(node, schema::STOREY);
         let Some(attr) = attr.as_deref().and_then(Value::as_object) else {
-            report.repaired("it has no ArchiCraft data; elevation 0 and height 3 m are assumed");
+            report.repaired(
+                Message::new("ifcx-storey-no-data")
+                    .length("elevation", 0.0)
+                    .length("height", 3.0),
+            );
             let storey = Storey {
                 id,
                 name,
@@ -791,7 +834,7 @@ fn read_storeys<A: AttributeValue>(
         };
         let mut height = report.or(real(attr, "height"), 3.0);
         if height < MIN_STOREY_HEIGHT {
-            report.repaired(format!("“height” is below the minimum; {MIN_STOREY_HEIGHT} m is used"));
+            report.repaired(Message::new("ifcx-storey-height-min").length("min", MIN_STOREY_HEIGHT));
             height = MIN_STOREY_HEIGHT;
         }
         let storey = Storey {
@@ -816,10 +859,7 @@ fn storey_list(
     problems: &mut Vec<Problem>,
 ) -> StoreyList {
     if storeys.is_empty() {
-        problems.push(Problem::warning(
-            None,
-            "the building has no storeys; a ground floor was added",
-        ));
+        problems.push(Problem::warning(None, Message::new("ifcx-no-storeys")));
         storeys.push(Storey::new("00 Ground floor", 0.0, 3.0));
     }
     storeys.sort_by(|a, b| a.elevation.total_cmp(&b.elevation));
@@ -833,10 +873,7 @@ fn storey_list(
                 .unwrap_or(&storeys[storeys.len() - 1])
                 .id;
             if !ground_repaired {
-                problems.push(Problem::warning(
-                    None,
-                    "the ground storey is not defined; the lowest storey at or above project zero is used",
-                ));
+                problems.push(Problem::warning(None, Message::new("ifcx-ground-storey-undefined")));
             }
             g
         }
@@ -846,10 +883,7 @@ fn storey_list(
             storeys[i].elevation = storeys[i - 1].elevation + storeys[i - 1].height.max(MIN_STOREY_HEIGHT);
             problems.push(Problem::warning(
                 Some(&storeys[i].id.to_string()),
-                format!(
-                    "storey “{}” coincided with the one below and was moved up",
-                    storeys[i].name
-                ),
+                Message::new("ifcx-storey-moved-up").text("name", storeys[i].name.clone()),
             ));
         }
     }
@@ -858,7 +892,7 @@ fn storey_list(
         Err(e) => {
             problems.push(Problem::error(
                 None,
-                format!("the storeys could not be read ({e}); one storey is used"),
+                Message::new("ifcx-storeys-unreadable").nested("reason", e),
             ));
             let storey = Storey::new("00 Ground floor", 0.0, 3.0);
             let id = storey.id;
@@ -871,8 +905,8 @@ fn storey_list(
 }
 
 /// Names an element node in reports, by its name if it has one.
-fn element_record<A: AttributeValue>(path: &str, node: &FlatNode<A>) -> String {
-    format!("element {}", name(node).as_deref().unwrap_or(path))
+fn element_record<A: AttributeValue>(path: &str, node: &FlatNode<A>) -> Message {
+    Message::new("ifcx-record-element").text("name", name(node).as_deref().unwrap_or(path))
 }
 
 /// Reads the element at `path`. Its attributes are parsed here and dropped
@@ -887,7 +921,7 @@ fn read_element<A: AttributeValue>(
     let mut report = Report::new(problems, path, element_record(path, node));
     let common = attribute(node, schema::ELEMENT);
     let Some(common) = common.as_deref().and_then(Value::as_object) else {
-        report.skipped("its ArchiCraft data is not an object");
+        report.skipped(Message::new("ifcx-element-data-not-object"));
         return None;
     };
     let kind = match code(common, "kind", KindTag::from_code) {
@@ -900,12 +934,12 @@ fn read_element<A: AttributeValue>(
     let id = ElementId::from_uuid(node_uuid(path, &mut report));
     let name = name(node).unwrap_or_else(|| {
         let name = format!("{}-?", kind.name_prefix());
-        report.repaired(format!("it has no name; “{name}” is used"));
+        report.repaired(Message::new("ifcx-no-name").text("name", name.clone()));
         name
     });
     let mut layer = report.or(uuid(common, "layer").map(LayerId::from_uuid), project.layers[0].id);
     if project.layer(layer).is_none() {
-        report.repaired("the layer does not exist; the first layer is used");
+        report.repaired(Message::new("ifcx-element-layer-missing"));
         layer = project.layers[0].id;
     }
     // ELM-011: a class the kind does not allow falls back to its default.
@@ -913,7 +947,7 @@ fn read_element<A: AttributeValue>(
     let ifc_class = match class_code(node).as_deref().and_then(IfcClass::from_code) {
         Some(c) if kind.ifc_classes().contains(&c) => c,
         _ => {
-            report.repaired(format!("unsupported IFC class; {} is used", default_class.code()));
+            report.repaired(Message::new("ifcx-element-class-unsupported").text("default", default_class.code()));
             default_class
         }
     };
@@ -925,10 +959,9 @@ fn read_element<A: AttributeValue>(
         if project.material(id).is_some() {
             id
         } else {
-            report.repaired(format!(
-                "the material does not exist; “{}” is used",
-                project.materials[0].name
-            ));
+            report.repaired(
+                Message::new("ifcx-element-material-missing").text("name", project.materials[0].name.clone()),
+            );
             project.materials[0].id
         }
     };
@@ -936,7 +969,7 @@ fn read_element<A: AttributeValue>(
         KindTag::Wall => {
             let attr = attribute(node, schema::WALL);
             let Some(attr) = attr.as_deref().and_then(Value::as_object) else {
-                report.skipped("wall parameters are missing");
+                report.skipped(Message::new("ifcx-parameters-missing").kind("kind", kind));
                 return None;
             };
             let start = field(attr, "start").and_then(point);
@@ -967,7 +1000,7 @@ fn read_element<A: AttributeValue>(
         KindTag::Slab => {
             let attr = attribute(node, schema::SLAB);
             let Some(attr) = attr.as_deref().and_then(Value::as_object) else {
-                report.skipped("slab parameters are missing");
+                report.skipped(Message::new("ifcx-parameters-missing").kind("kind", kind));
                 return None;
             };
             let outline = match field(attr, "outline").and_then(points) {
@@ -980,7 +1013,7 @@ fn read_element<A: AttributeValue>(
             let holes = match array(attr, "holes").and_then(|h| h.iter().map(points).collect()) {
                 Ok(h) => h,
                 Err(e) => {
-                    report.repaired(format!("the holes are left out: {e}"));
+                    report.repaired(Message::new("ifcx-holes-left-out").nested("reason", e));
                     Vec::new()
                 }
             };
@@ -995,7 +1028,7 @@ fn read_element<A: AttributeValue>(
         }
         // The writer never writes a kind it cannot read back.
         _ => {
-            report.skipped(format!("elements of the kind “{}” cannot be read yet", kind.code()));
+            report.skipped(Message::new("ifcx-kind-unreadable").kind("kind", kind));
             return None;
         }
     };
@@ -1056,20 +1089,14 @@ fn read_migrated<A: AttributeValue>(
     problems.extend(validate::validate_flattened(file, &nodes, &[]));
 
     let Some((root_path, root)) = nodes.iter().find(|(_, n)| n.attributes.contains_key(schema::PROJECT)) else {
-        return Err(Problem::error(
-            None,
-            "this IFCX file holds no ArchiCraft project; opening IFCX files from other tools is not supported yet",
-        ));
+        return Err(Problem::error(None, Message::new("ifcx-no-project")));
     };
     let project_attr = attribute(root, schema::PROJECT);
     let Some(project_attr) = project_attr.as_deref().and_then(Value::as_object) else {
-        return Err(Problem::error(
-            Some(root_path),
-            "the ArchiCraft project data is not an object",
-        ));
+        return Err(Problem::error(Some(root_path), Message::new("ifcx-project-not-object")));
     };
     let mut data = read_project_data(project_attr, root_path, current, &mut problems);
-    let mut root_report = Report::new(&mut problems, root_path, "project");
+    let mut root_report = Report::new(&mut problems, root_path, Message::new("ifcx-record-project"));
     let project_id = ProjectId::from_uuid(node_uuid(root_path, &mut root_report));
     data.info.name = name(root).unwrap_or_else(|| "Untitled project".into());
     data.info.description = attribute(root, "bsi::ifc::prop::Description")
@@ -1080,14 +1107,14 @@ fn read_migrated<A: AttributeValue>(
 
     let site = children_with_class(&nodes, root, "IfcSite").into_iter().next();
     if site.is_none() {
-        root_report.warn("the project has no site; a site was added");
+        root_report.warn(Message::new("ifcx-no-site"));
     }
     let building = site.and_then(|(_, s)| children_with_class(&nodes, s, "IfcBuilding").into_iter().next());
     if building.is_none() {
-        root_report.warn("the project has no building; a building was added");
+        root_report.warn(Message::new("ifcx-no-building"));
     }
     if data.views.is_empty() {
-        root_report.warn("the project has no views; a default view was added");
+        root_report.warn(Message::new("ifcx-no-views"));
         data.views.push(View3d {
             id: ViewId::new(),
             name: "3D perspective".into(),
@@ -1096,7 +1123,7 @@ fn read_migrated<A: AttributeValue>(
     }
 
     if data.materials.is_empty() {
-        root_report.warn("the project has no materials; a default material was added");
+        root_report.warn(Message::new("ifcx-no-materials"));
         data.materials.push(Material {
             id: MaterialId::new(),
             name: "Default".into(),
@@ -1114,14 +1141,20 @@ fn read_migrated<A: AttributeValue>(
         });
     }
     if data.layers.is_empty() {
-        root_report.warn("the project has no layers; a default layer was added");
+        root_report.warn(Message::new("ifcx-no-layers"));
         data.layers.push(Layer::new("Default"));
     }
     let site_id = site.map_or_else(SiteId::new, |(p, _)| {
-        SiteId::from_uuid(node_uuid(p, &mut Report::new(&mut problems, p, "site")))
+        SiteId::from_uuid(node_uuid(
+            p,
+            &mut Report::new(&mut problems, p, Message::new("ifcx-record-site")),
+        ))
     });
     let building_id = building.map_or_else(BuildingId::new, |(p, _)| {
-        BuildingId::from_uuid(node_uuid(p, &mut Report::new(&mut problems, p, "building")))
+        BuildingId::from_uuid(node_uuid(
+            p,
+            &mut Report::new(&mut problems, p, Message::new("ifcx-record-building")),
+        ))
     });
     let tool_defaults = read_tool_defaults(
         data.tool_defaults.as_ref(),
@@ -1165,7 +1198,7 @@ fn read_migrated<A: AttributeValue>(
         revision: 0,
     };
     project.data_version = file.header.data_version.parse().unwrap_or_else(|_| {
-        problems.push(Problem::warning(None, "the data version in the header is not a number"));
+        problems.push(Problem::warning(None, Message::new("ifcx-data-version-invalid")));
         0
     });
 
@@ -1180,17 +1213,14 @@ fn read_migrated<A: AttributeValue>(
             if storey_lost {
                 if node.attributes.contains_key(schema::ELEMENT) {
                     Report::new(&mut problems, child, element_record(child, node))
-                        .skipped(format!("its storey “{}” could not be read", storey.name));
+                        .skipped(Message::new("ifcx-storey-lost").text("name", storey.name.clone()));
                 }
                 continue;
             }
             if !node.attributes.contains_key(schema::ELEMENT) {
                 problems.push(Problem::warning(
                     Some(child),
-                    format!(
-                        "“{}” has no ArchiCraft data and was not loaded; importing elements from other tools is not supported yet",
-                        name(node).unwrap_or_else(|| child.clone())
-                    ),
+                    Message::new("ifcx-foreign-node").text("name", name(node).unwrap_or_else(|| child.clone())),
                 ));
                 continue;
             }
@@ -1199,10 +1229,7 @@ fn read_migrated<A: AttributeValue>(
             if !seen.insert(child.as_str()) {
                 problems.push(Problem::error(
                     Some(child),
-                    format!(
-                        "{} appears twice; the second occurrence was skipped",
-                        name(node).unwrap_or_else(|| child.clone())
-                    ),
+                    Message::new("ifcx-duplicate").text("name", name(node).unwrap_or_else(|| child.clone())),
                 ));
                 continue;
             }
@@ -1210,7 +1237,7 @@ fn read_migrated<A: AttributeValue>(
                 if project.elements.contains_key(&element.id) {
                     problems.push(Problem::error(
                         Some(child),
-                        format!("{} appears twice; the second occurrence was skipped", element.name),
+                        Message::new("ifcx-duplicate").text("name", element.name.clone()),
                     ));
                     continue;
                 }

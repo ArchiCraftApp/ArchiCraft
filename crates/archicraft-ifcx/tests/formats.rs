@@ -111,8 +111,14 @@ fn an_unknown_version_names_the_supported_versions() {
     let mut value: serde_json::Value = serde_json::from_slice(&format_1()).unwrap();
     value["header"]["ifcxVersion"] = "ifcx_omega".into();
     let error = archicraft_ifcx::load(&serde_json::to_vec(&value).unwrap()).unwrap_err();
-    assert!(error.message.contains("“ifcx_omega” is not supported"), "{error:?}");
+    assert!(
+        error
+            .message
+            .to_string()
+            .contains(r#"ifcx-version-unsupported(version="ifcx_omega""#),
+        "{error:?}"
+    );
     for adapter in archicraft_ifcx::ADAPTERS {
-        assert!(error.message.contains(adapter.version), "{error:?}");
+        assert!(error.message.to_string().contains(adapter.version), "{error:?}");
     }
 }

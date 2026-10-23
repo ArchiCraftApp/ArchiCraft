@@ -260,7 +260,10 @@ impl ArchiCraftApp {
                 self.save_prefs();
                 self.ws.info(format!("Opened {}", path.display()));
             }
-            Err(problem) => self.message("Cannot open the project", format!("{}: {problem}", path.display())),
+            Err(problem) => {
+                let reason = self.ws.render(&problem.located());
+                self.message("Cannot open the project", format!("{}: {reason}", path.display()));
+            }
         }
     }
 
@@ -309,7 +312,10 @@ impl ArchiCraftApp {
                     session.clear();
                 }
                 match warnings.first() {
-                    Some(w) => self.ws.error(format!("Saved with warnings: {w}")),
+                    Some(w) => {
+                        let warning = self.ws.render(&w.located());
+                        self.ws.error(format!("Saved with warnings: {warning}"));
+                    }
                     None => self.ws.info(format!("Saved {}", path.display())),
                 }
                 true
@@ -358,7 +364,7 @@ impl ArchiCraftApp {
                 if index < self.recovery.len() {
                     let abandoned = self.recovery.remove(index);
                     match archicraft_ifcx::load_path_with_limit(&abandoned.model, self.file_size_limit)
-                        .map_err(|p| p.to_string())
+                        .map_err(|p| self.ws.render(&p.located()))
                     {
                         Ok(outcome) => {
                             let doc = Document::recovered(
@@ -629,7 +635,7 @@ impl ArchiCraftApp {
                     ui.label("Everything that could be read was loaded. These objects were skipped, repaired or replaced:");
                     egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                         for p in &self.load_problems {
-                            ui.label(p.to_string());
+                            ui.label(self.ws.render(&p.located()));
                         }
                     });
                     if ui.button("OK").clicked() {

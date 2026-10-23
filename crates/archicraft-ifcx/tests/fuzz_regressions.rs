@@ -45,7 +45,7 @@ fn open(bytes: &[u8]) {
             let (saved, _warnings) = archicraft_ifcx::save(&outcome.project, &geometry, &common::options(), false);
             let _ = archicraft_ifcx::load(&saved);
         }
-        Err(problem) => assert!(!problem.message.is_empty(), "rejected without a message"),
+        Err(problem) => assert!(!problem.message.key().is_empty(), "rejected without a message"),
     }
 }
 
@@ -106,10 +106,8 @@ fn a_slab_with_too_many_points_is_skipped_with_a_message() {
     let outcome = archicraft_ifcx::load(&bytes).unwrap();
     assert_eq!(outcome.project.elements.len(), 4, "only the four walls are left");
     assert!(
-        outcome
-            .problems
-            .iter()
-            .any(|p| p.message.contains("SL-001") && p.message.contains("model-error-slab-points(max=10000)")),
+        outcome.problems.iter().any(|p| p.message.to_string().contains("SL-001")
+            && p.message.to_string().contains("model-error-slab-points(max=10000)")),
         "{:?}",
         outcome.problems
     );
@@ -129,8 +127,9 @@ fn a_storey_listed_three_times_is_read_once() {
         .problems
         .iter()
         .filter(|p| {
-            p.message
-                .contains("storey 00 Ground floor skipped: the building lists it more than once")
+            p.message.to_string().contains(
+                r#"ifcx-skipped(record=ifcx-record-storey(name="00 Ground floor"), reason=ifcx-storey-listed-twice)"#,
+            )
         })
         .count();
     assert_eq!(repeats, 2, "{:?}", outcome.problems);
@@ -146,7 +145,13 @@ fn a_storey_listed_three_times_is_read_once() {
 fn an_element_listed_three_times_is_read_once() {
     let bytes = std::fs::read(regression_dir().join("slab-listed-three-times.ifcx")).unwrap();
     let outcome = archicraft_ifcx::load(&bytes).unwrap();
-    let count = |text: &str| outcome.problems.iter().filter(|p| p.message.contains(text)).count();
+    let count = |text: &str| {
+        outcome
+            .problems
+            .iter()
+            .filter(|p| p.message.to_string().contains(text))
+            .count()
+    };
     assert_eq!(count("model-error-slab-points"), 1, "{:?}", outcome.problems);
-    assert_eq!(count("SL-001 appears twice"), 2, "{:?}", outcome.problems);
+    assert_eq!(count(r#"ifcx-duplicate(name="SL-001")"#), 2, "{:?}", outcome.problems);
 }

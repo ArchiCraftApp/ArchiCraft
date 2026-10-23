@@ -808,10 +808,13 @@ fn ifx_090_one_written_version_and_load_dispatches_on_it() {
         let bytes = edit(&project, |v| v["header"]["ifcxVersion"] = other.into());
         let error = archicraft_ifcx::load(&bytes).unwrap_err();
         assert!(
-            error.message.contains(&format!("“{other}” is not supported")),
+            error
+                .message
+                .to_string()
+                .contains(&format!("ifcx-version-unsupported(version={other:?}")),
             "{error:?}"
         );
-        assert!(error.message.contains(WRITTEN_VERSION), "{error:?}");
+        assert!(error.message.to_string().contains(WRITTEN_VERSION), "{error:?}");
     }
 }
 
@@ -1669,19 +1672,25 @@ fn ifx_083_composition_and_validation_problems_name_the_node_and_the_file_still_
     let at = |path: &str, part: &str| {
         problems
             .iter()
-            .any(|p| p.path.as_deref() == Some(path) && p.message.contains(part))
+            .any(|p| p.path.as_deref() == Some(path) && p.message.to_string().contains(part))
     };
     assert!(
-        ["cycle-a", "cycle-b"].iter().any(|p| at(p, "composition cycle")),
-        "{problems:#?}"
-    );
-    assert!(at(&wall_path, "unknown node “no-such-node”"), "{problems:#?}");
-    assert!(
-        at(&wall_path, "“bsi::ifc::prop::IsExternal”: expected a boolean"),
+        ["cycle-a", "cycle-b"].iter().any(|p| at(p, "ifcx-composition-cycle")),
         "{problems:#?}"
     );
     assert!(
-        problems.iter().any(|p| p.message.contains(missing_import)),
+        at(&wall_path, r#"ifcx-unknown-node(target="no-such-node")"#),
+        "{problems:#?}"
+    );
+    assert!(
+        at(
+            &wall_path,
+            r#"ifcx-attribute-invalid(id="bsi::ifc::prop::IsExternal", reason=ifcx-value-type(expected="boolean""#
+        ),
+        "{problems:#?}"
+    );
+    assert!(
+        problems.iter().any(|p| p.message.to_string().contains(missing_import)),
         "{problems:#?}"
     );
 

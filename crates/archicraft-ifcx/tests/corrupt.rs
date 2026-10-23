@@ -210,7 +210,7 @@ fn problem<'o>(outcome: &'o ReadOutcome, path: &str, parts: &[&str]) -> &'o Prob
     outcome
         .problems
         .iter()
-        .find(|p| p.path.as_deref() == Some(path) && parts.iter().all(|part| p.message.contains(part)))
+        .find(|p| p.path.as_deref() == Some(path) && parts.iter().all(|part| p.message.to_string().contains(part)))
         .unwrap_or_else(|| panic!("no problem at {path} containing {parts:?}: {:#?}", outcome.problems))
 }
 
@@ -256,7 +256,10 @@ fn a_layer_record_that_is_not_an_object_is_skipped_and_reported() {
     let p = problem(
         &outcome,
         &root_path(&value),
-        &["layer record 1 skipped", "not an object"],
+        &[
+            "ifcx-skipped(record=ifcx-record-layer(index=1)",
+            "reason=ifcx-not-object",
+        ],
     );
     assert_eq!(p.severity, Severity::Error);
 }
@@ -268,8 +271,19 @@ fn malformed_view_records_are_skipped_and_reported() {
     let (outcome, value) = load("malformed-views");
     assert_eq!(outcome.project.views, reference_model().views);
     let root = root_path(&value);
-    problem(&outcome, &root, &["view record 2 skipped", "fisheye"]);
-    problem(&outcome, &root, &["view record 3 skipped", "not an object"]);
+    problem(
+        &outcome,
+        &root,
+        &["ifcx-skipped(record=ifcx-record-view(index=2)", r#"value="fisheye""#],
+    );
+    problem(
+        &outcome,
+        &root,
+        &[
+            "ifcx-skipped(record=ifcx-record-view(index=3)",
+            "reason=ifcx-not-object",
+        ],
+    );
 }
 
 /// PRJ-008: missing tool defaults are reported once and the template's
@@ -281,12 +295,16 @@ fn missing_tool_defaults_are_repaired_from_the_template() {
     problem(
         &outcome,
         &root_path(&value),
-        &["tool defaults repaired", "“toolDefaults” is missing", "template"],
+        &[
+            "ifcx-repaired(record=ifcx-record-tool-defaults",
+            r#"ifcx-field-missing(key="toolDefaults")"#,
+            "ifcx-template-defaults-used",
+        ],
     );
     let tool_problems = outcome
         .problems
         .iter()
-        .filter(|p| p.message.contains("tool defaults"))
+        .filter(|p| p.message.to_string().contains("ifcx-record-tool-defaults"))
         .count();
     assert_eq!(tool_problems, 1, "{:#?}", outcome.problems);
 }
@@ -317,16 +335,27 @@ fn unknown_and_missing_tool_defaults_slots_are_reported() {
 
     let value: Value = serde_json::from_slice(&bytes).unwrap();
     let root = root_path(&value);
-    problem(&outcome, &root, &["tool defaults repaired", "“column”", "ignored"]);
     problem(
         &outcome,
         &root,
-        &["tool defaults repaired", "“slab” is missing", "template"],
+        &[
+            "ifcx-repaired(record=ifcx-record-tool-defaults",
+            r#"ifcx-tool-unknown(key="column")"#,
+        ],
+    );
+    problem(
+        &outcome,
+        &root,
+        &[
+            "ifcx-repaired(record=ifcx-record-tool-defaults",
+            r#"ifcx-field-missing(key="slab")"#,
+            "ifcx-tool-template-used",
+        ],
     );
     let tool_problems: Vec<&Problem> = outcome
         .problems
         .iter()
-        .filter(|p| p.message.contains("tool defaults"))
+        .filter(|p| p.message.to_string().contains("ifcx-record-tool-defaults"))
         .collect();
     assert_eq!(tool_problems.len(), 2, "{:#?}", outcome.problems);
     assert!(tool_problems.iter().all(|p| p.severity == Severity::Warning));
@@ -348,10 +377,8 @@ fn a_tool_default_class_the_kind_does_not_allow_is_repaired() {
         &outcome,
         &root_path(&value),
         &[
-            "tool defaults repaired",
-            "IfcCovering is not an allowed class",
-            "“wall”",
-            "IfcWall",
+            "ifcx-repaired(record=ifcx-record-tool-defaults",
+            r#"ifcx-tool-class-not-allowed(class="IfcCovering", kind=wall, default="IfcWall")"#,
         ],
     );
     assert_eq!(p.severity, Severity::Warning);
@@ -370,8 +397,23 @@ fn invalid_counters_are_repaired_and_reported() {
         (4, 1)
     );
     let root = root_path(&value);
-    problem(&outcome, &root, &["counters repaired", "“wall” is negative", "4"]);
-    problem(&outcome, &root, &["counters repaired", "“slab” is not an integer", "1"]);
+    problem(
+        &outcome,
+        &root,
+        &[
+            "ifcx-repaired(record=ifcx-record-counters",
+            r#"ifcx-counter-negative(key="wall", value=4)"#,
+        ],
+    );
+    problem(
+        &outcome,
+        &root,
+        &[
+            "ifcx-repaired(record=ifcx-record-counters",
+            r#"ifcx-field-not-integer(key="slab")"#,
+            "value=1",
+        ],
+    );
 }
 
 /// PRJ-008: missing counters are repaired the same way and reported.
@@ -388,7 +430,10 @@ fn missing_counters_are_repaired_and_reported() {
     problem(
         &outcome,
         &root_path(&value),
-        &["counters repaired", "“counters” is missing"],
+        &[
+            "ifcx-repaired(record=ifcx-record-counters",
+            r#"ifcx-field-missing(key="counters")"#,
+        ],
     );
 }
 
@@ -401,7 +446,10 @@ fn an_invalid_info_field_is_repaired_and_reported() {
     problem(
         &outcome,
         &root_path(&value),
-        &["project information repaired", "“client” is not text"],
+        &[
+            "ifcx-repaired(record=ifcx-record-project-information",
+            r#"ifcx-field-not-text(key="client")"#,
+        ],
     );
 }
 
@@ -416,8 +464,22 @@ fn invalid_element_flags_are_repaired_and_reported() {
     assert!(!wall.locked);
     assert_eq!(wall.position, Position::default());
     let path = node_path(&value, "W-001");
-    problem(&outcome, &path, &["element W-001 repaired", "“locked”"]);
-    problem(&outcome, &path, &["element W-001 repaired", "“position”"]);
+    problem(
+        &outcome,
+        &path,
+        &[
+            r#"ifcx-repaired(record=ifcx-record-element(name="W-001")"#,
+            r#"key="locked""#,
+        ],
+    );
+    problem(
+        &outcome,
+        &path,
+        &[
+            r#"ifcx-repaired(record=ifcx-record-element(name="W-001")"#,
+            r#"key="position""#,
+        ],
+    );
 }
 
 /// PRJ-008: a colour with a non-numeric component is reported and the
@@ -432,7 +494,10 @@ fn a_non_numeric_colour_component_is_repaired_and_reported() {
     problem(
         &outcome,
         &root_path(&value),
-        &["material record 0 repaired", "“color” has a non-numeric component"],
+        &[
+            "ifcx-repaired(record=ifcx-record-material(index=0)",
+            r#"ifcx-field-colour-component(key="color")"#,
+        ],
     );
 }
 
@@ -446,7 +511,10 @@ fn an_invalid_ground_storey_is_repaired_and_reported_once() {
     problem(
         &outcome,
         &root_path(&value),
-        &["project repaired", "“groundStorey” is not a UUID"],
+        &[
+            "ifcx-repaired(record=ifcx-record-project",
+            r#"ifcx-field-not-uuid(key="groundStorey")"#,
+        ],
     );
     assert_eq!(outcome.problems.len(), 1, "{:#?}", outcome.problems);
 }
@@ -457,7 +525,11 @@ fn an_invalid_ground_storey_is_repaired_and_reported_once() {
 fn an_invalid_element_is_skipped_and_reported() {
     let (outcome, value) = load("invalid-wall");
     assert_eq!(outcome.project.elements.len(), reference_model().elements.len() - 1);
-    let p = problem(&outcome, &node_path(&value, "W-002"), &["element W-002 skipped"]);
+    let p = problem(
+        &outcome,
+        &node_path(&value, "W-002"),
+        &[r#"ifcx-skipped(record=ifcx-record-element(name="W-002")"#],
+    );
     assert_eq!(p.severity, Severity::Error);
 }
 
@@ -472,12 +544,18 @@ fn out_of_range_counters_are_repaired_to_the_element_count() {
     problem(
         &outcome,
         &root,
-        &["counters repaired", "“wall” is out of range", "4 is used"],
+        &[
+            "ifcx-repaired(record=ifcx-record-counters",
+            r#"ifcx-out-of-range-replaced(key="wall", value=4)"#,
+        ],
     );
     problem(
         &outcome,
         &root,
-        &["counters repaired", "“slab” is out of range", "1 is used"],
+        &[
+            "ifcx-repaired(record=ifcx-record-counters",
+            r#"ifcx-out-of-range-replaced(key="slab", value=1)"#,
+        ],
     );
 
     let mut project = outcome.project;
@@ -510,18 +588,16 @@ fn out_of_range_decimals_are_clamped_and_reported() {
         &outcome,
         &root,
         &[
-            "project settings repaired",
-            "“lengthDecimals” is out of range",
-            "8 is used",
+            "ifcx-repaired(record=ifcx-record-project-settings",
+            r#"ifcx-out-of-range-replaced(key="lengthDecimals", value=8)"#,
         ],
     );
     problem(
         &outcome,
         &root,
         &[
-            "project settings repaired",
-            "“angleDecimals” is out of range",
-            "0 is used",
+            "ifcx-repaired(record=ifcx-record-project-settings",
+            r#"ifcx-out-of-range-replaced(key="angleDecimals", value=0)"#,
         ],
     );
 }
@@ -537,7 +613,10 @@ fn an_invalid_survey_point_is_repaired_and_reported() {
     let p = problem(
         &outcome,
         &root_path(&value),
-        &["project location repaired", "“surveyPoint”", "non-numeric coordinates"],
+        &[
+            "ifcx-repaired(record=ifcx-record-project-location",
+            r#"ifcx-field-point(key="surveyPoint", reason=ifcx-point-not-numeric)"#,
+        ],
     );
     assert_eq!(p.severity, Severity::Warning);
 }
@@ -553,7 +632,10 @@ fn a_storey_height_below_the_minimum_is_repaired_and_reported() {
     let p = problem(
         &outcome,
         &node_path(&value, "01 First floor"),
-        &["storey 01 First floor repaired", "“height” is below the minimum"],
+        &[
+            r#"ifcx-repaired(record=ifcx-record-storey(name="01 First floor")"#,
+            "ifcx-storey-height-min",
+        ],
     );
     assert_eq!(p.severity, Severity::Warning);
 }
@@ -572,8 +654,11 @@ fn a_site_or_building_path_that_is_not_a_uuid_is_repaired_and_reported() {
     );
     assert_eq!(project.storeys, reference.storeys);
     assert_eq!(project.elements.len(), reference.elements.len());
-    for (path, record) in [("site", "site repaired"), ("building", "building repaired")] {
-        let p = problem(&outcome, path, &[record, "the path is not a UUID", "new identity"]);
+    for (path, record) in [
+        ("site", "ifcx-repaired(record=ifcx-record-site"),
+        ("building", "ifcx-repaired(record=ifcx-record-building"),
+    ] {
+        let p = problem(&outcome, path, &[record, "reason=ifcx-path-not-uuid"]);
         assert_eq!(p.severity, Severity::Warning);
     }
 }
@@ -589,7 +674,10 @@ fn an_invalid_cut_fill_background_is_left_out_and_reported() {
     problem(
         &outcome,
         &root_path(&value),
-        &["material record 0 repaired", "“background” is not a list", "left out"],
+        &[
+            "ifcx-repaired(record=ifcx-record-material(index=0)",
+            r#"ifcx-left-out(reason=ifcx-field-not-list(key="background"))"#,
+        ],
     );
 }
 
@@ -607,9 +695,8 @@ fn an_invalid_storey_cut_plane_height_is_left_out_and_reported() {
         &outcome,
         &node_path(&value, "00 Ground floor"),
         &[
-            "storey 00 Ground floor repaired",
-            "“cutPlaneHeight” is not a number",
-            "left out",
+            r#"ifcx-repaired(record=ifcx-record-storey(name="00 Ground floor")"#,
+            r#"ifcx-left-out(reason=ifcx-field-not-number(key="cutPlaneHeight"))"#,
         ],
     );
 }
@@ -638,7 +725,11 @@ fn present_and_skipped(value: &Value, outcome: &ReadOutcome, collection: &str) -
     let skipped = outcome
         .problems
         .iter()
-        .filter(|p| p.message.starts_with(&format!("{collection} ")) && p.message.contains(" skipped: "))
+        .filter(|p| {
+            p.message
+                .to_string()
+                .starts_with(&format!("ifcx-skipped(record=ifcx-record-{collection}("))
+        })
         .count();
     (present, skipped)
 }
@@ -680,7 +771,8 @@ fn no_record_disappears_silently() {
 }
 
 /// The repair and skip messages follow one pattern, so they can be found
-/// and counted: "<record> skipped: <reason>" or "<record> repaired: <reason>".
+/// and counted: `ifcx-skipped` or `ifcx-repaired`, each with its record and
+/// reason.
 #[test]
 fn every_fixture_reports_a_skipped_or_repaired_record() {
     for fixture in FIXTURES {
@@ -689,7 +781,7 @@ fn every_fixture_reports_a_skipped_or_repaired_record() {
             outcome
                 .problems
                 .iter()
-                .any(|p| p.path.is_some() && (p.message.contains(" skipped: ") || p.message.contains(" repaired: "))),
+                .any(|p| p.path.is_some() && ["ifcx-skipped", "ifcx-repaired"].contains(&p.message.key())),
             "{}: {:#?}",
             fixture.name,
             outcome.problems

@@ -24,6 +24,7 @@ use serde_json::Value;
 
 use super::schema;
 use crate::container::{AttributeValue, IfcxFile};
+use crate::message::Message;
 use crate::validate::Problem;
 
 /// One step of the migration chain: upgrades a file from format `from` to
@@ -31,7 +32,8 @@ use crate::validate::Problem;
 #[derive(Debug)]
 pub struct Migration {
     pub from: u32,
-    /// What the step changes, for the load report.
+    /// The message key of what the step changes, for the load report; it
+    /// belongs in [`crate::message::ALL_KEYS`] (NFR-L10N-001).
     pub description: &'static str,
     /// Rewrites the file in place; reports what it could not convert.
     pub apply: fn(&mut IfcxFile, &mut Vec<Problem>),
@@ -52,6 +54,11 @@ fn format_version<A: AttributeValue>(file: &IfcxFile<A>) -> Option<(String, u32)
     })?;
     let version = version?.as_str()?.parse().ok()?;
     Some((node.path.clone(), version))
+}
+
+/// A format version as a message count.
+fn count(version: u32) -> usize {
+    usize::try_from(version).unwrap_or(usize::MAX)
 }
 
 /// Upgrades `file` from its format version to `target` with `migrations`,
@@ -75,7 +82,7 @@ pub(crate) fn upgrade<A: AttributeValue>(
         let Some(step) = migrations.iter().find(|m| m.from == version) else {
             problems.push(Problem::warning(
                 Some(&path),
-                format!("no migration from ArchiCraft format {version} is known; the file is read as it is"),
+                Message::new("ifcx-migration-unknown").count("version", count(version)),
             ));
             break;
         };
@@ -88,9 +95,9 @@ pub(crate) fn upgrade<A: AttributeValue>(
                 Err(e) => {
                     problems.push(Problem::error(
                         Some(&path),
-                        format!(
-                            "the file cannot be migrated from ArchiCraft format {version}: {e}; it is read as it is"
-                        ),
+                        Message::new("ifcx-migration-failed")
+                            .count("version", count(version))
+                            .text("detail", e.to_string()),
                     ));
                     return None;
                 }
@@ -99,11 +106,10 @@ pub(crate) fn upgrade<A: AttributeValue>(
         (step.apply)(tree, problems);
         problems.push(Problem::info(
             Some(&path),
-            format!(
-                "migrated from format {version} to format {}: {}",
-                version + 1,
-                step.description
-            ),
+            Message::new("ifcx-migrated")
+                .count("from", count(version))
+                .count("to", count(version + 1))
+                .nested("change", Message::new(step.description)),
         ));
         version += 1;
     }
@@ -125,6 +131,7 @@ mod tests {
     use super::*;
     use crate::alpha::reader;
     use crate::alpha::schema::FORMAT_VERSION;
+    use crate::message::ALL_KEYS;
     use crate::validate::{self, Severity};
 
     /// A file written at format 1 (tests/formats/, never regenerated).
@@ -173,21 +180,22 @@ mod tests {
         // Out of order on purpose: steps are found by their format.
         Migration {
             from: 2,
-            description: "the description is extended",
+            description: "test-description-extended",
             apply: second,
         },
         Migration {
             from: 1,
-            description: "the project gets a description",
+            description: "test-description-added",
             apply: first,
         },
     ];
 
-    fn messages(problems: &[Problem], severity: Severity) -> Vec<&str> {
+    /// The messages of `severity` in their key form.
+    fn messages(problems: &[Problem], severity: Severity) -> Vec<String> {
         problems
             .iter()
             .filter(|p| p.severity == severity)
-            .map(|p| p.message.as_str())
+            .map(|p| p.message.to_string())
             .collect()
     }
 
@@ -200,7 +208,7 @@ mod tests {
         assert_eq!(outcome.project.info.description, "described by the 1 to 2 step");
         assert_eq!(
             messages(&outcome.problems, Severity::Info),
-            ["migrated from format 1 to format 2: the project gets a description"]
+            ["ifcx-migrated(from=1, to=2, change=test-description-added)"]
         );
         assert_eq!(outcome.problems.len(), 1, "{:#?}", outcome.problems);
         assert!(!outcome.newer_format);
@@ -246,8 +254,8 @@ mod tests {
         assert_eq!(
             messages(&outcome.problems, Severity::Info),
             [
-                "migrated from format 1 to format 2: the project gets a description",
-                "migrated from format 2 to format 3: the description is extended",
+                "ifcx-migrated(from=1, to=2, change=test-description-added)",
+                "ifcx-migrated(from=2, to=3, change=test-description-extended)",
             ]
         );
         assert_eq!(outcome.problems.len(), 2, "{:#?}", outcome.problems);
@@ -296,7 +304,7 @@ mod tests {
         let outcome = reader::read_with(&format_1(), &[], 2).unwrap();
         assert_eq!(
             messages(&outcome.problems, Severity::Warning),
-            ["no migration from ArchiCraft format 1 is known; the file is read as it is"]
+            ["ifcx-migration-unknown(version=1)"]
         );
         assert_eq!(outcome.migrated_from, None);
 
@@ -305,7 +313,7 @@ mod tests {
         assert_eq!(from, 1);
         assert_eq!(
             messages(&problems, Severity::Warning),
-            ["no migration from ArchiCraft format 2 is known; the file is read as it is"]
+            ["ifcx-migration-unknown(version=2)"]
         );
         assert_eq!(format_version(&file).unwrap().1, 2);
     }
@@ -318,5 +326,7 @@ mod tests {
         froms.sort_unstable();
         let earlier: Vec<u32> = (1..).take_while(|v| *v < FORMAT_VERSION).collect();
         assert_eq!(froms, earlier);
+        // NFR-L10N-001: the load report renders each step's description.
+        assert!(MIGRATIONS.iter().all(|m| ALL_KEYS.contains(&m.description)));
     }
 }
