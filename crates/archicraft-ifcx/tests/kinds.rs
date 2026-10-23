@@ -130,6 +130,7 @@ fn tool_defaults_of_an_unstorable_kind_are_left_out_and_warned_about() {
         layer: p.layers[0].id,
         position: Position::Undefined,
         ifc_class: KindTag::Dummy.descriptor().default_class,
+        predefined_type: None,
         kind: Dummy::new(DVec2::ZERO, DVec2::ONE, p.materials[0].id).into(),
     });
     History::default()

@@ -12,7 +12,7 @@ use archicraft_model::message::ALL_KEYS;
 use archicraft_model::units::{
     AngleUnit, AreaUnit, LengthUnit, NumberFormat, ParseError, SlopeFormat, UnitSettings, VolumeUnit, format_length,
 };
-use archicraft_model::{IfcClass, KindTag, Message, ReferenceLine};
+use archicraft_model::{IfcClass, KindTag, Message, PredefinedType, ReferenceLine};
 use catalogue_check::{assert_catalogue_matches, variables_of_pattern};
 use fluent_syntax::ast::Entry;
 use fluent_syntax::parser;
@@ -61,8 +61,9 @@ fn representatives() -> Vec<Message> {
     messages
 }
 
-/// The names of units, IFC classes and wall reference lines, and the parse
-/// errors of typed lengths and angles (units.rs, kinds/wall.rs).
+/// The names of units, IFC classes, predefined types and wall reference
+/// lines, and the parse errors of typed lengths and angles (units.rs,
+/// element.rs, kinds/wall.rs).
 fn label_representatives() -> Vec<Message> {
     let mut keys: Vec<&'static str> = Vec::new();
     keys.extend(LengthUnit::ALL.map(LengthUnit::label_key));
@@ -80,6 +81,7 @@ fn label_representatives() -> Vec<Message> {
         ]
         .map(IfcClass::label_key),
     );
+    keys.extend(PredefinedType::ALL.map(PredefinedType::label_key));
     keys.extend(
         [
             ReferenceLine::Outside,
@@ -203,6 +205,9 @@ fn error_representatives() -> Vec<Message> {
         Message::new("model-error-ifc-class-not-allowed")
             .text("class", "IfcCovering")
             .kind("kind", KindTag::Wall),
+        Message::new("model-error-predefined-type-not-allowed")
+            .nested("type", Message::new(PredefinedType::Floor.label_key()))
+            .text("class", "IfcWall"),
         Message::new("model-error-storeys-too-close")
             .text("lower", "00")
             .text("upper", "01")
@@ -304,6 +309,10 @@ fn model_errors_render_in_english_with_project_units() {
         .text("class", "IfcCovering")
         .kind("kind", KindTag::Wall);
     assert_eq!(render(&class), "IfcCovering is not an allowed IFC class for a wall.");
+    let predefined = Message::new("model-error-predefined-type-not-allowed")
+        .nested("type", Message::new(PredefinedType::PadFooting.label_key()))
+        .text("class", "IfcSlab");
+    assert_eq!(render(&predefined), "Pad footing is not a predefined type of IfcSlab.");
     assert_eq!(render(&Message::new("model-error-no-change")), "Nothing to change.");
     // NFR-REL-005: a refused storey edit names the first element too low
     // and counts the others.

@@ -785,3 +785,156 @@ fn non_default_slope_area_and_volume_units_round_trip() {
         assert_eq!(loaded.project.settings.units, project.settings.units);
     }
 }
+
+/// The element named `name`.
+fn element_named<'p>(project: &'p archicraft_model::Project, name: &str) -> &'p archicraft_model::Element {
+    project.elements.values().find(|e| e.name == name).unwrap()
+}
+
+/// IFX-024: a slab with a floor type, a footing slab with a strip type and
+/// a footing wall with a pad type save and load equal. Their nodes carry
+/// `archicraft::element.predefinedType` with the IFC 4.3 literal, elements
+/// without a type carry none, and the file validates.
+#[test]
+fn predefined_types_round_trip() {
+    use archicraft_model::{Command, History, IfcClass, PredefinedType};
+
+    let mut project = samples::storey_with_walls_and_slab();
+    let mut history = History::default();
+    let ground = project.storeys.ground();
+    let outline = vec![
+        DVec2::ZERO,
+        DVec2::new(2.0, 0.0),
+        DVec2::new(2.0, 1.0),
+        DVec2::new(0.0, 1.0),
+    ];
+    let mut footing = project.new_slab(ground, outline, Vec::new(), 0);
+    footing.ifc_class = IfcClass::Footing;
+    footing.predefined_type = Some(PredefinedType::StripFooting);
+    history
+        .execute(&mut project, Command::AddElements(vec![footing]))
+        .unwrap();
+    let mut slab = element_named(&project, "SL-001").clone();
+    slab.predefined_type = Some(PredefinedType::Floor);
+    let mut wall = element_named(&project, "W-001").clone();
+    wall.ifc_class = IfcClass::Footing;
+    wall.predefined_type = Some(PredefinedType::PadFooting);
+    history
+        .execute(&mut project, Command::UpdateElements(vec![slab, wall]))
+        .unwrap();
+
+    let bytes = save(&project);
+    let problems = validate::validate(&validate::parse(&bytes).unwrap());
+    assert!(problems.is_empty(), "{problems:#?}");
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    for (name, literal) in [
+        ("SL-001", Some("FLOOR")),
+        ("SL-002", Some("STRIP_FOOTING")),
+        ("W-001", Some("PAD_FOOTING")),
+        ("W-002", None),
+    ] {
+        let common = &value["data"][node_index(&value, name)]["attributes"]["archicraft::element"];
+        assert_eq!(common.get("predefinedType").and_then(Value::as_str), literal, "{name}");
+    }
+
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert_eq!(loaded.project.elements.len(), project.elements.len());
+    for element in project.elements.values() {
+        assert_eq!(loaded.project.element(element.id), Some(element), "{}", element.name);
+    }
+}
+
+/// IFX-024: a type this version does not know, declared by the file's own
+/// schema as a later version would write it, loads with one warning and no
+/// type; the element itself loads.
+#[test]
+fn an_unknown_predefined_type_loads_with_one_warning_and_no_type() {
+    let project = samples::two_storey_shell();
+    let bytes = edit(&project, |v| {
+        let i = node_index(v, "SL-001");
+        v["data"][i]["attributes"]["archicraft::element"]["predefinedType"] = "PAVING".into();
+        let declared =
+            &mut v["schemas"]["archicraft::element"]["value"]["objectRestrictions"]["values"]["predefinedType"];
+        declared["enumRestrictions"]["options"]
+            .as_array_mut()
+            .unwrap()
+            .push("PAVING".into());
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert_eq!(loaded.problems.len(), 1, "{:#?}", loaded.problems);
+    let problem = &loaded.problems[0];
+    assert_eq!(problem.severity, Severity::Warning);
+    let text = problem.message.to_string();
+    assert!(
+        text.contains(r#"name="SL-001""#)
+            && text.contains(r#"ifcx-field-unknown-value(key="predefinedType", value="PAVING")"#),
+        "{text}"
+    );
+    assert_eq!(element_named(&loaded.project, "SL-001").predefined_type, None);
+    let upper = element_named(&loaded.project, "SL-002");
+    assert_eq!(upper.predefined_type, element_named(&project, "SL-002").predefined_type);
+}
+
+/// IFX-024: a known type that the element's class does not offer (a floor
+/// on an IfcWall wall) loads with one warning and no type, instead of
+/// skipping the element.
+#[test]
+fn a_predefined_type_the_class_does_not_offer_loads_with_one_warning() {
+    let project = samples::storey_with_walls_and_slab();
+    let bytes = edit(&project, |v| {
+        let i = node_index(v, "W-001");
+        v["data"][i]["attributes"]["archicraft::element"]["predefinedType"] = "FLOOR".into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert_eq!(loaded.problems.len(), 1, "{:#?}", loaded.problems);
+    assert_eq!(loaded.problems[0].severity, Severity::Warning);
+    let text = loaded.problems[0].message.to_string();
+    assert!(
+        text.contains(r#"ifcx-predefined-type-not-offered(type="FLOOR", class="IfcWall")"#),
+        "{text}"
+    );
+    let wall = element_named(&loaded.project, "W-001");
+    assert_eq!(wall.predefined_type, None);
+    assert_eq!(loaded.project.elements.len(), project.elements.len());
+}
+
+/// IFX-024, ELM-001: the tool defaults keep their predefined types through
+/// a save and a load, and a slot type that the slot's class does not offer
+/// loads with one warning and no type.
+#[test]
+fn defaults_slots_with_predefined_types_round_trip() {
+    use archicraft_model::{Command, History, IfcClass, KindTag, PredefinedType};
+
+    let mut project = samples::storey_with_walls_and_slab();
+    let mut defaults = project.tool_defaults.clone();
+    let wall = defaults.get_mut(KindTag::Wall).unwrap();
+    wall.ifc_class = IfcClass::Footing;
+    wall.predefined_type = Some(PredefinedType::StripFooting);
+    defaults.get_mut(KindTag::Slab).unwrap().predefined_type = Some(PredefinedType::Roof);
+    History::default()
+        .execute(&mut project, Command::SetToolDefaults(defaults.clone()))
+        .unwrap();
+
+    let bytes = save(&project);
+    let problems = validate::validate(&validate::parse(&bytes).unwrap());
+    assert!(problems.is_empty(), "{problems:#?}");
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    let slots = &value["data"][0]["attributes"]["archicraft::project"]["toolDefaults"];
+    assert_eq!(slots["wall"]["predefinedType"], "STRIP_FOOTING");
+    assert_eq!(slots["slab"]["predefinedType"], "ROOF");
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert_eq!(loaded.project.tool_defaults, defaults);
+
+    let bytes = edit(&project, |v| {
+        v["data"][0]["attributes"]["archicraft::project"]["toolDefaults"]["slab"]["predefinedType"] =
+            "PAD_FOOTING".into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert_eq!(loaded.problems.len(), 1, "{:#?}", loaded.problems);
+    assert_eq!(loaded.problems[0].severity, Severity::Warning);
+    let slots = &loaded.project.tool_defaults;
+    assert_eq!(slots.get(KindTag::Slab).unwrap().predefined_type, None);
+    assert_eq!(slots.get(KindTag::Wall), defaults.get(KindTag::Wall));
+}

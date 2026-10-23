@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use archicraft_model::material::{FillPattern, MaterialCategory};
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, VolumeUnit};
-use archicraft_model::{KindTag, Position, SlabReference};
+use archicraft_model::{KindTag, Position, PredefinedType, SlabReference};
 
 use super::writer::IFCX_VERSION;
 use crate::container::{Header, IfcxFile};
@@ -111,6 +111,12 @@ fn positions() -> Value {
     enumeration(Position::ALL.map(Position::code))
 }
 
+/// The predefined type of an element or a tool's defaults (IFX-024), as its
+/// IFC 4.3 literal. Optional: written only when set.
+fn predefined_type() -> Value {
+    optional(enumeration(PredefinedType::ALL.map(PredefinedType::code)))
+}
+
 fn wall_defaults() -> Value {
     object(&[
         ("thickness", length()),
@@ -122,6 +128,7 @@ fn wall_defaults() -> Value {
         ("layer", string()),
         ("position", positions()),
         ("ifcClass", string()),
+        ("predefinedType", predefined_type()),
     ])
 }
 
@@ -137,6 +144,7 @@ fn slab_defaults() -> Value {
         ("layer", string()),
         ("position", positions()),
         ("ifcClass", string()),
+        ("predefinedType", predefined_type()),
     ])
 }
 
@@ -264,6 +272,7 @@ pub fn declarations() -> IndexMap<String, Value> {
             ("layer", string()),
             ("locked", boolean()),
             ("position", positions()),
+            ("predefinedType", predefined_type()),
         ])}),
     );
     schemas.insert(

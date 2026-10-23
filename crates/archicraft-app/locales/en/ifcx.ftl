@@ -125,6 +125,7 @@ ifcx-storey-lost = its storey “{ $name }” could not be read
 ifcx-element-data-not-object = its ArchiCraft data is not an object
 ifcx-element-layer-missing = the layer does not exist; the first layer is used
 ifcx-element-class-unsupported = unsupported IFC class; { $default } is used
+ifcx-predefined-type-not-offered = { $type } is not a predefined type of { $class }; it is left out
 ifcx-element-material-missing = the material does not exist; “{ $name }” is used
 ifcx-parameters-missing = { $kind } parameters are missing
 ifcx-holes-left-out = the holes are left out: { $reason }

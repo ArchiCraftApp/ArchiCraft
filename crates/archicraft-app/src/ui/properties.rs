@@ -11,8 +11,8 @@ use archicraft_model::project::DefaultsSlot;
 use archicraft_model::units::{NumberFormat, UnitSettings, format_area, format_length, format_volume};
 use archicraft_model::validate::signed_area;
 use archicraft_model::{
-    Command, Element, ElementKind, IfcClass, KindTag, LayerId, MaterialId, Position, Project, ReferenceLine,
-    SlabReference, StoreyId, TopLink,
+    Command, Element, ElementKind, IfcClass, KindTag, LayerId, MaterialId, Position, PredefinedType, Project,
+    ReferenceLine, SlabReference, StoreyId, TopLink,
 };
 use egui::{Id, Ui};
 
@@ -91,6 +91,7 @@ fn apply(ws: &mut Workspace, editing: Editing) {
                 layer: e.layer,
                 position: e.position,
                 ifc_class: e.ifc_class,
+                predefined_type: e.predefined_type,
                 kind: e.kind,
             });
             ws.execute(Command::SetToolDefaults(defaults));
@@ -452,8 +453,17 @@ fn classification_fields(ui: &mut Ui, f: &mut Fields<'_>) {
             "class",
             &classes,
             |e| Some(e.ifc_class),
-            |e, c| e.ifc_class = *c,
+            |e, c| {
+                e.ifc_class = *c;
+                // IFX-024: a type the new class does not offer is dropped.
+                if e.predefined_type
+                    .is_some_and(|t| !e.tag().predefined_types(*c).contains(&t))
+                {
+                    e.predefined_type = None;
+                }
+            },
         );
+        predefined_type_field(ui, f, kind);
     }
     let positions = vec![
         (Position::Undefined, "Undefined".to_owned()),
@@ -467,6 +477,29 @@ fn classification_fields(ui: &mut Ui, f: &mut Fields<'_>) {
         &positions,
         |e| Some(e.position),
         |e, p| e.position = *p,
+    );
+}
+
+/// The predefined type (IFX-024): none or one of the types the kind offers
+/// with the class, shown when all targets have the same class and it has
+/// types.
+fn predefined_type_field(ui: &mut Ui, f: &mut Fields<'_>, kind: KindTag) {
+    let Some(class) = common(f.targets.iter().map(|e| e.ifc_class)) else {
+        return;
+    };
+    let offered = kind.predefined_types(class);
+    if offered.is_empty() {
+        return;
+    }
+    let mut types: Vec<(Option<PredefinedType>, String)> = vec![(None, "None".to_owned())];
+    types.extend(offered.iter().map(|t| (Some(*t), tr!(t.label_key()))));
+    f.choice(
+        ui,
+        "Predefined type",
+        "predefined-type",
+        &types,
+        |e| Some(e.predefined_type),
+        |e, t| e.predefined_type = *t,
     );
 }
 

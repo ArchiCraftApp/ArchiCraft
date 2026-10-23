@@ -493,6 +493,7 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
         layer: structure,
         position: Position::Interior,
         ifc_class: IfcClass::Footing,
+        predefined_type: None,
         kind: Wall {
             start: DVec2::ZERO,
             end: DVec2::X,
@@ -508,6 +509,7 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
         layer: structure,
         position: Position::Exterior,
         ifc_class: IfcClass::Covering,
+        predefined_type: None,
         kind: Slab {
             outline: rectangle(DVec2::ZERO, DVec2::ONE),
             holes: Vec::new(),

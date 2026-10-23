@@ -15,7 +15,9 @@ use archicraft_geometry::{ModelGeometry, TriMesh};
 use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
 use archicraft_model::project::{DefaultsSlot, NameCounters};
-use archicraft_model::{Element, ElementKind, KindTag, Layer, MaterialId, Project, ReferenceLine, Slab, TopLink, Wall};
+use archicraft_model::{
+    Element, ElementKind, KindTag, Layer, MaterialId, PredefinedType, Project, ReferenceLine, Slab, TopLink, Wall,
+};
 use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -107,6 +109,14 @@ fn reference_line(map: &mut Map<String, Value>, line: ReferenceLine) {
     }
 }
 
+/// Adds `predefinedType` with the IFC 4.3 literal when the element or slot
+/// has a type (IFX-024); files of projects without types stay as they were.
+fn predefined_type(value: &mut Value, predefined: Option<PredefinedType>) {
+    if let Some(predefined) = predefined {
+        value["predefinedType"] = json!(predefined.code());
+    }
+}
+
 /// The wall tool's defaults: the prototype's parameters without its
 /// placeholder geometry.
 fn wall_defaults(slot: &DefaultsSlot, w: &Wall) -> Value {
@@ -119,13 +129,15 @@ fn wall_defaults(slot: &DefaultsSlot, w: &Wall) -> Value {
     map.insert("layer".into(), json!(slot.layer.to_string()));
     map.insert("position".into(), json!(slot.position.code()));
     map.insert("ifcClass".into(), json!(slot.ifc_class.code()));
-    Value::Object(map)
+    let mut value = Value::Object(map);
+    predefined_type(&mut value, slot.predefined_type);
+    value
 }
 
 /// The slab tool's defaults: the prototype's parameters without its
 /// placeholder outline.
 fn slab_defaults(slot: &DefaultsSlot, s: &Slab) -> Value {
-    json!({
+    let mut value = json!({
         "thickness": s.thickness,
         "reference": s.reference.code(),
         "offset": s.offset,
@@ -133,7 +145,9 @@ fn slab_defaults(slot: &DefaultsSlot, s: &Slab) -> Value {
         "layer": slot.layer.to_string(),
         "position": slot.position.code(),
         "ifcClass": slot.ifc_class.code(),
-    })
+    });
+    predefined_type(&mut value, slot.predefined_type);
+    value
 }
 
 /// The tool defaults, one member per kind code in slot order (ELM-001).
@@ -515,6 +529,7 @@ fn write_element(
                 "locked": e.locked,
                 "position": e.position.code(),
             });
+            predefined_type(&mut common, e.predefined_type);
             if e.snap_excluded {
                 common["snapExcluded"] = json!(true);
             }

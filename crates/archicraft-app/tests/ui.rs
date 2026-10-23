@@ -20,7 +20,7 @@ use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_length};
 use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
-use archicraft_model::{Command, ElementKind, KindTag, ProjectSettings};
+use archicraft_model::{Command, ElementId, ElementKind, IfcClass, KindTag, PredefinedType, ProjectSettings};
 use common::{assert_present, data_dir, harness, harness_in};
 use egui::accesskit::Role;
 use egui::os::OperatingSystem;
@@ -823,6 +823,156 @@ fn a_kind_without_its_own_panel_shows_the_common_fields() {
         assert!(harness.query_by_label(specific).is_none(), "{specific} is shown");
     }
     assert_eq!(harness.state_mut().workspace().doc.geometry().problems.len(), 1);
+}
+
+/// Adds a 4 m wall and a 4 m × 3 m slab on the ground storey, `slab_type`
+/// set on the slab, and returns their ids.
+fn add_wall_and_slab(
+    harness: &mut Harness<'static, ArchiCraftApp>,
+    slab_type: Option<PredefinedType>,
+) -> (ElementId, ElementId) {
+    let ws = harness.state_mut().workspace();
+    let storey = ws.doc.project.storeys.ground();
+    let wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+    let outline = vec![
+        DVec2::new(0.0, 1.0),
+        DVec2::new(4.0, 1.0),
+        DVec2::new(4.0, 4.0),
+        DVec2::new(0.0, 4.0),
+    ];
+    let mut slab = ws.doc.project.new_slab(storey, outline, Vec::new(), 0);
+    slab.predefined_type = slab_type;
+    let ids = (wall.id, slab.id);
+    assert!(ws.execute(Command::AddElements(vec![wall, slab])));
+    ids
+}
+
+/// Selects only `id` and lets the panel follow.
+fn select_only(harness: &mut Harness<'static, ArchiCraftApp>, id: ElementId) {
+    let ws = harness.state_mut().workspace();
+    ws.selection.clear();
+    ws.selection.insert(id);
+    harness.run_steps(2);
+}
+
+/// Opens the combo box that shows `current`. It is clicked near its left
+/// end: the strip's first row reaches past the right edge of the test
+/// window.
+fn open_combo(harness: &mut Harness<'static, ArchiCraftApp>, current: &str) {
+    let rect = harness.get(By::new().role(Role::ComboBox).value(current)).rect();
+    click_at(harness, egui::pos2(rect.min.x + 8.0, rect.center().y));
+}
+
+/// The commands added to the history since it held `applied` of them.
+fn commands_since(harness: &mut Harness<'static, ArchiCraftApp>, applied: usize) -> Vec<Command> {
+    let history = &harness.state_mut().workspace().doc.history;
+    history.applied_commands().skip(applied).cloned().collect()
+}
+
+/// Opens the combo box that shows `current` and clicks `option`, returning
+/// the commands this added to the history.
+fn choose_in_combo(harness: &mut Harness<'static, ArchiCraftApp>, current: &str, option: &str) -> Vec<Command> {
+    let applied = harness.state_mut().workspace().doc.history.applied_commands().count();
+    open_combo(harness, current);
+    harness.get_by_label(option).click();
+    harness.run_steps(2);
+    commands_since(harness, applied)
+}
+
+/// IFX-024: a selected slab shows a "Predefined type" choice offering none
+/// and the four slab types, and an IfcWall wall shows none; choosing "Base
+/// slab" is one UpdateElements that sets the type.
+#[test]
+fn a_slab_offers_its_predefined_types_and_a_wall_none() {
+    let mut harness = harness("predefined-types");
+    let (wall, slab) = add_wall_and_slab(&mut harness, None);
+    select_only(&mut harness, wall);
+    harness.get_by_label("IFC class");
+    assert!(harness.query_by_label("Predefined type").is_none());
+
+    select_only(&mut harness, slab);
+    harness.get_by_label("Predefined type");
+    let nones = harness.query_all_by_label("None").count();
+    let applied = harness.state_mut().workspace().doc.history.applied_commands().count();
+    open_combo(&mut harness, "None");
+    assert_eq!(
+        harness.query_all_by_label("None").count(),
+        nones + 1,
+        "none is an option"
+    );
+    for option in ["Floor", "Roof", "Landing", "Base slab"] {
+        harness.get_by_label(option);
+    }
+    for absent in ["Pad footing", "Strip footing"] {
+        assert!(harness.query_by_label(absent).is_none(), "{absent} is offered");
+    }
+    harness.get_by_label("Base slab").click();
+    harness.run_steps(2);
+    let commands = commands_since(&mut harness, applied);
+    assert!(
+        matches!(commands.as_slice(), [Command::UpdateElements(e)] if e.len() == 1 && e[0].id == slab),
+        "{commands:?}"
+    );
+    let ws = harness.state_mut().workspace();
+    assert_eq!(
+        ws.doc.project.element(slab).unwrap().predefined_type,
+        Some(PredefinedType::BaseSlab)
+    );
+}
+
+/// IFX-024: changing a floor slab's class to IfcFooting drops the floor
+/// type, which footings do not offer, in the same UpdateElements, and the
+/// type choice then offers the footing types.
+#[test]
+fn changing_the_class_clears_a_type_the_new_class_does_not_offer() {
+    let mut harness = harness("predefined-type-class");
+    let (_, slab) = add_wall_and_slab(&mut harness, Some(PredefinedType::Floor));
+    select_only(&mut harness, slab);
+    harness.get(By::new().role(Role::ComboBox).value("Floor"));
+
+    let commands = choose_in_combo(&mut harness, "IfcSlab", "IfcFooting");
+    assert!(
+        matches!(commands.as_slice(), [Command::UpdateElements(e)] if e.len() == 1 && e[0].id == slab),
+        "{commands:?}"
+    );
+    let element = harness
+        .state_mut()
+        .workspace()
+        .doc
+        .project
+        .element(slab)
+        .unwrap()
+        .clone();
+    assert_eq!((element.ifc_class, element.predefined_type), (IfcClass::Footing, None));
+    open_combo(&mut harness, "None");
+    harness.get_by_label("Pad footing");
+    harness.get_by_label("Strip footing");
+    assert!(harness.query_by_label("Floor").is_none());
+}
+
+/// IFX-024, ELM-001: with the slab tool active and nothing selected, a type
+/// chosen in the strip goes into the slab tool's defaults slot through
+/// SetToolDefaults.
+#[test]
+fn a_predefined_type_in_the_strip_updates_the_slab_defaults_slot() {
+    let mut harness = harness("predefined-type-defaults");
+    harness.get_by_label("Slab").click();
+    harness.run_steps(2);
+    harness.get_by_label("Slab tool defaults");
+    let commands = choose_in_combo(&mut harness, "None", "Roof");
+    assert!(
+        matches!(commands.as_slice(), [Command::SetToolDefaults(_)]),
+        "{commands:?}"
+    );
+    let ws = harness.state_mut().workspace();
+    let slot = ws.doc.project.tool_defaults.get(KindTag::Slab).unwrap();
+    assert_eq!(slot.predefined_type, Some(PredefinedType::Roof));
+    let storey = ws.doc.project.storeys.ground();
+    let slab = ws
+        .doc
+        .project
+        .new_slab(storey, vec![DVec2::ZERO, DVec2::X, DVec2::ONE], Vec::new(), 0);
+    assert_eq!(slab.predefined_type, Some(PredefinedType::Roof));
 }
 
 /// NFR-L10N-001: a value the model rejects reports the localized message in

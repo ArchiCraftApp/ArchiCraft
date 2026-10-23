@@ -868,6 +868,7 @@ fn deleting_a_storey_unlinks_every_defaults_slot() {
         layer: p.layers[0].id,
         position: archicraft_model::Position::Undefined,
         ifc_class: KindTag::Dummy.descriptor().default_class,
+        predefined_type: None,
         kind: dummy.into(),
     });
     h.execute(&mut p, Command::SetToolDefaults(defaults.clone())).unwrap();
@@ -945,6 +946,7 @@ fn deleting_a_storey_resets_only_an_invalid_defaults_top() {
         layer: p.layers[1].id,
         position: archicraft_model::Position::Undefined,
         ifc_class: KindTag::Dummy.descriptor().default_class,
+        predefined_type: None,
         kind: dummy.into(),
     });
     h.execute(&mut p, Command::SetToolDefaults(defaults.clone())).unwrap();
