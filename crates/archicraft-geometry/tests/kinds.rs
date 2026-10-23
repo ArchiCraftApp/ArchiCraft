@@ -9,7 +9,7 @@ use archicraft_geometry::{GeometryError, ModelGeometry, ViewRange, plan_drawing}
 use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::Dummy;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Command, History};
+use archicraft_model::{Command, History, KindTag, Message};
 
 #[test]
 fn a_kind_without_a_generator_is_listed_as_a_problem() {
@@ -26,7 +26,12 @@ fn a_kind_without_a_generator_is_listed_as_a_problem() {
     assert!(geometry.get(dummy_id).is_none());
     assert_eq!(
         geometry.problems.get(&dummy_id),
-        Some(&GeometryError::UnsupportedKind("dummy").to_string())
+        Some(&GeometryError::UnsupportedKind(KindTag::Dummy).message())
+    );
+    assert_eq!(
+        geometry.problems[&dummy_id],
+        Message::new("geometry-kind-unsupported").kind("kind", KindTag::Dummy),
+        "the problem names the kind as a localizable noun (NFR-L10N-001)"
     );
     assert_eq!(geometry.problems.len(), 1, "{:?}", geometry.problems);
 

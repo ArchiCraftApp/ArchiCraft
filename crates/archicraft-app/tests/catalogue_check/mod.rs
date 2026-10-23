@@ -1,6 +1,7 @@
 //! Checks shared by the catalogue tests of the crates that return message
-//! keys (archicraft-model, archicraft-ifcx): the Fluent variables of each
-//! catalogue message against the arguments the crate passes (NFR-L10N-001).
+//! keys (archicraft-model, archicraft-ifcx, archicraft-geometry): the Fluent
+//! variables of each catalogue message against the arguments the crate
+//! passes (NFR-L10N-001).
 
 // Each test crate that includes this module uses only some of the helpers.
 #![allow(dead_code)]

@@ -1086,6 +1086,43 @@ fn load_problems_show_as_localized_text() {
     no_key_form(&harness);
 }
 
+/// UI-012, NFR-L10N-001: the problems panel shows each element without
+/// geometry as its name and a sentence from the catalogue: the kind as its
+/// noun, the model's reason for a rejected outline in place, and never a
+/// message key.
+#[test]
+fn geometry_problems_show_as_localized_text() {
+    let mut harness = harness("geometry-problem-text");
+    {
+        let ws = harness.state_mut().workspace();
+        let project = &mut ws.doc.project;
+        let storey = project.storeys.ground();
+        let material = project.materials[0].id;
+        let dummy =
+            archicraft_model::kinds::Dummy::new(DVec2::ZERO, DVec2::ONE, material).into_element(project, storey, 0);
+        // A wall without length, which the commands refuse, put into the
+        // project directly so that its outline reaches the geometry.
+        let mut wall = project.new_wall(storey, DVec2::new(2.0, 2.0), DVec2::new(2.0, 2.0), 0);
+        wall.name = "Zero wall".to_owned();
+        for element in [dummy, wall] {
+            project.elements.insert(element.id, element);
+        }
+        project.revision += 1;
+    }
+    press(&mut harness, Binding::primary(Key::P).shift(), OperatingSystem::Nix);
+    harness.run_steps(2);
+    harness.get_by_label_contains("2 geometry");
+    harness.get_by_label_contains(": elements of the kind “test element” have no geometry yet");
+    harness.get_by_label_contains("Zero wall: the outline is invalid: A polygon needs at least three distinct points.");
+    for prefix in ["model-", "geometry-"] {
+        let keys: Vec<String> = harness
+            .query_all_by_label_contains(prefix)
+            .map(|node| format!("{node:?}"))
+            .collect();
+        assert!(keys.is_empty(), "{keys:#?}");
+    }
+}
+
 /// NFR-REL-007, NFR-SEC-003: every fuzz regression and every corrupt fixture
 /// of the IFCX crate goes through the application's open path without a
 /// panic, and the application answers each with the load report or the

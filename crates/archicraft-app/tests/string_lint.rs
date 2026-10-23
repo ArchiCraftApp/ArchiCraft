@@ -2,16 +2,18 @@
 //! (`crates/archicraft-app/locales/en/*.ftl`, looked up with `tr!`), not in
 //! string literals.
 //!
-//! The lint parses every source file of archicraft-app, archicraft-model and
-//! archicraft-ifcx with syn and reports string literals that reach the user:
+//! The lint parses every source file of archicraft-app, archicraft-model,
+//! archicraft-ifcx and archicraft-geometry with syn and reports string
+//! literals that reach the user:
 //!
 //! - in archicraft-app, literal arguments (also the format string of
 //!   `format!`) of egui calls that show text ([`SINK_METHODS`],
 //!   [`SINK_FUNCTIONS`]) and of `Workspace::info`/`error` and
 //!   `ArchiCraftApp::message`, and every literal in the body of a function
 //!   that returns display text ([`TEXT_FUNCTIONS`], such as `CommandSpec::label`);
-//! - in archicraft-model, which has no catalogue and returns message keys,
-//!   every string literal with a space or an uppercase letter in its text;
+//! - in archicraft-model and archicraft-geometry, which have no catalogue
+//!   and return message keys, every string literal with a space or an
+//!   uppercase letter in its text;
 //! - in archicraft-ifcx, which returns message keys too but is full of
 //!   camel-case file-format keywords (`groundStorey`, `IfcWall`), every
 //!   string literal with a space in its text, as every sentence has one;
@@ -185,7 +187,7 @@ enum Rule {
     /// Only literals passed to UI sinks count (archicraft-app).
     Sinks,
     /// Every literal with a space or an uppercase letter counts
-    /// (archicraft-model).
+    /// (archicraft-model, archicraft-geometry).
     AllText,
     /// Every literal with a space counts (archicraft-ifcx).
     Prose,
@@ -558,6 +560,7 @@ const SCANNED: &[(&str, Rule)] = &[
     ("crates/archicraft-app/src", Rule::Sinks),
     ("crates/archicraft-model/src", Rule::AllText),
     ("crates/archicraft-ifcx/src", Rule::Prose),
+    ("crates/archicraft-geometry/src", Rule::AllText),
 ];
 
 fn repository_findings() -> Vec<Finding> {

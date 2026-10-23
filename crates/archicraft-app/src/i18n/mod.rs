@@ -34,6 +34,7 @@
 //! | `tool-`, `prompt-` | drawing tools and their input prompts | `tools.ftl` |
 //! | `model-` | keys produced by archicraft-model (command labels, errors, unit and class names), rendered with [`render`] | `model.ftl` |
 //! | `ifcx-` | keys produced by archicraft-ifcx (the problems of reading and saving files), rendered with [`render`] | `ifcx.ftl` |
+//! | `geometry-` | keys produced by archicraft-geometry (why an element has no geometry), rendered with [`render`] | `geometry.ftl` |
 //!
 //! Keys built at runtime must start with one of [`DYNAMIC_PREFIXES`], so the
 //! key-usage test (`crates/archicraft-app/tests/i18n_keys.rs`) knows that a
@@ -82,9 +83,10 @@ use catalogue::CatalogueFile;
 pub use model::render;
 
 /// Prefixes of keys that are built at runtime, such as
-/// `cmd-<command-id>-label` or the keys archicraft-model and archicraft-ifcx
-/// return. Catalogue keys with these prefixes need no literal `tr!` call.
-pub const DYNAMIC_PREFIXES: &[&str] = &["model-", "ifcx-", "cmd-"];
+/// `cmd-<command-id>-label` or the keys archicraft-model, archicraft-ifcx
+/// and archicraft-geometry return. Catalogue keys with these prefixes need
+/// no literal `tr!` call.
+pub const DYNAMIC_PREFIXES: &[&str] = &["model-", "ifcx-", "geometry-", "cmd-"];
 
 /// Looks up user-visible text in the current [`Localizer`] (NFR-L10N-001).
 ///

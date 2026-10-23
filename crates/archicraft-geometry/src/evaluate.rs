@@ -16,6 +16,7 @@ use glam::{DVec2, DVec3};
 use crate::GeometryError;
 use crate::extrude::extrude;
 use crate::mesh::TriMesh;
+use crate::message::Message;
 use crate::wall::{Footprint, WallInput, footprints};
 
 /// One closed, single-material part of an element body (IFX-017).
@@ -54,8 +55,9 @@ pub struct ModelGeometry {
     /// The project revision this geometry was evaluated from.
     pub revision: u64,
     pub elements: HashMap<ElementId, ElementGeometry>,
-    /// Elements whose geometry failed, with the reason (UI-012).
-    pub problems: BTreeMap<ElementId, String>,
+    /// Elements whose geometry failed, with the reason as a `geometry-`
+    /// message (UI-012, NFR-L10N-001).
+    pub problems: BTreeMap<ElementId, Message>,
 }
 
 impl ModelGeometry {
@@ -75,11 +77,11 @@ impl ModelGeometry {
                 }
                 Ok(Err(e)) => {
                     tracing::warn!(element = %element.id, name = %element.name, "geometry failed: {e}");
-                    problems.insert(element.id, e.to_string());
+                    problems.insert(element.id, e.message());
                 }
                 Err(_) => {
                     tracing::error!(element = %element.id, name = %element.name, "geometry evaluation panicked");
-                    problems.insert(element.id, "Geometry evaluation failed unexpectedly.".to_owned());
+                    problems.insert(element.id, Message::new("geometry-evaluation-panicked"));
                 }
             }
         }
@@ -122,11 +124,11 @@ fn local_extent(project: &Project, element: &Element) -> Result<(f64, f64), Geom
     let home = project
         .storeys
         .get(element.storey)
-        .ok_or(GeometryError::MissingReference("home storey"))?
+        .ok_or(GeometryError::MissingHomeStorey)?
         .elevation;
     let (bottom, top) = project
         .vertical_extent(element)
-        .ok_or(GeometryError::MissingReference("linked storey"))?;
+        .ok_or(GeometryError::MissingLinkedStorey)?;
     match &element.kind {
         // Keep the stored offsets exact rather than subtracting elevations.
         ElementKind::Wall(wall) => Ok((wall.base_offset, wall.base_offset + (top - bottom))),
@@ -167,7 +169,7 @@ pub fn evaluate_element(
             // A junction can fold a very short wall; fall back to square ends.
             let ring = validate_ring(&joined)
                 .or_else(|_| validate_ring(&square))
-                .map_err(|e| GeometryError::InvalidPolygon(e.to_string()))?;
+                .map_err(GeometryError::InvalidPolygon)?;
             let mesh = extrude(&ring, &[], bottom, top)?;
             Ok(ElementGeometry {
                 parts: vec![BodyPart {
@@ -191,6 +193,6 @@ pub fn evaluate_element(
         }
         // Until kinds register their own generators, other kinds are listed
         // as problems (NFR-REL-006).
-        _ => Err(GeometryError::UnsupportedKind(element.tag().code())),
+        _ => Err(GeometryError::UnsupportedKind(element.tag())),
     }
 }

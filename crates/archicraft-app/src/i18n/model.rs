@@ -1,10 +1,12 @@
-//! Rendering of the messages archicraft-model and archicraft-ifcx return
-//! (NFR-L10N-001).
+//! Rendering of the messages archicraft-model, archicraft-ifcx and
+//! archicraft-geometry return (NFR-L10N-001).
 //!
 //! The model gives command labels as a [`Message`]: a `model-` key from
 //! `locales/en/model.ftl` and typed arguments. archicraft-ifcx reports the
 //! problems of reading and saving files the same way, with `ifcx-` keys
-//! from `locales/en/ifcx.ftl`. [`render`] turns each argument into a Fluent
+//! from `locales/en/ifcx.ftl`, and archicraft-geometry the reasons an
+//! element has no geometry, with `geometry-` keys from
+//! `locales/en/geometry.ftl`. [`render`] turns each argument into a Fluent
 //! argument of the same name:
 //!
 //! | Argument | Fluent arguments |

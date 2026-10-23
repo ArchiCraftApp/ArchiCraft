@@ -66,3 +66,8 @@ crates/archicraft-ifcx/src/validate.rs::parse_error | "recursion limit exceeded"
 crates/archicraft-ifcx/src/validate.rs::SyntaxVisitor::expecting | "any JSON value" | serde expectation inside the JSON parser's error, passed on as the detail of ifcx-file-invalid
 crates/archicraft-ifcx/src/validate.rs::SyntaxKeyVisitor::expecting | "a string key" | serde expectation inside the JSON parser's error, passed on as the detail of ifcx-file-invalid
 crates/archicraft-ifcx/src/validate.rs::SyntaxKeyVisitor::visit_str | "a serde_json token as a key" | serde error inside the JSON parser's error, passed on as the detail of ifcx-file-invalid
+
+# archicraft-geometry: the body-part name keys the element's IFCX sub-node,
+# and mesh checks are diagnostics of the tests that check bodies (IFX-032).
+crates/archicraft-geometry/src/evaluate.rs::evaluate_element | "Body" | body-part name, the IFCX sub-node name of the element's body (file format)
+crates/archicraft-geometry/src/mesh.rs::MeshIssue::fmt | * | diagnostic of check_closed, which only tests and benches call (IFX-032); never shown in the user interface
