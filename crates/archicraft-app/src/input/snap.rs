@@ -471,9 +471,14 @@ pub(super) fn collect(
             add(SnapKind::Tangent, t);
         }
     }
-    let others = (near.iter().map(|e| GuideShape::Segment(*e)))
-        .chain(arcs.iter().map(|a| GuideShape::Arc(*a)))
-        .collect::<Vec<_>>();
+    let others = if guides.is_empty() {
+        Vec::new()
+    } else {
+        near.iter()
+            .map(|e| GuideShape::Segment(*e))
+            .chain(arcs.iter().map(|a| GuideShape::Arc(*a)))
+            .collect::<Vec<_>>()
+    };
     for (i, g) in guides.iter().enumerate() {
         for other in others.iter().chain(&guides[i + 1..]) {
             for p in g.intersect(other) {
@@ -722,7 +727,14 @@ mod tests {
         };
         let edge = [v(-0.4, -1.0), v(-0.4, 0.6)];
         let arc = ArcTarget::circle(v(0.3, -0.8), 1.0);
-        let guides = [line, ray, circle];
+        // The left half of the circle of radius 0.3 round (0.2, 0.1).
+        let guide_arc = GuideShape::Arc(ArcTarget {
+            centre: v(0.2, 0.1),
+            radius: 0.3,
+            start: std::f64::consts::FRAC_PI_2,
+            sweep: std::f64::consts::PI,
+        });
+        let guides = [line, ray, circle, guide_arc];
         let targets = Targets {
             nodes: &[],
             edges: &[edge],
@@ -745,6 +757,9 @@ mod tests {
         assert!(has(SnapKind::Guide, v(0.05, 0.0)), "on the line: {found:?}");
         let on_circle = cursor.normalize() * 0.5;
         assert!(has(SnapKind::Guide, on_circle), "on the circle guide: {found:?}");
+        assert!(has(SnapKind::Guide, v(0.6, 0.1)), "on the ray guide: {found:?}");
+        // The cursor lies left of the arc's centre, in the middle of its span.
+        assert!(has(SnapKind::Guide, v(-0.1, 0.1)), "on the arc guide: {found:?}");
     }
 
     /// INP-009: the kinds are ordered by level, then by their rank within

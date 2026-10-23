@@ -33,26 +33,21 @@ pub enum GuideOrigin {
     Persistent,
 }
 
-/// The shape of a guide. Directions are unit vectors (see
-/// [`GuideShape::line`] and [`GuideShape::ray`]); lengths are metres and
-/// angles radians.
+/// The shape of a guide. Lengths are metres and angles radians. A
+/// direction need not be a unit vector, every method normalises it; a zero
+/// direction or a zero-length segment is a degenerate guide, which meets
+/// nothing and projects every point to its one point.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GuideShape {
     /// An infinite line through `point`.
-    Line {
-        point: DVec2,
-        dir: DVec2,
-    },
+    Line { point: DVec2, dir: DVec2 },
     /// A half-line from `origin`.
-    Ray {
-        origin: DVec2,
-        dir: DVec2,
-    },
+    Ray { origin: DVec2, dir: DVec2 },
+    /// The straight piece between two points.
     Segment([DVec2; 2]),
-    Circle {
-        centre: DVec2,
-        radius: f64,
-    },
+    /// A full circle.
+    Circle { centre: DVec2, radius: f64 },
+    /// A piece of a circle.
     Arc(ArcTarget),
 }
 
@@ -93,19 +88,25 @@ impl GuideShape {
         }
     }
 
-    fn carrier(&self) -> Carrier {
+    /// The carrier, with a unit direction; none for a degenerate line, ray
+    /// or segment, whose single point is not a line to intersect.
+    fn carrier(&self) -> Option<Carrier> {
+        let line = |point, dir: DVec2| {
+            Some(Carrier::Line {
+                point,
+                dir: dir.try_normalize()?,
+            })
+        };
         match *self {
-            GuideShape::Line { point, dir } => Carrier::Line { point, dir },
-            GuideShape::Ray { origin, dir } => Carrier::Line { point: origin, dir },
-            GuideShape::Segment([a, b]) => Carrier::Line {
-                point: a,
-                dir: (b - a).normalize_or_zero(),
-            },
-            GuideShape::Circle { centre, radius } => Carrier::Circle { centre, radius },
-            GuideShape::Arc(arc) => Carrier::Circle {
+            GuideShape::Line { point, dir } => line(point, dir),
+            GuideShape::Ray { origin, dir } => line(origin, dir),
+            GuideShape::Segment([a, b]) if coincident(a, b) => None,
+            GuideShape::Segment([a, b]) => line(a, b - a),
+            GuideShape::Circle { centre, radius } => Some(Carrier::Circle { centre, radius }),
+            GuideShape::Arc(arc) => Some(Carrier::Circle {
                 centre: arc.centre,
                 radius: arc.radius,
-            },
+            }),
         }
     }
 
@@ -114,7 +115,7 @@ impl GuideShape {
     fn contains(&self, p: DVec2) -> bool {
         match *self {
             GuideShape::Line { .. } | GuideShape::Circle { .. } => true,
-            GuideShape::Ray { origin, dir } => (p - origin).dot(dir) > -MODEL_TOLERANCE,
+            GuideShape::Ray { origin, dir } => (p - origin).dot(dir.normalize_or_zero()) > -MODEL_TOLERANCE,
             GuideShape::Segment(segment) => coincident(closest_on_segment(p, segment), p),
             GuideShape::Arc(arc) => arc.spans((p - arc.centre).to_angle()),
         }
@@ -125,8 +126,14 @@ impl GuideShape {
     /// its nearer end.
     pub fn project(&self, p: DVec2) -> DVec2 {
         match *self {
-            GuideShape::Line { point, dir } => point + dir * (p - point).dot(dir),
-            GuideShape::Ray { origin, dir } => origin + dir * (p - origin).dot(dir).max(0.0),
+            GuideShape::Line { point, dir } => {
+                let dir = dir.normalize_or_zero();
+                point + dir * (p - point).dot(dir)
+            }
+            GuideShape::Ray { origin, dir } => {
+                let dir = dir.normalize_or_zero();
+                origin + dir * (p - origin).dot(dir).max(0.0)
+            }
             GuideShape::Segment(segment) => closest_on_segment(p, segment),
             GuideShape::Circle { centre, radius } => on_circle(centre, radius, p),
             GuideShape::Arc(arc) => {
@@ -150,11 +157,15 @@ impl GuideShape {
     }
 
     /// The points where two guides meet, within the extent of each (rays,
-    /// segments and arcs end). Parallel lines, also coincident ones, and
-    /// concentric circles have none; a line touching a circle and circles
-    /// touching each other within the model tolerance have one.
+    /// segments and arcs end). Parallel lines, also coincident ones,
+    /// concentric circles and degenerate guides have none; a line touching
+    /// a circle and circles touching each other within the model tolerance
+    /// have one.
     pub fn intersect(&self, other: &GuideShape) -> Vec<DVec2> {
-        let points = match (self.carrier(), other.carrier()) {
+        let (Some(a), Some(b)) = (self.carrier(), other.carrier()) else {
+            return Vec::new();
+        };
+        let points = match (a, b) {
             (Carrier::Line { point: p, dir: r }, Carrier::Line { point: q, dir: s }) => {
                 if is_parallel(r, s) {
                     Vec::new()
@@ -183,8 +194,15 @@ impl GuideShape {
     /// painter to clip.
     pub fn clip(&self, min: DVec2, max: DVec2) -> Vec<DVec2> {
         match *self {
-            GuideShape::Line { point, dir } => clip_line(point, dir, f64::NEG_INFINITY, f64::INFINITY, min, max),
-            GuideShape::Ray { origin, dir } => clip_line(origin, dir, 0.0, f64::INFINITY, min, max),
+            GuideShape::Line { point, dir } => clip_line(
+                point,
+                dir.normalize_or_zero(),
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                min,
+                max,
+            ),
+            GuideShape::Ray { origin, dir } => clip_line(origin, dir.normalize_or_zero(), 0.0, f64::INFINITY, min, max),
             GuideShape::Segment([a, b]) => {
                 let length = a.distance(b);
                 clip_line(a, (b - a).normalize_or_zero(), 0.0, length, min, max)
@@ -418,8 +436,85 @@ mod tests {
         assert!(close(arc.project(v(-0.5, 2.0)), v(0.0, 1.0)), "beyond the end");
         let (sin, cos) = (PI * 1.2).sin_cos();
         let behind = v(cos, sin) * 3.0;
-        let p = arc.project(behind);
-        assert!(close(p, v(1.0, 0.0)) || close(p, v(0.0, 1.0)), "an end: {p}");
+        assert!(close(arc.project(behind), v(0.0, 1.0)), "behind: the nearer end");
+    }
+
+    /// INP-006: a line or a ray without a direction and a segment without
+    /// length meet nothing, even where their point lies inside a circle or
+    /// on another guide.
+    #[test]
+    fn degenerate_guides_meet_nothing() {
+        let c = circle(0.0, 0.0, 1.0);
+        let crossing = GuideShape::line(v(0.0, -1.0), v(1.0, 1.0));
+        for degenerate in [
+            GuideShape::Line {
+                point: v(0.2, 0.1),
+                dir: DVec2::ZERO,
+            },
+            GuideShape::Ray {
+                origin: v(0.2, 0.1),
+                dir: DVec2::ZERO,
+            },
+            GuideShape::line(v(1.1, 0.1), DVec2::ZERO),
+            GuideShape::Segment([v(0.2, 0.1), v(0.2, 0.1)]),
+            GuideShape::Segment([v(1.1, 0.1), v(1.1, 0.1)]),
+        ] {
+            for other in [c, quarter(), crossing, GuideShape::Segment([v(-2.0, 0.1), v(2.0, 0.1)])] {
+                assert!(degenerate.intersect(&other).is_empty(), "{degenerate:?} × {other:?}");
+                assert!(other.intersect(&degenerate).is_empty(), "{other:?} × {degenerate:?}");
+            }
+        }
+        let point = GuideShape::Line {
+            point: v(0.2, 0.1),
+            dir: DVec2::ZERO,
+        };
+        assert!(close(point.project(v(3.0, 4.0)), v(0.2, 0.1)));
+    }
+
+    /// INP-006: a line or a ray built with a non-unit direction projects,
+    /// intersects and clips like the one with the unit direction.
+    #[test]
+    fn non_unit_directions_act_like_unit_ones() {
+        let pairs = [
+            (
+                GuideShape::Line {
+                    point: v(0.0, 0.5),
+                    dir: v(3.0, 0.0),
+                },
+                GuideShape::line(v(0.0, 0.5), v(1.0, 0.0)),
+            ),
+            (
+                GuideShape::Ray {
+                    origin: v(0.0, 0.5),
+                    dir: v(0.0, -0.25),
+                },
+                GuideShape::ray(v(0.0, 0.5), v(0.0, -1.0)),
+            ),
+        ];
+        let others = [
+            circle(0.0, 0.0, 1.0),
+            quarter(),
+            GuideShape::line(v(-1.0, -1.0), v(1.0, 2.0)),
+            GuideShape::Segment([v(-2.0, -0.2), v(2.0, 0.3)]),
+        ];
+        for (raw, unit) in pairs {
+            for p in [v(2.0, 3.0), v(-1.5, 0.7), v(0.3, -4.0)] {
+                assert!(close(raw.project(p), unit.project(p)), "{raw:?} at {p}");
+            }
+            for other in others {
+                let found = raw.intersect(&other);
+                assert_points(found.clone(), &unit.intersect(&other));
+                assert_points(other.intersect(&raw), &found);
+            }
+            assert_points(
+                raw.clip(v(-1.0, -1.0), v(1.0, 1.0)),
+                &unit.clip(v(-1.0, -1.0), v(1.0, 1.0)),
+            );
+        }
+        // The short ray down from (0, 0.5) meets the unit circle at (0, -1)
+        // only, not behind its origin.
+        let short = pairs[1].0;
+        assert_points(short.intersect(&circle(0.0, 0.0, 1.0)), &[v(0.0, -1.0)]);
     }
 
     #[test]
