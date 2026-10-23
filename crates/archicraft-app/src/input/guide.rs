@@ -16,8 +16,9 @@ use archicraft_model::tolerance::{coincident, is_parallel};
 
 use super::snap::{ArcTarget, closest_on_segment};
 
-/// The straight segments a full circle is drawn with.
-const CIRCLE_SEGMENTS: f64 = 96.0;
+/// The most straight pieces one visible stretch of a circle or an arc is
+/// drawn with, whatever the deviation asked for.
+const MAX_CURVE_PIECES: f64 = 4096.0;
 
 /// Where a guide comes from, which decides how it is drawn and how long it
 /// lasts.
@@ -187,13 +188,14 @@ impl GuideShape {
             .collect()
     }
 
-    /// The part of the guide inside the rectangle from `min` to `max`, as a
-    /// polyline to draw: the clipped piece of a line, a ray or a segment,
-    /// empty when it misses the rectangle; a circle or an arc as a whole,
-    /// in straight pieces, when it reaches into the rectangle, for the
-    /// painter to clip.
-    pub fn clip(&self, min: DVec2, max: DVec2) -> Vec<DVec2> {
-        match *self {
+    /// The part of the guide inside the rectangle from `min` to `max`, as
+    /// polylines to draw (INP-007): the clipped piece of a line, a ray or a
+    /// segment; the stretches of a circle or an arc whose angles the
+    /// rectangle covers, in straight pieces that deviate at most
+    /// `max_deviation` from the curve, for the painter to clip. Empty when
+    /// the guide misses the rectangle.
+    pub fn clip(&self, min: DVec2, max: DVec2, max_deviation: f64) -> Vec<Vec<DVec2>> {
+        let piece = match *self {
             GuideShape::Line { point, dir } => clip_line(
                 point,
                 dir.normalize_or_zero(),
@@ -207,9 +209,12 @@ impl GuideShape {
                 let length = a.distance(b);
                 clip_line(a, (b - a).normalize_or_zero(), 0.0, length, min, max)
             }
-            GuideShape::Circle { centre, radius } => curve_in(&ArcTarget::circle(centre, radius), min, max),
-            GuideShape::Arc(arc) => curve_in(&arc, min, max),
-        }
+            GuideShape::Circle { centre, radius } => {
+                return curve_in(&ArcTarget::circle(centre, radius), min, max, max_deviation);
+            }
+            GuideShape::Arc(arc) => return curve_in(&arc, min, max, max_deviation),
+        };
+        if piece.is_empty() { Vec::new() } else { vec![piece] }
     }
 }
 
@@ -283,18 +288,60 @@ fn clip_line(point: DVec2, dir: DVec2, mut t0: f64, mut t1: f64, min: DVec2, max
     vec![point + dir * t0, point + dir * t1]
 }
 
-/// An arc or a circle in straight pieces when its bounding box overlaps the
-/// rectangle, else nothing.
-fn curve_in(arc: &ArcTarget, min: DVec2, max: DVec2) -> Vec<DVec2> {
-    let reach = DVec2::splat(arc.radius);
-    let (lo, hi) = (arc.centre - reach, arc.centre + reach);
-    if hi.x < min.x || lo.x > max.x || hi.y < min.y || lo.y > max.y {
+/// The stretches of an arc or a circle whose angles the rectangle covers,
+/// each in straight pieces that deviate at most `max_deviation` from it;
+/// nothing when it misses the rectangle. Seen from a centre outside the
+/// rectangle, the rectangle covers a wedge of less than π, so a huge
+/// circle through a small rectangle is sampled only along that wedge.
+fn curve_in(arc: &ArcTarget, min: DVec2, max: DVec2, max_deviation: f64) -> Vec<Vec<DVec2>> {
+    let corners = [min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)];
+    let nearest = arc.centre.clamp(min, max);
+    let farthest = corners.iter().map(|c| c.distance(arc.centre)).fold(0.0, f64::max);
+    if arc.radius < nearest.distance(arc.centre) || arc.radius > farthest {
         return Vec::new();
     }
-    let sweep = arc.sweep.clamp(-TAU, TAU);
-    let pieces = (CIRCLE_SEGMENTS * sweep.abs() / TAU).ceil().max(1.0) as usize;
-    (0..=pieces)
-        .map(|i| arc.centre + DVec2::from_angle(arc.start + sweep * i as f64 / pieces as f64) * arc.radius)
+    // The arc counter-clockwise from `start` over `sweep`.
+    let (mut start, sweep) = if arc.sweep < 0.0 {
+        (arc.start + arc.sweep, -arc.sweep)
+    } else {
+        (arc.start, arc.sweep)
+    };
+    let sweep = sweep.min(TAU);
+    let spans = if nearest == arc.centre {
+        vec![(0.0, sweep)]
+    } else {
+        // The whole rectangle lies beyond its nearest point, so every corner
+        // is within π/2 of the direction towards it.
+        let towards = nearest - arc.centre;
+        let offsets = corners.map(|c| {
+            let d = c - arc.centre;
+            towards.perp_dot(d).atan2(towards.dot(d))
+        });
+        let low = offsets.into_iter().fold(f64::INFINITY, f64::min);
+        let high = offsets.into_iter().fold(f64::NEG_INFINITY, f64::max);
+        let wedge = towards.to_angle() + low;
+        if sweep >= TAU {
+            start = wedge;
+        }
+        let offset = (wedge - start).rem_euclid(TAU);
+        [offset, offset - TAU]
+            .into_iter()
+            .map(|a| (a.max(0.0), (a + high - low).min(sweep)))
+            .filter(|(a, b)| b > a)
+            .collect()
+    };
+    let step = 2.0 * (1.0 - max_deviation / arc.radius).max(-1.0).acos();
+    spans
+        .into_iter()
+        .map(|(a, b)| {
+            let pieces = ((b - a) / step).ceil().clamp(1.0, MAX_CURVE_PIECES) as usize;
+            (0..=pieces)
+                .map(|i| {
+                    let angle = start + a + (b - a) * i as f64 / pieces as f64;
+                    arc.centre + DVec2::from_angle(angle) * arc.radius
+                })
+                .collect()
+        })
         .collect()
 }
 
@@ -507,8 +554,8 @@ mod tests {
                 assert_points(other.intersect(&raw), &found);
             }
             assert_points(
-                raw.clip(v(-1.0, -1.0), v(1.0, 1.0)),
-                &unit.clip(v(-1.0, -1.0), v(1.0, 1.0)),
+                raw.clip(v(-1.0, -1.0), v(1.0, 1.0), 1e-6).concat(),
+                &unit.clip(v(-1.0, -1.0), v(1.0, 1.0), 1e-6).concat(),
             );
         }
         // The short ray down from (0, 0.5) meets the unit circle at (0, -1)
@@ -521,28 +568,119 @@ mod tests {
     fn an_infinite_line_is_clipped_to_the_rectangle() {
         let (min, max) = (v(0.0, 0.0), v(4.0, 2.0));
         let diagonal = GuideShape::line(v(1.0, 1.0), v(1.0, 1.0));
-        assert_points(diagonal.clip(min, max), &[v(0.0, 0.0), v(2.0, 2.0)]);
+        assert_points(diagonal.clip(min, max, 1e-6).concat(), &[v(0.0, 0.0), v(2.0, 2.0)]);
         let horizontal = GuideShape::line(v(-10.0, 1.5), v(-1.0, 0.0));
-        assert_points(horizontal.clip(min, max), &[v(0.0, 1.5), v(4.0, 1.5)]);
+        assert_points(horizontal.clip(min, max, 1e-6).concat(), &[v(0.0, 1.5), v(4.0, 1.5)]);
         let outside = GuideShape::line(v(0.0, 3.0), v(1.0, 0.0));
-        assert!(outside.clip(min, max).is_empty());
+        assert!(outside.clip(min, max, 1e-6).concat().is_empty());
         let missing = GuideShape::line(v(6.0, 0.0), v(1.0, 1.0));
-        assert!(missing.clip(min, max).is_empty());
+        assert!(missing.clip(min, max, 1e-6).concat().is_empty());
         let along_edge = GuideShape::line(v(0.0, 7.0), v(0.0, 1.0));
-        assert_points(along_edge.clip(min, max), &[v(0.0, 0.0), v(0.0, 2.0)]);
+        assert_points(along_edge.clip(min, max, 1e-6).concat(), &[v(0.0, 0.0), v(0.0, 2.0)]);
     }
 
     #[test]
     fn rays_segments_and_circles_are_clipped_to_their_extent() {
         let (min, max) = (v(0.0, 0.0), v(4.0, 2.0));
         let ray = GuideShape::ray(v(1.0, 1.0), v(1.0, 0.0));
-        assert_points(ray.clip(min, max), &[v(1.0, 1.0), v(4.0, 1.0)]);
+        assert_points(ray.clip(min, max, 1e-6).concat(), &[v(1.0, 1.0), v(4.0, 1.0)]);
         let segment = GuideShape::Segment([v(-1.0, 1.0), v(2.0, 1.0)]);
-        assert_points(segment.clip(min, max), &[v(0.0, 1.0), v(2.0, 1.0)]);
+        assert_points(segment.clip(min, max, 1e-6).concat(), &[v(0.0, 1.0), v(2.0, 1.0)]);
         let c = circle(2.0, 1.0, 0.5);
-        let drawn = c.clip(min, max);
+        let drawn = c.clip(min, max, 1e-6).concat();
         assert!(drawn.len() > 8);
         assert!(drawn.iter().all(|p| (p.distance(v(2.0, 1.0)) - 0.5).abs() < 1e-12));
-        assert!(circle(9.0, 9.0, 1.0).clip(min, max).is_empty());
+        assert!(circle(9.0, 9.0, 1.0).clip(min, max, 1e-6).concat().is_empty());
+    }
+
+    /// Asserts that every point of the polylines lies on the circle and that
+    /// no chord between neighbours strays further than `deviation` from it.
+    fn assert_follows(polylines: &[Vec<DVec2>], centre: DVec2, radius: f64, deviation: f64) {
+        assert!(!polylines.is_empty());
+        for polyline in polylines {
+            assert!(polyline.len() >= 2, "{polyline:?}");
+            for p in polyline {
+                assert!(
+                    (p.distance(centre) - radius).abs() < 1e-9 * radius.max(1.0),
+                    "{p} is off the circle"
+                );
+            }
+            for pair in polyline.windows(2) {
+                let sagitta = radius - ((pair[0] + pair[1]) / 2.0).distance(centre);
+                assert!(sagitta <= deviation, "a chord strays {sagitta} m from the circle");
+            }
+        }
+    }
+
+    /// INP-007: a 30 m distance-lock circle drawn with 0.5 mm deviation,
+    /// whole and through a window on its edge, stays within 0.5 mm of the
+    /// true circle (the fixed 96 pieces strayed about 16 mm).
+    #[test]
+    fn circles_are_drawn_within_the_deviation() {
+        let (deviation, radius) = (0.5e-3, 30.0);
+        let lock = circle(5.0, -3.0, radius);
+        let whole = lock.clip(v(-40.0, -40.0), v(40.0, 40.0), deviation);
+        assert_eq!(whole.len(), 1);
+        assert_follows(&whole, v(5.0, -3.0), radius, deviation);
+        let ends = (whole[0][0], whole[0][whole[0].len() - 1]);
+        assert!(close(ends.0, ends.1), "closed: {ends:?}");
+        let window = lock.clip(v(30.0, -10.0), v(40.0, 0.0), deviation);
+        assert_follows(&window, v(5.0, -3.0), radius, deviation);
+        assert!(window.iter().map(Vec::len).sum::<usize>() < whole[0].len() / 4);
+        let arc = GuideShape::Arc(ArcTarget {
+            centre: v(5.0, -3.0),
+            radius,
+            start: 1.0,
+            sweep: -2.5,
+        });
+        let drawn = arc.clip(v(-40.0, -40.0), v(40.0, 40.0), deviation);
+        assert_follows(&drawn, v(5.0, -3.0), radius, deviation);
+        let ends = [drawn[0][0], drawn[0][drawn[0].len() - 1]];
+        assert_points(
+            ends.to_vec(),
+            &arc_ends(&ArcTarget {
+                centre: v(5.0, -3.0),
+                radius,
+                start: 1.0,
+                sweep: -2.5,
+            }),
+        );
+    }
+
+    /// INP-007: a 1000 km circle through a 2 m window is sampled only along
+    /// the angles the window covers, in a handful of pieces that still reach
+    /// across the window.
+    #[test]
+    fn a_huge_circle_through_a_small_rectangle_takes_few_pieces() {
+        let (min, max) = (v(-1.0, -1.0), v(1.0, 1.0));
+        let radius = 1.0e6;
+        let centre = v(0.0, -radius);
+        let drawn = circle(centre.x, centre.y, radius).clip(min, max, 1e-6);
+        assert_eq!(drawn.len(), 1);
+        assert!(drawn[0].len() <= 64, "{} points", drawn[0].len());
+        assert_follows(&drawn, centre, radius, 1e-6);
+        let xs = drawn[0].iter().map(|p| p.x);
+        let (left, right) = xs.fold((f64::MAX, f64::MIN), |(a, b), x| (a.min(x), b.max(x)));
+        assert!(left <= -1.0 && right >= 1.0, "reaches across: {left} to {right}");
+        let inside = circle(0.0, 0.0, radius).clip(min, max, 1e-6);
+        assert!(inside.is_empty(), "the window lies inside the circle");
+    }
+
+    /// INP-007: an arc whose gap lies inside the rectangle is drawn as its
+    /// two visible stretches, never across the gap.
+    #[test]
+    fn an_arc_around_the_rectangle_is_drawn_in_two_stretches() {
+        let arc = GuideShape::Arc(ArcTarget {
+            centre: v(0.0, -10.0),
+            radius: 10.0,
+            start: FRAC_PI_2 + 0.05,
+            sweep: TAU - 0.1,
+        });
+        let drawn = arc.clip(v(-1.0, -1.0), v(1.0, 1.0), 1e-4);
+        assert_eq!(drawn.len(), 2, "{drawn:?}");
+        assert_follows(&drawn, v(0.0, -10.0), 10.0, 1e-4);
+        for polyline in &drawn {
+            assert!(polyline.iter().all(|p| arc.contains(*p)), "{polyline:?} leaves the arc");
+        }
     }
 }
