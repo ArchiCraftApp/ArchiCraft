@@ -71,7 +71,8 @@ rm -f "$dir"/*.ok "$dir"/pause "$dir"/stop-blocks "$dir"/review.md "$dir"/gate-*
 echo "$id" >"$dir/bead"
 
 # Warm build cache: clone the main checkout's target dir copy-on-write (APFS) when this
-# worktree has none. Concurrent builds must never share one target dir.
+# worktree has none (a new worktree, or a reused one whose target/ sweep.sh deleted once its work
+# had landed). Concurrent builds must never share one target dir.
 main_tree="$(git worktree list --porcelain | awk 'NR == 1 { print $2 }')"
 if [ ! -d target ] && [ -d "$main_tree/target/debug" ] && [ "$(uname)" = Darwin ]; then
     cp -Rc "$main_tree/target" target && echo "Cloned the warm build cache from $main_tree/target."

@@ -1172,6 +1172,76 @@ expect "sweep leaves a main checkout with commits of its own" "$before" "$(git -
 expect "sweep reports a main checkout it cannot fast-forward" 1 \
     "$(grep -c "^stale    main checkout $main_co stays at [0-9a-f]*: fatal: " <<<"$out")"
 
+# --- sweep deletes the build cache of finished worktrees ---------------------------------------
+# Worktrees of the main checkout, each with a target/; the sweep runs in the parked worktree
+# "current", which would qualify itself.
+export FAKE_BD_DB="$work/prune-beads.json"
+cat >"$FAKE_BD_DB" <<'EOF'
+[
+  {"id": "archicraft-pd01", "status": "closed"},
+  {"id": "archicraft-pd02", "status": "in_progress"},
+  {"id": "archicraft-pd03", "status": "closed"},
+  {"id": "archicraft-pd04", "status": "closed"},
+  {"id": "archicraft-pd05", "status": "closed"},
+  {"id": "archicraft-pd06", "status": "closed"}
+]
+EOF
+: >"$FAKE_BD_DB.closed"
+git -C "$main_co" switch -q --detach origin/main # local main has a commit origin/main lacks
+git -C "$main_co" worktree add -q --detach "$work/wt-ahead" main # main is ahead of origin/main
+git -C "$main_co" worktree add -q -b bead/archicraft-pd01-done "$work/wt-closed" origin/main
+git -C "$main_co" worktree add -q --detach "$work/wt-parked" origin/main
+git -C "$main_co" worktree add -q --detach "$work/wt-current" origin/main
+git -C "$main_co" worktree add -q -b bead/archicraft-pd02-busy "$work/wt-progress" origin/main
+git -C "$main_co" worktree add -q -b claude/other-session "$work/wt-claude" origin/main
+git -C "$main_co" worktree add -q -b bead/archicraft-pd03-rebase "$work/wt-rebase" origin/main
+git -C "$main_co" worktree add -q -b bead/archicraft-pd05-merge "$work/wt-merge" origin/main
+git -C "$main_co" worktree add -q -b bead/archicraft-pd04-locked "$work/wt-locked" origin/main
+git -C "$main_co" worktree add -q -b bead/archicraft-pd06-stuck "$work/wt-stuck" origin/main
+# Like a clone of main's target/, each has a debug and a release lock.
+for w in ahead closed parked current progress claude rebase merge locked stuck; do
+    mkdir -p "$work/wt-$w/target/debug" "$work/wt-$w/target/release"
+    touch "$work/wt-$w/target/debug/.cargo-lock" "$work/wt-$w/target/release/.cargo-lock"
+done
+# rm cannot empty a directory without write permission (unless the selftest runs as root).
+mkdir -p "$work/wt-stuck/target/debug/deps" && touch "$work/wt-stuck/target/debug/deps/libx.rlib"
+chmod a-w "$work/wt-stuck/target/debug/deps"
+mkdir -p "$main_co/target/debug"
+mkdir "$(git -C "$work/wt-rebase" rev-parse --path-format=absolute --git-path rebase-merge)"
+git -C "$work/wt-merge" rev-parse HEAD >"$(git -C "$work/wt-merge" rev-parse --path-format=absolute --git-path MERGE_HEAD)"
+(exec 9<"$work/wt-locked/target/debug/.cargo-lock" && exec sleep 60) & # a debug build holding its lock
+lock_holder=$!
+for _ in $(seq 50); do # until the holder has the lock open
+    [ -n "$(lsof -t "$work/wt-locked/target/debug/.cargo-lock" 2>/dev/null)" ] && break
+    sleep 0.1
+done
+out="$(cd "$work/wt-current" && bash "$src/sweep.sh" 2>"$work/sweep.err")" ||
+    { failed=$((failed + 1)); echo "FAIL sweep exited non-zero while pruning"; }
+[ -s "$work/sweep.err" ] && { failed=$((failed + 1)); echo "FAIL sweep wrote to stderr:"; cat "$work/sweep.err"; }
+kill "$lock_holder" 2>/dev/null
+wait "$lock_holder" 2>/dev/null
+chmod u+w "$work/wt-stuck/target/debug/deps"
+kept() { [ -d "$work/wt-$1/target" ] && echo kept || echo pruned; }
+expect "sweep deletes target/ of a worktree whose bead is closed" pruned "$(kept closed)"
+expect "sweep deletes target/ of a parked worktree at a commit of origin/main" pruned "$(kept parked)"
+expect "sweep reports each deleted target/" \
+    "pruned   target/ of $work/wt-closed|pruned   target/ of $work/wt-parked" \
+    "$(grep '^pruned ' <<<"$out" | sed "s|$(cd "$work" && pwd -P)|$work|" | sort | paste -sd '|' -)"
+expect "sweep keeps target/ of the worktree it runs in" kept "$(kept current)"
+expect "sweep keeps target/ of an in-progress bead's worktree" kept "$(kept progress)"
+expect "sweep keeps target/ of a worktree on a non-bead branch" kept "$(kept claude)"
+expect "sweep keeps target/ of a detached worktree with commits origin/main lacks" kept "$(kept ahead)"
+expect "sweep keeps target/ of a worktree in the middle of a rebase" kept "$(kept rebase)"
+expect "sweep keeps target/ of a worktree in the middle of a merge" kept "$(kept merge)"
+expect "sweep keeps target/ while a build holds one of its cargo locks" kept "$(kept locked)"
+if [ "$(id -u)" != 0 ]; then
+    expect "sweep reports a target/ it cannot delete and carries on" 1 \
+        "$(grep -c "^failed   target/ of .*/wt-stuck: " <<<"$out")"
+fi
+expect "sweep keeps target/ of the main checkout" yes "$([ -d "$main_co/target" ] && echo yes || echo no)"
+expect "sweep keeps the pruned worktrees and their branches" "2 1" \
+    "$(git -C "$main_co" worktree list | grep -cE "/wt-(closed|parked) ") $(git -C "$main_co" branch --list bead/archicraft-pd01-done | wc -l | tr -d ' ')"
+
 [ -f "$work/crashes" ] && failed=$((failed + $(wc -l <"$work/crashes")))
 echo "loop selftest: $passed passed, $failed failed"
 [ "$failed" -eq 0 ]
