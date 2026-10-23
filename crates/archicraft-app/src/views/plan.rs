@@ -589,7 +589,7 @@ pub fn division_ticks(hovered: &Hovered, to_screen: impl Fn(DVec2) -> Pos2, colo
 
 /// A guide drawn dashed (INP-006, INP-007): its part inside the model
 /// rectangle from `min` to `max`, `to_screen` mapping model to screen
-/// positions.
+/// positions; circles and arcs in pieces within half a pixel of the curve.
 pub fn guide_dashes(
     shape: &GuideShape,
     min: DVec2,
@@ -597,8 +597,13 @@ pub fn guide_dashes(
     to_screen: impl Fn(DVec2) -> Pos2,
     color: Color32,
 ) -> Vec<Shape> {
-    let points: Vec<Pos2> = shape.clip(min, max).into_iter().map(to_screen).collect();
-    Shape::dashed_line(&points, Stroke::new(1.0, color), 6.0, 4.0)
+    let pixels_per_metre = f64::from((to_screen(min + DVec2::X) - to_screen(min)).length());
+    (shape.clip(min, max, 0.5 / pixels_per_metre).into_iter())
+        .flat_map(|polyline| {
+            let points: Vec<Pos2> = polyline.into_iter().map(&to_screen).collect();
+            Shape::dashed_line(&points, Stroke::new(1.0, color), 6.0, 4.0)
+        })
+        .collect()
 }
 
 /// The crosshair of a free point (INP-008): four arms around a gap.
