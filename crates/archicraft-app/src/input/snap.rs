@@ -303,7 +303,7 @@ pub fn candidates(
     previous: Option<DVec2>,
     guides: &[Guide],
 ) -> Vec<Snap> {
-    let hovered = index.hover(cursor, radius, None, InputSettings::default());
+    let hovered = index.hover(cursor, radius, None, &[], InputSettings::default());
     let beyond = Beyond {
         pending,
         guides,
@@ -672,7 +672,7 @@ mod tests {
                 division,
                 ..InputSettings::default()
             };
-            let hovered = targets.hover(cursor, 0.2, None, settings);
+            let hovered = targets.hover(cursor, 0.2, None, &[], settings);
             assert_eq!(hovered.as_ref().map(|h| h.edge), Some([v(0.0, 0.0), v(4.0, 0.0)]));
             let beyond = Beyond {
                 pending: &[],

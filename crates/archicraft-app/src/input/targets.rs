@@ -633,12 +633,20 @@ impl SnapIndex {
     /// The edge under the cursor (INP-010): the edge `kept` from the last
     /// position while the cursor stays within [`HOVER_HYSTERESIS`] times
     /// `radius` of it, otherwise the edge nearest the cursor within
-    /// `radius`; of edges equally near within the model tolerance, such as
-    /// a wall's reference line and the slab outline on it, the first in
-    /// source order.
-    fn hovered_edge(&self, cursor: DVec2, radius: f64, kept: Option<EdgeKey>) -> Option<&IndexedEdge> {
-        let kept = kept.and_then(|key| self.edge(key));
-        if let Some(edge) = kept.filter(|e| e.distance(cursor) <= HOVER_HYSTERESIS * radius) {
+    /// `radius`. Of edges equally near within the model tolerance, such as
+    /// a wall's reference line and the slab outline on it, an edge of a
+    /// `selection` element is hovered, also over a kept edge that is not,
+    /// and otherwise the first in source order.
+    fn hovered_edge(
+        &self,
+        cursor: DVec2,
+        radius: f64,
+        kept: Option<EdgeKey>,
+        selection: &[ElementId],
+    ) -> Option<&IndexedEdge> {
+        let selected = |e: &&IndexedEdge| matches!(e.key.owner, TargetOwner::Element(id) if selection.contains(&id));
+        let kept = (kept.and_then(|key| self.edge(key))).filter(|e| e.distance(cursor) <= HOVER_HYSTERESIS * radius);
+        if let Some(edge) = kept.filter(|e| selection.is_empty() || selected(e)) {
             return Some(edge);
         }
         let reach = radius + MODEL_TOLERANCE;
@@ -648,10 +656,14 @@ impl SnapIndex {
             .filter(|(_, d)| *d <= radius)
             .collect();
         let nearest = near.iter().map(|(_, d)| *d).fold(f64::INFINITY, f64::min);
-        (near.into_iter())
+        let coincident: Vec<&IndexedEdge> = (near.into_iter())
             .filter(|(_, d)| *d <= nearest + MODEL_TOLERANCE)
             .map(|(e, _)| e)
-            .min_by_key(|e| self.rank(&e.key))
+            .collect();
+        let rank = |e: &&IndexedEdge| self.rank(&e.key);
+        (coincident.iter().copied().filter(selected).min_by_key(rank))
+            .or(kept)
+            .or_else(|| coincident.into_iter().min_by_key(rank))
     }
 
     /// The hovered edge at `cursor` and the division points of `settings`'
@@ -659,10 +671,19 @@ impl SnapIndex {
     /// part around the cursor between intersections with other owners'
     /// edges, or the owner's whole chain. `kept` is the edge hovered at the
     /// last position, which the cursor keeps within [`HOVER_HYSTERESIS`]
-    /// times `radius`. Only this one stretch is divided, into at most
+    /// times `radius`; of coincident edges, one of a `selection` element is
+    /// hovered, so the selected slab's outline under walls' reference lines
+    /// can be divided. Only this one stretch is divided, into at most
     /// [`super::MAX_DIVISION_POINTS`] points.
-    pub fn hover(&self, cursor: DVec2, radius: f64, kept: Option<EdgeKey>, settings: InputSettings) -> Option<Hovered> {
-        let edge = self.hovered_edge(cursor, radius, kept)?;
+    pub fn hover(
+        &self,
+        cursor: DVec2,
+        radius: f64,
+        kept: Option<EdgeKey>,
+        selection: &[ElementId],
+        settings: InputSettings,
+    ) -> Option<Hovered> {
+        let edge = self.hovered_edge(cursor, radius, kept, selection)?;
         let span = match settings.scope {
             DivisionScope::BetweenNodes => Chain::segment(edge.edge),
             DivisionScope::BetweenIntersections => Chain::segment(self.between_intersections(edge, cursor)),
@@ -732,7 +753,7 @@ pub(crate) mod tests {
     use std::time::Instant;
 
     use archicraft_model::template::default_metric_project;
-    use archicraft_model::{Command, Layer, samples};
+    use archicraft_model::{Command, ElementKind, Layer, samples};
 
     use super::*;
     use crate::document::Document;
@@ -897,6 +918,7 @@ pub(crate) mod tests {
             pending: &[],
             previous: None,
             guides: &[],
+            selection: &ws.selection.iter().copied().collect::<Vec<_>>(),
             input: ws.prefs.input,
             expects: Expect::Point,
             tracker: TrackerMode::Relative,
@@ -1441,7 +1463,7 @@ pub(crate) mod tests {
         let index = ws.snap_index(ground);
         let south = [DVec2::ZERO, DVec2::new(12.0, 0.0)];
         let at = |x: f64| DVec2::new(x, 0.0);
-        let hover = |index: &SnapIndex, cursor: DVec2, settings| index.hover(cursor, 0.2, None, settings).unwrap();
+        let hover = |index: &SnapIndex, cursor: DVec2, settings| index.hover(cursor, 0.2, None, &[], settings).unwrap();
 
         let nodes = hover(&index, DVec2::new(2.0, -0.05), InputSettings::default());
         assert_eq!(nodes.edge, south);
@@ -1480,6 +1502,47 @@ pub(crate) mod tests {
         assert!(perimeter.span.closed);
         assert!((perimeter.span.length() - 42.0).abs() < 1e-9);
         assert_points(&perimeter.points, &[DVec2::new(12.0, 2.0), DVec2::new(5.0, 9.0)]);
+    }
+
+    /// INP-010: on the ground storey of two_storey_shell with all walls
+    /// present, the ground slab's outline lies under the walls' reference
+    /// lines. With nothing selected the south reference line is hovered;
+    /// selecting the slab makes its outline the hovered one of the
+    /// coincident edges, also over the reference line kept from the last
+    /// position, so the whole element divides its 42 m perimeter. An edge
+    /// nearer the cursor than the selected element's still wins.
+    #[test]
+    fn a_selected_elements_edge_wins_among_coincident_edges() {
+        let mut ws = workspace(samples::two_storey_shell());
+        let ground = ws.doc.project.storeys.ground();
+        ws.prefs.input = scope(DivisionMode::Equal(3), DivisionScope::WholeElement);
+        let slab = (ws.doc.project.elements_on(ground))
+            .find(|e| matches!(e.kind, ElementKind::Slab(_)))
+            .map(|e| e.id)
+            .unwrap();
+        let mut input = PointInput::default();
+        let cursor = DVec2::new(3.0, -0.05);
+        let line = resolve(&mut ws, &mut input, ground, cursor).hovered.unwrap();
+        assert_eq!(line.edge, [DVec2::ZERO, DVec2::new(12.0, 0.0)]);
+        assert!(!line.span.closed, "the south reference line");
+
+        ws.selection.insert(slab);
+        let perimeter = resolve(&mut ws, &mut input, ground, cursor).hovered.unwrap();
+        assert_eq!(perimeter.key.owner, TargetOwner::Element(slab));
+        assert!(perimeter.span.closed);
+        assert!((perimeter.span.length() - 42.0).abs() < 1e-9);
+        assert_points(&perimeter.points, &[DVec2::new(12.0, 2.0), DVec2::new(5.0, 9.0)]);
+        let kept = resolve(&mut ws, &mut input, ground, DVec2::new(3.0, -0.25)).hovered;
+        assert_eq!(
+            kept.map(|h| h.key),
+            Some(perimeter.key),
+            "kept within 1.5 times the radius"
+        );
+
+        // At y = 0.19 the south wall's inner face at y = 0.3 is nearer than
+        // the outline, both within the radius.
+        let inner = resolve(&mut ws, &mut PointInput::default(), ground, DVec2::new(3.0, 0.19));
+        assert_ne!(inner.hovered.unwrap().key.owner, TargetOwner::Element(slab));
     }
 
     /// INP-010: the hovered edge is kept by its owner and number, so it
