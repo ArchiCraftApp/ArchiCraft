@@ -21,7 +21,7 @@ mod typed;
 use archicraft_model::glam::{DVec2, DVec3};
 use archicraft_model::tolerance::coincident;
 use archicraft_model::units::{NumberFormat, UnitSettings, input_alphabet};
-use archicraft_model::{Command, Project, StoreyId};
+use archicraft_model::{Command, ElementId, Project, StoreyId};
 
 pub use constrain::{ConstraintReference, constrain};
 pub use consumer::{CursorState, Expect, InputConsumer, KeyHint, Outcome, Preview, StepSpec, TrackerMode};
@@ -70,6 +70,9 @@ pub struct InputContext<'a> {
     pub previous: Option<DVec2>,
     /// The guides shown, snap targets of the guide levels (INP-009).
     pub guides: &'a [Guide],
+    /// The selected elements: of coincident edges, a selected element's is
+    /// hovered (INP-010).
+    pub selection: &'a [ElementId],
     /// The division mode and scope of hovered edges (INP-010).
     pub input: InputSettings,
     /// What the consumer's current step expects.
@@ -286,7 +289,7 @@ impl PointInput {
         // A cursor held on a guide snaps along it, not to the division
         // points of the edge under it.
         let hovered = (held.is_none())
-            .then(|| ctx.targets.hover(cursor, ctx.radius, kept, ctx.input))
+            .then(|| ctx.targets.hover(cursor, ctx.radius, kept, ctx.selection, ctx.input))
             .flatten();
         let beyond = snap::Beyond {
             pending: ctx.pending,
@@ -880,6 +883,7 @@ mod tests {
                 pending: &self.pending,
                 previous: consumer.reference_point(),
                 guides: &self.guides,
+                selection: &[],
                 input: InputSettings::default(),
                 expects: consumer.step().map_or(Expect::Point, |s| s.expects),
                 tracker: consumer.step().map_or(TrackerMode::Relative, |s| s.tracker),

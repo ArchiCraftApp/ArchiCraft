@@ -176,6 +176,9 @@ struct PlanInput {
     constraint_reference: ConstraintReference,
     snap_step: f64,
     tracker_xyz: bool,
+    /// The selected elements, whose edges win among coincident ones
+    /// (INP-010).
+    selection: Vec<ElementId>,
     /// The division mode and scope (INP-010).
     input: InputSettings,
 }
@@ -202,6 +205,7 @@ impl PlanInput {
             constraint_reference: ws.prefs.constraint_reference,
             snap_step: ws.prefs.snap_step,
             tracker_xyz: ws.prefs.tracker_xyz,
+            selection: ws.selection.iter().copied().collect(),
             input: ws.prefs.input,
         }
     }
@@ -226,6 +230,7 @@ impl PlanInput {
             pending: &self.pending,
             previous: consumer.reference_point().filter(|_| here),
             guides: &[],
+            selection: &self.selection,
             input: self.input,
             expects: step.as_ref().map_or(Expect::Point, |s| s.expects),
             tracker: step.as_ref().map_or(TrackerMode::Relative, |s| s.tracker),
@@ -1344,7 +1349,7 @@ mod tests {
             division: crate::input::DivisionMode::Equal(4),
             ..InputSettings::default()
         };
-        let hovered = index.hover(DVec2::new(1.3, 0.05), 0.2, None, settings).unwrap();
+        let hovered = index.hover(DVec2::new(1.3, 0.05), 0.2, None, &[], settings).unwrap();
         let to_screen = |q: DVec2| Pos2::new(100.0 + 10.0 * q.x as f32, 100.0 - 10.0 * q.y as f32);
         let ticks = division_ticks(&hovered, to_screen, Color32::RED);
         assert_eq!(ticks.len(), 3);

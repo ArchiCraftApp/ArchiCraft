@@ -236,3 +236,48 @@ fn the_plan_view_draws_division_ticks_and_snaps_to_them() {
     let label = state.label.clone().unwrap_or_default();
     assert!(label.ends_with("\ndivision point"), "{label}");
 }
+
+/// INP-010: in the plan view of two_storey_shell with all walls present,
+/// the ground slab's outline lies under the walls' reference lines. With
+/// three equal parts of the whole element, hovering the south side divides
+/// the south reference line; once the slab is selected, the same position
+/// hovers the slab's outline and its ticks divide the 42 m perimeter.
+#[test]
+fn the_selected_slabs_outline_is_hovered_under_reference_lines() {
+    use archicraft_app::input::DivisionScope;
+    use archicraft_model::ElementKind;
+
+    let mut harness = wall_tool_on_two_storey_shell("selected-outline");
+    let (storey, pos, slab) = {
+        let ws = harness.state_mut().workspace();
+        ws.prefs.input.division = DivisionMode::Equal(3);
+        ws.prefs.input.scope = DivisionScope::WholeElement;
+        let storey = ws.active_storey;
+        let slab = (ws.doc.project.elements_on(storey))
+            .find(|e| matches!(e.kind, ElementKind::Slab(_)))
+            .unwrap()
+            .id;
+        let state = &ws.plan_views[&storey];
+        (
+            storey,
+            state.camera.to_screen(state.last_rect, DVec2::new(3.0, -0.03)),
+            slab,
+        )
+    };
+    let ticks = |h: &mut Harness<'static, archicraft_app::ArchiCraftApp>, pos: Pos2| {
+        h.hover_at(pos);
+        h.run_steps(2);
+        h.state_mut().workspace().plan_views[&storey].ticks.clone()
+    };
+    let assert_ticks = |found: &[DVec2], expected: &[DVec2]| {
+        assert_eq!(found.len(), expected.len(), "{found:?} is not {expected:?}");
+        for (f, e) in found.iter().zip(expected) {
+            assert!(f.distance(*e) < 1e-9, "{found:?} is not {expected:?}");
+        }
+    };
+    assert_ticks(&ticks(&mut harness, pos), &[DVec2::new(4.0, 0.0), DVec2::new(8.0, 0.0)]);
+
+    harness.state_mut().workspace().selection.insert(slab);
+    let found = ticks(&mut harness, pos + egui::vec2(1.0, 0.0));
+    assert_ticks(&found, &[DVec2::new(12.0, 2.0), DVec2::new(5.0, 9.0)]);
+}
