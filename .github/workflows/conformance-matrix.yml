@@ -81,10 +81,16 @@ jobs:
             || runner.os == 'macOS' && '~/Library/Caches/ms-playwright'
             || '~/AppData/Local/ms-playwright' }}
           key: playwright-${{ runner.os }}-${{ hashFiles('conformance/package-lock.json') }}
-      # A no-op download when the cache hit; on Linux it also installs the system libraries.
+      # A no-op download when the cache hit. On Linux, install-chromium.sh adds the system
+      # libraries only when Chromium does not start without them, as in ci.yml (archicraft-1er5).
       - name: Install Chromium
+        if: runner.os != 'Linux'
         working-directory: conformance
-        run: npx playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
+        run: npx playwright install chromium
+      - name: Install Chromium and the system libraries the runner image lacks
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        run: conformance/install-chromium.sh
       - name: Write the reference models (compact and indented)
         run: cargo run --locked -p archicraft-ifcx --example reference_models -- target/reference-models
       - name: Load them and the golden files with the reference implementation, composition and viewer

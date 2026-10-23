@@ -45,7 +45,7 @@ All steps run offline. Steps (a) and (b1) serve the four `ifcx.dev` imports from
 harness and those imports, aborts every other request, and the test fails, before its other
 checks, if any request left `http://localhost` and the bundled schema URIs or asked for a
 localhost path the harness does not serve. The conformance job fails when it wrote no
-screenshot and has a 5-minute budget (`timeout-minutes`).
+screenshot and has an 8-minute budget (`timeout-minutes`).
 
 `.github/workflows/conformance-matrix.yml` runs the same check on Linux, Windows and macOS
 nightly, and on Linux alone for pull requests that change the model, geometry, IFCX or
@@ -57,9 +57,13 @@ platform uploads its screenshots as `viewer-screenshots-<OS>`; the manual releas
 `docs/test-plan/release-checklist.md`.
 
 Playwright's Chromium is a test tool like Node. `run.sh` installs it on first use
-(`npx playwright install chromium`); on Linux CI, `npx playwright install --with-deps chromium`
-also installs its system libraries. WebGL runs on SwiftShader (`playwright.config.ts`), so no
-GPU is needed. The hosted IFC5 viewer (SRS R4) is checked by hand once per release.
+(`npx playwright install chromium`). On Linux CI, `install-chromium.sh` installs it and starts
+it once: the ubuntu-24.04 runner image has every system library Chromium needs, so apt runs only
+when that launch fails, and then installs Playwright's list (`npx playwright install-deps
+chromium`) with apt retries, in two attempts of 90 s at most, and launches again. Before, every
+run fetched 26 MB of fonts and upgrades from the Ubuntu mirror, and a slow mirror cancelled the
+required job (archicraft-1er5). WebGL runs on SwiftShader (`playwright.config.ts`), so no GPU is
+needed. The hosted IFC5 viewer (SRS R4) is checked by hand once per release.
 
 `.gitignore` keeps `.ifc5/`, `node_modules/`, `.build/`, `test-results/` and
 `playwright-report/` out of git.
