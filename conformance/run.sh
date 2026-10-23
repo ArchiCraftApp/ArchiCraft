@@ -31,7 +31,7 @@ git -C "$here/.ifc5" checkout --quiet "$IFC5_COMMIT"
 cd "$here"
 [ -d node_modules ] || npm ci --no-audit --no-fund --silent
 npm run --silent build
-# A no-op when Chromium is installed already (CI installs it with its system dependencies).
+# A no-op when Chromium is installed already (Linux CI installs it with install-chromium.sh).
 npx playwright install chromium >/dev/null
 
 status=0
