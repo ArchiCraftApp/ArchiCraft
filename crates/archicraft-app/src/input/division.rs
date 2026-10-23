@@ -99,7 +99,9 @@ pub enum DivisionMode {
     /// The midpoint.
     #[default]
     Half,
-    /// N equal parts, N in 2…100.
+    /// N equal parts, N in 2…100. A stored count outside that range, even
+    /// outside `u8`, reads as the nearest allowed count.
+    #[serde(deserialize_with = "equal_parts")]
     Equal(u8),
     /// A percentage of the length from the nearer end.
     Percent(f64),
@@ -108,6 +110,15 @@ pub enum DivisionMode {
     /// The equal division whose parts come nearest a target distance, in
     /// metres.
     BestEqualNear(f64),
+}
+
+/// Reads a stored count of equal parts as any number and clamps it to
+/// [`EQUAL_PARTS`], so an out-of-range count keeps the other input settings
+/// (INP-010).
+fn equal_parts<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u8, D::Error> {
+    let n = f64::deserialize(deserializer)?;
+    let (fewest, most) = (f64::from(*EQUAL_PARTS.start()), f64::from(*EQUAL_PARTS.end()));
+    Ok(n.round().clamp(fewest, most) as u8)
 }
 
 impl DivisionMode {
@@ -143,7 +154,7 @@ impl DivisionMode {
                 .take_while(|s| *s < length - MODEL_TOLERANCE)
                 .map(from_nearer)
                 .collect(),
-            DivisionMode::BestEqualNear(d) => equal(((length / d).round() as usize).clamp(1, MAX_DIVISION_POINTS + 1)),
+            DivisionMode::BestEqualNear(d) => equal(best_equal_parts(length, d)),
         };
         stations
             .into_iter()
@@ -151,6 +162,19 @@ impl DivisionMode {
             .take(MAX_DIVISION_POINTS)
             .collect()
     }
+}
+
+/// The number of equal parts of a curve `length` long whose part length
+/// comes nearest `target`, the fewer parts on a tie (INP-010). Only the
+/// counts either side of `length / target` can be nearest; rounding the
+/// quotient is not enough, since 2.45 parts of the target are nearer three
+/// parts (0.26 m off for a 3.5 m edge) than two (0.32 m).
+fn best_equal_parts(length: f64, target: f64) -> usize {
+    let quotient = length / target;
+    let off = |n: f64| (length / n - target).abs();
+    let (fewer, more) = (quotient.floor().max(1.0), quotient.ceil().max(1.0));
+    let n = if off(more) < off(fewer) { more } else { fewer };
+    (n as usize).clamp(1, MAX_DIVISION_POINTS + 1)
 }
 
 /// Which stretch of an element a hovered edge's division points span
@@ -400,6 +424,10 @@ mod tests {
             divide(&EDGE, DivisionMode::BestEqualNear(1e-3), v(0.2, 0.0)).len(),
             MAX_DIVISION_POINTS
         );
+        // L/d = 2.45: three parts of 1.1667 m lie 0.26 m off the target,
+        // two of 1.75 m 0.32 m, although 2.45 rounds to two.
+        let points = xs(&divide(&EDGE, DivisionMode::BestEqualNear(3.5 / 2.45), v(0.2, 0.0)));
+        assert_near(&points, &[3.5 / 3.0, 7.0 / 3.0]);
     }
 
     /// INP-010: circles and arcs are divided by arc length, the nearer end
@@ -455,6 +483,14 @@ mod tests {
             // Beyond the arc's end at 0° the projection is that end.
             let beyond = divide(&curve, DivisionMode::Percent(25.0), centre + v(2.0, -0.3));
             assert!(beyond[0].distance(quarter[0]) < 1e-9, "{arc:?}");
+            // 1 m repeated along the arc of radius 2 from the end at 0°:
+            // half a radian apart, which neither chords nor radians give.
+            let repeated = divide(&curve, DivisionMode::Repeated(1.0), centre + near_x);
+            let expected = [0.5, 1.0, 1.5].map(|angle: f64| centre + DVec2::from_angle(angle) * 2.0);
+            assert_eq!(repeated.len(), expected.len(), "{arc:?}");
+            for (p, e) in repeated.iter().zip(expected) {
+                assert!(p.distance(e) < 1e-9, "{arc:?}: {repeated:?}");
+            }
         }
     }
 
