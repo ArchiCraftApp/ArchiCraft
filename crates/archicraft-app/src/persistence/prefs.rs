@@ -433,6 +433,9 @@ mod tests {
         let out_of_range = [
             (r#"{"Equal": 1}"#, DivisionMode::Equal(2)),
             (r#"{"Equal": 200}"#, DivisionMode::Equal(100)),
+            (r#"{"Equal": 300}"#, DivisionMode::Equal(100)),
+            (r#"{"Equal": -1}"#, DivisionMode::Equal(2)),
+            (r#"{"Equal": 1e30}"#, DivisionMode::Equal(100)),
             (r#"{"Percent": 140.0}"#, DivisionMode::Percent(100.0)),
             (r#"{"Repeated": -1.0}"#, DivisionMode::Repeated(1.0)),
             (r#"{"BestEqualNear": 0.0}"#, DivisionMode::BestEqualNear(1.0)),
