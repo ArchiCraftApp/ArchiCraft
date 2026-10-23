@@ -7,7 +7,7 @@ use archicraft_geometry::{ModelGeometry, ViewRange, plan_drawing};
 use archicraft_model::glam::DVec2;
 use archicraft_model::template::default_metric_project;
 use archicraft_model::validate::validate_element;
-use archicraft_model::{Command, CommandError, ElementKind, History, Project, TopLink};
+use archicraft_model::{Arg, Command, CommandError, ElementKind, History, Message, Project, TopLink};
 use geo::Area;
 
 fn house() -> Project {
@@ -140,7 +140,27 @@ fn a_wall_lower_than_the_model_tolerance_has_no_body() {
             assert!((hi.z - lo.z - 2e-5).abs() < 1e-9);
         } else {
             assert!(geometry.get(id).is_none());
-            assert_eq!(geometry.problems[&id], "the element has no height");
+            assert_eq!(geometry.problems[&id], Message::new("geometry-no-height"));
         }
+    }
+}
+
+/// UI-012, NFR-L10N-001: a wall whose outline the model rejects (here one
+/// without length, put into the project without its validation) is listed
+/// with the model's reason nested in the geometry message, not as text.
+#[test]
+fn a_wall_without_length_reports_the_model_reason() {
+    let mut p = default_metric_project();
+    let g = p.storeys.ground();
+    let wall = p.new_wall(g, DVec2::new(1.0, 1.0), DVec2::new(1.0, 1.0), 0);
+    let id = wall.id;
+    p.elements.insert(id, wall);
+    let geometry = ModelGeometry::evaluate(&p);
+    assert!(geometry.get(id).is_none());
+    let problem = &geometry.problems[&id];
+    assert_eq!(problem.key(), "geometry-invalid-polygon");
+    match problem.arg("reason") {
+        Some(Arg::Nested(reason)) => assert!(reason.key().starts_with("model-error-polygon-"), "{reason}"),
+        other => panic!("no nested model reason: {other:?}"),
     }
 }

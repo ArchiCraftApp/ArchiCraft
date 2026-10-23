@@ -397,7 +397,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The problems panel (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:889) lists failed geometry, and clicking an entry selects the element and requests a zoom, but a failed element has no geometry or fallback representation, so the zoom finds no bounds (NFR-REL-006). Load problems are plain labels, not clickable, even when Problem.path names a node (crates/archicraft-ifcx/src/validate.rs:50). Dangling references (Project::integrity_problems, crates/archicraft-model/src/project.rs:427) are never listed. Missing definitions cannot be listed because referenced definitions do not exist yet (OBJ-005).",
+      "gap": "The problems panel (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:890) lists failed geometry, and clicking an entry selects the element and requests a zoom; each entry is the element's name and its reason from the catalogue (geometry_problems_show_as_localized_text, crates/archicraft-app/tests/ui.rs). But a failed element has no geometry or fallback representation, so the zoom finds no bounds (NFR-REL-006). Load problems are plain labels, not clickable, even when Problem.path names a node (crates/archicraft-ifcx/src/validate.rs:50). Dangling references (Project::integrity_problems, crates/archicraft-model/src/project.rs:427) are never listed. Missing definitions cannot be listed because referenced definitions do not exist yet (OBJ-005).",
       "depends_on": []
     },
     {
@@ -2117,7 +2117,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Sections and solid operations do not exist, so agreement there cannot be exercised. Plan cuts, 3D views and the IFCX export do derive from the same evaluated bodies (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:64). But the plan merges all cut polygons of one material by union regardless of joins (plan_drawing, crates/archicraft-geometry/src/plan.rs:111, union at line 156), so two overlapping unjoined walls of the same material show as one region in plan although 3D and IFCX keep two separate overlapping bodies. Material-priority cleanup (WAL-023) exists in no view.",
+      "gap": "Sections and solid operations do not exist, so agreement there cannot be exercised. Plan cuts, 3D views and the IFCX export do derive from the same evaluated bodies (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:66). But the plan merges all cut polygons of one material by union regardless of joins (plan_drawing, crates/archicraft-geometry/src/plan.rs:111, union at line 156), so two overlapping unjoined walls of the same material show as one region in plan although 3D and IFCX keep two separate overlapping bodies. Material-priority cleanup (WAL-023) exists in no view.",
       "depends_on": []
     },
     {
@@ -2177,7 +2177,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "The limit of 10,000 points per slab in outline and holes together (SLB-003, D.9) is enforced (MAX_SLAB_POINTS, crates/archicraft-model/src/validate.rs:46), and the polygon checks behind it are a sweep line, about 10 ms for a slab at the limit (crates/archicraft-model/src/validate/sweep.rs, archicraft-91jj), and such a slab evaluates in under 20 ms, because triangulate classifies its faces in one walk over the triangulation (archicraft-e2t1, slabs_at_the_point_limit_evaluate_quickly). No arc edges, which would count by the points they become: the outline is Vec<DVec2> (Slab, crates/archicraft-model/src/kinds/slab.rs:43), and validate_ring (crates/archicraft-model/src/validate.rs:160), extrude (crates/archicraft-geometry/src/extrude.rs:21), triangulate (crates/archicraft-geometry/src/triangulate.rs:248), the snap sources and the IFCX schema (outline = array(point2)) assume polylines. No circle mode (SlabMode, crates/archicraft-app/src/tools/slab.rs:5). Snapping to wall faces, reference lines and other outlines works; no snapping to wall core faces (needs PRF-001) or 2D shapes (no 2D kinds), and no contour detection (INP-018).",
+      "gap": "The limit of 10,000 points per slab in outline and holes together (SLB-003, D.9) is enforced (MAX_SLAB_POINTS, crates/archicraft-model/src/validate.rs:46), and the polygon checks behind it are a sweep line, about 10 ms for a slab at the limit (crates/archicraft-model/src/validate/sweep.rs, archicraft-91jj), and such a slab evaluates in under 20 ms, because triangulate classifies its faces in one walk over the triangulation (archicraft-e2t1, slabs_at_the_point_limit_evaluate_quickly). No arc edges, which would count by the points they become: the outline is Vec<DVec2> (Slab, crates/archicraft-model/src/kinds/slab.rs:43), and validate_ring (crates/archicraft-model/src/validate.rs:160), extrude (crates/archicraft-geometry/src/extrude.rs:21), triangulate (crates/archicraft-geometry/src/triangulate.rs:255), the snap sources and the IFCX schema (outline = array(point2)) assume polylines. No circle mode (SlabMode, crates/archicraft-app/src/tools/slab.rs:5). Snapping to wall faces, reference lines and other outlines works; no snapping to wall core faces (needs PRF-001) or 2D shapes (no 2D kinds), and no contour detection (INP-018).",
       "depends_on": []
     },
     {
@@ -2187,7 +2187,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "The 'or a layer structure' alternative is missing: no LayerStructure type anywhere, Slab has a single thickness + single MaterialId, geometry extrudes one part (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:181-191).",
+      "gap": "The 'or a layer structure' alternative is missing: no LayerStructure type anywhere, Slab has a single thickness + single MaterialId, geometry extrudes one part (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:183-193).",
       "depends_on": []
     },
     {
@@ -2237,7 +2237,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No inclined top or bottom plane: Slab (crates/archicraft-model/src/kinds/slab.rs:43) has only outline, holes, thickness, reference and offset, and evaluate_element (crates/archicraft-geometry/src/evaluate.rs:154) builds slabs with extrude (crates/archicraft-geometry/src/extrude.rs:21), which only extrudes between two horizontal planes. Missing: plane parameters for the top and an optional independent bottom (pitch and direction or a three-point plane) for sloped constant-thickness and tapered slabs, validation, geometry that bounds the prism by these planes, properties fields, and IFCX schema/writer/reader attributes (element_attributes, crates/archicraft-ifcx/src/alpha/writer.rs:261). Plan display should keep working, since plan_drawing (crates/archicraft-geometry/src/plan.rs:111) slices the meshes and projects TriMesh::up_facing_outline (crates/archicraft-geometry/src/mesh.rs:193).",
+      "gap": "No inclined top or bottom plane: Slab (crates/archicraft-model/src/kinds/slab.rs:43) has only outline, holes, thickness, reference and offset, and evaluate_element (crates/archicraft-geometry/src/evaluate.rs:156) builds slabs with extrude (crates/archicraft-geometry/src/extrude.rs:21), which only extrudes between two horizontal planes. Missing: plane parameters for the top and an optional independent bottom (pitch and direction or a three-point plane) for sloped constant-thickness and tapered slabs, validation, geometry that bounds the prism by these planes, properties fields, and IFCX schema/writer/reader attributes (element_attributes, crates/archicraft-ifcx/src/alpha/writer.rs:261). Plan display should keep working, since plan_drawing (crates/archicraft-geometry/src/plan.rs:111) slices the meshes and projects TriMesh::up_facing_outline (crates/archicraft-geometry/src/mesh.rs:193).",
       "depends_on": []
     },
     {
@@ -2427,7 +2427,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No layer structures: Project (crates/archicraft-model/src/project.rs:302) holds visibility layers (LAY-001) and materials only, and Command (crates/archicraft-model/src/command.rs:39) and Edit (crates/archicraft-model/src/command.rs:723) have add/update/delete only for those. Missing: a named layer structure resource with ordered skins (material, thickness, role core/finish/other; at least one core skin; 48 or more skins), its Add/Update/Delete commands and edits, an editor dialog, a choice of thickness or structure on Wall (crates/archicraft-model/src/kinds/wall.rs:66) and Slab (crates/archicraft-model/src/kinds/slab.rs:43) (roofs need ROF-001), multi-part bodies with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:23; IFX-017 Skin_n), IFCX schema/writer/reader, and update propagation (PRF-002).",
+      "gap": "No layer structures: Project (crates/archicraft-model/src/project.rs:302) holds visibility layers (LAY-001) and materials only, and Command (crates/archicraft-model/src/command.rs:39) and Edit (crates/archicraft-model/src/command.rs:723) have add/update/delete only for those. Missing: a named layer structure resource with ordered skins (material, thickness, role core/finish/other; at least one core skin; 48 or more skins), its Add/Update/Delete commands and edits, an editor dialog, a choice of thickness or structure on Wall (crates/archicraft-model/src/kinds/wall.rs:66) and Slab (crates/archicraft-model/src/kinds/slab.rs:43) (roofs need ROF-001), multi-part bodies with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:24; IFX-017 Skin_n), IFCX schema/writer/reader, and update propagation (PRF-002).",
       "depends_on": []
     },
     {
@@ -2457,7 +2457,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No profiles exist. Missing: a named profile resource (one or more closed regions with holes, a material per region, an insertion origin, flags for the element kinds that may use it), commands and edits for it, a profile editor (2D drawing of regions, reusing point input and validate_ring, crates/archicraft-model/src/validate.rs:160), use by columns and beams (COL-001 and BEA-001 do not exist yet), propagation of profile edits to every element using it, and IFCX schema/writer/reader; holes in profiles are geometry, not openings (IFX-025). triangulate (crates/archicraft-geometry/src/triangulate.rs:248) and extrude (crates/archicraft-geometry/src/extrude.rs:21) already handle regions with holes for straight prisms.",
+      "gap": "No profiles exist. Missing: a named profile resource (one or more closed regions with holes, a material per region, an insertion origin, flags for the element kinds that may use it), commands and edits for it, a profile editor (2D drawing of regions, reusing point input and validate_ring, crates/archicraft-model/src/validate.rs:160), use by columns and beams (COL-001 and BEA-001 do not exist yet), propagation of profile edits to every element using it, and IFCX schema/writer/reader; holes in profiles are geometry, not openings (IFX-025). triangulate (crates/archicraft-geometry/src/triangulate.rs:255) and extrude (crates/archicraft-geometry/src/extrude.rs:21) already handle regions with holes for straight prisms.",
       "depends_on": []
     },
     {
@@ -2597,7 +2597,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No roofs and no layer structures (needs ROF-001 and PRF-001). Missing: skins measured perpendicular to the roof plane, a selectable reference surface (bottom, top, or top of the core skin) for the pivot elevation, and a multi-part body with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:23). The IFCX writer already emits one child per BodyPart (write_element, crates/archicraft-ifcx/src/alpha/writer.rs:478), so skins need only names per IFX-017 (Skin_1 to Skin_n).",
+      "gap": "No roofs and no layer structures (needs ROF-001 and PRF-001). Missing: skins measured perpendicular to the roof plane, a selectable reference surface (bottom, top, or top of the core skin) for the pivot elevation, and a multi-part body with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:24). The IFCX writer already emits one child per BodyPart (write_element, crates/archicraft-ifcx/src/alpha/writer.rs:478), so skins need only names per IFX-017 (Skin_1 to Skin_n).",
       "depends_on": []
     },
     {
@@ -2767,7 +2767,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No opening element exists (OPN-001 missing), so no reveal or end faces are generated. Bodies are single-material parts (BodyPart, crates/archicraft-geometry/src/evaluate.rs:23; walls and slabs get one part named Body in evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154), Material has no per-face override (crates/archicraft-model/src/material.rs:143), and no layer structures or skins exist (PRF-001). Needs the faces an opening cuts emitted as separate parts or tagged faces whose material defaults to the cut element's (or cut skin's) material, a per-opening override for reveal and end faces, and handling of faces that coincide with a skin boundary.",
+      "gap": "No opening element exists (OPN-001 missing), so no reveal or end faces are generated. Bodies are single-material parts (BodyPart, crates/archicraft-geometry/src/evaluate.rs:24; walls and slabs get one part named Body in evaluate_element, crates/archicraft-geometry/src/evaluate.rs:156), Material has no per-face override (crates/archicraft-model/src/material.rs:143), and no layer structures or skins exist (PRF-001). Needs the faces an opening cuts emitted as separate parts or tagged faces whose material defaults to the cut element's (or cut skin's) material, a per-opening override for reveal and end faces, and handling of faces that coincide with a skin boundary.",
       "depends_on": []
     },
     {
@@ -2897,7 +2897,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No host cutting at all: walls are one extruded prism with one material (Wall.material, crates/archicraft-model/src/kinds/wall.rs:74; evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154), there are no skins (PRF-001) and archicraft-geometry has no 3D Boolean operations. Needs a void solid per unit subtracted from every skin part of the host, re-evaluation of the host when the unit or the host changes (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:64, evaluates each element on its own and would need the hosted units of each wall), and the host restored when the unit is deleted.",
+      "gap": "No host cutting at all: walls are one extruded prism with one material (Wall.material, crates/archicraft-model/src/kinds/wall.rs:74; evaluate_element, crates/archicraft-geometry/src/evaluate.rs:156), there are no skins (PRF-001) and archicraft-geometry has no 3D Boolean operations. Needs a void solid per unit subtracted from every skin part of the host, re-evaluation of the host when the unit or the host changes (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:66, evaluates each element on its own and would need the hosted units of each wall), and the host restored when the unit is deleted.",
       "depends_on": []
     },
     {
@@ -3037,7 +3037,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No curtain wall kind (the kinds! registry lists wall and slab, crates/archicraft-model/src/kinds/mod.rs:378) and no tool; IfcClass has no CurtainWall, Member or Plate (crates/archicraft-model/src/element.rs:15). Compound support exists: Kind::parts with PartSpec (crates/archicraft-model/src/kinds/mod.rs:184 and crates/archicraft-model/src/kinds/mod.rs:101) and per-element BodyPart lists (crates/archicraft-geometry/src/evaluate.rs:23), usable for frames and panels. Needs a base path of straight segments (arcs C), a base elevation and a fixed or storey-linked top (VerticalLink, crates/archicraft-model/src/kinds/vertical.rs:21), boundary-frame placement inside, centred on or outside the path, and the grid, frame and panel classes of CW-002 to CW-004.",
+      "gap": "No curtain wall kind (the kinds! registry lists wall and slab, crates/archicraft-model/src/kinds/mod.rs:378) and no tool; IfcClass has no CurtainWall, Member or Plate (crates/archicraft-model/src/element.rs:15). Compound support exists: Kind::parts with PartSpec (crates/archicraft-model/src/kinds/mod.rs:184 and crates/archicraft-model/src/kinds/mod.rs:101) and per-element BodyPart lists (crates/archicraft-geometry/src/evaluate.rs:24), usable for frames and panels. Needs a base path of straight segments (arcs C), a base elevation and a fixed or storey-linked top (VerticalLink, crates/archicraft-model/src/kinds/vertical.rs:21), boundary-frame placement inside, centred on or outside the path, and the grid, frame and panel classes of CW-002 to CW-004.",
       "depends_on": []
     },
     {
@@ -3157,7 +3157,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No stair element exists. The kind registry lists only wall and slab (kinds! invocation, crates/archicraft-model/src/kinds/mod.rs:378; adding a kind is one module plus one line), ToolKind has Select/Wall/Slab only (crates/archicraft-app/src/tools/mod.rs:23), and evaluate_element returns UnsupportedKind for other kinds (crates/archicraft-geometry/src/evaluate.rs:154). Needs a Stair payload (baseline with at least two nodes, width, home storey, top storey link and bottom/top offsets, reusable from VerticalLink at crates/archicraft-model/src/kinds/vertical.rs:21, and a STA-005 rule set), the rise/going solver (STA-004 to STA-011), a generator for steps, landings and supports re-run on every revision, a stair tool and IFCX records. The D.2 stair defaults are still pending in ROWS, crates/archicraft-model/tests/defaults.rs:153.",
+      "gap": "No stair element exists. The kind registry lists only wall and slab (kinds! invocation, crates/archicraft-model/src/kinds/mod.rs:378; adding a kind is one module plus one line), ToolKind has Select/Wall/Slab only (crates/archicraft-app/src/tools/mod.rs:23), and evaluate_element returns UnsupportedKind for other kinds (crates/archicraft-geometry/src/evaluate.rs:156). Needs a Stair payload (baseline with at least two nodes, width, home storey, top storey link and bottom/top offsets, reusable from VerticalLink at crates/archicraft-model/src/kinds/vertical.rs:21, and a STA-005 rule set), the rise/going solver (STA-004 to STA-011), a generator for steps, landings and supports re-run on every revision, a stair tool and IFCX records. The D.2 stair defaults are still pending in ROWS, crates/archicraft-model/tests/defaults.rs:153.",
       "depends_on": []
     },
     {
@@ -3257,7 +3257,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No conflict detection, no naming of conflicting rules, no alternatives and no keep-last-valid behaviour. ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:64) records only an error string in ModelGeometry::problems (:58) and keeps no body for a failing element; ElementGeometry (:32) holds no last valid result. Needs the solver (STA-004 to STA-008) to return the violated rules with actual and limit values, a dialog that offers the alternatives (change N, relax a bound, unlock the baseline STA-029, change an offset) and storage of the last valid stair while the conflict lasts.",
+      "gap": "No conflict detection, no naming of conflicting rules, no alternatives and no keep-last-valid behaviour. ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:66) records only an error string in ModelGeometry::problems (:58) and keeps no body for a failing element; ElementGeometry (:32) holds no last valid result. Needs the solver (STA-004 to STA-008) to return the violated rules with actual and limit values, a dialog that offers the alternatives (change N, relax a bound, unlock the baseline STA-029, change an offset) and storage of the last valid stair while the conflict lasts.",
       "depends_on": []
     },
     {
@@ -3377,7 +3377,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No flight/landing structure choice (none, or monolithic with smooth or stepped underside, stepped with separate vertical and horizontal thickness), each with a material; the D.2 default (monolithic, smooth) is pending in ROWS, crates/archicraft-model/tests/defaults.rs:153. Per-part materials are supported by BodyPart (crates/archicraft-geometry/src/evaluate.rs:23), but Kind::material and Kind::set_material expose one main material per element (crates/archicraft-model/src/kinds/mod.rs:128), so separate flight and landing structure materials need their own parameters and editing. Needs the STA-001 stair kind.",
+      "gap": "No flight/landing structure choice (none, or monolithic with smooth or stepped underside, stepped with separate vertical and horizontal thickness), each with a material; the D.2 default (monolithic, smooth) is pending in ROWS, crates/archicraft-model/tests/defaults.rs:153. Per-part materials are supported by BodyPart (crates/archicraft-geometry/src/evaluate.rs:24), but Kind::material and Kind::set_material expose one main material per element (crates/archicraft-model/src/kinds/mod.rs:128), so separate flight and landing structure materials need their own parameters and editing. Needs the STA-001 stair kind.",
       "depends_on": []
     },
     {
@@ -3407,7 +3407,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No part-level failure reporting with fallback; ElementGeometry has no per-part warnings (crates/archicraft-geometry/src/evaluate.rs:32).",
+      "gap": "No part-level failure reporting with fallback; ElementGeometry has no per-part warnings (crates/archicraft-geometry/src/evaluate.rs:33).",
       "depends_on": []
     },
     {
@@ -3507,7 +3507,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No edge picking, no host relation or associativity (Project has no relations; geometry evaluates elements independently, ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:64), no static mode, no stair-to-slab continuation.",
+      "gap": "No edge picking, no host relation or associativity (Project has no relations; geometry evaluates elements independently, ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:66), no static mode, no stair-to-slab continuation.",
       "depends_on": []
     },
     {
@@ -3707,7 +3707,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No solid operations. Missing: integration of a Boolean engine (Manifold planned, General 3D Booleans item, docs/technology-choices.md:196; it must use MODEL_TOLERANCE as merge tolerance, crates/archicraft-model/src/tolerance.rs:41), a relation model of operations (targets, operators, subtract/intersect/add), commands and UI to create them, application of the operations in ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:64) with every operator acting with its unmodified body (SOL-024), terrain (TER-001) and free-form solids (SOL-001) as participants, failure handling that keeps the unmodified body and reports the element (NFR-REL-006), and persistence in IFCX (SOL-022).",
+      "gap": "No solid operations. Missing: integration of a Boolean engine (Manifold planned, General 3D Booleans item, docs/technology-choices.md:196; it must use MODEL_TOLERANCE as merge tolerance, crates/archicraft-model/src/tolerance.rs:41), a relation model of operations (targets, operators, subtract/intersect/add), commands and UI to create them, application of the operations in ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:66) with every operator acting with its unmodified body (SOL-024), terrain (TER-001) and free-form solids (SOL-001) as participants, failure handling that keeps the unmodified body and reports the element (NFR-REL-006), and persistence in IFCX (SOL-022).",
       "depends_on": []
     },
     {
@@ -3837,7 +3837,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: a terrain element kind with 3D points, optional breaklines, an editable boundary polygon, a TIN top surface, a flat bottom at an elevation or thickness (D.2: 5.00 m below the lowest point, pending in ROWS, crates/archicraft-model/tests/defaults.rs:156), body mesh evaluation as a closed solid, and plan and 3D drawing. A constrained Delaunay triangulation (spade) exists in triangulate (crates/archicraft-geometry/src/triangulate.rs:248), but only for planar polygons with holes, without interior points, breaklines or elevations. Container::Site (crates/archicraft-model/src/kinds/mod.rs:116) lets a kind sit below the site, but the IFCX writer and reader still handle only elements below storeys.",
+      "gap": "Whole requirement: a terrain element kind with 3D points, optional breaklines, an editable boundary polygon, a TIN top surface, a flat bottom at an elevation or thickness (D.2: 5.00 m below the lowest point, pending in ROWS, crates/archicraft-model/tests/defaults.rs:156), body mesh evaluation as a closed solid, and plan and 3D drawing. A constrained Delaunay triangulation (spade) exists in triangulate (crates/archicraft-geometry/src/triangulate.rs:255), but only for planar polygons with holes, without interior points, breaklines or elevations. Container::Site (crates/archicraft-model/src/kinds/mod.rs:116) lets a kind sit below the site, but the IFCX writer and reader still handle only elements below storeys.",
       "depends_on": []
     },
     {
@@ -4637,7 +4637,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Only a single \"Body\" part is ever produced (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154, for walls and slabs); Skin_1 to Skin_n parts for layer structures (PRF-001), Frame/Panel/Glazing parts (doors, windows, curtain walls) and Void children for openings (IFX-036, OPN-001) are not generated because these do not exist. Axis children are written for walls. The writer path is generic and needs little change once multi-part bodies exist: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:478) already writes one child per BodyPart under its name with its material; Void children need a new path (invisible mesh).",
+      "gap": "Only a single \"Body\" part is ever produced (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:156, for walls and slabs); Skin_1 to Skin_n parts for layer structures (PRF-001), Frame/Panel/Glazing parts (doors, windows, curtain walls) and Void children for openings (IFX-036, OPN-001) are not generated because these do not exist. Axis children are written for walls. The writer path is generic and needs little change once multi-part bodies exist: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:478) already writes one child per BodyPart under its name with its material; Void children need a new path (invisible mesh).",
       "depends_on": []
     },
     {
@@ -4696,7 +4696,7 @@
       "section": "5.2.3",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-geometry/src/evaluate.rs:182 extrudes a slab's outline together with its holes into one body mesh, and crates/archicraft-ifcx/src/alpha/writer.rs:478 write_element writes only the body parts and the axis as children, no IfcOpeningElement and no Void. Semantic openings with Void children for doors, windows and openings are covered by IFX-036. Regression check: Test: `ifx_025_slab_holes_are_geometry_not_openings` (ifcx)",
+      "evidence": "Done: crates/archicraft-geometry/src/evaluate.rs:184 extrudes a slab's outline together with its holes into one body mesh, and crates/archicraft-ifcx/src/alpha/writer.rs:478 write_element writes only the body parts and the axis as children, no IfcOpeningElement and no Void. Semantic openings with Void children for doors, windows and openings are covered by IFX-036. Regression check: Test: `ifx_025_slab_holes_are_geometry_not_openings` (ifcx)",
       "gap": "",
       "depends_on": []
     },
@@ -4737,7 +4737,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Only wall L and T junction cleanup exists (footprints, crates/archicraft-geometry/src/wall.rs:236); nodes of three or more walls and crossings stay square. Layer-structure intersections (PRF-001), openings and hosted doors/windows (OPN-001), trims to roofs and slabs, solid operations and beam junctions are not in the geometry crate yet, as these elements and operations do not exist; slab holes are cut by extrusion (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:154). The writer needs no change: it writes the bodies that ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:64) produces.",
+      "gap": "Only wall L and T junction cleanup exists (footprints, crates/archicraft-geometry/src/wall.rs:236); nodes of three or more walls and crossings stay square. Layer-structure intersections (PRF-001), openings and hosted doors/windows (OPN-001), trims to roofs and slabs, solid operations and beam junctions are not in the geometry crate yet, as these elements and operations do not exist; slab holes are cut by extrusion (evaluate_element, crates/archicraft-geometry/src/evaluate.rs:156). The writer needs no change: it writes the bodies that ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:66) produces.",
       "depends_on": []
     },
     {
@@ -5207,7 +5207,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Unmeasured, and the update is not incremental: ModelGeometry::evaluate re-extrudes and re-triangulates every element (crates/archicraft-geometry/src/evaluate.rs:64-91) and all plan caches are dropped (Document::geometry, crates/archicraft-app/src/document.rs:100). An RM-M stand-in exists (samples::stand_in(5_000): seeded, five storeys of 4 m rooms in L and T junctions; 20,000 as four blocks); no criterion target or CI timing gate yet",
+      "gap": "Unmeasured, and the update is not incremental: ModelGeometry::evaluate re-extrudes and re-triangulates every element (crates/archicraft-geometry/src/evaluate.rs:66-93) and all plan caches are dropped (Document::geometry, crates/archicraft-app/src/document.rs:100). An RM-M stand-in exists (samples::stand_in(5_000): seeded, five storeys of 4 m rooms in L and T junctions; 20,000 as four blocks); no criterion target or CI timing gate yet",
       "depends_on": []
     },
     {
@@ -5297,7 +5297,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No fallback representation: an element whose geometry failed is skipped in the plan (plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so it cannot be seen, picked or highlighted. The problems panel link (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:889) selects it, but PlanViewState::zoom_to (crates/archicraft-app/src/views/plan.rs:106) finds no bounds and does nothing. The global panic hook (install, crates/archicraft-app/src/persistence/crash.rs:66) also fires for panics that ModelGeometry::evaluate catches (crates/archicraft-geometry/src/evaluate.rs:64). A caught geometry panic therefore still writes a crash report, and the next start reports it as a crash.",
+      "gap": "No fallback representation: an element whose geometry failed is skipped in the plan (plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so it cannot be seen, picked or highlighted. The problems panel link (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:890) selects it, but PlanViewState::zoom_to (crates/archicraft-app/src/views/plan.rs:106) finds no bounds and does nothing. The global panic hook (install, crates/archicraft-app/src/persistence/crash.rs:66) also fires for panics that ModelGeometry::evaluate catches (crates/archicraft-geometry/src/evaluate.rs:66). A caught geometry panic therefore still writes a crash report, and the next start reports it as a crash.",
       "depends_on": []
     },
     {
@@ -5577,7 +5577,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Mechanism in place: Fluent catalogue under crates/archicraft-app/locales/en, the tr! macro and an en-XA pseudo-locale (crates/archicraft-app/src/i18n), with a key-usage test; the About window, the Help menu title, the unit choices of the project settings, the reference-line and IFC class choices and the model messages use it. archicraft-model returns a Message (key and typed arguments, crates/archicraft-model/src/message.rs, rendered by i18n::render in project units) for command labels, the journal, element kind names, command errors, validation (elements, storeys, materials, plan grid), edit-lock reasons, integrity problems, the length and angle parse errors and the names of units, IFC classes and wall reference lines; the status line renders command errors (with their limits in the project units, widened to as many decimals as a fine limit needs to read non-zero) and parse errors; the project settings show the unit names from the catalogue. archicraft-model is done: it has no user-visible literal left (unit symbols are allowlisted). archicraft-ifcx returns a Message for every problem of reading, validating and saving files (ifcx- keys in crates/archicraft-ifcx/src/message.rs, catalogue locales/en/ifcx.ftl, checked by tests/ifcx_messages.rs); the load report, the problems panel and the open and save messages render them, the model's errors nested in place. Still literal: about 300 strings in the app crate; the geometry problems (archicraft-k7kj.2); the JSON type names and kind counts inside ifcx messages (archicraft-5dtu). The literal-string lint (crates/archicraft-app/tests/string_lint.rs, syn) fails on new user-visible literals, in archicraft-ifcx on every literal with a space; the files still to migrate are on its PENDING list, which only shrinks. The Performance window of the `perf` feature (crates/archicraft-app/src/perf.rs) stays literal by decision: a developer diagnostic that release builds do not contain (allowlisted, archicraft-yso8).",
+      "gap": "Mechanism in place: Fluent catalogue under crates/archicraft-app/locales/en, the tr! macro and an en-XA pseudo-locale (crates/archicraft-app/src/i18n), with a key-usage test; the About window, the Help menu title, the unit choices of the project settings, the reference-line and IFC class choices and the model messages use it. archicraft-model returns a Message (key and typed arguments, crates/archicraft-model/src/message.rs, rendered by i18n::render in project units) for command labels, the journal, element kind names, command errors, validation (elements, storeys, materials, plan grid), edit-lock reasons, integrity problems, the length and angle parse errors and the names of units, IFC classes and wall reference lines; the status line renders command errors (with their limits in the project units, widened to as many decimals as a fine limit needs to read non-zero) and parse errors; the project settings show the unit names from the catalogue. archicraft-model is done: it has no user-visible literal left (unit symbols are allowlisted). archicraft-ifcx returns a Message for every problem of reading, validating and saving files (ifcx- keys in crates/archicraft-ifcx/src/message.rs, catalogue locales/en/ifcx.ftl, checked by tests/ifcx_messages.rs); the load report, the problems panel and the open and save messages render them, the model's errors nested in place. archicraft-geometry returns a Message for every geometry problem (GeometryError::message, geometry- keys in crates/archicraft-geometry/src/message.rs, catalogue locales/en/geometry.ftl, checked by tests/geometry_messages.rs), an outline the model rejects with the model's error nested; the problems panel renders them. Still literal: about 300 strings in the app crate; the JSON type names and kind counts inside ifcx messages (archicraft-5dtu). The literal-string lint (crates/archicraft-app/tests/string_lint.rs, syn) fails on new user-visible literals, in archicraft-ifcx on every literal with a space, in archicraft-geometry, like archicraft-model, on every literal with a space or an uppercase letter; the files still to migrate are on its PENDING list, which only shrinks. The Performance window of the `perf` feature (crates/archicraft-app/src/perf.rs) stays literal by decision: a developer diagnostic that release builds do not contain (allowlisted, archicraft-yso8).",
       "depends_on": []
     },
     {

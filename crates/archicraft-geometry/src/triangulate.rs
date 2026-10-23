@@ -11,6 +11,7 @@ use spade::{
 };
 
 use crate::GeometryError;
+use crate::message::Message;
 
 #[derive(Clone, Copy, Debug)]
 struct Vertex {
@@ -51,7 +52,7 @@ impl RingTriangulation {
             let start = points.len();
             for &p in ring {
                 if !p.is_finite() {
-                    return Err(GeometryError::InvalidPolygon("non-finite coordinate".into()));
+                    return Err(invalid("geometry-polygon-not-finite"));
                 }
                 let index = points.len();
                 let handle = cdt
@@ -59,9 +60,9 @@ impl RingTriangulation {
                         position: Point2::new(p.x, p.y),
                         index,
                     })
-                    .map_err(|e| GeometryError::InvalidPolygon(format!("{e:?}")))?;
+                    .map_err(|_| invalid("geometry-polygon-coordinate-range"))?;
                 if cdt.vertex(handle).data().index != index {
-                    return Err(GeometryError::InvalidPolygon("duplicate point".into()));
+                    return Err(invalid("geometry-polygon-duplicate-point"));
                 }
                 points.push(p);
                 vertices.push(handle);
@@ -74,7 +75,7 @@ impl RingTriangulation {
                 let from = vertices[range.start + k];
                 let to = vertices[range.start + (k + 1) % n];
                 if !cdt.can_add_constraint(from, to) {
-                    return Err(GeometryError::InvalidPolygon("the outline intersects itself".into()));
+                    return Err(invalid("geometry-polygon-self-intersection"));
                 }
                 cdt.add_constraint(from, to);
             }
@@ -187,7 +188,7 @@ impl RingTriangulation {
             triangles.push(if area > 0.0 { [a, b, c] } else { [a, c, b] });
         }
         if triangles.is_empty() {
-            return Err(GeometryError::InvalidPolygon("the polygon has no area".into()));
+            return Err(invalid("geometry-polygon-no-area"));
         }
         Ok(triangles)
     }
@@ -240,6 +241,12 @@ fn twice_signed_area(ring: &[DVec2]) -> f64 {
     ring.windows(2).map(|w| (w[0] - origin).perp_dot(w[1] - origin)).sum()
 }
 
+/// Triangulation refuses the polygon for the reason `key`, a
+/// `geometry-polygon-` message (NFR-L10N-001).
+fn invalid(key: &'static str) -> GeometryError {
+    GeometryError::InvalidPolygon(Message::new(key))
+}
+
 /// Triangulates a polygon with holes. The returned indices refer to the
 /// points of `outer` followed by the points of each hole, in order. The
 /// triangles are counter-clockwise and cover the part of the triangulation
@@ -247,7 +254,7 @@ fn twice_signed_area(ring: &[DVec2]) -> f64 {
 /// each other and must not repeat their first point.
 pub fn triangulate(outer: &[DVec2], holes: &[Vec<DVec2>]) -> Result<Vec<[usize; 3]>, GeometryError> {
     if outer.len() < 3 {
-        return Err(GeometryError::InvalidPolygon("fewer than three points".into()));
+        return Err(invalid("geometry-polygon-too-few-points"));
     }
     let triangulation = RingTriangulation::new(outer, holes)?;
     let inside = triangulation.inside_faces();

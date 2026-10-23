@@ -885,7 +885,8 @@ fn material_editor(ui: &mut Ui, ws: &mut Workspace, material: &Material) {
     }
 }
 
-/// The problems panel (UI-012): failed geometry and file-reading reports.
+/// The problems panel (UI-012): failed geometry and file-reading reports,
+/// rendered from their message keys (NFR-L10N-001).
 pub fn problems_panel(ui: &mut Ui, ws: &mut Workspace, load_problems: &[archicraft_ifcx::Problem]) {
     let geometry = ws.doc.geometry();
     ui.horizontal(|ui| {
@@ -906,6 +907,7 @@ pub fn problems_panel(ui: &mut Ui, ws: &mut Workspace, load_problems: &[archicra
                 .project
                 .element(*id)
                 .map_or_else(|| id.to_string(), |e| e.name.clone());
+            let message = ws.render(message);
             if ui.link(format!("{name}: {message}")).clicked() {
                 ws.selection.clear();
                 ws.selection.insert(*id);
