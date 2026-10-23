@@ -1107,7 +1107,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No key command locks X, Y or distance; no X or Y lock exists at all; the lock is not drawn as a temporary guide (circle / vertical / horizontal line); no explicit release key.",
+      "gap": "No key command locks X, Y or distance; no X or Y lock exists at all; the lock is not drawn as a temporary guide (circle / vertical / horizontal line); no explicit release key. The guide shapes such a lock would be drawn with exist: plan views draw a guide circle or arc within half a pixel of the true curve, sampled only along the angles the view covers (GuideShape::clip, crates/archicraft-app/src/input/guide.rs; guide_dashes, crates/archicraft-app/src/views/plan.rs; archicraft-3r0j).",
       "depends_on": []
     },
     {
