@@ -5,6 +5,8 @@
 # PRs that nothing moves on and PRs closed without merging (ATTENTION lines), beads flagged for a
 # human, epics ready for their demo, and a failed newest Windows run on main (an ATTENTION line).
 # A close that bd refuses (a blocked bead) is reported and the sweep carries on.
+# It deletes the build cache (target/) of finished worktrees: a closed bead's branch, or parked by
+# the desktop app on a detached HEAD that origin/main contains (a "pruned" line each).
 # Last, it fast-forwards the main checkout to origin/main (fetched by the caller), since Claude
 # Code reads the hook wiring, the skills and the reviewer from there; when git cannot, it reports
 # why and the sweep carries on.
@@ -81,6 +83,53 @@ if [ -n "$windows" ]; then
     read -r conclusion sha url <<<"$windows"
     echo "ATTENTION windows: the newest Windows run on main ($sha) ended in $conclusion: $url"
 fi
+
+# Every worktree keeps its own build cache (start-bead.sh clones it, 5 to 14 GB once built), and
+# nothing else removes it, so the sweep deletes target/ of each finished worktree: one on the branch
+# of a closed bead, or one the desktop app parked on a detached HEAD that origin/main contains. A
+# worktree that is busy keeps it: a rebase or merge in progress, or a process (a build) holding a
+# cargo lock open; without lsof nothing counts as idle. The main checkout, the worktree running
+# the sweep and every other branch keep theirs. Only target/ goes: never the worktree, its branch
+# or its changes. A later bead in a reused worktree gets the warm clone again from start-bead.sh.
+prune_main="$(git worktree list --porcelain | awk 'NR == 1 { sub(/^worktree /, ""); print }')"
+prune_self="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+closed_beads=""
+closed_loaded=no
+git worktree list --porcelain | awk '
+    /^worktree / { sub(/^worktree /, ""); wt = $0; ref = "" }
+    /^branch / { ref = $2 }
+    /^detached$/ { ref = "detached" }
+    /^$/ { if (wt != "") print ref "\t" wt; wt = "" }
+    END { if (wt != "") print ref "\t" wt }' |
+    while IFS=$'\t' read -r ref wt; do
+        [ -d "$wt/target" ] && [ "$wt" != "$prune_main" ] && [ "$wt" != "$prune_self" ] || continue
+        if [ "$ref" = detached ]; then
+            git -C "$wt" merge-base --is-ancestor HEAD refs/remotes/origin/main 2>/dev/null || continue
+        else
+            id="$(loop_bead_from_branch "${ref#refs/heads/}")" || continue
+            if [ "$closed_loaded" = no ]; then
+                closed_beads="$(bd list --status closed --json --limit 0 2>/dev/null | jq -r '.[].id' 2>/dev/null || true)"
+                closed_loaded=yes
+            fi
+            grep -qxF "$id" <<<"$closed_beads" || continue
+        fi
+        busy=no
+        for p in rebase-merge rebase-apply MERGE_HEAD; do
+            if [ -e "$(git -C "$wt" rev-parse --path-format=absolute --git-path "$p")" ]; then busy=yes; fi
+        done
+        [ "$busy" = no ] || continue
+        command -v lsof >/dev/null || continue
+        locks=()
+        while IFS= read -r -d '' f; do locks+=("$f"); done < <(find "$wt/target" -maxdepth 3 -name .cargo-lock -print0 2>/dev/null)
+        # lsof exits 1 when any one lock is unheld (a debug build leaves the release lock free), so
+        # decide on the processes it lists, not on its exit status.
+        [ "${#locks[@]}" -eq 0 ] || [ -z "$(lsof -t "${locks[@]}" 2>/dev/null || true)" ] || continue
+        if out="$(rm -rf "$wt/target" 2>&1)"; then
+            echo "pruned   target/ of $wt"
+        else
+            echo "failed   target/ of $wt: $(printf '%s\n' "$out" | head -n 1)"
+        fi
+    done
 
 # The main checkout is the repository's first worktree. Only a checkout on main moves, and only by
 # a fast-forward, which git refuses when local changes would be overwritten (other local changes,
