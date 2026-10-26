@@ -36,7 +36,7 @@
       "section": "4.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/persistence/prefs.rs:38 autosave_minutes (default 5 at 83, clamped to 1–120 at 148 in Preferences::sanitized), editable in Preferences (crates/archicraft-app/src/ui/dialogs.rs:685-689). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
+      "evidence": "Done: crates/archicraft-app/src/persistence/prefs.rs:38 autosave_minutes (default 5 at 83, clamped to 1–120 at 148 in Preferences::sanitized), editable in Preferences (crates/archicraft-app/src/ui/dialogs.rs:689-690). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -106,7 +106,7 @@
       "section": "4.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-model/src/project.rs:20 ProjectInfo holds name, number, description, client, address and author, changed by the undoable crates/archicraft-model/src/command.rs:89 SetInfo from Project settings (crates/archicraft-app/src/ui/dialogs.rs:590); crates/archicraft-ifcx/src/alpha/writer.rs:392 writes the name and 394 the description on the project node, 203-208 the other four in archicraft::project. Regression check: Test: `prj_010_project_information_is_editable_and_round_trips` (ifcx)",
+      "evidence": "Done: crates/archicraft-model/src/project.rs:20 ProjectInfo holds name, number, description, client, address and author, changed by the undoable crates/archicraft-model/src/command.rs:89 SetInfo from Project settings (crates/archicraft-app/src/ui/dialogs.rs:593); crates/archicraft-ifcx/src/alpha/writer.rs:392 writes the name and 394 the description on the project node, 203-208 the other four in archicraft::project. Regression check: Test: `prj_010_project_information_is_editable_and_round_trips` (ifcx)",
       "gap": "",
       "depends_on": []
     },
@@ -147,7 +147,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs, crates/archicraft-app/src/ui/dialogs.rs:37, derives Default), so by default changing a height moves only the next storey (StoreyList::set_height, crates/archicraft-model/src/storey.rs:303), the SRS alternative, instead of shifting all storeys above. One checkbox governs both edits, so the SRS defaults (height: shift the storeys above; elevation: keep them and change the height of the storey below) cannot both apply at once; the choice is a sticky dialog toggle, not a per-edit choice, and it resets on restart. Elevation and height changes that would leave a storey-linked element lower than 1 mm or higher than 1000 m are refused with a message naming it (NFR-REL-005).",
+      "gap": "The default is inverted for heights: `storey_shift_above` defaults to false (Dialogs, crates/archicraft-app/src/ui/dialogs.rs:38, derives Default), so by default changing a height moves only the next storey (StoreyList::set_height, crates/archicraft-model/src/storey.rs:303), the SRS alternative, instead of shifting all storeys above. One checkbox governs both edits, so the SRS defaults (height: shift the storeys above; elevation: keep them and change the height of the storey below) cannot both apply at once; the choice is a sticky dialog toggle, not a per-edit choice, and it resets on restart. Elevation and height changes that would leave a storey-linked element lower than 1 mm or higher than 1000 m are refused with a message naming it (NFR-REL-005).",
       "depends_on": []
     },
     {
@@ -156,7 +156,7 @@
       "section": "4.2",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: the Storeys dialog (crates/archicraft-app/src/ui/dialogs.rs:90 storeys_window: rename 130, insert above and below 176, delete 189) and the storey context menu of the project browser (crates/archicraft-app/src/ui/browser.rs:51: insert above 56 and below 65, rename 74, delete 79) execute InsertStorey, RenameStorey and DeleteStorey, and the browser lists the storeys from the project in the next frame. Rename from the context menu is indirect: it opens the dialog with the storey selected. Regression check: Test: `str_003_storeys_are_inserted_renamed_and_deleted_from_dialog_and_browser` (app)",
+      "evidence": "Done: the Storeys dialog (crates/archicraft-app/src/ui/dialogs.rs:93 storeys_window: rename 133, insert above and below 179, delete 192) and the storey context menu of the project browser (crates/archicraft-app/src/ui/browser.rs:51: insert above 56 and below 65, rename 74, delete 79) execute InsertStorey, RenameStorey and DeleteStorey, and the browser lists the storeys from the project in the next frame. Rename from the context menu is indirect: it opens the dialog with the storey selected. Regression check: Test: `str_003_storeys_are_inserted_renamed_and_deleted_from_dialog_and_browser` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -166,7 +166,7 @@
       "section": "4.2",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: model half: crates/archicraft-model/src/command.rs:53 DeleteStorey, planned at 523 plan_delete_storey: each element is deleted (529) or rehomed to the target storey keeping its absolute extent and plan position (530-544); crates/archicraft-model/src/project.rs:340 elements_on gives the count. App half: crates/archicraft-app/src/ui/dialogs.rs:207 delete_storey_window: the prompt shows the element count (215), the radio 'Move them to another storey, keeping their position' with the target storey choice (239) or 'Delete them' (252). Regression check: model half: Test: `str_004_deleting_a_storey_moves_or_deletes_its_elements`; also `deleting_a_storey_can_keep_its_elements` (commands.rs); app half: Test: `str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask` (app)",
+      "evidence": "Done: model half: crates/archicraft-model/src/command.rs:53 DeleteStorey, planned at 523 plan_delete_storey: each element is deleted (529) or rehomed to the target storey keeping its absolute extent and plan position (530-544); crates/archicraft-model/src/project.rs:340 elements_on gives the count. App half: crates/archicraft-app/src/ui/dialogs.rs:210 delete_storey_window: the prompt shows the element count (218), the radio 'Move them to another storey, keeping their position' with the target storey choice (242) or 'Delete them' (255). Regression check: model half: Test: `str_004_deleting_a_storey_moves_or_deletes_its_elements`; also `deleting_a_storey_can_keep_its_elements` (commands.rs); app half: Test: `str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -397,7 +397,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The problems panel (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:887) lists failed geometry, and clicking an entry selects the element and requests a zoom; each entry is the element's name and its reason from the catalogue (geometry_problems_show_as_localized_text, crates/archicraft-app/tests/ui.rs). But a failed element has no geometry or fallback representation, so the zoom finds no bounds (NFR-REL-006). Load problems are plain labels, not clickable, even when Problem.path names a node (crates/archicraft-ifcx/src/validate.rs:50). Dangling references (Project::integrity_problems, crates/archicraft-model/src/project.rs:427) are never listed. Missing definitions cannot be listed because referenced definitions do not exist yet (OBJ-005).",
+      "gap": "The problems panel (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:891) lists failed geometry, and clicking an entry selects the element and requests a zoom; each entry is the element's name and its reason from the catalogue (geometry_problems_show_as_localized_text, crates/archicraft-app/tests/ui.rs). But a failed element has no geometry or fallback representation, so the zoom finds no bounds (NFR-REL-006). Load problems are plain labels, not clickable, even when Problem.path names a node (crates/archicraft-ifcx/src/validate.rs:50). Dangling references (Project::integrity_problems, crates/archicraft-model/src/project.rs:427) are never listed. Missing definitions cannot be listed because referenced definitions do not exist yet (OBJ-005).",
       "depends_on": []
     },
     {
@@ -417,7 +417,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Project browser (browser::ui, crates/archicraft-app/src/ui/browser.rs:24-116) and Storeys dialog (Dialogs::storeys_window, crates/archicraft-app/src/ui/dialogs.rs:90-205) have no search field; layer structures, profiles, presets, saved views and components do not exist yet.",
+      "gap": "Project browser (browser::ui, crates/archicraft-app/src/ui/browser.rs:24-116) and Storeys dialog (Dialogs::storeys_window, crates/archicraft-app/src/ui/dialogs.rs:93-208) have no search field; layer structures, profiles, presets, saved views and components do not exist yet.",
       "depends_on": []
     },
     {
@@ -427,7 +427,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No draggable splitters inside dialogs (Materials uses fixed ui.columns(2) in Dialogs::materials_window, crates/archicraft-app/src/ui/dialogs.rs:399); size persistence is an untested eframe side effect with no code or test in the repo; the toolbox panel is not resizable (ArchiCraftApp::ui, crates/archicraft-app/src/app.rs:919).",
+      "gap": "No draggable splitters inside dialogs (Materials uses fixed ui.columns(2) in Dialogs::materials_window, crates/archicraft-app/src/ui/dialogs.rs:402); size persistence is an untested eframe side effect with no code or test in the repo; the toolbox panel is not resizable (ArchiCraftApp::ui, crates/archicraft-app/src/app.rs:919).",
       "depends_on": []
     },
     {
@@ -937,7 +937,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Every pattern is drawn as a flat tone of the material's cut-fill foreground colour (cut-region mesh in draw_plan, crates/archicraft-app/src/views/plan.rs:432; see the FillPattern doc comment, crates/archicraft-model/src/material.rs:92). FillPattern (crates/archicraft-model/src/material.rs:95) names solid, concrete, masonry, timber, insulation, soil and diagonal, but no hatch definition (angle, spacing, pen) exists. The optional background (CutFill, crates/archicraft-model/src/material.rs:135) is read and written in IFCX but never rendered and not editable in material_editor (crates/archicraft-app/src/ui/dialogs.rs:802); solid fills have no transparency option; fills take colours, not pens (needs DSP-001, DSP-005).",
+      "gap": "Every pattern is drawn as a flat tone of the material's cut-fill foreground colour (cut-region mesh in draw_plan, crates/archicraft-app/src/views/plan.rs:432; see the FillPattern doc comment, crates/archicraft-model/src/material.rs:92). FillPattern (crates/archicraft-model/src/material.rs:95) names solid, concrete, masonry, timber, insulation, soil and diagonal, but no hatch definition (angle, spacing, pen) exists. The optional background (CutFill, crates/archicraft-model/src/material.rs:135) is read and written in IFCX but never rendered and not editable in material_editor (crates/archicraft-app/src/ui/dialogs.rs:806); solid fills have no transparency option; fills take colours, not pens (needs DSP-001, DSP-005).",
       "depends_on": []
     },
     {
@@ -1597,7 +1597,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Thresholds are compile-time constants, not project settings: MIN_EDGE_LENGTH and MIN_CORNER_ANGLE_DEG (crates/archicraft-model/src/validate.rs:21 and 23) and MODEL_TOLERANCE (crates/archicraft-model/src/tolerance.rs:41). ProjectSettings (crates/archicraft-model/src/project.rs:118) has no tolerance fields, the project settings dialog (project_window, crates/archicraft-app/src/ui/dialogs.rs:491) shows none, and project_attribute (crates/archicraft-ifcx/src/alpha/writer.rs:198) writes none. Short edges in rings are repaired (clean_ring, crates/archicraft-model/src/validate.rs:77), but sliver corners are rejected with a message (validate_ring, crates/archicraft-model/src/validate.rs:160), as are walls shorter than 0.1 mm (validate_wall, crates/archicraft-model/src/validate.rs:270), rather than repaired or listed in the problems panel (UI-012).",
+      "gap": "Thresholds are compile-time constants, not project settings: MIN_EDGE_LENGTH and MIN_CORNER_ANGLE_DEG (crates/archicraft-model/src/validate.rs:21 and 23) and MODEL_TOLERANCE (crates/archicraft-model/src/tolerance.rs:41). ProjectSettings (crates/archicraft-model/src/project.rs:118) has no tolerance fields, the project settings dialog (project_window, crates/archicraft-app/src/ui/dialogs.rs:494) shows none, and project_attribute (crates/archicraft-ifcx/src/alpha/writer.rs:198) writes none. Short edges in rings are repaired (clean_ring, crates/archicraft-model/src/validate.rs:77), but sliver corners are rejected with a message (validate_ring, crates/archicraft-model/src/validate.rs:160), as are walls shorter than 0.1 mm (validate_wall, crates/archicraft-model/src/validate.rs:270), rather than repaired or listed in the problems panel (UI-012).",
       "depends_on": []
     },
     {
@@ -3057,7 +3057,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No frame-class resource. The material resource is the template for named project-wide definitions: Command::AddMaterial/UpdateMaterial/DeleteMaterial with a replacement (crates/archicraft-model/src/command.rs:81, plan_delete_material at :620), Project::materials (crates/archicraft-model/src/project.rs:310), Dialogs::materials_window (crates/archicraft-app/src/ui/dialogs.rs:388) and the IFCX records material_record (crates/archicraft-ifcx/src/alpha/writer.rs:176) and read_material (crates/archicraft-ifcx/src/alpha/reader.rs:326). Missing: a FrameClass type (name, width, depth, offset to the glazing plane, material), the four template defaults boundary/corner/mullion/transom (D.2: 0.05 x 0.15 m aluminium), a guard against removing boundary and corner classes, commands, a dialog and IFCX records. Needs the CW-001 curtain wall to use them.",
+      "gap": "No frame-class resource. The material resource is the template for named project-wide definitions: Command::AddMaterial/UpdateMaterial/DeleteMaterial with a replacement (crates/archicraft-model/src/command.rs:81, plan_delete_material at :620), Project::materials (crates/archicraft-model/src/project.rs:310), Dialogs::materials_window (crates/archicraft-app/src/ui/dialogs.rs:391) and the IFCX records material_record (crates/archicraft-ifcx/src/alpha/writer.rs:176) and read_material (crates/archicraft-ifcx/src/alpha/reader.rs:326). Missing: a FrameClass type (name, width, depth, offset to the glazing plane, material), the four template defaults boundary/corner/mullion/transom (D.2: 0.05 x 0.15 m aluminium), a guard against removing boundary and corner classes, commands, a dialog and IFCX records. Needs the CW-001 curtain wall to use them.",
       "depends_on": []
     },
     {
@@ -4556,7 +4556,7 @@
       "section": "5.2.1",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Preferences → 'Indented IFCX (human-readable)' (crates/archicraft-app/src/persistence/prefs.rs:72 indented_ifcx, default compact at 97; crates/archicraft-app/src/ui/dialogs.rs:728 in preferences_window); crates/archicraft-app/src/app.rs:305 passes it to Document::to_bytes for Save, Save as and the IFX-062 overwrite. Autosaves stay compact (crates/archicraft-app/src/persistence/autosave.rs:134 write_autosave). The reference_models example writes every model compact and indented (`<name>-indented.ifcx`), so CI and the gate run conformance on both layouts. No per-save choice in the native file dialog (rfd has no custom controls). The indented layout round-trips: `indented_output_round_trips_to_the_golden_bytes` (crates/archicraft-ifcx/tests/determinism.rs); streamed, it has the bytes of the whole document formatted at once: `saving_node_by_node_writes_the_bytes_of_the_whole_document` (same file). Regression check: Test: `indented_ifcx_defaults_to_compact_and_persists` (prefs.rs), `indented_save_reads_back_and_leaves_compact_saves_unchanged` (document.rs), `autosaves_are_compact` (autosave.rs), `preferences_offer_indented_ifcx_output` (tests/ui.rs); conformance (CI and gate) on the `<name>-indented.ifcx` reference models",
+      "evidence": "Done: Preferences → 'Indented IFCX (human-readable)' (crates/archicraft-app/src/persistence/prefs.rs:72 indented_ifcx, default compact at 97; crates/archicraft-app/src/ui/dialogs.rs:732 in preferences_window); crates/archicraft-app/src/app.rs:305 passes it to Document::to_bytes for Save, Save as and the IFX-062 overwrite. Autosaves stay compact (crates/archicraft-app/src/persistence/autosave.rs:134 write_autosave). The reference_models example writes every model compact and indented (`<name>-indented.ifcx`), so CI and the gate run conformance on both layouts. No per-save choice in the native file dialog (rfd has no custom controls). The indented layout round-trips: `indented_output_round_trips_to_the_golden_bytes` (crates/archicraft-ifcx/tests/determinism.rs); streamed, it has the bytes of the whole document formatted at once: `saving_node_by_node_writes_the_bytes_of_the_whole_document` (same file). Regression check: Test: `indented_ifcx_defaults_to_compact_and_persists` (prefs.rs), `indented_save_reads_back_and_leaves_compact_saves_unchanged` (document.rs), `autosaves_are_compact` (autosave.rs), `preferences_offer_indented_ifcx_output` (tests/ui.rs); conformance (CI and gate) on the `<name>-indented.ifcx` reference models",
       "gap": "",
       "depends_on": []
     },
@@ -5067,7 +5067,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Shift + two-finger drag can only yaw on macOS: AppKit turns Shift+vertical scroll into horizontal deltas, while Camera3d::orbit (crates/archicraft-app/src/views/camera.rs:185) maps delta.y to pitch, so the trackpad gesture cannot tilt the view. On Windows, line-unit touchpad events never reach the orbit branch of the 3D view (ui, crates/archicraft-app/src/views/view3d.rs:102; see HW-002). The shortcuts window (shortcuts_window, crates/archicraft-app/src/ui/dialogs.rs:621) does not list the trackpad orbit gesture (its Orbit row names only Shift + middle drag, Alt + drag and orbit mode).",
+      "gap": "Shift + two-finger drag can only yaw on macOS: AppKit turns Shift+vertical scroll into horizontal deltas, while Camera3d::orbit (crates/archicraft-app/src/views/camera.rs:185) maps delta.y to pitch, so the trackpad gesture cannot tilt the view. On Windows, line-unit touchpad events never reach the orbit branch of the 3D view (ui, crates/archicraft-app/src/views/view3d.rs:102; see HW-002). The shortcuts window (shortcuts_window, crates/archicraft-app/src/ui/dialogs.rs:624) does not list the trackpad orbit gesture (its Orbit row names only Shift + middle drag, Alt + drag and orbit mode).",
       "depends_on": []
     },
     {
@@ -5256,7 +5256,7 @@
       "section": "6.2",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Default 5 min, configurable 1–120: crates/archicraft-app/src/persistence/prefs.rs:38 autosave_minutes, 83 (default), 148 (clamp) and crates/archicraft-app/src/ui/dialogs.rs:685-689 (preferences_window). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
+      "evidence": "Done: Default 5 min, configurable 1–120: crates/archicraft-app/src/persistence/prefs.rs:38 autosave_minutes, 83 (default), 148 (clamp) and crates/archicraft-app/src/ui/dialogs.rs:689-690 (preferences_window). Regression check: Test: `prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start`, `prj_004_nfr_rel_002_autosave_is_written_at_five_minutes_and_not_before`, `prj_004_autosave_interval_follows_the_preferences` (app), `as05_crash_recovery` (crash_recovery.rs: `crates/archicraft-app/tests/crash_recovery.rs`, AS-05 end to end), `prj_004_nfr_rel_002_autosaves_follow_the_preference_interval` (app); also `abandoned_sessions_are_found_and_live_ones_skipped` (autosave.rs)",
       "gap": "",
       "depends_on": []
     },
@@ -5297,7 +5297,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No fallback representation: an element whose geometry failed is skipped in the plan (plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so it cannot be seen, picked or highlighted. The problems panel link (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:887) selects it, but PlanViewState::zoom_to (crates/archicraft-app/src/views/plan.rs:106) finds no bounds and does nothing. The global panic hook (install, crates/archicraft-app/src/persistence/crash.rs:66) also fires for panics that ModelGeometry::evaluate catches (crates/archicraft-geometry/src/evaluate.rs:66). A caught geometry panic therefore still writes a crash report, and the next start reports it as a crash.",
+      "gap": "No fallback representation: an element whose geometry failed is skipped in the plan (plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so it cannot be seen, picked or highlighted. The problems panel link (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:891) selects it, but PlanViewState::zoom_to (crates/archicraft-app/src/views/plan.rs:106) finds no bounds and does nothing. The global panic hook (install, crates/archicraft-app/src/persistence/crash.rs:66) also fires for panics that ModelGeometry::evaluate catches (crates/archicraft-geometry/src/evaluate.rs:66). A caught geometry panic therefore still writes a crash report, and the next start reports it as a crash.",
       "depends_on": []
     },
     {
@@ -5347,7 +5347,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Model coordinates are limited to 100 km from the origin (MAX_COORDINATE, crates/archicraft-model/src/validate.rs:26, checked in check_coordinates at :148), so 6 and 7-digit eastings are rejected as modelling coordinates. The survey point (Location, crates/archicraft-model/src/project.rs:140) is edited in Project settings (Dialogs::project_window, crates/archicraft-app/src/ui/dialogs.rs:546) and saved in the ArchiCraft project attribute (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs:230). But it is never applied: there is no readout or input of coordinates in the survey system, no IFX-070 SurveyPoint or second reference point in the written file (the site node gets only RefElevation, nodes, crates/archicraft-ifcx/src/alpha/writer.rs:410), no EPSG code or CRS in Location, and no import that subtracts the offset from incoming survey coordinates (IFX-081).",
+      "gap": "Model coordinates are limited to 100 km from the origin (MAX_COORDINATE, crates/archicraft-model/src/validate.rs:26, checked in check_coordinates at :148), so 6 and 7-digit eastings are rejected as modelling coordinates. The survey point (Location, crates/archicraft-model/src/project.rs:140) is edited in Project settings (Dialogs::project_window, crates/archicraft-app/src/ui/dialogs.rs:549) and saved in the ArchiCraft project attribute (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs:230). But it is never applied: there is no readout or input of coordinates in the survey system, no IFX-070 SurveyPoint or second reference point in the written file (the site node gets only RefElevation, nodes, crates/archicraft-ifcx/src/alpha/writer.rs:410), no EPSG code or CRS in Location, and no import that subtracts the offset from incoming survey coordinates (IFX-081).",
       "depends_on": []
     },
     {
@@ -5396,7 +5396,7 @@
       "section": "6.4",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: deleting elements asks nothing (crates/archicraft-app/src/workspace.rs:401 delete_selection executes an undoable command, UND-001); the only questions before a model change are the storey deletion prompt (crates/archicraft-app/src/ui/dialogs.rs:207 delete_storey_window) and the unsaved-changes prompt (crates/archicraft-app/src/app.rs:331 guard, shown by 594 prompts). The permitted one-time notice with 'do not show again' for conversions (SOL-004, ROF-009, STA-048) has no infrastructure yet because those conversions do not exist; re-inspect when they arrive. Regression check: Test: `str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask` (app)",
+      "evidence": "Done: deleting elements asks nothing (crates/archicraft-app/src/workspace.rs:401 delete_selection executes an undoable command, UND-001); the only questions before a model change are the storey deletion prompt (crates/archicraft-app/src/ui/dialogs.rs:210 delete_storey_window) and the unsaved-changes prompt (crates/archicraft-app/src/app.rs:331 guard, shown by 594 prompts). The permitted one-time notice with 'do not show again' for conversions (SOL-004, ROF-009, STA-048) has no infrastructure yet because those conversions do not exist; re-inspect when they arrive. Regression check: Test: `str_004_nfr_use_004_only_storey_deletion_and_unsaved_changes_ask` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -5627,7 +5627,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "eframe's `accesskit` feature is on (eframe in [workspace.dependencies] of the workspace Cargo.toml:35), so widgets expose roles, but many inputs have no accessible name. The layer manager's Visible, Locked and Snaps checkboxes have empty labels (Dialogs::layers_window, crates/archicraft-app/src/ui/dialogs.rs:311, 319, 328), as do the Preferences checkboxes for digit grouping and reference lines (Dialogs::preferences_window, crates/archicraft-app/src/ui/dialogs.rs:721, 727). Text fields, combo boxes and DragValues from the helpers in crates/archicraft-app/src/ui/widgets.rs (length at :70, angle at :87) have their visible label in a separate ui.label() that is never linked to the control (labelled_by is not used anywhere). The UI tests find widgets by accessible label (crates/archicraft-app/tests/ui.rs), but nothing checks that every control has a name, and no screen-reader test has been run.",
+      "gap": "eframe's `accesskit` feature is on (eframe in [workspace.dependencies] of the workspace Cargo.toml:35), so widgets expose roles, but many inputs have no accessible name. The layer manager's Visible, Locked and Snaps checkboxes have empty labels (Dialogs::layers_window, crates/archicraft-app/src/ui/dialogs.rs:314, 322, 331), as do the Preferences checkboxes for digit grouping and reference lines (Dialogs::preferences_window, crates/archicraft-app/src/ui/dialogs.rs:725, 728). Text fields, combo boxes and DragValues from the helpers in crates/archicraft-app/src/ui/widgets.rs (length at :70, angle at :87) have their visible label in a separate ui.label() that is never linked to the control (labelled_by is not used anywhere). The UI tests find widgets by accessible label (crates/archicraft-app/tests/ui.rs), but nothing checks that every control has a name, and no screen-reader test has been run.",
       "depends_on": []
     },
     {

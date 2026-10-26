@@ -1370,30 +1370,145 @@ fn an_unparsable_length_reports_the_localized_parse_error() {
 }
 
 /// Opens Help ▸ About, finding the Help menu by the title `localizer`
-/// renders.
+/// renders, and lets the new window settle: egui lays it out left-aligned
+/// in its first frame and ignores clicks in it for a few frames.
 fn open_about(harness: &mut Harness<'static, ArchiCraftApp>, localizer: &Rc<Localizer>) {
     let help = i18n::with(Rc::clone(localizer), || tr!("menu-help"));
     harness.get_by_label(&help).click();
     harness.run_steps(2);
     let about = i18n::with(Rc::clone(localizer), || tr!("cmd-help-about-label"));
     harness.get_by_label(&about).click();
-    harness.run_steps(2);
+    harness.run_steps(4);
 }
 
+/// The version as the About window shows it: major.minor, plus the patch
+/// when it is not 0 or the version has a pre-release part.
+fn shown_version() -> String {
+    if env!("CARGO_PKG_VERSION_PATCH") == "0" && env!("CARGO_PKG_VERSION_PRE").is_empty() {
+        format!(
+            "{}.{}",
+            env!("CARGO_PKG_VERSION_MAJOR"),
+            env!("CARGO_PKG_VERSION_MINOR")
+        )
+    } else {
+        env!("CARGO_PKG_VERSION").to_owned()
+    }
+}
+
+/// The links of the About window: their text and the URL they open.
+const ABOUT_LINKS: [(&str, &str); 3] = [
+    ("https://archicraft.app", "https://archicraft.app"),
+    (
+        "https://creativecommons.org/licenses/by/4.0/",
+        "https://creativecommons.org/licenses/by/4.0/",
+    ),
+    (
+        "Source code: https://github.com/ArchiCraftApp/ArchiCraft",
+        "https://github.com/ArchiCraftApp/ArchiCraft",
+    ),
+];
+
+/// The About window as Jakob Brandstötter asked for it (archicraft-pb3f2):
+/// centred, top to bottom, the app icon with space above it, the name with
+/// the version and release stage, what ArchiCraft is, the copyright, the
+/// website, a gap, the CC BY 4.0 notice (licence link, warranty disclaimer,
+/// source code), and last the file format and the privacy note. The text
+/// comes from the catalogue (NFR-L10N-001, the pilot migration).
 #[test]
-fn about_window_text_comes_from_the_catalogue() {
-    // NFR-L10N-001: the pilot migration of the About window and Help menu.
+fn about_window_shows_icon_version_copyright_website_and_licence() {
     let mut harness = harness("about");
     let english = Rc::new(Localizer::english());
     open_about(&mut harness, &english);
     let heading = i18n::with(Rc::clone(&english), || {
-        tr!("dlg-about-heading", version = env!("CARGO_PKG_VERSION"))
+        tr!("dlg-about-heading", version = shown_version())
     });
-    assert_eq!(heading, format!("ArchiCraft {}", env!("CARGO_PKG_VERSION")));
-    harness.get_by_label(&heading);
-    harness.get_by_label("A desktop modeller for buildings that saves IFCX (IFC5).");
-    harness.get_by_label(&format!("Writes {} files.", archicraft_ifcx::WRITTEN_VERSION));
-    harness.get_by_label("Works offline. Sends no data anywhere; crash reports stay on this computer.");
+    assert_eq!(heading, format!("ArchiCraft {} (alpha)", shown_version()));
+    let format = format!("Writes {} files.", archicraft_ifcx::WRITTEN_VERSION);
+    let lines = [
+        "ArchiCraft app icon",
+        heading.as_str(),
+        "ArchiCraft is an open-source architectural CAD and BIM tool.",
+        "Copyright © 2026 Jakob Brandstötter and Alexander Partsch",
+        ABOUT_LINKS[0].0,
+        "ArchiCraft is open source, licensed under the Creative Commons Attribution 4.0 International licence \
+         (CC BY 4.0).",
+        ABOUT_LINKS[1].0,
+        "To the extent possible, ArchiCraft is provided as is and as available, without warranties of any kind \
+         (section 5 of the licence).",
+        ABOUT_LINKS[2].0,
+        format.as_str(),
+        "Works offline. Sends no data anywhere; crash reports stay on this computer.",
+    ];
+    let rects: Vec<egui::Rect> = lines.iter().map(|line| harness.get_by_label(line).rect()).collect();
+    for (pair, names) in rects.windows(2).zip(lines.windows(2)) {
+        assert!(
+            pair[0].bottom() <= pair[1].top(),
+            "not top to bottom: {names:?} {pair:?}"
+        );
+    }
+    let axis = rects[0].center().x;
+    for (rect, line) in rects.iter().zip(lines) {
+        assert!(
+            (rect.center().x - axis).abs() < 1.0,
+            "not centred: {line} {rect:?}, axis {axis}"
+        );
+    }
+    // The icon, readable at 128 pt, with space between it and the title bar
+    // (the window's one node of unknown role, between its Hide and Close
+    // buttons).
+    let icon = harness.get_by_role_and_label(Role::Image, lines[0]);
+    assert_eq!(icon.rect().size(), egui::vec2(128.0, 128.0));
+    let window = harness.get_by_role_and_label(Role::Window, "About ArchiCraft");
+    let title_bar = window.get_by_role(Role::Unknown).rect();
+    let close = window.get_by_label("Close window").rect();
+    assert!(
+        title_bar.y_range().contains(close.center().y),
+        "{title_bar:?} {close:?}"
+    );
+    assert!(
+        rects[0].top() - title_bar.bottom() >= 16.0,
+        "title bar {title_bar:?}, icon {:?}",
+        rects[0]
+    );
+    // A gap like an empty paragraph between the website and the licence.
+    let line_gap = rects[4].top() - rects[3].bottom();
+    let gap = rects[5].top() - rects[4].bottom();
+    assert!(gap >= line_gap + 12.0, "gap {gap}, line gap {line_gap}");
+}
+
+/// Each link of the About window asks the platform to open its URL, which
+/// the desktop app does in the browser (eframe's `links` feature, below).
+#[test]
+fn about_window_links_open_their_urls() {
+    let mut harness = harness("about-links");
+    open_about(&mut harness, &Rc::new(Localizer::english()));
+    for (text, url) in ABOUT_LINKS {
+        harness.get_by_label(text).click();
+        harness.step();
+        let opened: Vec<&str> = harness
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                egui::OutputCommand::OpenUrl(open) => Some(open.url.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(opened, [url], "{text}");
+    }
+}
+
+/// Without eframe's `links` feature egui-winit only logs that it cannot
+/// open a link, so the About window's links would do nothing.
+#[test]
+fn the_desktop_app_opens_links_in_the_browser() {
+    let manifest = include_str!("../../../Cargo.toml");
+    let start = manifest
+        .find("\neframe = {")
+        .expect("eframe in the workspace dependencies");
+    let end = start + manifest[start..].find("] }").expect("the end of eframe's features");
+    assert!(manifest[start..end].contains("\"links\""), "{}", &manifest[start..end]);
 }
 
 /// NFR-L10N-001: with the en-XA pseudo-locale installed, the Help menu title
@@ -1409,23 +1524,37 @@ fn about_window_follows_the_pseudo_locale() {
     assert!(harness.query_all_by_label("Help").next().is_none());
     open_about(&mut harness, &pseudo);
     let heading = i18n::with(Rc::clone(&pseudo), || {
-        tr!("dlg-about-heading", version = env!("CARGO_PKG_VERSION"))
+        tr!("dlg-about-heading", version = shown_version())
     });
     assert!(
         heading.starts_with(i18n::pseudo::OPEN) && heading.ends_with(i18n::pseudo::CLOSE),
         "{heading}"
     );
-    assert!(heading.contains(env!("CARGO_PKG_VERSION")), "{heading}");
+    assert!(heading.contains(&shown_version()), "{heading}");
     harness.get_by_label(&heading);
     let title = i18n::with(Rc::clone(&pseudo), || tr!("dlg-about-title"));
     assert_eq!(title, "⟦Ábóút ÁrchíCráft⟧");
     assert_present(&harness, &title);
-    // No English text is left in the window.
+    // No English text is left in the window; the URLs stay as they are.
     for english in [
-        format!("ArchiCraft {}", env!("CARGO_PKG_VERSION")),
-        "A desktop modeller for buildings that saves IFCX (IFC5).".to_owned(),
+        format!("ArchiCraft {} (alpha)", shown_version()),
+        "ArchiCraft app icon".to_owned(),
+        "ArchiCraft is an open-source architectural CAD and BIM tool.".to_owned(),
+        "Copyright © 2026 Jakob Brandstötter and Alexander Partsch".to_owned(),
+        "ArchiCraft is open source, licensed under the Creative Commons Attribution 4.0 International licence \
+         (CC BY 4.0)."
+            .to_owned(),
+        "To the extent possible, ArchiCraft is provided as is and as available, without warranties of any kind \
+         (section 5 of the licence)."
+            .to_owned(),
+        ABOUT_LINKS[2].0.to_owned(),
+        format!("Writes {} files.", archicraft_ifcx::WRITTEN_VERSION),
+        "Works offline. Sends no data anywhere; crash reports stay on this computer.".to_owned(),
     ] {
         assert!(harness.query_all_by_label(&english).next().is_none(), "{english}");
+    }
+    for (text, _) in &ABOUT_LINKS[..2] {
+        assert_present(&harness, text);
     }
 }
 
