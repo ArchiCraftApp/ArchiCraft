@@ -375,7 +375,7 @@ mod tests {
             let text = tr!("test-greeting", name = "Ada");
             assert_eq!(text, "Hello Ada, welcome to ArchiCraft.");
             let heading = tr!("dlg-about-heading", version = "1.2.3");
-            assert_eq!(heading, "ArchiCraft 1.2.3");
+            assert_eq!(heading, "ArchiCraft 1.2.3 (alpha)");
             for s in [text, heading] {
                 assert!(!s.contains(['\u{2068}', '\u{2069}']), "{s:?}");
             }
@@ -481,7 +481,7 @@ mod tests {
         with(Rc::clone(&localizer), || {
             assert_eq!(tr!("menu-help"), "Hilfe");
             assert_eq!(tr!("dlg-about-title"), "About ArchiCraft");
-            assert_eq!(tr!("dlg-about-heading", version = "1.2.3"), "ArchiCraft 1.2.3");
+            assert_eq!(tr!("dlg-about-heading", version = "1.2.3"), "ArchiCraft 1.2.3 (alpha)");
         });
         assert!(localizer.has("dlg-about-title"));
         assert!(localizer.reported_keys().is_empty());
@@ -508,7 +508,7 @@ mod tests {
             assert_eq!(title, "⟦Ábóút ÁrchíCráft⟧");
             // Arguments are passed through unchanged.
             let heading = tr!("dlg-about-heading", version = "0.1.0");
-            assert_eq!(heading, "⟦ÁrchíCráft 0.1.0⟧");
+            assert_eq!(heading, "⟦ÁrchíCráft 0.1.0 (álphá)⟧");
             assert!(!heading.contains(['\u{2068}', '\u{2069}']));
         });
         assert_eq!(tr!("dlg-about-title"), "About ArchiCraft");

@@ -6,9 +6,19 @@
 ## About ArchiCraft
 
 dlg-about-title = About ArchiCraft
-# $version: the application version, for example 0.1.0.
-dlg-about-heading = ArchiCraft { $version }
-dlg-about-summary = A desktop modeller for buildings that saves IFCX (IFC5).
+# The alternative text of the app icon at the top of the window.
+dlg-about-icon = ArchiCraft app icon
+# $version: the application version as people read it, for example 0.1 or 0.1.2.
+# "alpha" is the release stage; it changes with the releases.
+dlg-about-heading = ArchiCraft { $version } (alpha)
+dlg-about-summary = ArchiCraft is an open-source architectural CAD and BIM tool.
+dlg-about-copyright = Copyright © 2026 Jakob Brandstötter and Alexander Partsch
+# The licence notice of CC BY 4.0, the licence of LICENSE and README.
+dlg-about-licence = ArchiCraft is open source, licensed under the Creative Commons Attribution 4.0 International licence (CC BY 4.0).
+# The disclaimer of warranties of CC BY 4.0, section 5.
+dlg-about-warranty = To the extent possible, ArchiCraft is provided as is and as available, without warranties of any kind (section 5 of the licence).
+# $url: the address of the source code repository.
+dlg-about-source = Source code: { $url }
 # $version: the IFCX version written, for example ifcx_alpha.
 dlg-about-format = Writes { $version } files.
 dlg-about-privacy = Works offline. Sends no data anywhere; crash reports stay on this computer.

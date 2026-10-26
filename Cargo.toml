@@ -34,6 +34,8 @@ archicraft-ifcx = { path = "crates/archicraft-ifcx" }
 eframe = { version = "=0.36.2", default-features = false, features = [
     "accesskit",
     "default_fonts",
+    # Opens links (the About window's) in the system browser.
+    "links",
     "wgpu",
     "wayland",
     "x11",

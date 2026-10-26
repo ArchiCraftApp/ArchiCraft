@@ -8,6 +8,7 @@ use archicraft_model::units::{NumberFormat, format_length};
 use archicraft_model::{Command, Layer, LayerId, MaterialId, ProjectInfo, ProjectSettings, StoreyId};
 use egui::{Context, Id, RichText, Ui};
 
+use super::about;
 use super::widgets::{self, Edited};
 use crate::commands::Registry;
 use crate::input::{ConstraintReference, InputMode};
@@ -51,6 +52,8 @@ pub struct Dialogs {
     pub settings: bool,
     pub shortcuts: bool,
     pub about: bool,
+    /// The About window's icon, made when the window first opens.
+    pub about_icon: Option<about::Icon>,
     pub problems: bool,
 }
 
@@ -651,20 +654,21 @@ impl Dialogs {
             });
     }
 
-    /// The About window (NFR-SEC-001, NFR-SEC-002), with its text from the
-    /// message catalogue (NFR-L10N-001). The fixed id keeps the window's
-    /// place when the language changes its title.
+    /// The About window (NFR-SEC-001, NFR-SEC-002, archicraft-pb3f2), with
+    /// its text from the message catalogue (NFR-L10N-001). The fixed id
+    /// keeps the window's place when the language changes its title; the
+    /// icon is decoded only once the window opens.
     fn about_window(&mut self, ctx: &Context) {
+        if !self.about {
+            return;
+        }
+        let icon = about::Icon::texture(&mut self.about_icon, ctx, ctx.pixels_per_point()).cloned();
         egui::Window::new(tr!("dlg-about-title"))
             .id(Id::new("about-window"))
             .open(&mut self.about)
             .resizable(false)
-            .show(ctx, |ui| {
-                ui.heading(tr!("dlg-about-heading", version = env!("CARGO_PKG_VERSION")));
-                ui.label(tr!("dlg-about-summary"));
-                ui.label(tr!("dlg-about-format", version = archicraft_ifcx::WRITTEN_VERSION));
-                ui.label(tr!("dlg-about-privacy"));
-            });
+            .default_width(about::WIDTH)
+            .show(ctx, |ui| about::contents(ui, icon.as_ref()));
     }
 
     /// The Preferences window. Its numbers use `nf`, the number format of

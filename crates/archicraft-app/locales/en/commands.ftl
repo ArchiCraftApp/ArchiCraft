@@ -91,7 +91,7 @@ cmd-project-settings-desc = Change the project's name, address, units and other 
 cmd-help-shortcuts-label = Keyboard shortcuts
 cmd-help-shortcuts-desc = List the keyboard shortcuts.
 cmd-help-about-label = About ArchiCraft
-cmd-help-about-desc = Show the version of ArchiCraft and the file format it writes.
+cmd-help-about-desc = Show the version, copyright, website and licence of ArchiCraft.
 
 ## Keys of the plan view (local commands)
 
