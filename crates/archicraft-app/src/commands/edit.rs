@@ -2,13 +2,17 @@
 
 use egui::Key;
 
-use super::{Binding, Category, CommandSpec, Enabled, Handler, Scope};
+use super::{Binding, Category, CommandId, CommandSpec, Enabled, Handler, Scope};
 use crate::tr;
+
+// The edit commands the toolbar invokes (UI-011).
+pub const UNDO: CommandId = CommandId::new("edit.undo");
+pub const REDO: CommandId = CommandId::new("edit.redo");
 
 pub(super) fn specs() -> Vec<CommandSpec> {
     let edit = |id, handler: Handler| CommandSpec::new(id, Category::Edit, handler);
     vec![
-        edit("edit.undo", |app, _, _| app.ws.undo())
+        edit(UNDO.as_str(), |app, _, _| app.ws.undo())
             .menu("edit", 0, 0)
             .bind(Binding::primary(Key::Z))
             .enabled_when(|cx| Enabled::when(cx.can_undo, "cmd-reason-nothing-to-undo"))
@@ -17,7 +21,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
                     .as_ref()
                     .map(|l| tr!("cmd-edit-undo-named", action = l.as_str()))
             }),
-        edit("edit.redo", |app, _, _| app.ws.redo())
+        edit(REDO.as_str(), |app, _, _| app.ws.redo())
             .menu("edit", 0, 1)
             .bind(Binding::primary(Key::Z).shift())
             .bind(Binding::primary(Key::Y))

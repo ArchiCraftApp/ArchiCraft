@@ -8,14 +8,14 @@
 //!
 //! The menu bar is built from the commands' [`MenuPlace`]s
 //! ([`Registry::menu`]), so a new command with a menu place appears in its
-//! menu without a change to `ui/shell.rs`. Menus, shortcuts, the toolbox and
-//! the status bar run commands through one entry,
+//! menu without a change to `ui/shell.rs`. Menus, shortcuts, the toolbar,
+//! the toolbox and the status bar run commands through one entry,
 //! [`ArchiCraftApp::invoke`], which looks the command up here and runs its
 //! [`Handler`].
 
 pub mod binding;
 pub mod ctx;
-mod edit;
+pub mod edit;
 pub mod file;
 mod help;
 pub mod keymap;

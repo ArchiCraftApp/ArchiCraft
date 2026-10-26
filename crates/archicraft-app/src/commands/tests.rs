@@ -619,12 +619,14 @@ fn every_menu_has_a_title() {
     }
 }
 
-/// UI-001: the commands the toolbox and the status bar invoke are
-/// registered, and each tool button selects its own tool.
+/// UI-001, UI-011: the commands the toolbar, the toolbox and the status bar
+/// invoke are registered, and each tool button selects its own tool.
 #[test]
 fn toolbar_commands_are_registered() {
     for id in [
         file::OPEN,
+        edit::UNDO,
+        edit::REDO,
         view::FIT_WINDOW,
         view::PREVIOUS_ZOOM,
         view::NEXT_ZOOM,
@@ -682,10 +684,12 @@ fn command_paths(source: &str) -> Vec<String> {
 
 /// UI-017: `ui/shell.rs` builds the menus from the registry and names no
 /// command: no command id in a string literal and no `CommandId::new`
-/// anywhere, and outside the toolbox and the status bar no command at all
-/// except File > Open…, after which the Open recent hook follows. The
-/// toolbox and the status bar invoke their buttons' commands by id (UI-001),
-/// through constants of the command modules.
+/// anywhere, and outside the toolbar, the toolbox and the status bar no
+/// command at all except File > Open…, after which the Open recent hook
+/// follows. The toolbar, the toolbox and the status bar invoke their
+/// buttons' commands by id (UI-001, UI-011), through constants of the
+/// command modules; the toolbar names Undo and Redo, in that order, and
+/// nothing else.
 #[test]
 fn shell_names_no_command() {
     let source = include_str!("../ui/shell.rs");
@@ -699,10 +703,12 @@ fn shell_names_no_command() {
         source.contains("Registry::get().menu("),
         "the menus come from the registry"
     );
+    let toolbar = function_body(source, "toolbar");
     let toolbox = function_body(source, "toolbox");
     let status_bar = function_body(source, "status_bar");
-    let rest = source.replace(toolbox, "").replace(status_bar, "");
+    let rest = source.replace(toolbar, "").replace(toolbox, "").replace(status_bar, "");
     assert_eq!(command_paths(&rest), ["file::OPEN"]);
+    assert_eq!(command_paths(toolbar), ["edit::UNDO", "edit::REDO"]);
     assert!(command_paths(toolbox).contains(&"tools::command".to_owned()));
     assert!(command_paths(status_bar).contains(&"view::PROBLEMS".to_owned()));
     // The scan finds a hand-written menu entry.
