@@ -901,6 +901,10 @@ impl eframe::App for ArchiCraftApp {
             invoked.extend(id.map(|id| (id, Origin::Menu)));
             recent = r;
         });
+        egui::Panel::top("toolbar").show(ui, |ui| {
+            let id = shell::toolbar(ui, &cx);
+            invoked.extend(id.map(|id| (id, Origin::Toolbar)));
+        });
         egui::Panel::top("properties").show(ui, |ui| properties::strip(ui, &mut self.ws));
         let problem_count = self.ws.doc.geometry().problems.len() + self.load_problems.len();
         egui::Panel::bottom("status").show(ui, |ui| {

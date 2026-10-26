@@ -499,6 +499,128 @@ fn edit_menu_undoes_and_redoes() {
     assert_eq!(harness.state_mut().workspace().doc.project.elements.len(), 1);
 }
 
+/// Adds a wall on the ground storey, one change in the history.
+fn add_wall(harness: &mut Harness<'static, ArchiCraftApp>) {
+    let ws = harness.state_mut().workspace();
+    let storey = ws.doc.project.storeys.ground();
+    let wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+    assert!(ws.execute(Command::AddElements(vec![wall])));
+    harness.run_steps(2);
+}
+
+/// UI-011: the toolbar lies directly below the menu bar and above the
+/// properties strip, and its only buttons are Undo, then Redo, each its
+/// command's label behind an arrow that the font of buttons can draw.
+#[test]
+fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
+    let harness = harness("toolbar-place");
+    let menu_bar = harness
+        .query_all_by_label("File")
+        .map(|n| n.rect())
+        .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
+        .unwrap();
+    let strip = harness
+        .get_by_label("Nothing selected. Choose a tool, or select elements to edit them.")
+        .rect();
+    let mut buttons: Vec<(f32, String)> = harness
+        .query_all(By::new().role(Role::Button))
+        .filter(|n| n.rect().min.y > menu_bar.max.y && n.rect().max.y < strip.min.y)
+        .map(|n| (n.rect().min.x, n.accesskit_node().label().unwrap_or_default()))
+        .collect();
+    buttons.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let labels: Vec<&str> = buttons.iter().map(|(_, label)| label.as_str()).collect();
+    assert_eq!(labels, ["⟲ Undo", "⟳ Redo"]);
+    let font = egui::TextStyle::Button.resolve(&harness.ctx.global_style());
+    assert!(harness.ctx.fonts_mut(|f| f.has_glyphs(&font, "⟲⟳")));
+}
+
+/// UI-011, NFR-L10N-001: with the en-XA pseudo-locale installed, the labels
+/// of the toolbar's buttons come out wrapped in the pseudo markers, so they
+/// come from the catalogue.
+#[cfg(debug_assertions)]
+#[test]
+fn the_toolbar_labels_come_from_the_catalogue() {
+    let mut harness = harness("toolbar-pseudo");
+    let pseudo = Rc::new(Localizer::pseudo());
+    harness.state_mut().set_localizer(Rc::clone(&pseudo));
+    harness.run_steps(2);
+    for (arrow, key) in [("⟲", "cmd-edit-undo-label"), ("⟳", "cmd-edit-redo-label")] {
+        let label = i18n::with(Rc::clone(&pseudo), || tr!(key));
+        assert!(label.starts_with(i18n::pseudo::OPEN), "{label}");
+        harness.get_by_label(&format!("{arrow} {label}"));
+    }
+    assert!(harness.query_all_by_label("⟲ Undo").next().is_none());
+}
+
+/// UI-011, UND-001: with an empty history the toolbar's Undo and Redo are
+/// greyed out; after a change Undo undoes it, then Redo redoes it, each
+/// enabled only while it can run. Both invoke their commands by id with
+/// `Origin::Toolbar`.
+#[test]
+fn the_toolbar_undoes_and_redoes() {
+    let mut harness = harness("toolbar-undo");
+    let enabled = |harness: &Harness<'static, ArchiCraftApp>| {
+        ["⟲ Undo", "⟳ Redo"].map(|label| !harness.get_by_label(label).accesskit_node().is_disabled())
+    };
+    let elements =
+        |harness: &mut Harness<'static, ArchiCraftApp>| harness.state_mut().workspace().doc.project.elements.len();
+    assert_eq!(enabled(&harness), [false, false]);
+    add_wall(&mut harness);
+    assert_eq!(enabled(&harness), [true, false]);
+    harness.get_by_label("⟲ Undo").click();
+    harness.run_steps(2);
+    assert_eq!(elements(&mut harness), 0);
+    assert_eq!(enabled(&harness), [false, true]);
+    harness.get_by_label("⟳ Redo").click();
+    harness.run_steps(2);
+    assert_eq!(elements(&mut harness), 1);
+    assert_eq!(enabled(&harness), [true, false]);
+
+    harness.state_mut().record_invocations();
+    harness.get_by_label("⟲ Undo").click();
+    harness.run_steps(2);
+    assert_eq!(invoked(&mut harness), [("edit.undo", Origin::Toolbar)]);
+    harness.state_mut().workspace().undo();
+    harness.run_steps(2);
+    harness.get_by_label("⟳ Redo").click();
+    harness.run_steps(2);
+    assert_eq!(invoked(&mut harness), [("edit.redo", Origin::Toolbar)]);
+}
+
+/// UI-011: hovering a toolbar button shows the command's label in the
+/// current state, its shortcut and its description; a greyed-out button also
+/// gives the reason from the catalogue.
+#[test]
+fn the_toolbar_tooltips_show_label_shortcut_description_and_reason() {
+    let mut harness = harness("toolbar-tooltips");
+    add_wall(&mut harness);
+    let undo_keys = harness.ctx.format_shortcut(&Binding::primary(Key::Z).shortcut());
+    let redo_keys = harness
+        .ctx
+        .format_shortcut(&Binding::primary(Key::Z).shift().shortcut());
+    harness.get_by_label("⟲ Undo").hover();
+    harness.run_steps(4);
+    for text in [
+        "Undo Create wall",
+        undo_keys.as_str(),
+        "Take back the last change to the model.",
+    ] {
+        assert_present(&harness, text);
+    }
+    assert!(harness.query_all_by_label("There is nothing to undo.").next().is_none());
+    harness.get_by_label("⟳ Redo").hover();
+    harness.run_steps(4);
+    for text in [
+        "Redo",
+        redo_keys.as_str(),
+        "Repeat the last change that was undone.",
+        "There is nothing to redo.",
+    ] {
+        assert_present(&harness, text);
+    }
+    assert!(harness.query_all_by_label("Undo Create wall").next().is_none());
+}
+
 /// The commands invoked since the last call, with their origin.
 fn invoked(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<(&'static str, Origin)> {
     harness

@@ -1,4 +1,4 @@
-//! Menu bar, tool palette and status line (UI-001, UI-011, UI-017,
+//! Menu bar, toolbar, tool palette and status line (UI-001, UI-011, UI-017,
 //! NFR-USE-003).
 
 use std::path::PathBuf;
@@ -8,7 +8,9 @@ use archicraft_model::project::Projection;
 use archicraft_model::units::format_length;
 use egui::{Atom, Atoms, Button, RichText, Ui};
 
-use crate::commands::{CommandCtx, CommandId, CommandSpec, MENUS, MenuEntry, Registry, file, menu_title, tools, view};
+use crate::commands::{
+    CommandCtx, CommandId, CommandSpec, Enabled, MENUS, MenuEntry, Registry, edit, file, menu_title, tools, view,
+};
 use crate::input::InputMode;
 use crate::tools::ToolKind;
 use crate::tr;
@@ -117,6 +119,46 @@ pub fn menu_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx) -> (Option<Command
         }
     });
     (chosen.command, chosen.recent)
+}
+
+/// The tooltip of a toolbar button (UI-011): the command's label in the
+/// state `cx`, such as "Undo Create wall", with its shortcut, then its
+/// description and, while it cannot run, the reason from the catalogue.
+fn tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, enabled: Enabled) {
+    ui.set_max_width(ui.spacing().tooltip_width);
+    ui.horizontal(|ui| {
+        ui.strong(spec.label_in(cx));
+        if let Some(keys) = shortcut_text(ui, spec) {
+            ui.weak(keys);
+        }
+    });
+    ui.label(spec.description());
+    if let Enabled::No(reason) = enabled {
+        ui.colored_label(ui.visuals().warn_fg_color, tr!(reason));
+    }
+}
+
+/// The toolbar below the menu bar (UI-011): Undo and Redo, greyed out while
+/// they cannot run, with their labels and tooltips from the registry.
+/// Returns the command of the clicked button.
+pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
+    let mut chosen = None;
+    ui.horizontal(|ui| {
+        // egui's default proportional font draws ⟲ and ⟳ from its emoji
+        // icon font; ↶ and ↷ are only in the monospace font.
+        for (id, arrow) in [(edit::UNDO, "⟲"), (edit::REDO, "⟳")] {
+            let spec = spec(id);
+            let enabled = (spec.enabled)(cx);
+            let response = ui
+                .add_enabled(enabled.is_yes(), Button::new((arrow, spec.label())))
+                .on_hover_ui(|ui| tooltip(ui, cx, spec, enabled))
+                .on_disabled_hover_ui(|ui| tooltip(ui, cx, spec, enabled));
+            if response.clicked() {
+                chosen = Some(spec.id);
+            }
+        }
+    });
+    chosen
 }
 
 /// The tool palette (UI-001): selection, modelling and view tools. Returns

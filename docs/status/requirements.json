@@ -287,7 +287,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Menu bar, properties strip, project browser, view tabs and a status line with the step prompt exist. Missing: a 2D/annotation tool group (no such tools exist; the palette has selection, wall/slab and view tools, toolbox in shell::toolbox (crates/archicraft-app/src/ui/shell.rs:124)). The view-control bar (status_bar, crates/archicraft-app/src/ui/shell.rs:169) has no view rotation (VIEW-060), no real drawing scale (the 'Scale 1:100' label in status_bar (crates/archicraft-app/src/ui/shell.rs:274) is hard-coded, VIEW-013 missing), no active display settings for plan views (only 3D views have a display-mode combo) and no restriction indicator (VIEW-043).",
+      "gap": "Menu bar, properties strip, project browser, view tabs and a status line with the step prompt exist. Missing: a 2D/annotation tool group (no such tools exist; the palette has selection, wall/slab and view tools, toolbox in shell::toolbox (crates/archicraft-app/src/ui/shell.rs:166)). The view-control bar (status_bar, crates/archicraft-app/src/ui/shell.rs:211) has no view rotation (VIEW-060), no real drawing scale (the 'Scale 1:100' label in status_bar (crates/archicraft-app/src/ui/shell.rs:316) is hard-coded, VIEW-013 missing), no active display settings for plan views (only 3D views have a display-mode combo) and no restriction indicator (VIEW-043).",
       "depends_on": []
     },
     {
@@ -346,7 +346,7 @@
       "section": "4.3",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-app/src/app.rs:937 (tree.ui) shows the views as one egui_tiles tree, so dragging a tab beside another puts two or more views side by side; every view shows the workspace's one selection (crates/archicraft-app/src/workspace.rs:125 Workspace::selection), which the 3D views take through SceneKey::of (102). There is no explicit split command and the split is not persisted (UI-004). Regression check: Test: `ui_007_plan_and_3d_side_by_side_share_the_selection` (app)",
+      "evidence": "Done: crates/archicraft-app/src/app.rs:941 (tree.ui) shows the views as one egui_tiles tree, so dragging a tab beside another puts two or more views side by side; every view shows the workspace's one selection (crates/archicraft-app/src/workspace.rs:125 Workspace::selection), which the 3D views take through SceneKey::of (102). There is no explicit split command and the split is not persisted (UI-004). Regression check: Test: `ui_007_plan_and_3d_side_by_side_share_the_selection` (app)",
       "gap": "",
       "depends_on": []
     },
@@ -387,7 +387,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Menu items have no description tooltip; status-bar controls (Fit, Next/Previous zoom, display mode, Views), browser buttons, dialog buttons and most property fields have no tooltips; Action has label() but no description().",
+      "gap": "The toolbar's Undo and Redo show their command's current label (such as 'Undo Create wall'), shortcut and description as a tooltip, and the reason from the catalogue while greyed out (tooltip and toolbar, crates/archicraft-app/src/ui/shell.rs:127, 144); the toolbox's tool buttons show their description and shortcut (toolbox, crates/archicraft-app/src/ui/shell.rs:166). Missing: menu items have no description tooltip (item, crates/archicraft-app/src/ui/shell.rs:38), although every command has one (CommandSpec::description, crates/archicraft-app/src/commands/mod.rs:323); the toolbox's view-tool buttons show label and shortcut but no description; status-bar controls (Fit, Next/Previous zoom, display mode, Views), browser buttons, dialog buttons and most property fields have no tooltips.",
       "depends_on": []
     },
     {
@@ -427,7 +427,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No draggable splitters inside dialogs (Materials uses fixed ui.columns(2) in Dialogs::materials_window, crates/archicraft-app/src/ui/dialogs.rs:399); size persistence is an untested eframe side effect with no code or test in the repo; the toolbox panel is not resizable (ArchiCraftApp::ui, crates/archicraft-app/src/app.rs:915).",
+      "gap": "No draggable splitters inside dialogs (Materials uses fixed ui.columns(2) in Dialogs::materials_window, crates/archicraft-app/src/ui/dialogs.rs:399); size persistence is an untested eframe side effect with no code or test in the repo; the toolbox panel is not resizable (ArchiCraftApp::ui, crates/archicraft-app/src/app.rs:919).",
       "depends_on": []
     },
     {
@@ -447,7 +447,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No command palette (NFR-USE-005); shortcuts are not bindable by the user (UI-009). Every registered command with a menu place appears in its menu, because the menu bar is built from the registry's menu places (Registry::menu, crates/archicraft-app/src/commands/mod.rs:380; menu_bar, crates/archicraft-app/src/ui/shell.rs:111). The plan view's local commands (the wall reference-line cycle, overlapping candidates, next typed field, remove last point, finish, cancel step; crates/archicraft-app/src/commands/view_keys.rs) are registered without a menu place and wait for the palette, so today only their keys reach them. Several commands are not in the command registry and are reachable from one place only, without a menu entry: P/Shift+P switch the input fields (handle_keys, crates/archicraft-app/src/views/plan.rs:1014); the wall and slab geometry modes are buttons in the properties strip (tool_modes, crates/archicraft-app/src/ui/properties.rs:728); the 3D display mode, view presets and projection switch are in the status bar only (status_bar, crates/archicraft-app/src/ui/shell.rs:169); Locked and Snap targets are properties checkboxes (lock_toggle, crates/archicraft-app/src/ui/properties.rs:593).",
+      "gap": "No command palette (NFR-USE-005); shortcuts are not bindable by the user (UI-009). Every registered command with a menu place appears in its menu, because the menu bar is built from the registry's menu places (Registry::menu, crates/archicraft-app/src/commands/mod.rs:380; menu_bar, crates/archicraft-app/src/ui/shell.rs:113). The plan view's local commands (the wall reference-line cycle, overlapping candidates, next typed field, remove last point, finish, cancel step; crates/archicraft-app/src/commands/view_keys.rs) are registered without a menu place and wait for the palette, so today only their keys reach them. Several commands are not in the command registry and are reachable from one place only, without a menu entry: P/Shift+P switch the input fields (handle_keys, crates/archicraft-app/src/views/plan.rs:1014); the wall and slab geometry modes are buttons in the properties strip (tool_modes, crates/archicraft-app/src/ui/properties.rs:728); the 3D display mode, view presets and projection switch are in the status bar only (status_bar, crates/archicraft-app/src/ui/shell.rs:211); Locked and Snap targets are properties checkboxes (lock_toggle, crates/archicraft-app/src/ui/properties.rs:593).",
       "depends_on": []
     },
     {
@@ -577,7 +577,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Perspective and parallel projection, orbit/pan/zoom and the top, front, side, isometric and dimetric presets exist (Camera3d::apply_preset, crates/archicraft-app/src/views/camera.rs:218). Missing: numeric editing of eye position, target or field of view (fov fixed at 45 degrees in Camera3d::new, crates/archicraft-app/src/views/camera.rs:148; no camera properties UI); direct manipulation of the field of view; a 'custom' preset with rotation angles and azimuth; the projection switch is only a status-bar toggle (status_bar, crates/archicraft-app/src/ui/shell.rs:169), not an Action with a menu entry or shortcut.",
+      "gap": "Perspective and parallel projection, orbit/pan/zoom and the top, front, side, isometric and dimetric presets exist (Camera3d::apply_preset, crates/archicraft-app/src/views/camera.rs:218). Missing: numeric editing of eye position, target or field of view (fov fixed at 45 degrees in Camera3d::new, crates/archicraft-app/src/views/camera.rs:148; no camera properties UI); direct manipulation of the field of view; a 'custom' preset with rotation angles and azimuth; the projection switch is only a status-bar toggle (status_bar, crates/archicraft-app/src/ui/shell.rs:211), not an Action with a menu entry or shortcut.",
       "depends_on": []
     },
     {
@@ -1157,7 +1157,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "The five modes divide segments, circles, arcs and chains of edges (DivisionMode, crates/archicraft-app/src/input/division.rs:98; divide at :197; Chain at :206). The 'Division' control of the drawing tools in the properties strip chooses the mode, its value (equal parts, a percentage or a length in the project's units) and the scope, and keeps them in the preferences (division, crates/archicraft-app/src/ui/properties.rs:779; InputSettings, crates/archicraft-app/src/input/division.rs:313; Preferences::input, crates/archicraft-app/src/persistence/prefs.rs:64). Hovering an edge in a plan view resolves the scope on the snap index (between nodes, between intersections with other elements' edges, or the owner's whole chain: a wall's reference line, a slab's outline, a cut ring), keeps the edge within 1.5 times the snap radius and offers its division points as division-level snap targets, drawn as ticks that follow the control on the next frame (SnapIndex::hover, crates/archicraft-app/src/input/targets.rs:678; division_ticks, crates/archicraft-app/src/views/plan.rs:578; the_division_control_chooses_the_mode_its_value_and_the_scope, crates/archicraft-app/tests/ui.rs:1933). Of coincident edges, such as a slab's outline under walls' reference lines, a selected element's edge is hovered, otherwise the first in source order, so a selected slab's whole perimeter can be divided (hovered_edge, crates/archicraft-app/src/input/targets.rs:640; the_selected_slabs_outline_is_hovered_under_reference_lines, crates/archicraft-app/tests/cursor_glyphs.rs:246). Missing: model elements have no arcs, so no arc is hovered.",
+      "gap": "The five modes divide segments, circles, arcs and chains of edges (DivisionMode, crates/archicraft-app/src/input/division.rs:98; divide at :197; Chain at :206). The 'Division' control of the drawing tools in the properties strip chooses the mode, its value (equal parts, a percentage or a length in the project's units) and the scope, and keeps them in the preferences (division, crates/archicraft-app/src/ui/properties.rs:779; InputSettings, crates/archicraft-app/src/input/division.rs:313; Preferences::input, crates/archicraft-app/src/persistence/prefs.rs:64). Hovering an edge in a plan view resolves the scope on the snap index (between nodes, between intersections with other elements' edges, or the owner's whole chain: a wall's reference line, a slab's outline, a cut ring), keeps the edge within 1.5 times the snap radius and offers its division points as division-level snap targets, drawn as ticks that follow the control on the next frame (SnapIndex::hover, crates/archicraft-app/src/input/targets.rs:678; division_ticks, crates/archicraft-app/src/views/plan.rs:578; the_division_control_chooses_the_mode_its_value_and_the_scope, crates/archicraft-app/tests/ui.rs:2055). Of coincident edges, such as a slab's outline under walls' reference lines, a selected element's edge is hovered, otherwise the first in source order, so a selected slab's whole perimeter can be divided (hovered_edge, crates/archicraft-app/src/input/targets.rs:640; the_selected_slabs_outline_is_hovered_under_reference_lines, crates/archicraft-app/tests/cursor_glyphs.rs:246). Missing: model elements have no arcs, so no arc is hovered.",
       "depends_on": []
     },
     {
@@ -5137,7 +5137,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Needs EDT-016 copy/paste first: there is no clipboard and no Cut/Copy/Paste command (the Edit commands, commands::edit::specs, crates/archicraft-app/src/commands/edit.rs:8). Also missing: a serialised clipboard payload (elements plus the materials and layers they reference; layer structures and profiles do not exist in the model yet, PRF-001, PRF-004), the conflict resolution UI (use existing / keep both / overwrite, PRF-009), and a second open project, either as a second window (PRJ-011; ArchiCraftApp, crates/archicraft-app/src/app.rs:79, holds one Workspace with one Document, crates/archicraft-app/src/workspace.rs:114) or as a second process exchanging the payload through the OS clipboard.",
+      "gap": "Needs EDT-016 copy/paste first: there is no clipboard and no Cut/Copy/Paste command (the Edit commands, commands::edit::specs, crates/archicraft-app/src/commands/edit.rs:12). Also missing: a serialised clipboard payload (elements plus the materials and layers they reference; layer structures and profiles do not exist in the model yet, PRF-001, PRF-004), the conflict resolution UI (use existing / keep both / overwrite, PRF-009), and a second open project, either as a second window (PRJ-011; ArchiCraftApp, crates/archicraft-app/src/app.rs:79, holds one Workspace with one Document, crates/archicraft-app/src/workspace.rs:114) or as a second process exchanging the payload through the OS clipboard.",
       "depends_on": []
     },
     {
@@ -5637,7 +5637,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Light and dark themes exist (ThemeChoice, crates/archicraft-app/src/persistence/prefs.rs:15). No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours has been done: small weak text in the toolbox headings and the status bar (toolbox, crates/archicraft-app/src/ui/shell.rs:139, 142, 146; status_bar, :272, 274) is unchecked. In the plan palette (Palette::new, crates/archicraft-app/src/views/plan.rs:288) on white paper, hover reaches about 2.6:1 and preview and overhead about 3.0:1, at or below the 3:1 for graphics. Selection and hover are two shades of one blue. Reference red against snap green depends on a red-green difference. No colour-vision-deficiency check exists, and the 3D SELECTION_COLOR (crates/archicraft-app/src/views/render3d.rs:91) is also unchecked.",
+      "gap": "Light and dark themes exist (ThemeChoice, crates/archicraft-app/src/persistence/prefs.rs:15). No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours has been done: small weak text in the toolbox headings and the status bar (toolbox, crates/archicraft-app/src/ui/shell.rs:181, 184, 188; status_bar, :314, 316) is unchecked. In the plan palette (Palette::new, crates/archicraft-app/src/views/plan.rs:288) on white paper, hover reaches about 2.6:1 and preview and overhead about 3.0:1, at or below the 3:1 for graphics. Selection and hover are two shades of one blue. Reference red against snap green depends on a red-green difference. No colour-vision-deficiency check exists, and the 3D SELECTION_COLOR (crates/archicraft-app/src/views/render3d.rs:91) is also unchecked.",
       "depends_on": []
     },
     {
