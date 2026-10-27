@@ -14,10 +14,10 @@ pub mod triangulate;
 pub mod wall;
 
 use archicraft_model::KindTag;
+use message::Message;
 
 pub use evaluate::{BodyPart, ElementGeometry, ModelGeometry};
 pub use mesh::{MeshIssue, TriMesh};
-pub use message::Message;
 pub use plan::{PlanDrawing, ViewRange, plan_drawing};
 
 /// Why an element has no geometry (UI-012). [`GeometryError::message`]
