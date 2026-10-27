@@ -246,7 +246,7 @@ request; the CI step is the regression check.
 | Requirement | What is guarded | Regression check (CI job: step) |
 |---|---|---|
 | NFR-PORT-004 | Golden files keep their exact bytes on every platform: `.gitattributes` sets `*.ifcx -text` and `*.snap text eol=lf`; the output has no carriage return and no platform path, and a file opened from a temp folder saves back to the same bytes | Test (windows-latest): "Enable end-of-line conversion (core.autocrlf=true)", then "Test" (`golden_files_are_reproduced`); Test: `nfr_port_004_output_has_no_carriage_return_and_no_platform_path` (ifcx) |
-| NFR-LEG-002 | No trademark of the reference product or its maker outside reviewed nominative lines (`scripts/legal-allowlist.txt`); no tracked image, library-part or template file without origin and licence (`scripts/asset-allowlist.txt`) | Repository guards: "No unreviewed trademarks or third-party assets (NFR-LEG-002)" (`scripts/check-legal.sh`) and "Negative self-test of the guards"; the inspection per release in [docs/test-plan/release-checklist.md](test-plan/release-checklist.md), item 5 |
+| NFR-LEG-002 | No trademark of the reference product or its maker outside reviewed nominative lines (`scripts/legal-allowlist.txt`); no tracked image (SVG included), library-part or template file without origin and licence (`scripts/asset-allowlist.txt`) | Repository guards: "No unreviewed trademarks or third-party assets (NFR-LEG-002)" (`scripts/check-legal.sh`) and "Negative self-test of the guards"; the inspection per release in [docs/test-plan/release-checklist.md](test-plan/release-checklist.md), item 5 |
 | NFR-SEC-001 | No HTTP client crate in the dependency graph: `deny.toml` [bans] | Licences and sources: `cargo deny check advisories licenses sources bans` |
 | NFR-SEC-004 | As NFR-SEC-001, until ifcx-interop adds the consent-gated import fetch (IFX-081) and lifts the ban | Licences and sources: `cargo deny check advisories licenses sources bans` |
 | NFR-MNT-002 | The model, geometry and IFCX crates have no UI or windowing dependency (normal and build dependencies) | Repository guards: "Layering of the headless crates (NFR-MNT-002, NFR-MNT-004)" (`scripts/check-layering.sh`) and "Negative self-test of the guards"; also the bead gate |
@@ -343,7 +343,7 @@ roundtrip.rs live in `crates/archicraft-ifcx/tests/roundtrip.rs`, and those name
 
 The negative self-test (`scripts/guards-selftest.sh`) runs each guard on a canned violation
 (`cargo tree` output in `scripts/testdata/`, and a scratch repository with a trademark line and
-tracked `*.gsm` and `*.png` files) and fails if a guard lets it pass.
+tracked `*.gsm`, `*.png` and `*.svg` files) and fails if a guard lets it pass.
 
 Every requirement marked done in docs/implementation-status.md has a row here.
 
