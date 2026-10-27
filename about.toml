@@ -1,0 +1,92 @@
+# cargo-about configuration for THIRD-PARTY.md, the notices of the components the
+# ArchiCraft binaries ship (SRS NFR-LEG-001). Regenerate with scripts/third-party.sh.
+
+# deny.toml's allow-list, in its order, so both tools agree; the font licences of
+# egui's bundled fonts come last.
+accepted = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+    "Bitstream-Vera",
+]
+# The release packages: Linux x86_64, macOS on Apple silicon, Windows x86_64.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+# ArchiCraft's own crates are not published.
+private = { ignore = true }
+
+# egui's fonts: the crate declares the licences of NotoEmoji (OFL-1.1) and Ubuntu
+# (Ubuntu Font Licence), but it also ships Hack (MIT and the Bitstream Vera licence)
+# and the emoji icon font (MIT), whose notices must be carried as well. The checksums
+# tie this to the files of the version in Cargo.lock.
+[epaint_default_fonts.clarify]
+license = "(MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0 AND MIT AND Bitstream-Vera"
+
+[[epaint_default_fonts.clarify.files]]
+path = "fonts/OFL.txt"
+license = "OFL-1.1"
+checksum = "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2"
+
+[[epaint_default_fonts.clarify.files]]
+path = "fonts/UFL.txt"
+license = "Ubuntu-font-1.0"
+checksum = "2f0015108d68627bd788d313f529c21ff4da2c2c42a5e1f3883acc83480f9002"
+
+[[epaint_default_fonts.clarify.files]]
+path = "fonts/Hack-Regular.txt"
+license = "MIT AND Bitstream-Vera"
+checksum = "47c0cccbeec7e8614548cc485588b28149e7874188df5f41b36efebcee285c87"
+
+[[epaint_default_fonts.clarify.files]]
+path = "fonts/emoji-icon-font-mit-license.txt"
+license = "MIT"
+checksum = "b9d2c1d909aa149996fd4c91dcb92b2362a04431640c1d200959da94caf8cde1"
+
+# Crates whose licence file cargo-about does not recognise, because it combines several
+# notices; the checksums tie each to the version in Cargo.lock. Crates that ship no licence
+# file at all get their notices from third-party/supplements.toml.
+
+# BSD-3-Clause, with an MIT notice for src/simd.rs in the same file.
+[sha1_smol.clarify]
+license = "BSD-3-Clause AND MIT"
+
+[[sha1_smol.clarify.files]]
+path = "LICENSE"
+license = "BSD-3-Clause AND MIT"
+checksum = "282a21b0710441c364025461a447362daf18f5798a7b72ae2f801a2aa536da51"
+
+[dpi.clarify]
+license = "Apache-2.0 AND MIT"
+
+[[dpi.clarify.files]]
+path = "LICENSE"
+license = "Apache-2.0"
+checksum = "6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a"
+
+# The MIT licence of the libm code it contains, with libm's copyright lines.
+[[dpi.clarify.files]]
+path = "LICENSE-LIBM-MIT"
+license = "MIT"
+checksum = "9eff396a99bafd208e7126602420d6864f6066c08b84485a5b032320a9c01997"
+
+# MIT, with the notices of the musl and FreeBSD code it is derived from.
+[libm.clarify]
+license = "MIT"
+
+[[libm.clarify.files]]
+path = "LICENSE.txt"
+license = "MIT"
+checksum = "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7"

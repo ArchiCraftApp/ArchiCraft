@@ -1,0 +1,39 @@
+# Licence notices for shipped crates whose published package has no usable licence file, so that
+# cargo-about only has the bare licence template ("Copyright (c) <year> <copyright holders>").
+# scripts/third_party.py puts these notices into THIRD-PARTY.md in their place, and fails while a
+# shipped crate still has a bare template (SRS NFR-LEG-001). A notice lists the exact versions it
+# covers: after a version change, check the new release and update the entry.
+#
+# "Taken" notices are copied unchanged from the crate's repository at the commit the version was
+# published from (its .cargo_vcs_info.json). "Composed" notices are the licence text with the
+# copyright holders named where the repository gives no copyright line.
+
+[[notice]]
+crates = ["block2 0.5.1", "objc-sys 0.3.5", "objc2 0.5.3", "objc2-app-kit 0.2.2", "objc2-foundation 0.2.2"]
+licence = "MIT"
+file = "third-party/licences/objc2-LICENSE.txt"
+source = "Taken from LICENSE.txt of https://github.com/madsmtm/objc2 at the commits of these releases (4fc083f, 5237cbf, e282618)."
+
+[[notice]]
+crates = ["block2 0.6.2", "objc2 0.6.5", "objc2-encode 4.1.0", "objc2-foundation 0.3.2"]
+licence = "MIT"
+file = "third-party/licences/objc2-MIT.txt"
+source = "Composed: at the commits of these releases, https://github.com/madsmtm/objc2 states the MIT licence in LICENSE.md without a copyright line; the holders are those of its earlier LICENSE.txt and the authors in the package metadata."
+
+[[notice]]
+crates = ["dispatch 0.2.0"]
+licence = "MIT"
+file = "third-party/licences/dispatch-MIT.txt"
+source = "Composed: the package states the MIT licence, and https://github.com/SSheldon/rust-dispatch has no licence file at the commit of this release (82d6c7a); the holder is the author in the package metadata."
+
+[[notice]]
+crates = ["i_key_sort 0.10.3"]
+licence = "MIT"
+file = "third-party/licences/iKeySort-LICENSE.txt"
+source = "Taken from LICENSE of https://github.com/iShape-Rust/iKeySort at the commit of this release (10a9a72)."
+
+[[notice]]
+crates = ["wayland-protocols-plasma 0.3.12"]
+licence = "MIT AND LGPL-2.1-or-later AND MIT-CMU AND BSD-3-Clause"
+file = "third-party/licences/wayland-protocols-plasma.txt"
+source = "Composed from the package: its LICENSE.txt, the copyright lines and licences that its KDE Plasma protocol files state, and the licence texts of plasma-wayland-protocols/LICENSES."

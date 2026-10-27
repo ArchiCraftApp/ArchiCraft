@@ -709,6 +709,33 @@ uses it: the fuzz binaries are a test tool and are never distributed.
 **Preference import.** When SET-004 adds the preference import, its epic adds a
 `prefs_import` target here and seeds it with exported preference files.
 
+## Third-party notices
+
+`THIRD-PARTY.md` carries the notices of everything the binaries contain (NFR-LEG-001): every
+crate of the Linux, macOS and Windows builds with its licence and the licence texts, generated
+by cargo-about from `Cargo.lock` (`about.toml`) and written by `scripts/third_party.py`, plus
+the Rust standard library and the bundled IFCX schema files. The package scripts ship it next
+to `LICENSE` (`THIRD-PARTY.txt` in the Windows zip). The list is a superset: cargo-about follows
+every dependency edge per target, so a few crates that only another platform's code reaches are
+listed too.
+
+A crate's notice is its own licence file with its copyright lines. Where cargo-about cannot read
+that file (several notices in one file), `about.toml` clarifies it with the file's checksum;
+where the package has none, `third-party/supplements.toml` names a notice in
+`third-party/licences/`, taken from the crate's repository at the published commit or composed
+from the licence text and the authors, and says which. `scripts/third_party.py` fails while a
+shipped crate has only a bare licence template ("<year> <copyright holders>") and when a
+supplement names a crate version that no longer ships.
+
+After any change to `Cargo.lock`, run `scripts/third-party.sh` (Python 3.11 or later); it
+installs the pinned cargo-about when it is missing. It rewrites `THIRD-PARTY.md` and
+`third-party/not-shipped.txt`, the packages the binaries do not contain (dev and build
+dependencies, crates of other platforms). `crates/archicraft-app/tests/third_party.rs` fails
+until both match `Cargo.lock` again, spot-checks the platform crates, the font licences, the
+standard library and the schema files, and checks that the three package scripts copy the file.
+A crate that moves from dev-only to shipped without a change to `Cargo.lock` is not caught;
+regenerating in CI and failing on a difference does that (archicraft-vczo.3).
+
 ## Security review
 
 `cargo deny check advisories` checks the dependency graph against the RustSec advisory

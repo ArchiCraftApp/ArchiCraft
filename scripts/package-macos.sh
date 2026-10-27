@@ -34,6 +34,7 @@ rm -rf "$stage" "$out/AppIcon.iconset" "$rw" "$dmg"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$out/AppIcon.iconset"
 cp "$bin" "$app/Contents/MacOS/archicraft"
 cp LICENSE "$app/Contents/Resources/LICENSE"
+cp THIRD-PARTY.md "$app/Contents/Resources/THIRD-PARTY.md"
 
 # Every size iconutil expects, scaled down from the logo in the repository root
 # (rendered from ArchiCraft_Logo.svg at 1024 px, the largest size, so none is upscaled).

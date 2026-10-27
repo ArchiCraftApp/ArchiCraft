@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Builds ArchiCraft for Linux and packs it into a tarball with the executable, the app icon, a
-# desktop entry and the licence (no installer, SRS D-12).
+# desktop entry, the licence and the third-party notices (no installer, SRS D-12).
 # Usage: scripts/package-linux.sh
 # Output: target/linux/ArchiCraft-<version>-linux-<arch>.tar.gz
 #
@@ -27,6 +27,7 @@ mkdir -p "$stage"
 cp target/release/archicraft "$stage/archicraft"
 cp ArchiCraft_Logo.png "$stage/archicraft.png"
 cp LICENSE "$stage/LICENSE"
+cp THIRD-PARTY.md "$stage/THIRD-PARTY.md"
 
 # StartupWMClass is the app id the window sets (main.rs). No MimeType: the .ifcx association is
 # made with the user's consent at first start (SRS SW-001), not by installing the package.
