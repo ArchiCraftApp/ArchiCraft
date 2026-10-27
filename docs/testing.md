@@ -375,8 +375,12 @@ edited by hand. `scripts/status.py` (Python 3 standard library) does the work:
   Only the checking workflows (`ci`, `conformance-matrix`, `fuzz`, `macos`, `windows`) count:
   the announcement, user-review and preview-release workflows and the `Implementation status`
   job, which checks the traceability itself, guard no requirement. The tests of the status script
-  (`scripts/tests/test_status.py`) and Python tests under `scripts/loop/` guard the traceability
-  and the loop, not a requirement, and count neither by name nor as a test file.
+  (`scripts/tests/test_status.py`), of the dashboard (`scripts/tests/test_dashboard.py`) and Python
+  tests under `scripts/loop/` guard the traceability, the loop and its tooling, not a requirement,
+  and count neither by name, nor as a test file, nor as a script a `run:` step calls. Nor do the
+  loop's self-test (`scripts/loop/selftest.sh`), its pull-request rules
+  (`scripts/loop/ci-check.sh`), their steps and the name of the `Loop policy` job; that job's
+  layering step (`scripts/loop/check-layering.sh`, NFR-MNT-002, NFR-MNT-004) still counts.
 - `python3 scripts/status.py merge-check --base <sha>` reads the `SRS:` lines of the
   pull-request body (`--body-file`, or the event payload in CI) and of the commit messages since
   the base, outside HTML comments. Every listed ID's row must differ from the base, and no row

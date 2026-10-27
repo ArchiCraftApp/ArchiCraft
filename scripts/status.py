@@ -65,9 +65,16 @@ CHECK_ACTION = re.compile(r"EmbarkStudios/cargo-deny-action@")
 # none either.
 GUARD_WORKFLOWS = ("ci.yml", "conformance-matrix.yml", "fuzz.yml", "macos.yml", "windows.yml")
 STATUS_JOB = "Implementation status"
-# Python tests that guard the traceability or the loop itself, not a requirement: their test_
-# methods and files are no done-row evidence.
-NO_EVIDENCE_TESTS = ("scripts/tests/test_status.py", "scripts/loop/")
+# The job that guards the loop: its name is no evidence, though its layering step (NFR-MNT-002)
+# is one.
+LOOP_JOB = "Loop policy"
+# Path prefixes (matched with startswith) of the Python tests that guard the traceability, the
+# loop or its tooling (the dashboard), not a requirement: their test_ methods and files are no
+# done-row evidence, and neither is a workflow step that runs only such Python files.
+NO_EVIDENCE_TESTS = ("scripts/tests/test_status.py", "scripts/tests/test_dashboard.py", "scripts/loop/")
+# Scripts a workflow runs that guard the loop, not a requirement: the loop's self-test and its
+# pull-request rules. They and the steps that run only them are no done-row evidence.
+NO_EVIDENCE_GUARDS = ("scripts/loop/selftest.sh", "scripts/loop/ci-check.sh")
 
 
 class StatusError(Exception):
@@ -316,7 +323,8 @@ def ci_guards(root):
     """The scripts the workflows' run: steps call, and the names of the guard steps and of the
     jobs that have one. A guard step calls a guard script or a test command (cargo test, nextest,
     clippy, fmt, fuzz run) or uses a check action (cargo-deny). Comments in run: do not count.
-    Only the GUARD_WORKFLOWS count, without the STATUS_JOB."""
+    Only the GUARD_WORKFLOWS count, without the STATUS_JOB, the NO_EVIDENCE_GUARDS, the
+    NO_EVIDENCE_TESTS and the name of the LOOP_JOB."""
     guards, names = set(), set()
     for name in GUARD_WORKFLOWS:
         path = root / ".github" / "workflows" / name
@@ -328,13 +336,19 @@ def ci_guards(root):
             guarded = False
             for st in steps:
                 run = re.sub(r"(?m)(?:^|(?<=\s))#.*", "", st["run"])
-                called = {p for p in GUARD_PATH.findall(run) if (root / p).is_file()}
+                called = {
+                    p
+                    for p in GUARD_PATH.findall(run)
+                    if (root / p).is_file()
+                    and p not in NO_EVIDENCE_GUARDS
+                    and not (p.endswith(".py") and p.startswith(NO_EVIDENCE_TESTS))
+                }
                 guards |= called
                 if called or TEST_COMMAND.search(run) or CHECK_ACTION.match(st["uses"]):
                     guarded = True
                     if st["name"]:
                         names.add(st["name"])
-            if guarded and job:
+            if guarded and job and job != LOOP_JOB:
                 names.add(job)
     return guards, {n for n in names if len(n) >= 10 and "${{" not in n}
 
