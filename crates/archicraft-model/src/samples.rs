@@ -15,6 +15,7 @@ use crate::command::{Command, History};
 use crate::element::{Element, ElementKind, KindTag, Position, PredefinedType};
 use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
 use crate::kinds::ReferenceLine;
+use crate::layer::Layer;
 use crate::project::Project;
 use crate::storey::Storey;
 use crate::template::default_metric_project_with;
@@ -206,6 +207,19 @@ impl FixtureBuilder {
         );
     }
 
+    /// Changes a layer of the project through `UpdateLayer`.
+    ///
+    /// # Panics
+    ///
+    /// If the project has no layer `id`.
+    pub fn edit_layer(&mut self, id: LayerId, change: impl FnOnce(&mut Layer)) {
+        let Some(mut layer) = self.project.layer(id).cloned() else {
+            panic!("edit_layer: the project has no layer {id:?}");
+        };
+        change(&mut layer);
+        execute(&mut self.project, &mut self.history, Command::UpdateLayer(layer));
+    }
+
     /// Adds the elements created since the last commit with one
     /// `AddElements` command.
     pub fn commit(&mut self) {
@@ -277,7 +291,10 @@ pub fn storey_with_walls_and_slab() -> Project {
 
 /// A two-storey shell: exterior walls on both storeys, an interior wall in a
 /// T junction, a ground slab (a base slab) and an upper floor slab with a
-/// stair opening (a floor) (IFX-024).
+/// stair opening (a floor) (IFX-024). The upper floor slab and the empty
+/// References layer are excluded from producing snap targets (INP-017), so
+/// the reference models carry both `snapExcluded` flags through the
+/// conformance check (IFX-006).
 pub fn two_storey_shell() -> Project {
     let mut b = FixtureBuilder::new("two-storey-shell").titled("Two-storey shell");
     let ground = b.storey(0);
@@ -297,7 +314,12 @@ pub fn two_storey_shell() -> Project {
     b.edit(base, |e| e.predefined_type = Some(PredefinedType::BaseSlab));
     let stair_hole = rectangle(DVec2::new(6.0, 1.0), DVec2::new(9.0, 2.2));
     let floor = b.slab(upper, outline, vec![stair_hole]);
-    b.edit(floor, |e| e.predefined_type = Some(PredefinedType::Floor));
+    b.edit(floor, |e| {
+        e.predefined_type = Some(PredefinedType::Floor);
+        e.snap_excluded = true;
+    });
+    let references = b.layer("References");
+    b.edit_layer(references, |l| l.snap_excluded = true);
     b.finish()
 }
 

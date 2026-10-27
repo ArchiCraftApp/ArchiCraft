@@ -793,8 +793,9 @@ pub(crate) mod tests {
         index
     }
 
-    /// The path the index replaces: every node and edge of the storey,
-    /// collected each frame and scanned for each cursor position.
+    /// The path the index replaces: every node and edge of the storey's
+    /// elements that provide snap targets (INP-017), collected each frame
+    /// and scanned for each cursor position.
     struct BruteForce {
         nodes: Vec<Snap>,
         edges: Vec<[DVec2; 2]>,
@@ -812,7 +813,7 @@ pub(crate) mod tests {
                 kind: SnapKind::Centroid,
             };
             let mut edges = Vec::new();
-            for element in project.elements_on(storey).filter(|e| project.is_visible(e)) {
+            for element in project.elements_on(storey).filter(|e| project.provides_snaps(e)) {
                 if let Some(wall) = element.as_wall() {
                     nodes.extend([node(wall.start), node(wall.end)]);
                     edges.push([wall.start, wall.end]);
@@ -824,7 +825,8 @@ pub(crate) mod tests {
                     }
                 }
             }
-            for element in &plan.elements {
+            let snappable = |id: ElementId| project.element(id).is_some_and(|e| project.provides_snaps(e));
+            for element in plan.elements.iter().filter(|e| snappable(e.id)) {
                 for polygon in &element.cut {
                     for ring in polygon_rings(polygon) {
                         for i in 0..ring.len() {
@@ -945,7 +947,8 @@ pub(crate) mod tests {
     /// NFR-PERF-005, INP-008, INP-009: on both storeys of two_storey_shell
     /// the index gives the same candidates as scanning every target, for 500
     /// seeded cursor positions at three radii, with and without a previous
-    /// point and pending points.
+    /// point and pending points. The upper floor slab is excluded from
+    /// producing targets (INP-017), so the scan skips it too.
     #[test]
     fn the_index_snaps_like_the_brute_force_scan() {
         let project = samples::two_storey_shell();

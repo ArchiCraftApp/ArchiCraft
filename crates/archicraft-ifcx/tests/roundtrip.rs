@@ -722,15 +722,19 @@ fn snap_exclusion_flags_round_trip() {
     assert_eq!(excluded(&loaded.project), (1, 1));
 }
 
-/// INP-017: the flag is written only when set, so files without it (all
-/// files written before it existed) read as not excluded without a problem.
+/// INP-017: the flag is written only when set, so the data of a project
+/// without it carries no flag, like every file written before it existed,
+/// and reads as not excluded without a problem.
 #[test]
 fn a_missing_snap_exclusion_flag_reads_as_false() {
-    for project in samples() {
-        assert!(project.elements.values().all(|e| !e.snap_excluded));
+    for mut project in samples() {
+        // The two-storey shell excludes its upper slab and a layer.
+        project.elements.values_mut().for_each(|e| e.snap_excluded = false);
+        project.layers.iter_mut().for_each(|l| l.snap_excluded = false);
         let bytes = save(&project);
-        let text = String::from_utf8(bytes.clone()).unwrap();
-        assert!(!text.contains("snapExcluded"), "{}", project.info.name);
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        let data = value["data"].to_string();
+        assert!(!data.contains("snapExcluded"), "{}", project.info.name);
         let loaded = archicraft_ifcx::load(&bytes).unwrap();
         assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
         assert!(loaded.project.elements.values().all(|e| !e.snap_excluded));
@@ -738,9 +742,53 @@ fn a_missing_snap_exclusion_flag_reads_as_false() {
     }
 }
 
-/// INP-017: the flag is not declared in the embedded schemas, so the reader
-/// checks its type: a flag that is not true or false is reported and read
-/// as not excluded.
+/// INP-017, IFX-061: the embedded schemas declare `snapExcluded` of
+/// `archicraft::element` and of the project's layers entries as an optional
+/// boolean, so files with and without the flag validate on their own.
+#[test]
+fn the_snap_exclusion_flag_is_declared_as_an_optional_boolean() {
+    let value: Value = serde_json::from_slice(&save(&samples::storey_with_walls_and_slab())).unwrap();
+    let declared = serde_json::json!({"dataType": "Boolean", "optional": true});
+    let members = |desc: &Value| desc["objectRestrictions"]["values"].clone();
+    let element = members(&value["schemas"]["archicraft::element"]["value"]);
+    assert_eq!(element["snapExcluded"], declared);
+    let project = members(&value["schemas"]["archicraft::project"]["value"]);
+    let layer = members(&project["layers"]["arrayRestrictions"]["value"]);
+    assert_eq!(layer["snapExcluded"], declared);
+}
+
+/// IFX-006, INP-017: the golden file of the two-storey shell carries the
+/// `snapExcluded` flag of its upper slab and of its References layer and
+/// validates. The conformance check runs on every golden file
+/// (conformance/run.sh in CI and in the gate), so buildingSMART's reference
+/// implementation and viewer load a file with both flags.
+#[test]
+fn the_shell_golden_file_carries_both_snap_exclusion_flags() {
+    let bytes = std::fs::read(golden_dir().join("two-storey-shell.ifcx")).unwrap();
+    let problems = validate::validate(&validate::parse(&bytes).unwrap());
+    assert!(problems.is_empty(), "{problems:#?}");
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    let elements: Vec<&str> = value["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["attributes"]["archicraft::element"]["snapExcluded"] == true)
+        .map(|n| n["attributes"]["bsi::ifc::prop::Name"].as_str().unwrap())
+        .collect();
+    assert_eq!(elements, ["SL-002"]);
+    let layers: Vec<&str> = value["data"][0]["attributes"]["archicraft::project"]["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|l| l["snapExcluded"] == true)
+        .map(|l| l["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(layers, ["References"]);
+}
+
+/// INP-017: a flag that is not true or false breaks its declaration in the
+/// embedded schemas, so validation reports it; the reader reports it too and
+/// reads it as not excluded.
 #[test]
 fn an_invalid_snap_exclusion_flag_is_repaired_and_reported() {
     let project = samples::storey_with_walls_and_slab();
@@ -749,6 +797,17 @@ fn an_invalid_snap_exclusion_flag_is_repaired_and_reported() {
         v["data"][i]["attributes"]["archicraft::element"]["snapExcluded"] = "yes".into();
         v["data"][0]["attributes"]["archicraft::project"]["layers"][0]["snapExcluded"] = 1.into();
     });
+    let invalid = validate::validate(&validate::parse(&bytes).unwrap());
+    assert_eq!(invalid.len(), 2, "{invalid:#?}");
+    for problem in &invalid {
+        let text = problem.message.to_string();
+        assert!(
+            text.contains("ifcx-attribute-invalid")
+                && text.contains(r#"key="snapExcluded""#)
+                && text.contains(r#"expected="boolean""#),
+            "{text}"
+        );
+    }
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
     assert!(loaded.project.elements.values().all(|e| !e.snap_excluded));
     assert!(loaded.project.layers.iter().all(|l| !l.snap_excluded));

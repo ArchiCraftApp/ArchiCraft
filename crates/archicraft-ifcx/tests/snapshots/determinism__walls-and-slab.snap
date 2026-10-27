@@ -224,6 +224,10 @@ expression: review_view(&bytes)
                       },
                       "locked": {
                         "dataType": "Boolean"
+                      },
+                      "snapExcluded": {
+                        "dataType": "Boolean",
+                        "optional": true
                       }
                     }
                   }
@@ -590,6 +594,10 @@ expression: review_view(&bytes)
                   "STRIP_FOOTING"
                 ]
               },
+              "optional": true
+            },
+            "snapExcluded": {
+              "dataType": "Boolean",
               "optional": true
             }
           }
