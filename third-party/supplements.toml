@@ -37,3 +37,46 @@ crates = ["wayland-protocols-plasma 0.3.12"]
 licence = "MIT AND LGPL-2.1-or-later AND MIT-CMU AND BSD-3-Clause"
 file = "third-party/licences/wayland-protocols-plasma.txt"
 source = "Composed from the package: its LICENSE.txt, the copyright lines and licences that its KDE Plasma protocol files state, and the licence texts of plasma-wayland-protocols/LICENSES."
+
+# The other crates that generate Rust code from protocol files (archicraft-7vqgr). Their packages
+# bundle the files, or, for x11rb and x11rb-protocol, the code generated from xcb-proto, and the
+# files carry copyright lines and permission notices of their own. Checked without a notice:
+# wayland-scanner (its two XML files are test assets under tests/; it generates code only from
+# the files of the crates above), wayland-backend, wayland-cursor and wayland-sys (no protocol
+# files).
+
+[[notice]]
+crates = ["wayland-protocols 0.32.13"]
+licence = "MIT AND HPND-sell-variant"
+file = "third-party/licences/wayland-protocols.txt"
+source = "Composed from the package: its LICENSE.txt and the copyright lines and licence texts that its freedesktop.org wayland-protocols files (protocols/) state."
+
+[[notice]]
+crates = ["wayland-protocols-wlr 0.3.12"]
+licence = "MIT AND HPND-sell-variant"
+file = "third-party/licences/wayland-protocols-wlr.txt"
+source = "Composed from the package: its LICENSE.txt and the copyright lines and licence texts that its wlr-protocols files state."
+
+[[notice]]
+crates = ["wayland-protocols-misc 0.3.12"]
+licence = "MIT AND LGPL-2.1-or-later"
+file = "third-party/licences/wayland-protocols-misc.txt"
+source = "Composed from the package: its LICENSE.txt, the copyright lines and licences that its protocol files state, and the LGPL-2.1 text of the wayland-protocols-plasma notice."
+
+[[notice]]
+crates = ["wayland-protocols-experimental 20250721.0.1"]
+licence = "MIT"
+file = "third-party/licences/wayland-protocols-experimental.txt"
+source = "Composed from the package: its LICENSE.txt and the copyright lines and licence texts that its experimental wayland-protocols files state."
+
+[[notice]]
+crates = ["wayland-client 0.31.15"]
+licence = "MIT"
+file = "third-party/licences/wayland-client.txt"
+source = "Composed from the package: its LICENSE.txt and the copyright lines and licence text that its wayland.xml states."
+
+[[notice]]
+crates = ["x11rb 0.13.2", "x11rb-protocol 0.13.2"]
+licence = "MIT AND X11 AND HPND-sell-variant"
+file = "third-party/licences/x11rb.txt"
+source = "Composed: their LICENSE-MIT, and the copyright lines and licence texts of the xcb-proto 1.17.0 files their protocol modules are generated from, taken from xcb-proto-1.17.0 of https://github.com/psychon/x11rb at the commit of these releases (1b73245)."
