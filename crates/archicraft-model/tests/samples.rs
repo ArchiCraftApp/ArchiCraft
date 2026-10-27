@@ -11,7 +11,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::Dummy;
 use archicraft_model::samples::{self, CatalogueEntry, FIXTURE_NAMESPACE, FixtureBuilder, STAND_IN_SIZES};
 use archicraft_model::template::{default_metric_project, default_metric_project_with};
-use archicraft_model::{ElementId, IfcClass, KindTag, Position, PredefinedType, Project};
+use archicraft_model::{Element, ElementId, IfcClass, KindTag, LayerId, Position, PredefinedType, Project};
 use uuid::Uuid;
 
 /// Every identity of a project: spatial structure, resources, elements and
@@ -167,6 +167,26 @@ fn editing_an_unknown_element_panics() {
     b.edit(ElementId::new(), |e| e.locked = true);
 }
 
+/// `edit_layer` changes one layer of the project and leaves the others.
+#[test]
+fn the_builder_edits_layers() {
+    let mut b = FixtureBuilder::new("layers");
+    let furniture = b.layer("Furniture");
+    b.edit_layer(furniture, |l| l.locked = true);
+    let p = b.finish();
+    let locked: Vec<&str> = p.layers.iter().filter(|l| l.locked).map(|l| l.name.as_str()).collect();
+    assert_eq!(locked, ["Furniture"]);
+}
+
+/// `edit_layer` panics, as documented, for a layer the project does not
+/// have.
+#[test]
+#[should_panic(expected = "the project has no layer")]
+fn editing_an_unknown_layer_panics() {
+    let mut b = FixtureBuilder::new("unknown-layer");
+    b.edit_layer(LayerId::new(), |l| l.locked = true);
+}
+
 /// The two samples keep their geometry and contents, now with seeded
 /// identities.
 #[test]
@@ -231,6 +251,35 @@ fn the_shells_slabs_carry_predefined_types() {
     );
     let p = samples::storey_with_walls_and_slab();
     assert!(p.elements.values().all(|e| e.predefined_type.is_none()));
+}
+
+/// INP-017, IFX-006: the two-storey shell's upper floor slab and its
+/// References layer are excluded from producing snap targets, so the
+/// reference models carry both `snapExcluded` flags through the conformance
+/// check. The References layer holds no element, so every other element
+/// still provides snap targets; the other sample carries no flag.
+#[test]
+fn the_shell_excludes_its_upper_slab_and_the_references_layer_from_snapping() {
+    let p = samples::two_storey_shell();
+    let names = |filter: &dyn Fn(&Element) -> bool| -> Vec<String> {
+        p.elements
+            .values()
+            .filter(|e| filter(e))
+            .map(|e| e.name.clone())
+            .collect()
+    };
+    assert_eq!(names(&|e| e.snap_excluded), ["SL-002"]);
+    assert_eq!(names(&|e| !p.provides_snaps(e)), ["SL-002"]);
+    let layers: Vec<&str> = p
+        .layers
+        .iter()
+        .filter(|l| l.snap_excluded)
+        .map(|l| l.name.as_str())
+        .collect();
+    assert_eq!(layers, ["References"]);
+    let p = samples::storey_with_walls_and_slab();
+    assert!(p.elements.values().all(|e| !e.snap_excluded));
+    assert!(p.layers.iter().all(|l| !l.snap_excluded));
 }
 
 /// NFR-PERF-006, VIEW-001: a stand-in has exactly the requested number of

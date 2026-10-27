@@ -1226,7 +1226,7 @@
       "section": "4.6",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: Element.snap_excluded and Layer.snap_excluded (crates/archicraft-model/src/element.rs, layer.rs), changed through UpdateElements/UpdateLayer (an element-locked element accepts the snap flag like its lock flag); Project::provides_snaps filters the snap index (crates/archicraft-app/src/input/targets.rs SnapIndex::update) while is_visible keeps drawing and selection; locked elements keep providing targets. References switch off as a whole source with SnapIndex::set_source_excluded (the linked reference-model source itself comes with IFX-084). IFCX: optional `snapExcluded` in archicraft::element and the project's layers entries, written only when set and not declared in the embedded schemas. UI: 'Snap targets' checkbox beside 'Locked' (ui/properties.rs) and the 'Snaps' column of the Layers dialog.",
+      "evidence": "Done: Element.snap_excluded and Layer.snap_excluded (crates/archicraft-model/src/element.rs, layer.rs), changed through UpdateElements/UpdateLayer (an element-locked element accepts the snap flag like its lock flag); Project::provides_snaps filters the snap index (crates/archicraft-app/src/input/targets.rs SnapIndex::update) while is_visible keeps drawing and selection; locked elements keep providing targets. References switch off as a whole source with SnapIndex::set_source_excluded (the linked reference-model source itself comes with IFX-084). IFCX: optional `snapExcluded` in archicraft::element and the project's layers entries, written only when set and declared as an optional Boolean in the embedded schemas (snap_excluded, crates/archicraft-ifcx/src/alpha/schema.rs:122); the golden file two-storey-shell.ifcx carries both flags (the upper floor slab and the References layer of samples::two_storey_shell), so conformance/run.sh checks them (IFX-006). Test: `the_snap_exclusion_flag_is_declared_as_an_optional_boolean`, `the_shell_golden_file_carries_both_snap_exclusion_flags` (roundtrip.rs). UI: 'Snap targets' checkbox beside 'Locked' (ui/properties.rs) and the 'Snaps' column of the Layers dialog.",
       "gap": "",
       "depends_on": []
     },
@@ -4537,7 +4537,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "conformance/run.sh runs (a) ifcx-core with schema validation, (b1) the compose3 tree in Node and (b2) the pinned viewer in headless Chromium (conformance/viewer.spec.ts:227 one test per file: tree, storey and element counts, render, material colours; screenshots uploaded) on every change. The conformance matrix (.github/workflows/conformance-matrix.yml:44 Conformance per OS, 117 Same PASS lines on every OS) runs the same check on Linux, Windows and macOS nightly (Linux alone on model, geometry, IFCX and conformance pull requests) and fails unless the runs print the same PASS lines (conformance/compare-runs.sh). The hosted R4 viewer is checked by hand per docs/test-plan/release-checklist.md. Gaps: the inputs are the two increment-0 samples, not the Section 7.3 reference models RM-S/RM-M/RM-L; in the first nightly three-OS run (2026-10-21) Linux and macOS passed with the same figures, but on Windows the viewer step timed out (60 s) on the first two files; a manual run the same day passed on Windows, so the leg is flaky and the PASS-line comparison has not yet run on three green legs (archicraft-orvf).",
+      "gap": "conformance/run.sh runs (a) ifcx-core with schema validation, (b1) the compose3 tree in Node and (b2) the pinned viewer in headless Chromium (conformance/viewer.spec.ts:227 one test per file: tree, storey and element counts, render, material colours; screenshots uploaded) on every change. The conformance matrix (.github/workflows/conformance-matrix.yml:44 Conformance per OS, 117 Same PASS lines on every OS) runs the same check on Linux, Windows and macOS nightly (Linux alone on model, geometry, IFCX and conformance pull requests) and fails unless the runs print the same PASS lines (conformance/compare-runs.sh). The hosted R4 viewer is checked by hand per docs/test-plan/release-checklist.md. The two-storey-shell golden file carries the optional `snapExcluded` flag of an element and a layer, so the reference implementation and viewer check it too (`the_shell_golden_file_carries_both_snap_exclusion_flags`, roundtrip.rs). Gaps: the inputs are the two increment-0 samples, not the Section 7.3 reference models RM-S/RM-M/RM-L; in the first nightly three-OS run (2026-10-21) Linux and macOS passed with the same figures, but on Windows the viewer step timed out (60 s) on the first two files; a manual run the same day passed on Windows, so the leg is flaky and the PASS-line comparison has not yet run on three green legs (archicraft-orvf).",
       "depends_on": []
     },
     {
@@ -4866,7 +4866,7 @@
       "section": "5.2.7",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-ifcx/src/alpha/schema.rs:157 project() (archicraft::project), 244 declarations() (storey 248, element 261, wall 270, slab 283) with complete value descriptions incl. enums, optional fields and quantityKind. Regression check: Test: `ifx_061_every_archicraft_attribute_has_a_complete_value_description` (ifcx)",
+      "evidence": "Done: crates/archicraft-ifcx/src/alpha/schema.rs:171 project() (archicraft::project), 259 declarations() (storey 263, element 271, wall 282, slab 295) with complete value descriptions incl. enums, optional fields and quantityKind. Regression check: Test: `ifx_061_every_archicraft_attribute_has_a_complete_value_description` (ifcx)",
       "gap": "",
       "depends_on": []
     },
@@ -4877,7 +4877,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Ready to publish: crates/archicraft-ifcx/src/alpha/schema.rs:302 `document()` and the example `archicraft_schema` write the schema-only IFCX document; `validate::validate_with()` resolves it as an import in tests/schema_publication.rs; steps, namespace, licence and versioning in docs/ifcx-evolution.md. Not yet published on ifcx.dev (namespace and licence are user decisions, O-5). Tests: `ifx_092_the_schema_document_holds_only_the_archicraft_declarations`, `ifx_092_a_file_importing_the_published_schema_validates` (crates/archicraft-ifcx/tests/schema_publication.rs).",
+      "gap": "Ready to publish: crates/archicraft-ifcx/src/alpha/schema.rs:314 `document()` and the example `archicraft_schema` write the schema-only IFCX document; `validate::validate_with()` resolves it as an import in tests/schema_publication.rs; steps, namespace, licence and versioning in docs/ifcx-evolution.md. Not yet published on ifcx.dev (namespace and licence are user decisions, O-5). Tests: `ifx_092_the_schema_document_holds_only_the_archicraft_declarations`, `ifx_092_a_file_importing_the_published_schema_validates` (crates/archicraft-ifcx/tests/schema_publication.rs).",
       "depends_on": []
     },
     {

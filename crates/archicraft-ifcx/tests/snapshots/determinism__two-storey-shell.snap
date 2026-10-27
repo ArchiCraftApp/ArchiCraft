@@ -224,6 +224,10 @@ expression: review_view(&bytes)
                       },
                       "locked": {
                         "dataType": "Boolean"
+                      },
+                      "snapExcluded": {
+                        "dataType": "Boolean",
+                        "optional": true
                       }
                     }
                   }
@@ -591,6 +595,10 @@ expression: review_view(&bytes)
                 ]
               },
               "optional": true
+            },
+            "snapExcluded": {
+              "dataType": "Boolean",
+              "optional": true
             }
           }
         }
@@ -854,7 +862,8 @@ expression: review_view(&bytes)
               "id": "ae0b3ac0-7b1b-5124-9828-339b26b49ac8",
               "name": "References",
               "visible": true,
-              "locked": false
+              "locked": false,
+              "snapExcluded": true
             }
           ],
           "materials": [
@@ -2038,7 +2047,8 @@ expression: review_view(&bytes)
           "layer": "0ef4d6f7-728b-5db0-a775-86fea7ce54ce",
           "locked": false,
           "position": "undefined",
-          "predefinedType": "FLOOR"
+          "predefinedType": "FLOOR",
+          "snapExcluded": true
         },
         "archicraft::slab": {
           "outline": [
