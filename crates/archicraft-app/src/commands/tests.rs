@@ -689,10 +689,20 @@ fn command_paths(source: &str) -> Vec<String> {
 /// follows. The toolbar, the toolbox and the status bar invoke their
 /// buttons' commands by id (UI-001, UI-011), through constants of the
 /// command modules; the toolbar names Undo and Redo, in that order, and
-/// nothing else.
+/// nothing else. The scan holds on a CRLF copy of the source too, as a
+/// Windows checkout with `core.autocrlf` has it.
 #[test]
 fn shell_names_no_command() {
     let source = include_str!("../ui/shell.rs");
+    let crlf = source.replace("\r\n", "\n").replace('\n', "\r\n");
+    assert_shell_names_no_command(source);
+    assert_shell_names_no_command(&crlf);
+}
+
+/// The checks of `shell_names_no_command` on `source`, with its line ends
+/// normalised to LF first, which `function_body` slices on.
+fn assert_shell_names_no_command(source: &str) {
+    let source = &source.replace("\r\n", "\n");
     let ids: HashSet<&str> = Registry::get().specs().iter().map(|s| s.id.as_str()).collect();
     // The odd pieces between quotes are the contents of string literals.
     for literal in source.split('"').skip(1).step_by(2) {
