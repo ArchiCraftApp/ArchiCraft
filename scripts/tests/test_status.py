@@ -105,6 +105,20 @@ jobs:
         run: python3 scripts/tests/test_status.py
       - name: Every done row traced
         run: python3 scripts/status.py check
+  loop-policy:
+    name: Loop policy
+    steps:
+      - name: Self-test of the loop hooks and scripts
+        run: scripts/loop/selftest.sh
+      - name: Headless crates have no UI dependencies
+        run: scripts/loop/check-layering.sh
+      - name: Pull request rules
+        run: scripts/loop/ci-check.sh
+  dashboard:
+    name: Dashboard tooling
+    steps:
+      - name: Tests of the dashboard
+        run: python3 scripts/tests/test_dashboard.py
 """
 
 # Workflows that notify or report but check nothing (archicraft-jmlb).
@@ -205,6 +219,9 @@ class Repo:
             ".github/workflows/user-review.yml": USER_REVIEW_WORKFLOW,
             "scripts/announce-signal.sh": "#!/bin/sh\n",
             "scripts/loop/ci-user-review.sh": "#!/bin/sh\n",
+            "scripts/loop/selftest.sh": "#!/bin/sh\n",
+            "scripts/loop/check-layering.sh": "#!/bin/sh\n",
+            "scripts/loop/ci-check.sh": "#!/bin/sh\n",
             "scripts/status.py": "",
             "crates/demo/tests/demo.rs": TESTS_RS,
             "crates/demo/src/lib.rs": SOURCE_RS,
@@ -444,6 +461,30 @@ class CheckTest(StatusTest):
         self.repo.write("scripts/tests/test_unnamed.py", "def test_no_unreviewed_trademarks():\n    pass\n")
         self.edit("NFR-LEG-002", evidence="Done. Guarded by test_no_unreviewed_trademarks.")
         self.assertEqual(self.check()[0], 0)
+
+    def test_the_loop_policy_and_the_dashboard_tests_are_no_evidence(self):
+        """The loop's self-test, its pull-request rules, the Loop policy job and the dashboard's
+        tests guard the loop and its tooling, not a requirement: a done row naming only one of
+        them fails the check. The layering step of that job guards NFR-MNT-002 and still counts
+        (archicraft-47bh)."""
+        self.repo.write(status.TESTING_PATH, UNTRACED_TESTING)
+        self.repo.write("scripts/tests/test_dashboard.py", "class T:\n    def test_dashboard_lists_the_waiting_prs(self):\n        pass\n")
+        for evidence in (
+            "scripts/loop/selftest.sh",
+            "scripts/loop/ci-check.sh",
+            "CI: Self-test of the loop hooks and scripts",
+            "CI: Pull request rules",
+            "CI: Loop policy",
+            "CI: Dashboard tooling",
+            "CI: Tests of the dashboard",
+            "scripts/tests/test_dashboard.py",
+            "test_dashboard_lists_the_waiting_prs",
+        ):
+            self.edit("NFR-LEG-002", evidence=f"Done. Guarded by {evidence}.")
+            self.assert_check_fails("NFR-LEG-002: done row names no test or CI guard")
+        for evidence in ("scripts/loop/check-layering.sh", "CI: Headless crates have no UI dependencies"):
+            self.edit("NFR-LEG-002", evidence=f"Done. Guarded by {evidence}.")
+            self.assertEqual(self.check()[0], 0, evidence)
 
     def test_only_the_items_of_steps_are_steps(self):
         workflow = """jobs:
