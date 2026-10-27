@@ -1,7 +1,7 @@
 # Tracked image, library-part and template files with their origin and licence (NFR-LEG-002:
 # no third-party content such as images, library parts or templates), read by
-# scripts/check-legal.sh. Any other tracked *.png, *.jpg, *.jpeg, *.gif, *.bmp, *.svg, *.gsm,
-# *.lcf, *.pln, *.pla, *.tpl or *.aat file fails the check.
+# scripts/check-legal.sh. Any other tracked *.png, *.jpg, *.jpeg, *.gif, *.bmp, *.svg, *.ico,
+# *.icns, *.webp, *.tif, *.tiff, *.gsm, *.lcf, *.pln, *.pla, *.tpl or *.aat file fails the check.
 #
 # One entry per line: <path> | <origin> | <licence>
 ArchiCraft_Logo.png | ArchiCraft logo, project artwork added in commit 4f5a93b (PR #2), rendered at 1024 px from ArchiCraft_Logo.svg since archicraft-6k61 | CC BY 4.0, as the repository (LICENSE)
