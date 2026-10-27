@@ -113,8 +113,8 @@ fn every_class_has_a_model_label_key() {
 }
 
 /// ELM-011: the named class sets are the SRS's sub-bullets, and the wall and
-/// slab descriptors select from theirs; every descriptor defaults to the
-/// Table 5-1 class of its kind.
+/// slab descriptors select from theirs; every kind selects from one of the
+/// named sets and defaults to the Table 5-1 class of its kind.
 #[test]
 fn elm_011_class_sets_match_the_srs() {
     use IfcClass::*;
@@ -134,7 +134,20 @@ fn elm_011_class_sets_match_the_srs() {
         assert_eq!(KindTag::Dummy.ifc_classes(), IfcClass::SELECTABLE_D5);
         assert_eq!(KindTag::Dummy.descriptor().default_class, BuildingElementProxy);
     }
+    // Every kind selects from one of the named sets, never a list of its own.
+    let named: [&[IfcClass]; 5] = [
+        IfcClass::WALL_CLASSES,
+        IfcClass::SLAB_CLASSES,
+        IfcClass::BEAM_CLASSES,
+        IfcClass::COLUMN_CLASSES,
+        &IfcClass::SELECTABLE_D5,
+    ];
     for &kind in KindTag::ALL {
+        assert!(
+            named.contains(&kind.ifc_classes()),
+            "{kind:?} selects from {:?}, not one of the ELM-011 named sets",
+            kind.ifc_classes()
+        );
         assert!(
             kind.ifc_classes().contains(&kind.descriptor().default_class),
             "{kind:?}"
