@@ -1025,7 +1025,7 @@ fn handle_keys(
     for event in events {
         let key = match event {
             Event::Text(text) if !ui.input(|i| i.modifiers.command) => KeyInput::Text(text),
-            // INP-004: provisional keys; Problems is Ctrl+Shift+P.
+            // INP-004: provisional keys; Primary+Shift+P is the command palette.
             Event::Key {
                 key: Key::P,
                 pressed: true,

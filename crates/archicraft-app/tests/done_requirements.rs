@@ -1346,12 +1346,13 @@ fn xch_008_a_saved_file_opens_editable_without_problems() {
 }
 
 /// Opens the dialog behind the menu entry `entry` of `menu` and waits until
-/// its new window takes clicks.
+/// its new window takes clicks. The entry's label ends with its shortcut,
+/// if it has one.
 fn open_from_menu(h: &mut App, menu: &str, entry: &str) {
     // The menu bar comes first; the browser may name a section the same.
     h.query_all_by_label(menu).next().expect("the menu").click();
     h.run_steps(2);
-    h.get_by_label(entry).click();
+    h.get_by_label_contains(entry).click();
     h.run_steps(4);
 }
 

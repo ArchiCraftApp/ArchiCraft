@@ -47,6 +47,17 @@ impl Binding {
         Self { shift: true, ..self }
     }
 
+    /// The same binding with Alt (Option on macOS) held.
+    pub const fn alt(self) -> Self {
+        Self { alt: true, ..self }
+    }
+
+    /// Whether the key is a letter A–Z.
+    pub fn is_letter(self) -> bool {
+        let name = self.key.name();
+        name.len() == 1 && name.as_bytes()[0].is_ascii_uppercase()
+    }
+
     /// The modifiers as egui matches them logically: `primary` is
     /// [`Modifiers::COMMAND`], which egui sets for Cmd on macOS and for Ctrl
     /// elsewhere.

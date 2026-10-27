@@ -72,3 +72,7 @@ crates/archicraft-ifcx/src/validate.rs::SyntaxKeyVisitor::visit_str | "a serde_j
 # and mesh checks are diagnostics of the tests that check bodies (IFX-032).
 crates/archicraft-geometry/src/evaluate.rs::evaluate_element | "Body" | body-part name, the IFCX sub-node name of the element's body (file format)
 crates/archicraft-geometry/src/mesh.rs::MeshIssue::fmt | * | diagnostic of check_closed, which only tests and benches call (IFX-032); never shown in the user interface
+
+# The default keymap page docs/keymap.md, English documentation that a test
+# generates from the D.8 table; the application shows the commands' labels.
+crates/archicraft-app/src/commands/d8.rs::Group::title | * | group headings of the generated docs/keymap.md, not shown in the UI (archicraft-5sc.2)

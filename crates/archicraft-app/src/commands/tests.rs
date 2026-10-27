@@ -68,6 +68,13 @@ fn every_command_is_complete() {
         }
         let own: HashSet<_> = a.default_bindings.iter().collect();
         assert_eq!(own.len(), a.default_bindings.len(), "{} repeats a binding", a.id);
+        if d8::item_for(a.id).is_some() {
+            assert!(
+                !a.default_bindings.is_empty(),
+                "{} is in Appendix D.8 but has no binding",
+                a.id
+            );
+        }
     }
 }
 
@@ -148,15 +155,18 @@ fn primary_binding_follows_the_platform() {
     );
 }
 
-/// The 23 default shortcuts of the former `ui/actions.rs`, each the first
-/// binding of its command. Primary is Cmd on macOS and Ctrl elsewhere.
-const DEFAULT_SHORTCUTS: [(&str, Binding); 23] = [
+/// The default shortcuts, each the first binding of its command: the 23 of
+/// the former `ui/actions.rs`, with Problems moved off Primary+Shift+P for
+/// the command palette, and Preferences (docs/keymap.md). Primary is Cmd on
+/// macOS and Ctrl elsewhere.
+const DEFAULT_SHORTCUTS: [(&str, Binding); 24] = [
     ("file.new", Binding::primary(Key::N)),
     ("file.open", Binding::primary(Key::O)),
     ("file.save", Binding::primary(Key::S)),
     ("file.save-as", Binding::primary(Key::S).shift()),
     ("file.close", Binding::primary(Key::W)),
     ("file.quit", Binding::primary(Key::Q)),
+    ("file.preferences", Binding::primary(Key::Comma)),
     ("edit.undo", Binding::primary(Key::Z)),
     ("edit.redo", Binding::primary(Key::Z).shift()),
     ("edit.delete", Binding::key(Key::Delete)),
@@ -173,25 +183,27 @@ const DEFAULT_SHORTCUTS: [(&str, Binding); 23] = [
     ("view.previous-tab", Binding::ctrl(Key::Tab).shift()),
     ("view.switch-plan-3d", Binding::key(Key::F3)),
     ("view.orbit", Binding::key(Key::O)),
-    ("view.problems", Binding::primary(Key::P).shift()),
+    ("view.problems", Binding::primary(Key::M).shift()),
 ];
 
 /// The commands whose shortcuts work while a text field has focus: the file
-/// commands, the settings and the problems panel (UI-008).
-const WORKS_WHILE_TYPING: [&str; 8] = [
+/// commands, the preferences, the settings and the problems panel (UI-008).
+const WORKS_WHILE_TYPING: [&str; 9] = [
     "file.new",
     "file.open",
     "file.save",
     "file.save-as",
     "file.close",
     "file.quit",
+    "file.preferences",
     "edit.settings",
     "view.problems",
 ];
 
-/// UI-008, HW-003: the registry keeps the 23 default shortcuts as first
+/// UI-008, HW-003: the registry keeps the default shortcuts as first
 /// bindings, the former special cases of the shortcut loop as second
-/// bindings (Primary+Y redoes, Backspace deletes) and no others; the
+/// bindings (Primary+Y redoes, Backspace deletes), Primary+3 as the second
+/// binding of the plan/3D switch and no others; the
 /// commands that work while typing are TextSafe, and the single-key
 /// shortcuts and Ctrl+Tab, which stay off while a tool is drawing, are
 /// Canvas. The plan view's local keys are pinned in
@@ -210,8 +222,12 @@ fn registry_keeps_the_default_shortcuts() {
             assert_eq!(spec.scope == Scope::Canvas, off_while_drawing, "{id}");
         }
     }
-    assert_eq!(bound, 25);
+    assert_eq!(bound, 27);
     assert_eq!(spec("edit.redo").default_bindings[1], Binding::primary(Key::Y));
+    assert_eq!(
+        spec("view.switch-plan-3d").default_bindings[1],
+        Binding::primary(Key::Num3)
+    );
     assert_eq!(spec("edit.delete").default_bindings[1], Binding::key(Key::Backspace));
 }
 
@@ -383,22 +399,16 @@ fn undo_and_redo_labels_name_the_change() {
 /// UI-008: the commands of Appendix D.8 that exist have default shortcuts.
 #[test]
 fn appendix_d8_commands_have_shortcuts() {
-    for id in [
-        "file.save",
-        "edit.undo",
-        "edit.redo",
-        "edit.delete",
-        "edit.select-all",
-        "tool.wall",
-        "tool.slab",
-        "view.switch-plan-3d",
-        "view.next-tab",
-        "view.previous-tab",
-        "view.fit-window",
-        "view.zoom-selection",
-        "view.orbit",
-    ] {
-        assert!(!spec(id).default_bindings.is_empty(), "{id}");
+    let registered: Vec<CommandId> = d8::ITEMS
+        .iter()
+        .filter_map(|item| match item.owner {
+            d8::Owner::Registered(id) => Some(id),
+            d8::Owner::Pending { .. } => None,
+        })
+        .collect();
+    assert_eq!(registered.len(), 13, "{registered:?}");
+    for id in registered {
+        assert!(!spec(id.as_str()).default_bindings.is_empty(), "{id}");
     }
 }
 
