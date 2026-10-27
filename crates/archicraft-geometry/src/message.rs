@@ -13,7 +13,7 @@
 //! Every key the crate emits is listed in [`ALL_KEYS`], so the application
 //! can check that its catalogue covers them.
 
-pub use archicraft_model::{Arg, Message};
+pub use archicraft_model::Message;
 
 /// Every message key archicraft-geometry emits.
 pub const ALL_KEYS: &[&str] = &[

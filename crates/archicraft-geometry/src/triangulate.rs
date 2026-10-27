@@ -55,13 +55,18 @@ impl RingTriangulation {
                     return Err(invalid("geometry-polygon-not-finite"));
                 }
                 let index = points.len();
+                let before = cdt.num_vertices();
                 let handle = cdt
                     .insert(Vertex {
                         position: Point2::new(p.x, p.y),
                         index,
                     })
                     .map_err(|_| invalid("geometry-polygon-coordinate-range"))?;
-                if cdt.vertex(handle).data().index != index {
+                // spade keeps one vertex per position and gives a repeated
+                // position the new data, so a repeat adds no vertex. Rings
+                // may share a vertex (the plan's cut unions give holes that
+                // touch the outline at a corner); a ring may not repeat one.
+                if cdt.num_vertices() == before && vertices[start..].contains(&handle) {
                     return Err(invalid("geometry-polygon-duplicate-point"));
                 }
                 points.push(p);
@@ -250,8 +255,9 @@ fn invalid(key: &'static str) -> GeometryError {
 /// Triangulates a polygon with holes. The returned indices refer to the
 /// points of `outer` followed by the points of each hole, in order. The
 /// triangles are counter-clockwise and cover the part of the triangulation
-/// inside `outer` and outside every hole. Rings must be simple, must not touch
-/// each other and must not repeat their first point.
+/// inside `outer` and outside every hole. Rings must be simple and must not
+/// cross each other, though they may share points; a ring must not repeat a
+/// point, its first included.
 pub fn triangulate(outer: &[DVec2], holes: &[Vec<DVec2>]) -> Result<Vec<[usize; 3]>, GeometryError> {
     if outer.len() < 3 {
         return Err(invalid("geometry-polygon-too-few-points"));
@@ -427,6 +433,84 @@ mod tests {
         }
         // The point-in-ring test failed on an empty ring in test builds.
         assert_eq!(triangulate(&outline, &[Vec::new()]), triangulate(&outline, &[]));
+    }
+
+    /// NFR-L10N-001: each reason triangulation refuses a polygon for gives
+    /// its own `geometry-polygon-` key.
+    #[test]
+    fn each_refusal_gives_its_message_key() {
+        let outline = square(DVec2::ZERO, 10.0);
+        let cases = vec![
+            (
+                "geometry-polygon-too-few-points",
+                vec![DVec2::ZERO, DVec2::X],
+                Vec::new(),
+            ),
+            (
+                "geometry-polygon-not-finite",
+                vec![DVec2::ZERO, DVec2::X, DVec2::new(f64::NAN, 1.0)],
+                Vec::new(),
+            ),
+            (
+                "geometry-polygon-coordinate-range",
+                vec![DVec2::ZERO, DVec2::X, DVec2::new(1e200, 1.0)],
+                Vec::new(),
+            ),
+            (
+                "geometry-polygon-duplicate-point",
+                vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::X, DVec2::Y],
+                Vec::new(),
+            ),
+            (
+                "geometry-polygon-duplicate-point",
+                vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::Y, DVec2::ZERO],
+                Vec::new(),
+            ),
+            (
+                "geometry-polygon-duplicate-point",
+                outline.clone(),
+                vec![vec![
+                    DVec2::ZERO,
+                    DVec2::new(1.0, 2.0),
+                    DVec2::new(2.0, 2.0),
+                    DVec2::new(1.0, 2.0),
+                    DVec2::new(2.0, 1.0),
+                ]],
+            ),
+            (
+                "geometry-polygon-self-intersection",
+                vec![DVec2::ZERO, DVec2::ONE, DVec2::X, DVec2::Y],
+                Vec::new(),
+            ),
+            (
+                "geometry-polygon-no-area",
+                outline.clone(),
+                vec![reversed(square(DVec2::splat(-1.0), 12.0))],
+            ),
+        ];
+        for (key, outer, holes) in &cases {
+            assert_eq!(
+                triangulate(outer, holes),
+                Err(GeometryError::InvalidPolygon(Message::new(key))),
+                "{key}"
+            );
+        }
+    }
+
+    /// SLB-003: a hole that shares a corner with the outline, as the plan's
+    /// cut unions (`plan::fill_mesh`) produce, triangulates to the area
+    /// between them; only a point repeated within one ring is refused.
+    #[test]
+    fn a_hole_touching_the_outline_at_a_corner_keeps_the_area_between() {
+        let outer = square(DVec2::ZERO, 10.0);
+        let hole = vec![DVec2::ZERO, DVec2::new(1.0, 2.0), DVec2::new(2.0, 1.0)];
+        let tris = triangulate(&outer, std::slice::from_ref(&hole)).unwrap();
+        let all: Vec<DVec2> = outer.iter().chain(hole.iter()).copied().collect();
+        let area: f64 = tris
+            .iter()
+            .map(|t| (all[t[1]] - all[t[0]]).perp_dot(all[t[2]] - all[t[0]]) / 2.0)
+            .sum();
+        assert!((area - 98.5).abs() < 1e-12, "{area}");
     }
 
     #[test]
