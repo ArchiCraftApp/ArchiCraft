@@ -29,8 +29,8 @@ pub struct Dummy {
     pub size: DVec2,
     pub link: VerticalLink,
     pub material: MaterialId,
-    /// Asks for compound parts. [`Kind::parts`] stays empty until the part
-    /// classes (`IfcMember`, `IfcPlate`) exist.
+    /// Asks for compound parts. [`Kind::parts`] stays empty until the
+    /// compound kinds' part specifications exist (IFX-016).
     pub parts: bool,
     /// Asks the geometry generator to panic, to exercise the fallback for
     /// failed elements (NFR-REL-006).
@@ -86,8 +86,9 @@ impl Dummy {
 }
 
 impl Kind for Dummy {
-    /// `IfcBuildingElementProxy` by default, `IfcFooting` selectable; names
-    /// `X-001`, `X-002`, …; no drawing tool.
+    /// ELM-011: stands in for free-form solids and objects,
+    /// `IfcBuildingElementProxy` by default and any Appendix D.5 class
+    /// selectable; names `X-001`, `X-002`, …; no drawing tool.
     const DESCRIPTOR: KindDescriptor = KindDescriptor {
         label_key: "model-kind-test",
         noun_key: "model-kind-test-noun",
@@ -95,7 +96,7 @@ impl Kind for Dummy {
         code: "dummy",
         name_prefix: "X",
         default_class: IfcClass::BuildingElementProxy,
-        ifc_classes: &[IfcClass::BuildingElementProxy, IfcClass::Footing],
+        ifc_classes: &IfcClass::SELECTABLE_D5,
         predefined_types: PredefinedType::for_class,
         has_tool: false,
         template_defaults: None,

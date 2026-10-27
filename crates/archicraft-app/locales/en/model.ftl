@@ -203,11 +203,32 @@ model-unit-volume-ft3 = Cubic feet
 ## IFC classes, shown by their IFC 4.3 names, and the locations of a wall's
 ## reference line (WAL-003).
 
+model-ifc-class-proxy = IfcBuildingElementProxy
 model-ifc-class-wall = IfcWall
 model-ifc-class-slab = IfcSlab
-model-ifc-class-footing = IfcFooting
+model-ifc-class-roof = IfcRoof
+model-ifc-class-column = IfcColumn
+model-ifc-class-beam = IfcBeam
+model-ifc-class-member = IfcMember
+model-ifc-class-plate = IfcPlate
 model-ifc-class-covering = IfcCovering
-model-ifc-class-proxy = IfcBuildingElementProxy
+model-ifc-class-footing = IfcFooting
+model-ifc-class-pile = IfcPile
+model-ifc-class-railing = IfcRailing
+model-ifc-class-stair = IfcStair
+model-ifc-class-ramp = IfcRamp
+model-ifc-class-chimney = IfcChimney
+model-ifc-class-shading-device = IfcShadingDevice
+model-ifc-class-curtain-wall = IfcCurtainWall
+model-ifc-class-furniture = IfcFurniture
+model-ifc-class-space = IfcSpace
+model-ifc-class-geographic-element = IfcGeographicElement
+model-ifc-class-stair-flight = IfcStairFlight
+model-ifc-class-opening-element = IfcOpeningElement
+model-ifc-class-door = IfcDoor
+model-ifc-class-window = IfcWindow
+model-ifc-class-grid = IfcGrid
+model-ifc-class-annotation = IfcAnnotation
 model-reference-line-outside = Exterior face
 model-reference-line-center = Centre
 model-reference-line-inside = Interior face

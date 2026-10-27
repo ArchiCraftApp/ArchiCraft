@@ -1213,8 +1213,8 @@ fn a_test_kind_element_with_a_foreign_class_is_rejected() {
     let mut h = History::default();
     let before = p.clone();
     let mut d = Dummy::new(DVec2::ZERO, DVec2::ONE, p.materials[0].id).into_element(&p, ground(&p), 0);
-    d.ifc_class = IfcClass::Wall;
-    assert!(!KindTag::Dummy.ifc_classes().contains(&IfcClass::Wall));
+    d.ifc_class = IfcClass::OpeningElement;
+    assert!(!KindTag::Dummy.ifc_classes().contains(&IfcClass::OpeningElement));
     match h.execute(&mut p, Command::AddElements(vec![d])) {
         Err(CommandError::Invalid(message)) => {
             assert_eq!(message.key(), "model-error-ifc-class-not-allowed");

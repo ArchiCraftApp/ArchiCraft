@@ -71,16 +71,7 @@ fn label_representatives() -> Vec<Message> {
     keys.extend(SlopeFormat::ALL.map(SlopeFormat::label_key));
     keys.extend(AreaUnit::ALL.map(AreaUnit::label_key));
     keys.extend(VolumeUnit::ALL.map(VolumeUnit::label_key));
-    keys.extend(
-        [
-            IfcClass::Wall,
-            IfcClass::Slab,
-            IfcClass::Footing,
-            IfcClass::Covering,
-            IfcClass::BuildingElementProxy,
-        ]
-        .map(IfcClass::label_key),
-    );
+    keys.extend(IfcClass::ALL.map(IfcClass::label_key));
     keys.extend(PredefinedType::ALL.map(PredefinedType::label_key));
     keys.extend(
         [

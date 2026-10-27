@@ -23,7 +23,7 @@ pub mod units;
 pub mod validate;
 
 pub use command::{Command, CommandError, History};
-pub use element::{Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, TopLink};
+pub use element::{CompoundPart, Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, TopLink};
 pub use ids::{BuildingId, ElementId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
 pub use kinds::{ReferenceLine, Slab, SlabReference, Wall};
 pub use layer::Layer;

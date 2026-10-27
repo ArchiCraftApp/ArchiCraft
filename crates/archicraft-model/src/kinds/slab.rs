@@ -106,7 +106,7 @@ impl Kind for Slab {
         code: "slab",
         name_prefix: "SL",
         default_class: IfcClass::Slab,
-        ifc_classes: &[IfcClass::Slab, IfcClass::Footing, IfcClass::Covering],
+        ifc_classes: IfcClass::SLAB_CLASSES,
         predefined_types: PredefinedType::for_class,
         has_tool: true,
         template_defaults: Some(template_defaults),

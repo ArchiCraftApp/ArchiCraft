@@ -10,51 +10,208 @@ pub use crate::kinds::{ElementKind, KindTag};
 use crate::storey::StoreyList;
 use crate::transform::PlanTransform;
 
-/// IFC class of an element (ELM-011, Table 5-1).
+/// IFC class of an element or a compound part (ELM-011): the twenty
+/// classes of Appendix D.5 followed by the other classes of Table 5-1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IfcClass {
-    Wall,
-    Slab,
-    Footing,
-    Covering,
     /// `IfcBuildingElementProxy`, for elements without a more specific
     /// class.
     BuildingElementProxy,
+    Wall,
+    Slab,
+    Roof,
+    Column,
+    Beam,
+    Member,
+    Plate,
+    Covering,
+    Footing,
+    Pile,
+    Railing,
+    Stair,
+    Ramp,
+    Chimney,
+    ShadingDevice,
+    CurtainWall,
+    Furniture,
+    Space,
+    GeographicElement,
+    // Table 5-1 classes outside Appendix D.5.
+    StairFlight,
+    OpeningElement,
+    Door,
+    Window,
+    Grid,
+    Annotation,
+}
+
+/// The class of one kind of part of a compound element (IFX-016, a part row
+/// of Table 5-1), for the part specifications of the compound kinds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CompoundPart {
+    /// The class of the compound element.
+    pub compound: IfcClass,
+    /// The part's role within the compound, such as `flight` or `panel`.
+    pub part: &'static str,
+    /// The class the part is written with.
+    pub class: IfcClass,
 }
 
 impl IfcClass {
+    /// Every class, Appendix D.5 first.
+    pub const ALL: [IfcClass; 26] = [
+        IfcClass::BuildingElementProxy,
+        IfcClass::Wall,
+        IfcClass::Slab,
+        IfcClass::Roof,
+        IfcClass::Column,
+        IfcClass::Beam,
+        IfcClass::Member,
+        IfcClass::Plate,
+        IfcClass::Covering,
+        IfcClass::Footing,
+        IfcClass::Pile,
+        IfcClass::Railing,
+        IfcClass::Stair,
+        IfcClass::Ramp,
+        IfcClass::Chimney,
+        IfcClass::ShadingDevice,
+        IfcClass::CurtainWall,
+        IfcClass::Furniture,
+        IfcClass::Space,
+        IfcClass::GeographicElement,
+        IfcClass::StairFlight,
+        IfcClass::OpeningElement,
+        IfcClass::Door,
+        IfcClass::Window,
+        IfcClass::Grid,
+        IfcClass::Annotation,
+    ];
+
+    /// ELM-011, Appendix D.5: the classes selectable for free-form solids,
+    /// objects and imported elements, `IfcBuildingElementProxy` (their
+    /// default) first.
+    pub const SELECTABLE_D5: [IfcClass; 20] = [
+        IfcClass::BuildingElementProxy,
+        IfcClass::Wall,
+        IfcClass::Slab,
+        IfcClass::Roof,
+        IfcClass::Column,
+        IfcClass::Beam,
+        IfcClass::Member,
+        IfcClass::Plate,
+        IfcClass::Covering,
+        IfcClass::Footing,
+        IfcClass::Pile,
+        IfcClass::Railing,
+        IfcClass::Stair,
+        IfcClass::Ramp,
+        IfcClass::Chimney,
+        IfcClass::ShadingDevice,
+        IfcClass::CurtainWall,
+        IfcClass::Furniture,
+        IfcClass::Space,
+        IfcClass::GeographicElement,
+    ];
+
+    /// ELM-011: the classes selectable for walls.
+    pub const WALL_CLASSES: &'static [IfcClass] = &[IfcClass::Wall, IfcClass::Footing];
+
+    /// ELM-011: the classes selectable for slabs.
+    pub const SLAB_CLASSES: &'static [IfcClass] = &[IfcClass::Slab, IfcClass::Footing, IfcClass::Covering];
+
+    /// ELM-011: the classes selectable for beams.
+    pub const BEAM_CLASSES: &'static [IfcClass] = &[IfcClass::Beam, IfcClass::Member, IfcClass::Footing];
+
+    /// ELM-011: the classes selectable for columns.
+    pub const COLUMN_CLASSES: &'static [IfcClass] = &[IfcClass::Column, IfcClass::Member];
+
+    /// IFX-016, Table 5-1: the classes of the parts of stairs, railings,
+    /// curtain walls and multi-plane roofs.
+    pub const COMPOUND_PART_CLASSES: &'static [CompoundPart] = &[
+        CompoundPart::new(IfcClass::Stair, "flight", IfcClass::StairFlight),
+        CompoundPart::new(IfcClass::Stair, "landing", IfcClass::Slab),
+        CompoundPart::new(IfcClass::Stair, "stringer", IfcClass::Member),
+        CompoundPart::new(IfcClass::Railing, "post", IfcClass::Member),
+        CompoundPart::new(IfcClass::Railing, "rail", IfcClass::Member),
+        CompoundPart::new(IfcClass::Railing, "infill-panel", IfcClass::Plate),
+        CompoundPart::new(IfcClass::CurtainWall, "frame", IfcClass::Member),
+        CompoundPart::new(IfcClass::CurtainWall, "panel", IfcClass::Plate),
+        CompoundPart::new(IfcClass::Roof, "plane", IfcClass::Slab),
+    ];
+
     /// The IFC 4.3 class name written as `bsi::ifc::class.code`.
     pub fn code(self) -> &'static str {
         match self {
+            IfcClass::BuildingElementProxy => "IfcBuildingElementProxy",
             IfcClass::Wall => "IfcWall",
             IfcClass::Slab => "IfcSlab",
-            IfcClass::Footing => "IfcFooting",
+            IfcClass::Roof => "IfcRoof",
+            IfcClass::Column => "IfcColumn",
+            IfcClass::Beam => "IfcBeam",
+            IfcClass::Member => "IfcMember",
+            IfcClass::Plate => "IfcPlate",
             IfcClass::Covering => "IfcCovering",
-            IfcClass::BuildingElementProxy => "IfcBuildingElementProxy",
+            IfcClass::Footing => "IfcFooting",
+            IfcClass::Pile => "IfcPile",
+            IfcClass::Railing => "IfcRailing",
+            IfcClass::Stair => "IfcStair",
+            IfcClass::Ramp => "IfcRamp",
+            IfcClass::Chimney => "IfcChimney",
+            IfcClass::ShadingDevice => "IfcShadingDevice",
+            IfcClass::CurtainWall => "IfcCurtainWall",
+            IfcClass::Furniture => "IfcFurniture",
+            IfcClass::Space => "IfcSpace",
+            IfcClass::GeographicElement => "IfcGeographicElement",
+            IfcClass::StairFlight => "IfcStairFlight",
+            IfcClass::OpeningElement => "IfcOpeningElement",
+            IfcClass::Door => "IfcDoor",
+            IfcClass::Window => "IfcWindow",
+            IfcClass::Grid => "IfcGrid",
+            IfcClass::Annotation => "IfcAnnotation",
         }
     }
 
     /// Message key of the class's name in choices (NFR-L10N-001).
     pub fn label_key(self) -> &'static str {
         match self {
+            IfcClass::BuildingElementProxy => "model-ifc-class-proxy",
             IfcClass::Wall => "model-ifc-class-wall",
             IfcClass::Slab => "model-ifc-class-slab",
-            IfcClass::Footing => "model-ifc-class-footing",
+            IfcClass::Roof => "model-ifc-class-roof",
+            IfcClass::Column => "model-ifc-class-column",
+            IfcClass::Beam => "model-ifc-class-beam",
+            IfcClass::Member => "model-ifc-class-member",
+            IfcClass::Plate => "model-ifc-class-plate",
             IfcClass::Covering => "model-ifc-class-covering",
-            IfcClass::BuildingElementProxy => "model-ifc-class-proxy",
+            IfcClass::Footing => "model-ifc-class-footing",
+            IfcClass::Pile => "model-ifc-class-pile",
+            IfcClass::Railing => "model-ifc-class-railing",
+            IfcClass::Stair => "model-ifc-class-stair",
+            IfcClass::Ramp => "model-ifc-class-ramp",
+            IfcClass::Chimney => "model-ifc-class-chimney",
+            IfcClass::ShadingDevice => "model-ifc-class-shading-device",
+            IfcClass::CurtainWall => "model-ifc-class-curtain-wall",
+            IfcClass::Furniture => "model-ifc-class-furniture",
+            IfcClass::Space => "model-ifc-class-space",
+            IfcClass::GeographicElement => "model-ifc-class-geographic-element",
+            IfcClass::StairFlight => "model-ifc-class-stair-flight",
+            IfcClass::OpeningElement => "model-ifc-class-opening-element",
+            IfcClass::Door => "model-ifc-class-door",
+            IfcClass::Window => "model-ifc-class-window",
+            IfcClass::Grid => "model-ifc-class-grid",
+            IfcClass::Annotation => "model-ifc-class-annotation",
         }
     }
 
     pub fn from_code(code: &str) -> Option<Self> {
-        [
-            IfcClass::Wall,
-            IfcClass::Slab,
-            IfcClass::Footing,
-            IfcClass::Covering,
-            IfcClass::BuildingElementProxy,
-        ]
-        .into_iter()
-        .find(|c| c.code() == code)
+        Self::ALL.into_iter().find(|c| c.code() == code)
+    }
+}
+
+impl CompoundPart {
+    const fn new(compound: IfcClass, part: &'static str, class: IfcClass) -> Self {
+        Self { compound, part, class }
     }
 }
 
