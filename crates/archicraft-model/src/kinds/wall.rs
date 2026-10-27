@@ -156,7 +156,7 @@ impl Kind for Wall {
         code: "wall",
         name_prefix: "W",
         default_class: IfcClass::Wall,
-        ifc_classes: &[IfcClass::Wall, IfcClass::Footing],
+        ifc_classes: IfcClass::WALL_CLASSES,
         predefined_types: PredefinedType::for_class,
         has_tool: true,
         template_defaults: Some(template_defaults),

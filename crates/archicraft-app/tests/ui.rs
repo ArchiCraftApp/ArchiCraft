@@ -1258,6 +1258,80 @@ fn changing_the_class_clears_a_type_the_new_class_does_not_offer() {
     assert!(harness.query_by_label("Floor").is_none());
 }
 
+/// The IFC classes offered in the open class choice, top to bottom: the
+/// option labels of every known class, without the combo box itself.
+fn offered_classes(harness: &Harness<'static, ArchiCraftApp>) -> Vec<&'static str> {
+    let mut offered: Vec<(f32, &'static str)> = IfcClass::ALL
+        .iter()
+        .flat_map(|class| {
+            harness
+                .query_all_by_label(class.code())
+                .filter(|node| node.accesskit_node().role() != Role::ComboBox)
+                .map(|node| (node.rect().min.y, class.code()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    offered.sort_by(|a, b| a.0.total_cmp(&b.0));
+    offered.into_iter().map(|(_, code)| code).collect()
+}
+
+/// ELM-011: the IFC class choice offers exactly the selected kind's
+/// classes: IfcWall and IfcFooting for a wall, IfcSlab, IfcFooting and
+/// IfcCovering for a slab and the twenty Appendix D.5 classes in D.5 order
+/// for the test kind, the stand-in for free-form solids and objects.
+/// Choosing IfcFooting for the wall is one UpdateElements, and undo
+/// restores IfcWall.
+#[test]
+fn the_class_choice_offers_exactly_the_kinds_classes() {
+    let mut harness = harness("ifc-class-choice");
+    let (wall, slab) = add_wall_and_slab(&mut harness, None);
+    let dummy = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let material = ws.doc.project.materials[0].id;
+        let element = archicraft_model::kinds::Dummy::new(DVec2::new(6.0, 0.0), DVec2::ONE, material).into_element(
+            &ws.doc.project,
+            storey,
+            0,
+        );
+        let id = element.id;
+        assert!(ws.execute(Command::AddElements(vec![element])));
+        id
+    };
+    for (id, current, expected) in [
+        (dummy, "IfcBuildingElementProxy", &IfcClass::SELECTABLE_D5[..]),
+        (slab, "IfcSlab", IfcClass::SLAB_CLASSES),
+        (wall, "IfcWall", IfcClass::WALL_CLASSES),
+    ] {
+        select_only(&mut harness, id);
+        open_combo(&mut harness, current);
+        let expected: Vec<&str> = expected.iter().map(|c| c.code()).collect();
+        assert_eq!(offered_classes(&harness), expected, "{current}");
+        open_combo(&mut harness, current);
+    }
+
+    let commands = choose_in_combo(&mut harness, "IfcWall", "IfcFooting");
+    assert!(
+        matches!(commands.as_slice(), [Command::UpdateElements(e)] if e.len() == 1 && e[0].id == wall),
+        "{commands:?}"
+    );
+    let class = |harness: &mut Harness<'static, ArchiCraftApp>| {
+        harness
+            .state_mut()
+            .workspace()
+            .doc
+            .project
+            .element(wall)
+            .unwrap()
+            .ifc_class
+    };
+    assert_eq!(class(&mut harness), IfcClass::Footing);
+    harness.state_mut().workspace().undo();
+    harness.run_steps(2);
+    assert_eq!(class(&mut harness), IfcClass::Wall);
+    harness.get(By::new().role(Role::ComboBox).value("IfcWall"));
+}
+
 /// IFX-024, ELM-001: with the slab tool active and nothing selected, a type
 /// chosen in the strip goes into the slab tool's defaults slot through
 /// SetToolDefaults.
