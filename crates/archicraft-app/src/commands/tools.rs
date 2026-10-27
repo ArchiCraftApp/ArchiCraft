@@ -4,6 +4,7 @@ use egui::Key;
 
 use super::{Binding, Category, CommandId, CommandSpec, Handler, Scope};
 use crate::tools::ToolKind;
+use crate::ui::icons;
 
 pub const SELECT: CommandId = CommandId::new("tool.select");
 pub const WALL: CommandId = CommandId::new("tool.wall");
@@ -20,15 +21,22 @@ pub fn command(kind: ToolKind) -> CommandId {
 }
 
 pub(super) fn specs() -> Vec<CommandSpec> {
-    let tool = |id: CommandId, order, key, handler: Handler| {
+    let tool = |id: CommandId, order, key, icon, handler: Handler| {
         CommandSpec::new(id.as_str(), Category::Design, handler)
             .menu("design", 0, order)
             .bind(Binding::key(key))
             .scope(Scope::Canvas)
+            .icon(icon)
     };
     vec![
-        tool(SELECT, 0, Key::V, |app, _, _| app.ws.select_tool(ToolKind::Select)),
-        tool(WALL, 1, Key::W, |app, _, _| app.ws.select_tool(ToolKind::Wall)),
-        tool(SLAB, 2, Key::S, |app, _, _| app.ws.select_tool(ToolKind::Slab)),
+        tool(SELECT, 0, Key::V, icons::SELECT, |app, _, _| {
+            app.ws.select_tool(ToolKind::Select)
+        }),
+        tool(WALL, 1, Key::W, icons::WALL, |app, _, _| {
+            app.ws.select_tool(ToolKind::Wall)
+        }),
+        tool(SLAB, 2, Key::S, icons::SLAB, |app, _, _| {
+            app.ws.select_tool(ToolKind::Slab)
+        }),
     ]
 }

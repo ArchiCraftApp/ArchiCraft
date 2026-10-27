@@ -15,6 +15,7 @@ use archicraft_app::input::{
 use archicraft_app::persistence::DataDirs;
 use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::{ToolKind, WallMode};
+use archicraft_app::ui::icons;
 use archicraft_app::workspace::{Consumer, Pane};
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
@@ -23,7 +24,7 @@ use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{
     Command, ElementId, ElementKind, IfcClass, KindTag, PredefinedType, ProjectSettings, ReferenceLine,
 };
-use common::{assert_present, data_dir, harness, harness_in};
+use common::{assert_present, data_dir, harness, harness_at, harness_in};
 use egui::accesskit::Role;
 use egui::os::OperatingSystem;
 use egui::{Event, Key, Modifiers, PointerButton};
@@ -510,7 +511,7 @@ fn add_wall(harness: &mut Harness<'static, ArchiCraftApp>) {
 
 /// UI-011: the toolbar lies directly below the menu bar and above the
 /// properties strip, and its only buttons are Undo, then Redo, each its
-/// command's label behind an arrow that the font of buttons can draw.
+/// command's icon and label.
 #[test]
 fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
     let harness = harness("toolbar-place");
@@ -529,9 +530,49 @@ fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
         .collect();
     buttons.sort_by(|a, b| a.0.total_cmp(&b.0));
     let labels: Vec<&str> = buttons.iter().map(|(_, label)| label.as_str()).collect();
-    assert_eq!(labels, ["⟲ Undo", "⟳ Redo"]);
-    let font = egui::TextStyle::Button.resolve(&harness.ctx.global_style());
-    assert!(harness.ctx.fonts_mut(|f| f.has_glyphs(&font, "⟲⟳")));
+    assert_eq!(labels, ["Undo", "Redo"]);
+}
+
+/// UI-001, NFR-PORT-005: the toolbox and the toolbar show their icons,
+/// rasterised for the screen's pixels: 20 pt in the toolbox and 16 pt in the
+/// toolbar, with twice as many pixels per side at 200 % scaling. egui names
+/// an icon's texture by its uri.
+#[test]
+fn the_toolbox_and_the_toolbar_draw_their_icons_for_the_screen() {
+    let toolbox = [
+        icons::SELECT,
+        icons::WALL,
+        icons::SLAB,
+        icons::FIT,
+        icons::ORBIT,
+        icons::PLAN_3D,
+    ];
+    let toolbar = [icons::UNDO, icons::REDO];
+    for (pixels_per_point, name) in [(1.0, "icons-100"), (2.0, "icons-200")] {
+        let harness = harness_at(name, pixels_per_point);
+        let textures: Vec<(String, [usize; 2])> = harness
+            .ctx
+            .tex_manager()
+            .read()
+            .allocated()
+            .map(|(_, meta)| (meta.name.clone(), meta.size))
+            .collect();
+        for (icons, points) in [(&toolbox[..], 20.0), (&toolbar[..], 16.0)] {
+            let side = (points * pixels_per_point) as usize;
+            for icon in icons {
+                let uri = icon.uri().unwrap_or_default().to_owned();
+                assert!(
+                    textures.contains(&(uri.clone(), [side, side])),
+                    "{uri} at {pixels_per_point}: {textures:?}"
+                );
+            }
+        }
+    }
+}
+
+/// The toolbar's button labelled `label`, not a tooltip with the same text.
+fn toolbar_button<'h>(harness: &'h Harness<'static, ArchiCraftApp>, label: &'h str) -> egui_kittest::Node<'h> {
+    harness.get(By::new().role(Role::Button).label(label))
 }
 
 /// UI-011, NFR-L10N-001: with the en-XA pseudo-locale installed, the labels
@@ -544,12 +585,12 @@ fn the_toolbar_labels_come_from_the_catalogue() {
     let pseudo = Rc::new(Localizer::pseudo());
     harness.state_mut().set_localizer(Rc::clone(&pseudo));
     harness.run_steps(2);
-    for (arrow, key) in [("⟲", "cmd-edit-undo-label"), ("⟳", "cmd-edit-redo-label")] {
+    for key in ["cmd-edit-undo-label", "cmd-edit-redo-label"] {
         let label = i18n::with(Rc::clone(&pseudo), || tr!(key));
         assert!(label.starts_with(i18n::pseudo::OPEN), "{label}");
-        harness.get_by_label(&format!("{arrow} {label}"));
+        toolbar_button(&harness, &label);
     }
-    assert!(harness.query_all_by_label("⟲ Undo").next().is_none());
+    assert!(harness.query_all_by_label("Undo").next().is_none());
 }
 
 /// UI-011, UND-001: with an empty history the toolbar's Undo and Redo are
@@ -560,29 +601,29 @@ fn the_toolbar_labels_come_from_the_catalogue() {
 fn the_toolbar_undoes_and_redoes() {
     let mut harness = harness("toolbar-undo");
     let enabled = |harness: &Harness<'static, ArchiCraftApp>| {
-        ["⟲ Undo", "⟳ Redo"].map(|label| !harness.get_by_label(label).accesskit_node().is_disabled())
+        ["Undo", "Redo"].map(|label| !toolbar_button(harness, label).accesskit_node().is_disabled())
     };
     let elements =
         |harness: &mut Harness<'static, ArchiCraftApp>| harness.state_mut().workspace().doc.project.elements.len();
     assert_eq!(enabled(&harness), [false, false]);
     add_wall(&mut harness);
     assert_eq!(enabled(&harness), [true, false]);
-    harness.get_by_label("⟲ Undo").click();
+    toolbar_button(&harness, "Undo").click();
     harness.run_steps(2);
     assert_eq!(elements(&mut harness), 0);
     assert_eq!(enabled(&harness), [false, true]);
-    harness.get_by_label("⟳ Redo").click();
+    toolbar_button(&harness, "Redo").click();
     harness.run_steps(2);
     assert_eq!(elements(&mut harness), 1);
     assert_eq!(enabled(&harness), [true, false]);
 
     harness.state_mut().record_invocations();
-    harness.get_by_label("⟲ Undo").click();
+    toolbar_button(&harness, "Undo").click();
     harness.run_steps(2);
     assert_eq!(invoked(&mut harness), [("edit.undo", Origin::Toolbar)]);
     harness.state_mut().workspace().undo();
     harness.run_steps(2);
-    harness.get_by_label("⟳ Redo").click();
+    toolbar_button(&harness, "Redo").click();
     harness.run_steps(2);
     assert_eq!(invoked(&mut harness), [("edit.redo", Origin::Toolbar)]);
 }
@@ -598,7 +639,7 @@ fn the_toolbar_tooltips_show_label_shortcut_description_and_reason() {
     let redo_keys = harness
         .ctx
         .format_shortcut(&Binding::primary(Key::Z).shift().shortcut());
-    harness.get_by_label("⟲ Undo").hover();
+    toolbar_button(&harness, "Undo").hover();
     harness.run_steps(4);
     for text in [
         "Undo Create wall",
@@ -608,7 +649,7 @@ fn the_toolbar_tooltips_show_label_shortcut_description_and_reason() {
         assert_present(&harness, text);
     }
     assert!(harness.query_all_by_label("There is nothing to undo.").next().is_none());
-    harness.get_by_label("⟳ Redo").hover();
+    toolbar_button(&harness, "Redo").hover();
     harness.run_steps(4);
     for text in [
         "Redo",

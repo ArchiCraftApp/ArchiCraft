@@ -27,6 +27,7 @@ archicraft-model.workspace = true
 bytemuck.workspace = true
 eframe.workspace = true
 egui.workspace = true
+egui_extras.workspace = true
 egui_tiles.workspace = true
 fluent-bundle.workspace = true
 fluent-syntax.workspace = true

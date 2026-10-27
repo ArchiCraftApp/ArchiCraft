@@ -5,6 +5,7 @@ use egui::Key;
 
 use super::{Binding, Category, CommandId, CommandSpec, Enabled, Handler, Scope, Target};
 use crate::ArchiCraftApp;
+use crate::ui::icons;
 use crate::views::view3d::View3dState;
 use crate::workspace::Pane;
 
@@ -22,7 +23,8 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         view(FIT_WINDOW.as_str(), |app, _, target| app.zoom_pane(target.pane, None))
             .menu("view", 0, 0)
             .bind(Binding::key(Key::F))
-            .scope(Scope::Canvas),
+            .scope(Scope::Canvas)
+            .icon(icons::FIT),
         view("view.zoom-selection", |app, _, target| {
             let ids = app.ws.selected_ids();
             if !ids.is_empty() {
@@ -61,7 +63,8 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         })
         .menu("view", 1, 0)
         .bind(Binding::key(Key::F3))
-        .scope(Scope::Canvas),
+        .scope(Scope::Canvas)
+        .icon(icons::PLAN_3D),
         // Ctrl+Tab stays off while a tool takes point input, where Tab moves
         // between the typed fields.
         view("view.next-tab", |app, _, _| app.cycle_tab(1))
@@ -74,7 +77,8 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         view(ORBIT.as_str(), toggle_orbit)
             .menu("view", 1, 3)
             .bind(Binding::key(Key::O))
-            .scope(Scope::Canvas),
+            .scope(Scope::Canvas)
+            .icon(icons::ORBIT),
         view("view.reference-lines", |app, _, _| {
             app.ws.prefs.show_reference_lines = !app.ws.prefs.show_reference_lines;
             app.save_prefs();
