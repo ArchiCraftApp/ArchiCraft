@@ -138,7 +138,9 @@ def collect_prs():
                            "-f", f"query={QUEUE_QUERY}"], cwd=ROOT)
         if not isinstance(answer, dict):
             raise RuntimeError("gh api graphql: the answer is not a JSON object")
-        repository = (answer.get("data") or {}).get("repository")
+        # A data field that is not an object (a list, a string) has no repository either.
+        data = answer.get("data")
+        repository = data.get("repository") if isinstance(data, dict) else None
         if not repository:
             # A GraphQL error comes back as an answer without the repository: report GitHub's
             # messages instead of failing on the missing data.
