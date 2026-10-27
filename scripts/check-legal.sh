@@ -7,8 +7,8 @@
 #   reference product nominatively throughout and are exempt; so are
 #   docs/status/requirements.json, from which docs/implementation-status.md is generated, and
 #   the beads export .beads/, whose task texts quote those documents);
-# - a tracked image (SVG included), library-part or template file is not listed with its
-#   origin and licence in scripts/asset-allowlist.txt.
+# - a tracked image (SVG, ICO, ICNS, WebP and TIFF included), library-part or template file is
+#   not listed with its origin and licence in scripts/asset-allowlist.txt.
 # Usage: scripts/check-legal.sh
 set -eu
 cd "$(git rev-parse --show-toplevel)"
@@ -57,7 +57,8 @@ fi
 
 assets="$(git ls-files -- ':(icase,glob)**/*.png' ':(icase,glob)**/*.jpg' \
     ':(icase,glob)**/*.jpeg' ':(icase,glob)**/*.gif' ':(icase,glob)**/*.bmp' \
-    ':(icase,glob)**/*.svg' \
+    ':(icase,glob)**/*.svg' ':(icase,glob)**/*.ico' ':(icase,glob)**/*.icns' \
+    ':(icase,glob)**/*.webp' ':(icase,glob)**/*.tif' ':(icase,glob)**/*.tiff' \
     ':(icase,glob)**/*.gsm' ':(icase,glob)**/*.lcf' ':(icase,glob)**/*.pln' \
     ':(icase,glob)**/*.pla' ':(icase,glob)**/*.tpl' ':(icase,glob)**/*.aat')"
 if [ -n "$assets" ]; then

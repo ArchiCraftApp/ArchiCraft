@@ -3,7 +3,8 @@
 # canned violation, so a guard that silently stops checking turns CI red.
 # - scripts/check-layering.sh on canned `cargo tree` output (NFR-MNT-002, NFR-MNT-004)
 # - scripts/check-legal.sh in a scratch repository with a trademark line and tracked
-#   library-part, image and SVG files outside the allowlists (NFR-LEG-002)
+#   library-part and image files (SVG, icon, WebP and TIFF included) outside the allowlists
+#   (NFR-LEG-002)
 # Usage: scripts/guards-selftest.sh
 set -eu
 root="$(git rev-parse --show-toplevel)"
@@ -49,7 +50,9 @@ echo "Exports IFCX for any viewer." >"$scratch/docs/guide.md"
 git -C "$scratch" add -A
 expect pass "legal: trademark line removed again" legal
 
-for asset in library/door.gsm assets/screenshot.png assets/icons/copied.svg; do
+for asset in library/door.gsm assets/screenshot.png assets/icons/copied.svg \
+    packaging/windows/app.ico packaging/macos/App.icns assets/photo.webp assets/scan.tif \
+    assets/scan.TIFF; do
     mkdir -p "$scratch/$(dirname "$asset")"
     : >"$scratch/$asset"
     git -C "$scratch" add -A

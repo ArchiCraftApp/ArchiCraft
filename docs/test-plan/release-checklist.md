@@ -87,7 +87,7 @@ inspection that a script cannot do:
 
 Useful commands: `git diff <last release tag>.. -- scripts/legal-allowlist.txt
 scripts/asset-allowlist.txt` and `git diff --stat <last release tag>.. -- '*.png' '*.svg'
-'*.ico' docs/`.
+'*.ico' '*.icns' '*.webp' '*.tif' '*.tiff' docs/`.
 
 ### 6. Implementation status is current
 
