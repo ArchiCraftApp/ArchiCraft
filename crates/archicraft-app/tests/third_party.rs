@@ -167,7 +167,7 @@ fn supplied_notices_keep_their_source() {
         .filter_map(|line| line.strip_prefix("source = \""))
         .filter_map(|line| line.strip_suffix('"'))
         .collect();
-    assert_eq!(sources.len(), 5, "{sources:?}");
+    assert_eq!(sources.len(), 11, "{sources:?}");
     for source in sources {
         assert_eq!(
             NOTICES.matches(&format!("\n{source}\n")).count(),
@@ -183,6 +183,76 @@ fn supplied_notices_keep_their_source() {
         dispatch.contains("Composed: the package states the MIT licence"),
         "{dispatch}"
     );
+}
+
+/// The crates that generate their bindings from bundled protocol files carry the copyright lines
+/// and licences of those files (NFR-LEG-001, archicraft-7vqgr): the Wayland protocol crates,
+/// wayland-client with the core protocol file wayland.xml, and x11rb and x11rb-protocol, whose
+/// protocol modules are generated from xcb-proto.
+#[test]
+fn generated_bindings_carry_their_protocol_notices() {
+    for (krate, lines) in [
+        (
+            "wayland-protocols",
+            &[
+                "stable/xdg-shell/xdg-shell.xml: Copyright © 2008-2013 Kristian Høgsberg",
+                "staging/ext-data-control/ext-data-control-v1.xml: Copyright © 2018 Simon Ser",
+                "THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS",
+            ][..],
+        ),
+        (
+            "wayland-protocols-wlr",
+            &["wlr-layer-shell-unstable-v1.xml: Copyright © 2017 Drew DeVault"],
+        ),
+        (
+            "wayland-protocols-misc",
+            &[
+                "gtk-primary-selection.xml: Copyright © 2015, 2016 Red Hat",
+                "server-decoration.xml: Copyright 2015 Martin Gräßlin",
+                "GNU LESSER GENERAL PUBLIC LICENSE",
+            ],
+        ),
+        (
+            "wayland-protocols-experimental",
+            &["xx-session-management/xx-session-management-v1.xml: Copyright 2018 Mike Blumenkrantz"],
+        ),
+        (
+            "wayland-client",
+            &["wayland.xml: Copyright © 2008-2011 Kristian Høgsberg"],
+        ),
+        (
+            "x11rb-protocol",
+            &[
+                "COPYING: Copyright (C) 2001-2006 Bart Massey, Jamey Sharp, and Josh Triplett.",
+                "src/present.xml: Copyright © 2013 Keith Packard",
+                "Except as contained in this notice, the names of the authors",
+            ],
+        ),
+        (
+            "x11rb",
+            &[
+                "COPYING: Copyright (C) 2001-2006 Bart Massey, Jamey Sharp, and Josh Triplett.",
+                "src/present.xml: Copyright © 2013 Keith Packard",
+                "Except as contained in this notice, the names of the authors",
+            ],
+        ),
+    ] {
+        let entry = NOTICES
+            .split("\n### ")
+            .find(|entry| {
+                entry
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Used by: "))
+                    .is_some_and(|used| {
+                        used.split(", ")
+                            .any(|key| key.split_once(' ').is_some_and(|(name, _)| name == krate))
+                    })
+            })
+            .unwrap_or_else(|| panic!("no licence text is used by {krate}"));
+        for line in lines {
+            assert!(entry.contains(line), "the notice of {krate} lacks {line:?}:\n{entry}");
+        }
+    }
 }
 
 /// Each package carries THIRD-PARTY.md next to LICENSE (NFR-LEG-001).

@@ -1,0 +1,199 @@
+x11rb 0.13.2 and x11rb-protocol 0.13.2 are licensed under the MIT licence or the Apache
+License, Version 2.0, at your option; ArchiCraft uses them under the MIT licence (their
+identical LICENSE-MIT):
+
+Copyright 2019 x11rb Contributers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+The protocol modules of both (src/protocol/) are generated from the X11 protocol
+descriptions of xcb-proto 1.17.0, which the x11rb repository vendors in xcb-proto-1.17.0
+(commit 1b73245 of https://github.com/psychon/x11rb, the commit of both releases). Their
+copyright lines and licences, as the files state them:
+
+MIT License (MIT):
+- src/composite.xml: Copyright (c) 2006, Oracle and/or its affiliates.
+
+X11 License (X11), wording 1:
+- COPYING: Copyright (C) 2001-2006 Bart Massey, Jamey Sharp, and Josh Triplett. All Rights Reserved.
+- src/bigreq.xml: Copyright (C) 2001-2004 Bart Massey, Jamey Sharp, and Josh Triplett. All Rights Reserved.
+- src/composite.xml: Copyright (C) 2004 Josh Triplett. All Rights Reserved.
+- src/damage.xml: Copyright (C) 2004 Josh Triplett; Copyright (C) 2007 Jeremy Kolb All Rights Reserved.
+- src/dbe.xml (its licence is that of COPYING): Copyright (c) 2022 Mike Sharov <msharov@users.sourceforge.net>
+- src/dpms.xml: Copyright (C) 2001-2004 Bart Massey, Jamey Sharp, and Josh Triplett. All Rights Reserved.
+- src/dri2.xml: Copyright (C) 2005 Jeremy Kolb.; Copyright © 2009 Intel Corporation All Rights Reserved.
+- src/ge.xml: Copyright (C) 2009 Open Text Corporation. All Rights Reserved.
+- src/randr.xml: Copyright (C) 2006 Jeremy Kolb, Ian Osgood All Rights Reserved.
+- src/render.xml (its licence is that of COPYING): Copyright (C) 2002-2004 Carl D. Worth, Jamey Sharp, Bart Massey, Josh Triplett All Rights Reserved.
+- src/res.xml: Copyright (C) 2006 Jeremy Kolb All Rights Reserved.
+- src/shape.xml: Copyright (C) 2001-2004 Bart Massey, Jamey Sharp, and Josh Triplett. All Rights Reserved.
+- src/shm.xml: Copyright (C) 2001-2004 Bart Massey, Jamey Sharp, and Josh Triplett. All Rights Reserved.
+- src/sync.xml (its licence is that of COPYING): Copyright (C) 2004 Mikko Torni and Josh Triplett. All Rights Reserved.
+- src/xc_misc.xml (its licence is that of COPYING): Copyright (C) 2004 Mikko Torni and Josh Triplett. All Rights Reserved.
+- src/xevie.xml: Copyright (C) 2004 Josh Triplett. All Rights Reserved.
+- src/xf86vidmode.xml: Copyright (C) 2009 Open Text Corporation. All Rights Reserved.
+- src/xfixes.xml: Copyright (C) 2004 Josh Triplett. All Rights Reserved.
+- src/xinerama.xml: Copyright (C) 2006 Jeremy Kolb. All Rights Reserved.
+- src/xinput.xml: Copyright (C) 2006 Peter Hutterer; Copyright (C) 2013 Daniel Martin All Rights Reserved.
+- src/xkb.xml: Copyright (C) 2009 Open Text Corporation. All Rights Reserved.
+- src/xproto.xml: Copyright (C) 2001-2004 Bart Massey, Jamey Sharp, and Josh Triplett. All Rights Reserved.
+- src/xselinux.xml: no copyright line in the file
+- src/xv.xml: Copyright (C) 2006 Jeremy Kolb. All Rights Reserved.
+- src/xvmc.xml: Copyright (C) 2006 Jeremy Kolb. All Rights Reserved.
+
+X11 License (X11), wording 2:
+- src/glx.xml: Copyright (C) 2005 Jeremy Kolb. All Rights Reserved.
+- src/record.xml: Copyright (C) 2005 Jeremy Kolb. All Rights Reserved.
+- src/screensaver.xml: Copyright (C) 2005 Vincent Torri. All Rights Reserved.
+- src/xf86dri.xml: Copyright (C) 2005 Jeremy Kolb. All Rights Reserved.
+- src/xprint.xml: Copyright (C) 2005 Jeremy Kolb. All Rights Reserved.
+- src/xtest.xml: Copyright (C) 2006 Ian Osgood All Rights Reserved.
+
+Historical Permission Notice and Disclaimer - sell variant (HPND-sell-variant), wording 1:
+- src/dri3.xml: Copyright © 2013 Keith Packard
+- src/present.xml: Copyright © 2013 Keith Packard
+
+Historical Permission Notice and Disclaimer - sell variant (HPND-sell-variant), wording 2:
+- src/composite.xml: Copyright © 2003 Keith Packard
+
+------------------------------------------------------------------------
+MIT License (MIT) (the copyright lines are those listed above):
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice (including the next
+paragraph) shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+------------------------------------------------------------------------
+X11 License (X11), wording 1 (the copyright lines are those listed above):
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall
+be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
+BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the names of the authors
+or their institutions shall not be used in advertising or
+otherwise to promote the sale, use or other dealings in this
+Software without prior written authorization from the
+authors.
+
+------------------------------------------------------------------------
+X11 License (X11), wording 2 (the copyright lines are those listed above):
+
+Permission is hereby granted, free of charge, to any person ob/Sintaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the names of the authors or their
+institutions shall not be used in advertising or otherwise to promote the
+sale, use or other dealings in this Software without prior written
+authorization from the authors.
+
+------------------------------------------------------------------------
+Historical Permission Notice and Disclaimer - sell variant (HPND-sell-variant), wording 1 (the copyright lines are those listed above):
+
+Permission to use, copy, modify, distribute, and sell this software and its
+documentation for any purpose is hereby granted without fee, provided that
+the above copyright notice appear in all copies and that both that copyright
+notice and this permission notice appear in supporting documentation, and
+that the name of the copyright holders not be used in advertising or
+publicity pertaining to distribution of the software without specific,
+written prior permission.  The copyright holders make no representations
+about the suitability of this software for any purpose.  It is provided "as
+is" without express or implied warranty.
+
+THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
+EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
+DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
+OF THIS SOFTWARE.
+
+------------------------------------------------------------------------
+Historical Permission Notice and Disclaimer - sell variant (HPND-sell-variant), wording 2 (the copyright lines are those listed above):
+
+Permission to use, copy, modify, distribute, and sell this software and its
+documentation for any purpose is hereby granted without fee, provided that
+the above copyright notice appear in all copies and that both that
+copyright notice and this permission notice appear in supporting
+documentation, and that the name of Keith Packard not be used in
+advertising or publicity pertaining to distribution of the software without
+specific, written prior permission.  Keith Packard makes no
+representations about the suitability of this software for any purpose.  It
+is provided "as is" without express or implied warranty.
+
+KEITH PACKARD DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
+EVENT SHALL KEITH PACKARD BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
+DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
