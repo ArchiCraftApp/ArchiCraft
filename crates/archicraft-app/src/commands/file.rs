@@ -30,10 +30,11 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         file("file.close", |app, ctx, _| app.guard(ctx, Then::Close))
             .menu("file", 1, 2)
             .bind(Binding::primary(Key::W)),
-        CommandSpec::new("file.preferences", Category::File, |app, _, _| {
+        file("file.preferences", |app, _, _| {
             app.dialogs.preferences = Some(app.ws.prefs.clone());
         })
-        .menu("file", 2, 0),
+        .menu("file", 2, 0)
+        .bind(Binding::primary(Key::Comma)),
         file("file.quit", |app, ctx, _| app.guard(ctx, Then::Quit))
             .menu("file", 3, 0)
             .bind(Binding::primary(Key::Q)),

@@ -15,10 +15,12 @@
 
 pub mod binding;
 pub mod ctx;
+pub mod d8;
 pub mod edit;
 pub mod file;
 mod help;
 pub mod keymap;
+pub mod os_reserved;
 mod project;
 pub mod tools;
 pub mod view;

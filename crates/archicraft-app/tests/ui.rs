@@ -466,8 +466,9 @@ fn the_shortcuts_window_lists_every_binding() {
         .iter()
         .filter(|s| !s.default_bindings.is_empty())
         .count();
-    // The 23 former actions and the 6 local commands of the plan view.
-    assert_eq!(rows, 29);
+    // The 23 former actions, Preferences and the 6 local commands of the
+    // plan view.
+    assert_eq!(rows, 30);
     for spec in Registry::get().specs() {
         if !spec.default_bindings.is_empty() {
             assert_present(&harness, &keys(&spec.default_bindings));
@@ -742,14 +743,14 @@ fn the_3d_status_bar_invokes_its_commands_by_id() {
 }
 
 /// UI-017, UI-008: an on/off menu entry shows its shortcut like the other
-/// entries; View ▸ Problems shows Primary+Shift+P.
+/// entries; View ▸ Problems shows Primary+Shift+M.
 #[test]
 fn checked_menu_entries_show_their_shortcut() {
     let mut harness = harness("checked-shortcut");
     open_menu(&mut harness, "View");
     let shortcut = harness
         .ctx
-        .format_shortcut(&Binding::primary(Key::P).shift().shortcut());
+        .format_shortcut(&Binding::primary(Key::M).shift().shortcut());
     harness.get_by_label(&format!("Problems {shortcut}"));
     harness.get_by_label("Show wall reference lines");
 }
@@ -804,8 +805,8 @@ fn invoked_by_shortcut(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<&'s
 }
 
 /// UI-008, HW-003, UI-017: every default binding of the registry, among them
-/// the 23 shortcuts of the former action list, Primary+Y (redo) and
-/// Backspace (delete), invokes its command when its keys are pressed, on
+/// the 23 shortcuts of the former action list, Preferences, Primary+Y
+/// (redo), Backspace (delete) and Primary+3 (plan/3D), invokes its command when its keys are pressed, on
 /// macOS and elsewhere. The plan view runs its local commands itself
 /// (`the_plan_views_local_keys_run_their_commands`).
 #[test]
@@ -827,7 +828,7 @@ fn every_default_shortcut_invokes_its_command() {
             }
         }
     }
-    assert_eq!(pressed, 2 * 25);
+    assert_eq!(pressed, 2 * 27);
 }
 
 /// UI-008, INP-003: while a tool takes point input the single-key shortcuts,
@@ -1027,7 +1028,7 @@ fn typing_into_a_text_field_does_not_switch_tools() {
     press(&mut harness, Binding::key(Key::W), OperatingSystem::Nix);
     press(&mut harness, Binding::primary(Key::A), OperatingSystem::Nix);
     assert_eq!(invoked_by_shortcut(&mut harness), Vec::<&str>::new());
-    press(&mut harness, Binding::primary(Key::P).shift(), OperatingSystem::Nix);
+    press(&mut harness, Binding::primary(Key::M).shift(), OperatingSystem::Nix);
     assert_eq!(invoked_by_shortcut(&mut harness), ["view.problems"]);
 }
 
@@ -1740,7 +1741,7 @@ fn load_problems_show_as_localized_text() {
     harness.get_by_label("OK").click();
     harness.run_steps(2);
 
-    press(&mut harness, Binding::primary(Key::P).shift(), OperatingSystem::Nix);
+    press(&mut harness, Binding::primary(Key::M).shift(), OperatingSystem::Nix);
     harness.run_steps(2);
     harness.get_by_label_contains("from opening the file");
     harness.get_by_label_contains(expected);
@@ -1770,7 +1771,7 @@ fn geometry_problems_show_as_localized_text() {
         }
         project.revision += 1;
     }
-    press(&mut harness, Binding::primary(Key::P).shift(), OperatingSystem::Nix);
+    press(&mut harness, Binding::primary(Key::M).shift(), OperatingSystem::Nix);
     harness.run_steps(2);
     harness.get_by_label_contains("2 geometry");
     harness.get_by_label_contains(": elements of the kind “test element” have no geometry yet");

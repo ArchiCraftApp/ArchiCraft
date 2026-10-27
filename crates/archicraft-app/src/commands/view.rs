@@ -63,6 +63,8 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         })
         .menu("view", 1, 0)
         .bind(Binding::key(Key::F3))
+        // F3 is a media key on a Mac keyboard and needs Fn (docs/keymap.md).
+        .bind(Binding::primary(Key::Num3))
         .scope(Scope::Canvas)
         .icon(icons::PLAN_3D),
         // Ctrl+Tab stays off while a tool takes point input, where Tab moves
@@ -89,7 +91,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             app.dialogs.problems = !app.dialogs.problems
         })
         .menu("view", 2, 1)
-        .bind(Binding::primary(Key::P).shift())
+        .bind(Binding::primary(Key::M).shift())
         .scope(Scope::TextSafe)
         .checked_when(|cx| cx.problems_open),
         // INP-014: the user origin of the plan views.
