@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use archicraft_model::project::Projection;
 use archicraft_model::units::format_length;
-use egui::{Atom, Atoms, Button, RichText, Ui};
+use egui::{Atom, Atoms, Button, Image, RichText, Ui, Vec2};
 
 use crate::commands::{
     CommandCtx, CommandId, CommandSpec, Enabled, MENUS, MenuEntry, Registry, edit, file, menu_title, tools, view,
@@ -138,19 +138,37 @@ fn tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, enabled: Enabled) {
     }
 }
 
+/// The side of the toolbar's icons, in points.
+const TOOLBAR_ICON: f32 = 16.0;
+/// The side of the toolbox's icons, in points.
+const TOOLBOX_ICON: f32 = 20.0;
+/// The size of a toolbox button, in points.
+const TOOLBOX_BUTTON: [f32; 2] = [88.0, 26.0];
+
+/// The icon of `spec` (UI-001, `ui/icons.rs`) with a side of `size` points,
+/// then `label`. The button that shows them must tint its images with its
+/// text colour, so the white icon takes the colour of the label.
+fn icon_and_label<'a>(spec: &CommandSpec, size: f32, label: impl Into<Atom<'a>>) -> Atoms<'a> {
+    let mut atoms = Atoms::new(label);
+    if let Some(icon) = &spec.icon {
+        atoms.push_left(Image::new(icon.clone()).fit_to_exact_size(Vec2::splat(size)));
+    }
+    atoms
+}
+
 /// The toolbar below the menu bar (UI-011): Undo and Redo, greyed out while
-/// they cannot run, with their labels and tooltips from the registry.
+/// they cannot run, with their icons, labels and tooltips from the registry.
 /// Returns the command of the clicked button.
 pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     let mut chosen = None;
     ui.horizontal(|ui| {
-        // egui's default proportional font draws ⟲ and ⟳ from its emoji
-        // icon font; ↶ and ↷ are only in the monospace font.
-        for (id, arrow) in [(edit::UNDO, "⟲"), (edit::REDO, "⟳")] {
+        for id in [edit::UNDO, edit::REDO] {
             let spec = spec(id);
             let enabled = (spec.enabled)(cx);
+            let button =
+                Button::new(icon_and_label(spec, TOOLBAR_ICON, spec.label())).image_tint_follows_text_color(true);
             let response = ui
-                .add_enabled(enabled.is_yes(), Button::new((arrow, spec.label())))
+                .add_enabled(enabled.is_yes(), button)
                 .on_hover_ui(|ui| tooltip(ui, cx, spec, enabled))
                 .on_disabled_hover_ui(|ui| tooltip(ui, cx, spec, enabled));
             if response.clicked() {
@@ -161,18 +179,24 @@ pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     chosen
 }
 
-/// The tool palette (UI-001): selection, modelling and view tools. Returns
-/// the command of the clicked button.
+/// What a toolbox button shows: the icon of `spec` and `label`, both at the
+/// button's left, so the icons line up in a column.
+fn toolbox_atoms<'a>(spec: &CommandSpec, label: &'a str) -> Atoms<'a> {
+    let mut atoms = icon_and_label(spec, TOOLBOX_ICON, label);
+    atoms.push_right(Atom::grow());
+    atoms
+}
+
+/// The tool palette (UI-001): selection, modelling and view tools, each an
+/// icon and a label. Returns the command of the clicked button.
 pub fn toolbox(ui: &mut Ui, ws: &Workspace) -> Option<CommandId> {
     let mut chosen = None;
     let tool_button = |ui: &mut Ui, kind: ToolKind, chosen: &mut Option<CommandId>| {
         let spec = spec(tools::command(kind));
         let shortcut = shortcut_text(ui, spec).map(|s| format!(" ({s})")).unwrap_or_default();
+        let button = Button::selectable(ws.tool.kind == kind, toolbox_atoms(spec, kind.label()));
         let response = ui
-            .add_sized(
-                [88.0, 26.0],
-                egui::Button::selectable(ws.tool.kind == kind, kind.label()),
-            )
+            .add_sized(TOOLBOX_BUTTON, button.image_tint_follows_text_color(true))
             .on_hover_text(format!("{}{shortcut}", kind.description()));
         if response.clicked() {
             *chosen = Some(spec.id);
@@ -195,11 +219,8 @@ pub fn toolbox(ui: &mut Ui, ws: &Workspace) -> Option<CommandId> {
         let tip = shortcut_text(ui, spec)
             .map(|s| format!("{} ({s})", spec.label()))
             .unwrap_or_else(|| spec.label());
-        if ui
-            .add_sized([88.0, 22.0], Button::new(label))
-            .on_hover_text(tip)
-            .clicked()
-        {
+        let button = Button::new(toolbox_atoms(spec, label)).image_tint_follows_text_color(true);
+        if ui.add_sized(TOOLBOX_BUTTON, button).on_hover_text(tip).clicked() {
             chosen = Some(spec.id);
         }
     }

@@ -95,6 +95,7 @@ How the main window (SRS UI-001) maps onto egui. The Archicad names are only for
 ### Tables and icons: egui_extras
 
 - egui's official companion crate: tables (element lists, property tables) and image loaders, including SVG for tool icons.
+- In use for the toolbox and toolbar icons with only its SVG loader (resvg), without the default file loader and without text in SVGs, so no system fonts are read.
 
 ### Menu bar and keyboard shortcuts: drawn by egui
 
@@ -318,7 +319,7 @@ The Manifold library itself is well established; Blender 4.5 ships it as a boole
 2. **Breaking upgrades every quarter** for egui and wgpu, and the docking crate lags behind egui releases. Plan a deliberate upgrade each quarter.
 3. **Plan-view drawing quality** (line weights, hatching, cut versus projected lines) is our own work on wgpu and lyon. No library provides it.
 4. **Linux runtime requirements:** a Vulkan driver, and an XDG desktop portal for file dialogs. Linux is required (SRS NFR-PORT-003), so CI covers it from the start.
-5. **Icons:** open icon sets (Lucide, Phosphor) cover generic actions but not BIM tools (wall, slab, stair, …). We need our own, and we must not copy Archicad's.
+5. **Icons:** open icon sets (Lucide, Phosphor) cover generic actions but not BIM tools (wall, slab, stair, …). We need our own, and we must not copy Archicad's. The toolbox and toolbar icons are our own drawings in one style (`crates/archicraft-app/assets/icons`, described in `ui/icons.rs`); a new tool adds its icon in that style.
 6. **Starting egui version:** whichever version egui_tiles supports when we start.
 7. **Manifold is C++:** a second toolchain on three platforms, and Rust bindings with one owner. Writing our own thin bindings to its C API limits the second risk.
 8. **Geometry no library provides:** the roof skeleton, free-form solid editing and mesh slicing are our own code. The SRS fixtures and geometry regression tests (SRS Appendix D.7, NFR-MNT-005) are the safety net.

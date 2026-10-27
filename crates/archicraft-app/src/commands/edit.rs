@@ -4,6 +4,7 @@ use egui::Key;
 
 use super::{Binding, Category, CommandId, CommandSpec, Enabled, Handler, Scope};
 use crate::tr;
+use crate::ui::icons;
 
 // The edit commands the toolbar invokes (UI-011).
 pub const UNDO: CommandId = CommandId::new("edit.undo");
@@ -16,6 +17,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             .menu("edit", 0, 0)
             .bind(Binding::primary(Key::Z))
             .enabled_when(|cx| Enabled::when(cx.can_undo, "cmd-reason-nothing-to-undo"))
+            .icon(icons::UNDO)
             .dynamic_label(|cx| {
                 cx.undo_label
                     .as_ref()
@@ -26,6 +28,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             .bind(Binding::primary(Key::Z).shift())
             .bind(Binding::primary(Key::Y))
             .enabled_when(|cx| Enabled::when(cx.can_redo, "cmd-reason-nothing-to-redo"))
+            .icon(icons::REDO)
             .dynamic_label(|cx| {
                 cx.redo_label
                     .as_ref()

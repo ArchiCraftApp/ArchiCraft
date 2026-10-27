@@ -230,6 +230,9 @@ pub struct CommandSpec {
     /// A label that depends on the state, such as "Undo Create wall"; `None`
     /// from the function falls back to the catalogue label.
     pub dynamic_label: Option<fn(&CommandCtx) -> Option<String>>,
+    /// The icon of the command's toolbox or toolbar button, one of
+    /// [`crate::ui::icons`] (UI-001).
+    pub icon: Option<egui::ImageSource<'static>>,
     pub handler: Handler,
 }
 
@@ -250,6 +253,7 @@ impl CommandSpec {
             enabled: |_| Enabled::Yes,
             checked: None,
             dynamic_label: None,
+            icon: None,
             handler,
         }
     }
@@ -303,6 +307,11 @@ impl CommandSpec {
 
     pub fn dynamic_label(mut self, label: fn(&CommandCtx) -> Option<String>) -> Self {
         self.dynamic_label = Some(label);
+        self
+    }
+
+    pub fn icon(mut self, icon: egui::ImageSource<'static>) -> Self {
+        self.icon = Some(icon);
         self
     }
 

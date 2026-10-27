@@ -19,7 +19,7 @@ use crate::persistence::crash::{RecentLog, reports_since};
 use crate::persistence::prefs::{Preferences, ThemeChoice};
 use crate::persistence::{DataDirs, save_atomically};
 use crate::ui::dialogs::{self, Dialogs};
-use crate::ui::{browser, properties, shell};
+use crate::ui::{browser, icons, properties, shell};
 use crate::views::plan;
 use crate::views::view3d::{self, View3dState, model_bounds};
 use crate::workspace::{Pane, Request, Workspace};
@@ -881,6 +881,7 @@ impl eframe::App for ArchiCraftApp {
         self.ws.perf.begin_frame();
         i18n::install(Rc::clone(&self.localizer));
         let ctx = ui.ctx().clone();
+        icons::install_loader(&ctx);
         #[cfg(feature = "perf")]
         self.drive_script(&ctx);
         for state in self.released.drain(..) {

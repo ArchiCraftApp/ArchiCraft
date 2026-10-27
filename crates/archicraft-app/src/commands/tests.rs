@@ -644,6 +644,47 @@ fn toolbar_commands_are_registered() {
     }
 }
 
+/// UI-001: every button of the toolbar and the toolbox shows an icon of its
+/// own. The commands are the ones `ui/shell.rs` names in `toolbar` and
+/// `toolbox`, so a new button there fails this test until its command is
+/// listed here and has an icon.
+#[test]
+fn toolbar_and_toolbox_buttons_have_their_own_icons() {
+    let source = include_str!("../ui/shell.rs").replace("\r\n", "\n");
+    let commands = |path: &str| -> Vec<CommandId> {
+        match path {
+            "edit::UNDO" => vec![edit::UNDO],
+            "edit::REDO" => vec![edit::REDO],
+            "view::FIT_WINDOW" => vec![view::FIT_WINDOW],
+            "view::ORBIT" => vec![view::ORBIT],
+            "view::SWITCH_PLAN_3D" => vec![view::SWITCH_PLAN_3D],
+            "tools::command" => crate::tools::ToolKind::ALL.map(tools::command).to_vec(),
+            _ => panic!("ui/shell.rs shows {path} in a toolbar: list it here"),
+        }
+    };
+    let mut ids = Vec::new();
+    for name in ["toolbar", "toolbox"] {
+        for id in command_paths(function_body(&source, name))
+            .iter()
+            .flat_map(|p| commands(p))
+        {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+    assert_eq!(ids.len(), 8, "{ids:?}");
+    let mut icons = HashSet::new();
+    for id in ids {
+        let icon = spec(id.as_str())
+            .icon
+            .as_ref()
+            .unwrap_or_else(|| panic!("{id} has no icon"));
+        let uri = icon.uri().unwrap_or_else(|| panic!("{id}: {icon:?} has no uri"));
+        assert!(icons.insert(uri), "{id} shares the icon {uri}");
+    }
+}
+
 /// The body of the top-level function `name` in `source`, from its
 /// signature to the closing brace in the first column.
 fn function_body<'a>(source: &'a str, name: &str) -> &'a str {

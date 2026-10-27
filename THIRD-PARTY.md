@@ -15,11 +15,12 @@ Linux (x86_64), macOS (Apple silicon) and Windows (x86_64) packages. Do not edit
 
 | Licence | Crates |
 |---|---:|
-| Apache License 2.0 (Apache-2.0) | 253 |
-| MIT License (MIT) | 81 |
+| Apache License 2.0 (Apache-2.0) | 265 |
+| MIT License (MIT) | 87 |
 | Unicode License v3 (Unicode-3.0) | 19 |
-| BSD 3-Clause "New" or "Revised" License (BSD-3-Clause) | 2 |
+| BSD 3-Clause "New" or "Revised" License (BSD-3-Clause) | 4 |
 | Boost Software License 1.0 (BSL-1.0) | 2 |
+| BSD 2-Clause "Simplified" License (BSD-2-Clause) | 1 |
 | Bitstream Vera Font License (Bitstream-Vera) | 1 |
 | ISC License (ISC) | 1 |
 | LGPL-2.1-or-later | 1 |
@@ -60,6 +61,7 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - allocator-api2 0.2.21: MIT OR Apache-2.0
 - approx 0.5.1: Apache-2.0
 - arboard 3.7.0: MIT OR Apache-2.0
+- arrayref 0.3.9: BSD-2-Clause
 - arrayvec 0.7.8: MIT OR Apache-2.0
 - as-raw-xcb-connection 1.0.1: MIT OR Apache-2.0
 - ash 0.38.0+1.3.281: MIT OR Apache-2.0
@@ -77,6 +79,7 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - atspi 0.29.0: Apache-2.0 OR MIT
 - atspi-common 0.13.0: Apache-2.0 OR MIT
 - atspi-proxies 0.13.0: Apache-2.0 OR MIT
+- base64 0.22.1: MIT OR Apache-2.0
 - bit-set 0.10.0: Apache-2.0 OR MIT
 - bit-vec 0.9.1: Apache-2.0 OR MIT
 - bitflags 1.3.2: MIT OR Apache-2.0
@@ -104,6 +107,7 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - crc32fast 1.5.2: MIT OR Apache-2.0
 - crossbeam-utils 0.8.23: MIT OR Apache-2.0
 - cursor-icon 1.2.0: MIT OR Apache-2.0 OR Zlib
+- data-url 0.3.2: MIT OR Apache-2.0
 - dispatch 0.2.0: MIT
 - dispatch2 0.3.1: Zlib OR Apache-2.0 OR MIT
 - displaydoc 0.2.7: MIT OR Apache-2.0
@@ -116,10 +120,13 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - egui 0.36.2: MIT OR Apache-2.0
 - egui-wgpu 0.36.2: MIT OR Apache-2.0
 - egui-winit 0.36.2: MIT OR Apache-2.0
+- egui_extras 0.36.2: MIT OR Apache-2.0
 - egui_tiles 0.17.1: MIT OR Apache-2.0
 - either 1.19.0: MIT OR Apache-2.0
 - emath 0.36.2: MIT OR Apache-2.0
 - endi 1.1.1: MIT
+- enum-map 2.7.3: MIT OR Apache-2.0
+- enum-map-derive 0.17.0: MIT OR Apache-2.0
 - enumflags2 0.7.12: MIT OR Apache-2.0
 - enumflags2_derive 0.7.12: MIT OR Apache-2.0
 - enumn 0.1.14: MIT OR Apache-2.0
@@ -136,6 +143,7 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - fdeflate 0.3.7: MIT OR Apache-2.0
 - fearless_simd 0.4.1: Apache-2.0 OR MIT
 - flate2 1.1.10: MIT OR Apache-2.0
+- float-cmp 0.9.0: MIT
 - float_next_after 2.0.0: MIT
 - fluent-bundle 0.16.0: Apache-2.0 OR MIT
 - fluent-langneg 0.13.1: Apache-2.0 OR MIT
@@ -185,12 +193,14 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - idna 1.1.0: MIT OR Apache-2.0
 - idna_adapter 1.2.2: Apache-2.0 OR MIT
 - image 0.25.10: MIT OR Apache-2.0
+- imagesize 0.13.0: MIT
 - indexmap 2.14.2: Apache-2.0 OR MIT
 - intl-memoizer 0.5.3: Apache-2.0 OR MIT
 - intl_pluralrules 7.0.2: Apache-2.0 OR MIT
 - itertools 0.15.0: MIT OR Apache-2.0
 - itoa 1.0.18: MIT OR Apache-2.0
 - khronos-egl 6.0.0: MIT OR Apache-2.0
+- kurbo 0.11.3: Apache-2.0 OR MIT
 - kurbo 0.13.1: Apache-2.0 OR MIT
 - lazy_static 1.5.1: MIT OR Apache-2.0
 - libc 0.2.190: MIT OR Apache-2.0
@@ -239,8 +249,10 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - phf_generator 0.13.1: MIT
 - phf_macros 0.13.1: MIT
 - phf_shared 0.13.1: MIT
+- pico-args 0.5.0: MIT
 - pin-project-lite 0.2.17: Apache-2.0 OR MIT
 - piper 0.2.5: MIT OR Apache-2.0
+- png 0.17.16: MIT OR Apache-2.0
 - png 0.18.1: MIT OR Apache-2.0
 - polling 3.11.0: Apache-2.0 OR MIT
 - pollster 0.4.0: Apache-2.0 OR MIT
@@ -265,9 +277,12 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - regex-automata 0.4.18: MIT OR Apache-2.0
 - regex-syntax 0.8.11: MIT OR Apache-2.0
 - renderdoc-sys 1.1.0: MIT OR Apache-2.0
+- resvg 0.45.1: Apache-2.0 OR MIT
 - rfd 0.17.2: MIT
+- rgb 0.8.53: MIT
 - robust 1.2.0: MIT OR Apache-2.0
 - ron 0.12.2: MIT OR Apache-2.0
+- roxmltree 0.20.0: MIT OR Apache-2.0
 - rstar 0.12.2: MIT OR Apache-2.0
 - rustc-hash 1.1.0: Apache-2.0 OR MIT
 - rustc-hash 2.1.3: Apache-2.0 OR MIT
@@ -286,6 +301,7 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - sif-itree 0.4.1: MIT OR Apache-2.0
 - signal-hook-registry 1.4.8: MIT OR Apache-2.0
 - simd-adler32 0.3.10: MIT
+- simplecss 0.2.2: Apache-2.0 OR MIT
 - siphasher 1.0.4: MIT OR Apache-2.0
 - skrifa 0.44.0: MIT OR Apache-2.0
 - slab 0.4.12: MIT
@@ -298,6 +314,8 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - spirv 0.4.0+sdk-1.4.341.0: Apache-2.0
 - stable_deref_trait 1.2.1: MIT OR Apache-2.0
 - static_assertions 1.1.0: MIT OR Apache-2.0
+- strict-num 0.1.1: MIT
+- svgtypes 0.15.3: Apache-2.0 OR MIT
 - syn 2.0.119: MIT OR Apache-2.0
 - syn 3.0.9: MIT OR Apache-2.0
 - synstructure 0.14.0: MIT
@@ -309,6 +327,8 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - thiserror-impl 2.0.21: MIT OR Apache-2.0
 - thread_local 1.1.10: MIT OR Apache-2.0
 - tiff 0.11.3: MIT
+- tiny-skia 0.11.4: BSD-3-Clause
+- tiny-skia-path 0.11.4: BSD-3-Clause
 - tinystr 0.8.4: Unicode-3.0
 - toml_datetime 1.1.2+spec-1.1.0: MIT OR Apache-2.0
 - toml_edit 0.25.17+spec-1.1.0: MIT OR Apache-2.0
@@ -328,6 +348,7 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - unicode-segmentation 1.13.3: MIT OR Apache-2.0
 - unicode-width 0.2.2: MIT OR Apache-2.0
 - url 2.5.8: MIT OR Apache-2.0
+- usvg 0.45.1: Apache-2.0 OR MIT
 - utf8_iter 1.0.4: Apache-2.0 OR MIT
 - uuid 1.28.0: Apache-2.0 OR MIT
 - vello_common 0.1.0: Apache-2.0 OR MIT
@@ -379,6 +400,7 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 - xcursor 0.3.11: MIT
 - xkbcommon-dl 0.4.2: MIT
 - xkeysym 0.2.1: MIT OR Apache-2.0 OR Zlib
+- xmlwriter 0.1.0: MIT
 - yoke 0.8.3: Unicode-3.0
 - yoke-derive 0.8.4: Unicode-3.0
 - zbus 5.19.0: MIT
@@ -406,7 +428,7 @@ at commit 36010c0e1069043f964a7dff8367e3e910255ebb. The source states no licence
 
 ### Apache License 2.0 (Apache-2.0)
 
-Used by: accesskit 0.24.1, accesskit_atspi_common 0.18.1, accesskit_consumer 0.35.0, accesskit_consumer 0.36.0, accesskit_consumer 0.38.0, accesskit_macos 0.26.3, accesskit_unix 0.21.1, accesskit_windows 0.32.1, accesskit_winit 0.32.2, allocator-api2 0.2.21, arboard 3.7.0, async-trait 0.1.92, color 0.3.3, dispatch2 0.3.1, document-features 0.2.12, ecolor 0.36.2, eframe 0.36.2, egui 0.36.2, egui-wgpu 0.36.2, egui-winit 0.36.2, emath 0.36.2, enumn 0.1.14, epaint 0.36.2, fdeflate 0.3.7, fearless_simd 0.4.1, fluent-langneg 0.13.1, geo 0.33.1, guillotiere 0.7.0, half 2.7.1, i_overlay 4.5.2, image 0.25.10, intl_pluralrules 7.0.2, itoa 1.0.18, libc 0.2.190, linebender_resource_handle 0.1.1, litrs 1.0.1, miniz_oxide 0.8.9, miniz_oxide 0.9.1, naga 30.0.1, naga-types 30.0.1, objc2-app-kit 0.3.2, objc2-core-foundation 0.3.2, objc2-core-graphics 0.3.2, objc2-metal 0.3.2, objc2-quartz-core 0.3.2, pin-project-lite 0.2.17, proc-macro2 1.0.107, profiling 1.0.18, quote 1.0.47, rand 0.10.3, range-alloc 0.1.5, raw-window-handle 0.6.2, rstar 0.12.2, rustc-hash 2.1.3, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, serde_json 1.0.154, serde_repr 0.1.21, sif-itree 0.4.1, spirv 0.4.0+sdk-1.4.341.0, syn 2.0.119, syn 3.0.9, thiserror 1.0.69, thiserror 2.0.21, thiserror-impl 1.0.69, thiserror-impl 2.0.21, type-map 0.5.1, typeid 1.0.3, unicode-ident 1.0.27, vello_common 0.1.0, vello_cpu 0.1.0, wgpu 30.0.1, wgpu-core 30.0.1, wgpu-core-deps-apple 30.0.1, wgpu-core-deps-windows-linux-android 30.0.1, wgpu-hal 30.0.1, wgpu-naga-bridge 30.0.1, wgpu-types 30.0.1
+Used by: accesskit 0.24.1, accesskit_atspi_common 0.18.1, accesskit_consumer 0.35.0, accesskit_consumer 0.36.0, accesskit_consumer 0.38.0, accesskit_macos 0.26.3, accesskit_unix 0.21.1, accesskit_windows 0.32.1, accesskit_winit 0.32.2, allocator-api2 0.2.21, arboard 3.7.0, async-trait 0.1.92, color 0.3.3, dispatch2 0.3.1, document-features 0.2.12, ecolor 0.36.2, eframe 0.36.2, egui 0.36.2, egui-wgpu 0.36.2, egui-winit 0.36.2, egui_extras 0.36.2, emath 0.36.2, enum-map 2.7.3, enum-map-derive 0.17.0, enumn 0.1.14, epaint 0.36.2, fdeflate 0.3.7, fearless_simd 0.4.1, fluent-langneg 0.13.1, geo 0.33.1, guillotiere 0.7.0, half 2.7.1, i_overlay 4.5.2, image 0.25.10, intl_pluralrules 7.0.2, itoa 1.0.18, libc 0.2.190, linebender_resource_handle 0.1.1, litrs 1.0.1, miniz_oxide 0.8.9, miniz_oxide 0.9.1, naga 30.0.1, naga-types 30.0.1, objc2-app-kit 0.3.2, objc2-core-foundation 0.3.2, objc2-core-graphics 0.3.2, objc2-metal 0.3.2, objc2-quartz-core 0.3.2, pin-project-lite 0.2.17, proc-macro2 1.0.107, profiling 1.0.18, quote 1.0.47, rand 0.10.3, range-alloc 0.1.5, raw-window-handle 0.6.2, resvg 0.45.1, rstar 0.12.2, rustc-hash 2.1.3, serde 1.0.229, serde_core 1.0.229, serde_derive 1.0.229, serde_json 1.0.154, serde_repr 0.1.21, sif-itree 0.4.1, spirv 0.4.0+sdk-1.4.341.0, syn 2.0.119, syn 3.0.9, thiserror 1.0.69, thiserror 2.0.21, thiserror-impl 1.0.69, thiserror-impl 2.0.21, type-map 0.5.1, typeid 1.0.3, unicode-ident 1.0.27, usvg 0.45.1, vello_common 0.1.0, vello_cpu 0.1.0, wgpu 30.0.1, wgpu-core 30.0.1, wgpu-core-deps-apple 30.0.1, wgpu-core-deps-windows-linux-android 30.0.1, wgpu-hal 30.0.1, wgpu-naga-bridge 30.0.1, wgpu-types 30.0.1
 
 ```text
 Apache License
@@ -694,7 +716,7 @@ limitations under the License.
 
 ### Apache License 2.0 (Apache-2.0)
 
-Used by: ahash 0.8.12, arrayvec 0.7.8, async-channel 2.5.0, async-executor 1.14.0, async-io 2.6.0, async-lock 3.4.2, async-process 2.5.0, async-recursion 1.2.0, async-signal 0.2.14, async-task 4.7.1, atomic-waker 1.1.2, bitflags 1.3.2, bitflags 2.13.2, blocking 1.7.0, cfg-if 1.0.5, concurrent-queue 2.5.0, core-foundation 0.9.4, core-foundation-sys 0.8.7, core-graphics 0.23.2, core-graphics-types 0.1.3, crossbeam-utils 0.8.23, displaydoc 0.2.7, either 1.19.0, equivalent 1.0.3, errno 0.3.14, euclid 0.22.14, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, flate2 1.1.10, form_urlencoded 1.2.2, futures-lite 2.6.1, geo-types 0.7.20, gethostname 1.1.0, glow 0.17.0, hash32 0.3.1, hashbrown 0.16.1, hashbrown 0.17.1, heapless 0.8.0, idna 1.1.0, idna_adapter 1.2.2, indexmap 2.14.2, itertools 0.15.0, khronos-egl 6.0.0, lazy_static 1.5.1, linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, lock_api 0.4.14, log 0.4.34, num-traits 0.2.19, once_cell 1.21.4, ordered-stream 0.2.0, parking 2.2.1, parking_lot 0.12.5, parking_lot_core 0.9.12, percent-encoding 2.3.2, piper 0.2.5, png 0.18.1, polling 3.11.0, pollster 0.4.0, pollster 1.0.1, regex-automata 0.4.18, regex-syntax 0.8.11, renderdoc-sys 1.1.0, robust 1.2.0, ron 0.12.2, rustc-hash 1.1.0, rustix 0.38.44, rustix 1.1.5, scoped-tls 1.0.1, scopeguard 1.2.0, signal-hook-registry 1.4.8, smallvec 1.16.3, smol_str 0.2.2, stable_deref_trait 1.2.1, tempfile 3.27.0, thread_local 1.1.10, unic-langid 0.9.6, unic-langid-impl 0.9.6, unicode-segmentation 1.13.3, unicode-width 0.2.2, url 2.5.8, uuid 1.28.0, weezl 0.1.12
+Used by: ahash 0.8.12, arrayvec 0.7.8, async-channel 2.5.0, async-executor 1.14.0, async-io 2.6.0, async-lock 3.4.2, async-process 2.5.0, async-recursion 1.2.0, async-signal 0.2.14, async-task 4.7.1, atomic-waker 1.1.2, base64 0.22.1, bitflags 1.3.2, bitflags 2.13.2, blocking 1.7.0, cfg-if 1.0.5, concurrent-queue 2.5.0, core-foundation 0.9.4, core-foundation-sys 0.8.7, core-graphics 0.23.2, core-graphics-types 0.1.3, crossbeam-utils 0.8.23, data-url 0.3.2, displaydoc 0.2.7, either 1.19.0, equivalent 1.0.3, errno 0.3.14, euclid 0.22.14, event-listener 5.4.2, event-listener-strategy 0.5.4, fastrand 2.5.0, flate2 1.1.10, form_urlencoded 1.2.2, futures-lite 2.6.1, geo-types 0.7.20, gethostname 1.1.0, glow 0.17.0, hash32 0.3.1, hashbrown 0.16.1, hashbrown 0.17.1, heapless 0.8.0, idna 1.1.0, idna_adapter 1.2.2, indexmap 2.14.2, itertools 0.15.0, khronos-egl 6.0.0, lazy_static 1.5.1, linux-raw-sys 0.12.1, linux-raw-sys 0.4.15, lock_api 0.4.14, log 0.4.34, num-traits 0.2.19, once_cell 1.21.4, ordered-stream 0.2.0, parking 2.2.1, parking_lot 0.12.5, parking_lot_core 0.9.12, percent-encoding 2.3.2, piper 0.2.5, png 0.17.16, png 0.18.1, polling 3.11.0, pollster 0.4.0, pollster 1.0.1, regex-automata 0.4.18, regex-syntax 0.8.11, renderdoc-sys 1.1.0, robust 1.2.0, ron 0.12.2, roxmltree 0.20.0, rustc-hash 1.1.0, rustix 0.38.44, rustix 1.1.5, scoped-tls 1.0.1, scopeguard 1.2.0, signal-hook-registry 1.4.8, simplecss 0.2.2, smallvec 1.16.3, smol_str 0.2.2, stable_deref_trait 1.2.1, svgtypes 0.15.3, tempfile 3.27.0, thread_local 1.1.10, unic-langid 0.9.6, unic-langid-impl 0.9.6, unicode-segmentation 1.13.3, unicode-width 0.2.2, url 2.5.8, uuid 1.28.0, weezl 0.1.12
 
 ```text
                               Apache License
@@ -902,7 +924,7 @@ limitations under the License.
 
 ### Apache License 2.0 (Apache-2.0)
 
-Used by: approx 0.5.1, as-raw-xcb-connection 1.0.1, codespan-reporting 0.13.1, kurbo 0.13.1, nohash-hasher 0.2.0, polycool 0.4.0, raw-window-metal 1.1.0, self_cell 1.3.0, siphasher 1.0.4, spade 2.15.1, static_assertions 1.1.0, sys-locale 0.3.2, utf8_iter 1.0.4, x11rb 0.13.2, x11rb-protocol 0.13.2, zune-core 0.5.3, zune-jpeg 0.5.15
+Used by: approx 0.5.1, as-raw-xcb-connection 1.0.1, codespan-reporting 0.13.1, kurbo 0.11.3, kurbo 0.13.1, nohash-hasher 0.2.0, polycool 0.4.0, raw-window-metal 1.1.0, self_cell 1.3.0, siphasher 1.0.4, spade 2.15.1, static_assertions 1.1.0, sys-locale 0.3.2, utf8_iter 1.0.4, x11rb 0.13.2, x11rb-protocol 0.13.2, zune-core 0.5.3, zune-jpeg 0.5.15
 
 ```text
                                  Apache License
@@ -6241,6 +6263,76 @@ Used by: zerocopy 0.8.63, zerocopy-derive 0.8.63
    limitations under the License.
 ```
 
+### BSD 2-Clause "Simplified" License (BSD-2-Clause)
+
+Used by: arrayref 0.3.9
+
+```text
+Copyright (c) 2015 David Roundy <roundyd@physics.oregonstate.edu>
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the
+   distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+
+Used by: tiny-skia 0.11.4, tiny-skia-path 0.11.4
+
+```text
+Copyright (c) 2011 Google Inc. All rights reserved.
+Copyright (c) 2020 Yevhenii Reizner All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+  * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+
+  * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in
+    the documentation and/or other materials provided with the
+    distribution.
+
+  * Neither the name of the copyright holder nor the names of its
+    contributors may be used to endorse or promote products derived
+    from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
 ### BSD 3-Clause "New" or "Revised" License (BSD-3-Clause), MIT License (MIT)
 
 Used by: sha1_smol 1.0.1
@@ -7341,6 +7433,32 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 
 ### MIT License (MIT)
 
+Used by: float-cmp 0.9.0
+
+```text
+Copyright (c) 2014-2020 Optimal Computing (NZ) Ltd
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
+```
+
+### MIT License (MIT)
+
 Used by: float_next_after 2.0.0
 
 ```text
@@ -7492,6 +7610,34 @@ Used by: i_tree 0.18.0
 MIT License
 
 Copyright (c) 2024 iShape-Rust
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### MIT License (MIT)
+
+Used by: imagesize 0.13.0
+
+```text
+MIT License
+
+Copyright (c) 2017 Maiddog
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -7919,6 +8065,32 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### MIT License (MIT)
 
+Used by: pico-args 0.5.0
+
+```text
+Copyright (c) 2019 Yevhenii Reizner
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+### MIT License (MIT)
+
 Used by: quick-xml 0.41.0
 
 ```text
@@ -7983,6 +8155,34 @@ Used by: rfd 0.17.2
 MIT License
 
 Copyright (c) 2022 Bartłomiej Maryńczak
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### MIT License (MIT)
+
+Used by: rgb 0.8.53
+
+```text
+MIT License
+
+Copyright (c) 2019 Kornel
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -8095,6 +8295,32 @@ Used by: smithay-clipboard 0.7.3
 
 ```text
 Copyright (c) 2018 Lucas Timmins & Victor Berger
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+### MIT License (MIT)
+
+Used by: strict-num 0.1.1
+
+```text
+Copyright (c) 2022 Yevhenii Reizner
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -8398,6 +8624,34 @@ Used by: xkbcommon-dl 0.4.2
 The MIT License (MIT)
 
 Copyright (c) 2023 Kirill Chibisov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### MIT License (MIT)
+
+Used by: xmlwriter 0.1.0
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2019 Reizner Evgeniy
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
