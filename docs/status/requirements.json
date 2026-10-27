@@ -1057,7 +1057,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Esc cancels one step per press (typed text, then the step in progress, then the selection, then back to the Select tool; PointInput::key and views/plan.rs apply) and Backspace removes one typed character, then one point. The first point is typed too: a digit, sign, opening parenthesis (INP-022) or decimal separator starts absolute X/Y input without a point (PointInput::starts_typing, also looked ahead by app.rs shortcuts so '3ft' in one frame is not a Fit); tests the_first_point_takes_absolute_coordinates (input/mod.rs) and typing_the_first_point_keeps_shortcuts_until_a_value_starts (tests/ui.rs). Remaining gap: point input exists only in plan views, so nothing can be typed in 3D views (INP-001).",
+      "gap": "Esc cancels one step per press (typed text, then the step in progress, then the selection, then back to the Select tool; PointInput::key, crates/archicraft-app/src/input/mod.rs:432, through InputConsumer::cancel_step, and the key handling of crates/archicraft-app/src/views/plan.rs apply) and Backspace removes one typed character, then one point. The first point is typed too: a digit, sign, opening parenthesis (INP-022) or decimal separator starts absolute X/Y input without a point (PointInput::starts_typing, crates/archicraft-app/src/input/mod.rs:242, also looked ahead by the shortcuts, crates/archicraft-app/src/app.rs:519, so '3ft' in one frame is not a Fit); tests the_first_point_takes_absolute_coordinates (crates/archicraft-app/src/input/mod.rs) and typing_the_first_point_keeps_shortcuts_until_a_value_starts (crates/archicraft-app/tests/ui.rs). Remaining gap: point input exists only in plan views, so nothing can be typed in 3D views (INP-001).",
       "depends_on": []
     },
     {
@@ -1167,7 +1167,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Whole requirement: marking points and edges as snap references by hovering for a dwell time (default 1.0 s, Appendix D.1; no such preference) or instantly with a key; temporary inference guides (horizontal, vertical, angle increments, parallel, perpendicular, tangent, the bisector of two marked edges, the line through two circle centres) and their drawing; clearing marks when the input ends or on Esc. Only hooks exist: GuideShape (crates/archicraft-app/src/input/guide.rs:40), guide and guide-intersection candidates in collect (crates/archicraft-app/src/input/snap.rs:422) and InputContext::marked, but the plan passes no guides and no marked point (PlanInput::ctx, crates/archicraft-app/src/views/plan.rs:216).",
+      "gap": "Whole requirement: marking points and edges as snap references by hovering for a dwell time (default 1.0 s, Appendix D.1; no such preference) or instantly with a key; temporary inference guides (horizontal, vertical, angle increments, parallel, perpendicular, tangent, the bisector of two marked edges, the line through two circle centres) and their drawing; clearing marks when the input ends or on Esc. The guide geometry the inference guides need exists, but nothing produces them: Guide and GuideShape (lines, rays, segments, circles and arcs with projection, intersection and clipping, crates/archicraft-app/src/input/guide.rs:42, 57), with GuideOrigin::Inference reserved for them; guide and guide-intersection snap candidates in collect (crates/archicraft-app/src/input/snap.rs:422); dashed drawing in the plan (guide_dashes, crates/archicraft-app/src/views/plan.rs:593); and InputContext::marked (crates/archicraft-app/src/input/mod.rs:109). Today only the angle constraint (INP-006) yields a guide. Nothing marks points or edges, and the plan passes no guides and no marked point (PlanInput::ctx, crates/archicraft-app/src/views/plan.rs:216).",
       "depends_on": []
     },
     {
@@ -2067,7 +2067,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Priority is never used by junction resolution (wall.rs has no priority logic); no skins; no columns/beams; higher-priority cutting through lower-priority bodies not implemented; merging ignores priority and junction adjacency.",
+      "gap": "Priority is never used by junction resolution (crates/archicraft-geometry/src/wall.rs has no priority logic); no skins; no columns/beams; higher-priority cutting through lower-priority bodies not implemented; merging ignores priority and junction adjacency.",
       "depends_on": []
     },
     {
@@ -2287,7 +2287,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Top/bottom end cut planes (horizontal default, custom angle), geometry cutting the prism by planes, numeric fields, and handles (no handle infrastructure exists in plan.rs or view3d.rs).",
+      "gap": "Top/bottom end cut planes (horizontal default, custom angle), geometry cutting the prism by planes, numeric fields, and handles: snapping has a hook for handle nodes (TargetSink::handle, crates/archicraft-app/src/input/targets.rs:207, with its snap glyph in crates/archicraft-app/src/views/plan.rs:539), but no element provides handles yet, and neither the plan view (crates/archicraft-app/src/views/plan.rs) nor the 3D view (crates/archicraft-app/src/views/view3d.rs) shows or drags them.",
       "depends_on": []
     },
     {
@@ -2617,7 +2617,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Split command converting each computed plane into an independent single-plane roof, with a warning dialog (dialog pattern exists, dialogs.rs).",
+      "gap": "Split command converting each computed plane into an independent single-plane roof, with a warning dialog (dialog pattern exists, crates/archicraft-app/src/ui/dialogs.rs).",
       "depends_on": []
     },
     {
@@ -3237,7 +3237,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No R/G/2R+G/N/pitch read-out during placement (tracker text is distance/angle only, tracker::lines, crates/archicraft-app/src/input/tracker.rs:33) or editing (properties panel is wall/slab only, geometry_fields, crates/archicraft-app/src/ui/properties.rs:215).",
+      "gap": "No R/G/2R+G/N/pitch read-out during placement (the tracker shows the fields of the active field set, distance and angle, ΔX/ΔY/ΔZ or absolute X/Y/Z, a stretch's total length or length change, and on demand the absolute X, Y and Z; none of the stair values: tracker::lines, crates/archicraft-app/src/input/tracker.rs:33) or editing (properties panel is wall/slab only, geometry_fields, crates/archicraft-app/src/ui/properties.rs:216).",
       "depends_on": []
     },
     {
@@ -3367,7 +3367,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No tread/riser thickness, nosing, gaps, open-riser mode or separate flight/landing finish settings; D.2 default finish 0.025 m absent. Requires stepped-profile body generation beyond extrude.rs.",
+      "gap": "No tread/riser thickness, nosing, gaps, open-riser mode or separate flight/landing finish settings; D.2 default finish 0.025 m absent. Requires stepped-profile body generation beyond crates/archicraft-geometry/src/extrude.rs.",
       "depends_on": []
     },
     {
@@ -3507,7 +3507,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No edge picking, no host relation or associativity (Project has no relations; geometry evaluates elements independently, ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:66), no static mode, no stair-to-slab continuation.",
+      "gap": "No edge picking, no host relation or associativity (Project has no relations; geometry evaluates each element on its own except for the wall-junction pass, which resolves the footprints of walls in contact before the elements are evaluated, ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:66), no static mode, no stair-to-slab continuation.",
       "depends_on": []
     },
     {
@@ -4417,7 +4417,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Wall chains keep their points pending and create all walls as one Command::AddElements (one undo step) on Enter, double-click, a click on the first point, Finish, a tool or wall-mode switch or a click on another storey, so Backspace and Esc remove the last point without touching the model (ToolState::end_chain in tools/mod.rs). A tool or wall-mode switch whose walls the project rejects keeps the chain pending (Workspace::end_chain), and only the plan of the chain's storey previews it (views/plan.rs). Remaining gap: polylines, railings and stair baselines do not exist yet; they inherit Backspace through InputConsumer.",
+      "gap": "Wall chains keep their points pending and create all walls as one Command::AddElements (one undo step) on Enter, double-click, a click on the first point, Finish, a tool or wall-mode switch or a click on another storey, so Backspace and Esc remove the last point without touching the model (ToolState::end_chain, crates/archicraft-app/src/tools/mod.rs:135). A tool or wall-mode switch whose walls the project rejects keeps the chain pending (Workspace::end_chain, crates/archicraft-app/src/workspace.rs:231), and only the plan of the chain's storey previews it (crates/archicraft-app/src/views/plan.rs). Remaining gap: polylines, railings and stair baselines do not exist yet; they inherit Backspace through InputConsumer (crates/archicraft-app/src/input/consumer.rs:167).",
       "depends_on": []
     },
     {
@@ -5337,7 +5337,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Satisfied for snapping and joining, with MODEL_TOLERANCE (crates/archicraft-model/src/tolerance.rs) the single source: model and geometry (wall joining, mesh welding, slicing, plan cut, extrusion), snapping (coincident snap targets merged by Welder in SnapIndex::nodes_near and treated as one candidate in snap(), intersection guard via is_parallel, perpendicular foot via coincident; input/snap.rs) and chain and polygon closing (tools/mod.rs add_point); checked by tolerance_scan.rs over the model, geometry, input and tools sources. Gap: the Boolean clause, owned by the `solid-kernel-ops` epic: the Boolean wrapper must pass MODEL_TOLERANCE to the kernel as its merge tolerance (SOL-020).",
+      "gap": "Satisfied for snapping and joining, with MODEL_TOLERANCE (crates/archicraft-model/src/tolerance.rs) the single source: model and geometry (wall joining, mesh welding, slicing, plan cut, extrusion), snapping (coincident snap targets merged by Welder, crates/archicraft-model/src/tolerance.rs:198, in SnapIndex::nodes_near, crates/archicraft-app/src/input/targets.rs:576, and treated as one candidate in snap(), crates/archicraft-app/src/input/snap.rs:269; intersection guard via is_parallel and perpendicular foot via coincident, both in crates/archicraft-app/src/input/snap.rs) and chain and polygon closing (ToolState::add_point, crates/archicraft-app/src/tools/mod.rs:172); checked by crates/archicraft-model/tests/tolerance_scan.rs over the model, geometry, input and tools sources. Gap: the Boolean clause, owned by the `solid-kernel-ops` epic: the Boolean wrapper must pass MODEL_TOLERANCE to the kernel as its merge tolerance (SOL-020).",
       "depends_on": []
     },
     {
@@ -5637,7 +5637,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Light and dark themes exist (ThemeChoice, crates/archicraft-app/src/persistence/prefs.rs:15). No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours has been done: small weak text in the toolbox headings and the status bar (toolbox, crates/archicraft-app/src/ui/shell.rs:205, 208, 212; status_bar, :314, 316) is unchecked. In the plan palette (Palette::new, crates/archicraft-app/src/views/plan.rs:288) on white paper, hover reaches about 2.6:1 and preview and overhead about 3.0:1, at or below the 3:1 for graphics. Selection and hover are two shades of one blue. Reference red against snap green depends on a red-green difference. No colour-vision-deficiency check exists, and the 3D SELECTION_COLOR (crates/archicraft-app/src/views/render3d.rs:91) is also unchecked.",
+      "gap": "Light and dark themes exist (ThemeChoice, crates/archicraft-app/src/persistence/prefs.rs:15). No WCAG 2.2 AA contrast audit of egui's default Visuals or of custom colours has been done: small weak text in the three toolbox headings Selection, Modelling and View tools (toolbox, crates/archicraft-app/src/ui/shell.rs:205, 208, 212) and in the scale labels of the status bar (status_bar, :335, 337) is unchecked. In the plan palette (Palette::new, crates/archicraft-app/src/views/plan.rs:288) on white paper, hover reaches about 2.6:1 and preview and overhead about 3.0:1, at or below the 3:1 for graphics. Selection and hover are two shades of one blue. Reference red against snap green depends on a red-green difference. No colour-vision-deficiency check exists, and the 3D SELECTION_COLOR (crates/archicraft-app/src/views/render3d.rs:91) is also unchecked.",
       "depends_on": []
     },
     {
