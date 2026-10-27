@@ -442,31 +442,37 @@ mod tests {
         let outline = square(DVec2::ZERO, 10.0);
         let cases = vec![
             (
+                "two points",
                 "geometry-polygon-too-few-points",
                 vec![DVec2::ZERO, DVec2::X],
                 Vec::new(),
             ),
             (
+                "NaN coordinate",
                 "geometry-polygon-not-finite",
                 vec![DVec2::ZERO, DVec2::X, DVec2::new(f64::NAN, 1.0)],
                 Vec::new(),
             ),
             (
+                "coordinate out of range",
                 "geometry-polygon-coordinate-range",
                 vec![DVec2::ZERO, DVec2::X, DVec2::new(1e200, 1.0)],
                 Vec::new(),
             ),
             (
+                "outline repeats a point",
                 "geometry-polygon-duplicate-point",
                 vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::X, DVec2::Y],
                 Vec::new(),
             ),
             (
+                "outline repeats its first point",
                 "geometry-polygon-duplicate-point",
                 vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::Y, DVec2::ZERO],
                 Vec::new(),
             ),
             (
+                "hole repeats a point",
                 "geometry-polygon-duplicate-point",
                 outline.clone(),
                 vec![vec![
@@ -478,27 +484,29 @@ mod tests {
                 ]],
             ),
             (
+                "bow tie",
                 "geometry-polygon-self-intersection",
                 vec![DVec2::ZERO, DVec2::ONE, DVec2::X, DVec2::Y],
                 Vec::new(),
             ),
             (
+                "hole covers the outline",
                 "geometry-polygon-no-area",
                 outline.clone(),
                 vec![reversed(square(DVec2::splat(-1.0), 12.0))],
             ),
         ];
-        for (key, outer, holes) in &cases {
+        for (name, key, outer, holes) in &cases {
             assert_eq!(
                 triangulate(outer, holes),
                 Err(GeometryError::InvalidPolygon(Message::new(key))),
-                "{key}"
+                "{name}: {key}"
             );
         }
     }
 
-    /// SLB-003: a hole that shares a corner with the outline, as the plan's
-    /// cut unions (`plan::fill_mesh`) produce, triangulates to the area
+    /// WAL-027, DSP-011: a hole that shares a corner with the outline, as the
+    /// plan's cut-fill unions (`plan::fill_mesh`) produce, triangulates to the area
     /// between them; only a point repeated within one ring is refused.
     #[test]
     fn a_hole_touching_the_outline_at_a_corner_keeps_the_area_between() {
