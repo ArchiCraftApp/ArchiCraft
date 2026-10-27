@@ -96,9 +96,24 @@ scripts/asset-allowlist.txt` and `git diff --stat <last release tag>.. -- '*.png
       gives the current counts. Check the merged pull requests since the last release against
       the rows they cite.
 
+### 7. Third-party notices (NFR-LEG-001)
+
+- [ ] `scripts/third-party.sh` leaves `THIRD-PARTY.md` and `third-party/not-shipped.txt`
+      unchanged on the release commit ([docs/testing.md, Third-party notices](../testing.md#third-party-notices)).
+- [ ] Each package contains `LICENSE` and the notices: `ArchiCraft/THIRD-PARTY.md` in the
+      Linux tarball, `ArchiCraft/THIRD-PARTY.txt` in the Windows zip and
+      `ArchiCraft.app/Contents/Resources/THIRD-PARTY.md` in the macOS DMG.
+- [ ] Every licence in the overview of `THIRD-PARTY.md` is on `deny.toml`'s allow-list or among
+      its exceptions, or covered by a decision recorded in `docs/technology-choices.md`. Until
+      archicraft-vczo.3 rechecks the font licences, Bitstream-Vera (egui's Hack font) and
+      MIT-CMU (KDE protocol files of wayland-protocols-plasma) are neither; name them in the
+      release notes.
+- [ ] The licence of the bundled IFCX schema files is recorded in
+      `crates/archicraft-ifcx/schemas/README.md`, or the release notes name it as open.
+
 ## Record
 
 Add one row per release; keep older rows.
 
-| Release | Commit | Date | Tester | Conformance matrix run | 1 R4 | 2 Fuzz | 3 AS-05 | 4 Hardware | 5 NFR-LEG-002 | 6 Status | Notes |
-|---|---|---|---|---|---|---|---|---|---|---|---|
+| Release | Commit | Date | Tester | Conformance matrix run | 1 R4 | 2 Fuzz | 3 AS-05 | 4 Hardware | 5 NFR-LEG-002 | 6 Status | 7 Notices | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|

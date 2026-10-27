@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds ArchiCraft for Windows with the app icon in the executable and packs it into a zip with
-# the licence (no installer, SRS D-12). Runs in Git Bash with the MSVC toolchain, the Windows SDK
-# (rc.exe) and Python with Pillow (python -m pip install pillow).
+# the licence and the third-party notices (no installer, SRS D-12). Runs in Git Bash with the
+# MSVC toolchain, the Windows SDK (rc.exe) and Python with Pillow (python -m pip install pillow).
 # Usage: scripts/package-windows.sh
 # Output: target/windows/ArchiCraft-<version>-windows-<arch>.zip
 #
@@ -44,6 +44,7 @@ version=$(cargo pkgid -p archicraft-app | sed 's/.*[#@]//')
 zip=$out/ArchiCraft-$version-windows-x86_64.zip
 cp target/release/archicraft.exe "$stage/archicraft.exe"
 cp LICENSE "$stage/LICENSE.txt"
+cp THIRD-PARTY.md "$stage/THIRD-PARTY.txt"
 (cd "$out/stage" && python -m zipfile -c "../$(basename "$zip")" ArchiCraft)
 
 echo "$zip"

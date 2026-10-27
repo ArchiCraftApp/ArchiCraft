@@ -20,7 +20,7 @@ These limits apply to all of v1, not only to the first prototype. They were alig
 
 1. **Maturity and community:** many users, more than one maintainer, real production use. Download numbers are checked, not assumed (see [Health check](#health-check-2026-10-16)).
 2. **Active maintenance:** releases within the last year.
-3. **Permissive licenses:** MIT, Apache-2.0 or similar. No GPL, LGPL or AGPL. Weak copyleft (MPL-2.0) only after review. This keeps every distribution model open; the SRS hasn't chosen one yet (SRS O-5).
+3. **Permissive licenses:** MIT, Apache-2.0 or similar. No GPL, LGPL or AGPL. Weak copyleft (MPL-2.0) only after review. This keeps every distribution model open; the SRS hasn't chosen one yet (SRS O-5). One exception, accepted by the product owner on 2026-10-27: wayland-protocols-plasma declares MIT, so cargo-deny passes it, but it compiles bindings from KDE Plasma protocol files of which 17 are under LGPL-2.1-or-later, and winit uses one of them (KWin blur) in the Linux build. Their copyright lines and licence texts are in `THIRD-PARTY.md`.
 4. **Pure Rust where possible:** every C/C++ dependency means a second toolchain to set up on three platforms. Manifold (planned) is the one exception we accept so far.
 5. **Only what the current increment needs:** things v1 needs later are listed as [planned](#planned-for-v1), things we may need someday as [deferred](#deferred-candidates-for-later). Neither is added early.
 
@@ -243,6 +243,7 @@ These classes and criteria close SRS O-15. Its hardware half is decided here; bu
 - **Conformance (SRS IFX-006 and NFR-MNT-003, both Must):** on every change, CI loads our test files with schema validation in buildingSMART's reference code (`src/ifcx-core` at the commit the SRS pins). It also checks the spatial tree in their viewer (`src/viewer`), in a headless browser driven by Playwright. Both run under Node.js; they are test tools and aren't shipped. The visual check in the hosted IFC5 viewer stays manual, once per release.
 - **cargo-fuzz:** fuzzes the IFCX reader for at least an hour per release (SRS NFR-REL-007, Appendix D.9). It needs a nightly toolchain, so it runs in its own CI job.
 - **cargo-deny:** checks every dependency's licence against the selection criteria and lists them all, which gives the licence inventory of SRS NFR-LEG-001.
+- **cargo-about:** writes that inventory with the licence texts into `THIRD-PARTY.md`, which the packages ship (`scripts/third-party.sh`, docs/testing.md "Third-party notices"). A tool, not a dependency.
 - CI builds and tests on Linux on every change, on Windows on `main` and nightly, and on macOS (Apple silicon) for releases and by hand (docs/loop.md).
 - Write our own test IFCX files. The IFC5-development repository asks users not to create derivatives of its examples, so tests that read those examples (SRS AS-06) fetch them at test time instead of storing them in the repository (SRS NFR-LEG-003).
 
@@ -353,12 +354,15 @@ Figures from lib.rs on 2026-10-16. Rows added later give their source and date i
 | syn | 3.0.9 | 2026-10-12 | 246 M | MIT/Apache | David Tolnay; dev-dependency for the literal-string lint, with proc-macro2 (already in the tree) for line numbers |
 | cargo-fuzz | 0.13.2 | 2026-06-09 | 593 k | MIT/Apache | rust-fuzz organisation, four owners plus its publishers team; CI tool, pinned in `.github/workflows/fuzz.yml`, needs nightly |
 | cargo-deny | 0.20.2 | 2026-07-09 | 661 k | MIT/Apache | Embark Studios; Jake Shadle wrote most of it, so effectively one maintainer; CI tool through `cargo-deny-action@v2` |
+| cargo-about | 0.9.3 | 2026-10-26 | 106 k | MIT/Apache | Embark Studios, like cargo-deny; generates `THIRD-PARTY.md`, pinned at 0.9.2 in `scripts/third-party.sh` |
 | ureq (planned) | 3.4.2 | 2026-09-13 | 23.9 M | MIT/Apache | Martin Algesten and Jacob Hoffman-Andrews; blocking, small dependency tree |
 | @playwright/test (npm) | 1.64.1 | 2026-10-14 | 294 M | Apache-2.0 | Microsoft; test-only under Node.js, pinned at 1.63.0 in `conformance/package.json` |
 
 The Fluent rows were added on 2026-10-19 from crates.io (downloads: the last 90 days divided by three). Their last releases are more than a year old, so they miss criterion 2 (releases within the last year); they are kept because the format and its plural rules are stable and Firefox depends on them. The criterion and syn rows were added on 2026-10-20 the same way. The sys-locale, windows-sys and objc2-foundation rows were added on 2026-10-21 the same way; sys-locale's last release is older than a year (criterion 2) and it is kept because its job, reading one system setting, is stable and it is only the fallback. The cargo-fuzz, cargo-deny and ureq rows were added on 2026-10-20 the same way; the @playwright/test row comes from npm (downloads in the 30 days to 2026-10-18). cargo-fuzz, ureq and Playwright meet the selection criteria; cargo-deny misses criterion 1 (one main maintainer) and is kept because it is a CI tool that can be swapped without touching the product. The webbrowser row was added on 2026-10-23 the same way. It misses criterion 1 (one owner) and is kept because it is what egui itself uses to open links (eframe's default `links` feature), its job, handing a URL to the system browser, is small and stable, and a few lines of platform code could replace it. It brings url, the Servo project's URL parser, with its idna dependencies (Unicode-3.0).
 
 serde, serde_json, uuid, thiserror, anyhow, tracing, bytemuck and insta are among the most widely used crates in the Rust ecosystem and were not checked individually. Playwright is pinned as `@playwright/test` 1.63.0 (2026-09-04, Apache-2.0) with the three.js release the pinned viewer loads (0.177.0, MIT), both in `conformance/package.json`; like Node.js they are CI test tools, and Playwright's browser download never happens in the product.
+
+The cargo-about row was added on 2026-10-26 from crates.io (downloads: the last 90 days divided by three). Version 0.9.3 came out that day, so `scripts/third-party.sh` pins 0.9.2 (2026-08-18). Like cargo-deny it misses criterion 1 and is kept because it is a tool that only writes `THIRD-PARTY.md` and can be replaced without touching the product.
 
 ## References
 

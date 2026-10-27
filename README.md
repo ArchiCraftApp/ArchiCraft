@@ -131,4 +131,4 @@ rules are in [docs/loop.md](docs/loop.md).
 
 ## License
 
-This work is licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). See [LICENSE](LICENSE).
+This work is licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). See [LICENSE](LICENSE). The components the program contains keep their own licences; [THIRD-PARTY.md](THIRD-PARTY.md) lists them with their licence texts and ships with every package.
