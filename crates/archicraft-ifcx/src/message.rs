@@ -156,6 +156,7 @@ mod tests {
     fn all_keys_lists_the_keys_the_sources_use() {
         let sources = [
             include_str!("validate.rs"),
+            include_str!("validate/stream.rs"),
             include_str!("lib.rs"),
             include_str!("alpha/migrate.rs"),
             include_str!("alpha/reader.rs"),

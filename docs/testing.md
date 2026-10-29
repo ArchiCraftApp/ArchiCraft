@@ -424,9 +424,11 @@ never see it, and only fuzzing needs a nightly toolchain.
 | `ifcx_validate` | arbitrary bytes | a panic in `validate::parse`, `validate::parse_raw` or `validate::validate`; the two parsers disagreeing: one accepting an input the other rejects, different messages for a rejected input, or different validation problems for an accepted one |
 | `units_parse` | arbitrary UTF-8 | a panic in `parse_length` or `parse_length_expr` (every length unit) or `parse_angle` or `parse_angle_expr` (every angle unit) with every number format; a non-finite accepted value |
 
-`fuzz/dict/ifcx.dict` is the libFuzzer dictionary for the IFCX targets: JSON tokens, every
-object key of the golden files (IFCX structure, `bsi::`, `usd::` and `archicraft::`
-attributes and their fields) and frequent values. Extend it when the format gains keys.
+`fuzz/dict/ifcx.dict` is the libFuzzer dictionary for the IFCX targets: JSON tokens, the key
+by which `serde_json` reads an object as a tree differently (`$serde_json::private::RawValue`,
+which the readers of raw attribute values must read as a tree does), every object key of the
+golden files (IFCX structure, `bsi::`, `usd::` and `archicraft::` attributes and their
+fields) and frequent values. Extend it when the format gains keys.
 
 **Corpus.** `scripts/fuzz-corpus.sh` seeds `fuzz/corpus/<target>/` with both reference models
 (written by the `reference_models` example), the golden files, every corrupt fixture of
@@ -655,20 +657,27 @@ the peak resident memory of each command comes from `/usr/bin/time -l` (macOS) o
 saves the input with 30 slabs (4 MB) and fails when a save needs a peak heap of more than four
 times the file it writes: the streaming writer needs 2.2 times for the compact file, the
 writer that built the whole file as a JSON tree needed 44 times. It fails too when loading
-that file, or rejecting a copy damaged near its end, needs a peak heap of more than twice the
-file beyond its bytes: the reader of raw attribute values needs 1.1 times, nearly all of it
-the JSON tree of the one slab mesh being validated, which is no larger in the 52.6 MB file; the
-reader that held the file as JSON trees needed 51 times to load it and 29 times to reject it. A
-file whose single attribute is huge still needs that attribute's tree, many times its text
-(archicraft-k9w2 checks attributes without trees).
+that file, or rejecting a copy damaged near its end, needs a peak heap of more than once the
+file beyond its bytes: validation checks each attribute value against its schema while it
+reads the value's text, without a JSON tree of it (`validate/stream.rs`, archicraft-k9w2.1), so
+the reader needs 0.33 times to load the file (the container, the flattened nodes and the
+elements it reads) and 0.05 times to reject it. Building a tree of the one attribute being
+checked needed 1.1 times for both, nearly all of it the tree of a slab mesh; the reader that
+held the file as JSON trees needed 51 times to load it and 29 times to reject it. The same
+bound holds for a file whose one attribute has more than 20 MB of text (`memory large <file>
+mesh`: the golden file with a body mesh of 450,000 points, 22.5 MB). It loads in 0.4 MB beyond
+its bytes, where the tree of the mesh took 394 MB: validation reads it without a tree, and the
+reader never reads it. Validating it needs a hundredth of the file at most. A slab attribute
+is still read as a tree before the point limit rejects it (archicraft-k9w2.2).
 
 The reader's container parser, `validate::parse_raw`, accepts exactly the files that
 `validate::parse` accepts, which holds attribute values as trees, and rejects the others with
 the same message (`crates/archicraft-ifcx/tests/parse.rs`; the `ifcx_validate` target checks
 it on every input). `serde_json` checks neither the nesting nor the numbers of a raw value,
 so `parse_raw` reads the whole file once without keeping anything, with the checks of a tree,
-before it builds the container; when either pass fails, a third pass parses the file as
-`parse` does, dropping each attribute as soon as it is parsed, for the message. The first
+before it builds the container; when either pass fails, a third pass reads the file as
+`parse` does, each attribute value as a tree is read but without keeping it, for the message
+(archicraft-k9w2; it parsed each attribute into a tree and dropped it before). The first
 pass takes about a seventh of the time of opening a small file: in `scripts/bench-ci.sh
 origin/main` (2026-10-22), `ifcx/load/two_storey_shell` takes 10 % longer than with the tree
 reader and `ifcx/load/tiled_shell` 15 % less.
@@ -684,6 +693,10 @@ reader and `ifcx/load/tiled_shell` 15 % less.
 | 2026-10-22 | same | `save --indented` | 99.2 MB | 314 MB (110 MB) | 213 MB |
 | 2026-10-22 | same | `load` | 52.6 MB | 62 MB (0 MB) | 154 MB |
 | 2026-10-22 | same | `load` of the indented file | 99.2 MB | 108 MB (0 MB) | 199 MB |
+| 2026-10-28 | `848e9e6` (main) | `load` of the large mesh | 22.5 MB | 417 MB (0 MB) | 302 MB |
+| 2026-10-28 | same | `load` | 52.7 MB | 62 MB (0 MB) | 157 MB |
+| 2026-10-28 | `848e9e6` with archicraft-k9w2.1 | `load` of the large mesh | 22.5 MB | 23 MB (0 MB) | 27 MB |
+| 2026-10-28 | same | `load` | 52.7 MB | 62 MB (0 MB) | 152 MB |
 
 All on macOS 27 on Apple silicon (16 cores), release builds. Both `save` commands open the
 3.3 MB input first (peak heap 244 MB with the tree reader, 11 MB with archicraft-4rrc.2) and
@@ -691,7 +704,14 @@ evaluate it (110 MB, held through the save), which is part of their peak RSS. Th
 save also takes 0.71 s instead of 1.08 s, and writes the same bytes, compact and indented.
 The peak heap counts both blocks of a moving reallocation, so it can exceed the peak RSS. A
 `load` reads the whole file first: its bytes are 52.6 MB of the 62 MB peak heap, and the
-reader adds 9 MB. Opening takes 3.2 s instead of 3.4 s.
+reader adds 9 MB. Opening takes 3.2 s instead of 3.4 s. Checking attributes without trees
+(archicraft-k9w2.1) leaves the 52.7 MB file at 62 MB: the tree of one slab mesh of 999 points
+was smaller than what the reader holds at its peak there. Opening the large mesh takes 0.10 s
+instead of 0.14 s (fastest of three runs each, on a host busy with other work). `ifcx/load`
+and `ifcx/validate` stayed within 5 % of `main`: the fastest sample of four interleaved runs
+per side differed by +0.4 % (`load/two_storey_shell`), −14 % (`load/tiled_shell`), +1.4 %
+(`validate/two_storey_shell`) and −3 % (`validate/tiled_shell`), at a load average of 30 to 70
+that made single runs vary by up to a factor of three.
 
 The `ifcx_load` fuzz target, built with AddressSanitizer, stopped the input at its 2,048 MB
 limit with archicraft-4rrc.1 alone, in its second `load` (of the saved 52.6 MB). With

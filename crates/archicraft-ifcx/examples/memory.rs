@@ -17,6 +17,9 @@
 //! ```
 //!
 //! `save … --indented` saves the indented form (IFX-008) instead.
+//! `memory large <out> mesh [points]` writes the golden file with one large
+//! attribute (archicraft-k9w2): a body mesh, by default of 450,000 points
+//! (22.5 MB); `memory load` opens it.
 
 #[path = "../tests/memory_probe/mod.rs"]
 mod memory_probe;
@@ -31,8 +34,8 @@ use memory_probe::CountingAllocator;
 #[global_allocator]
 static HEAP: CountingAllocator = CountingAllocator;
 
-const USAGE: &str =
-    "usage: memory repro <out> [slabs, default 400] | memory save <in> <out> [--indented] | memory load <in>";
+const USAGE: &str = "usage: memory repro <out> [slabs, default 400] | memory large <out> mesh [points] \
+     | memory save <in> <out> [--indented] | memory load <in>";
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -82,6 +85,23 @@ fn main() -> Result<()> {
             let bytes = memory_probe::many_slabs(slabs);
             std::fs::write(out, &bytes)?;
             println!("{out}: {slabs} slabs, {:.1} MB", bytes.len() as f64 / MB);
+        }
+        ["large", out, attribute, rest @ ..] => {
+            let (build, default): (fn(usize) -> Vec<u8>, usize) = match *attribute {
+                "mesh" => (memory_probe::large_mesh, 450_000),
+                _ => return Err(USAGE.into()),
+            };
+            let points = match rest {
+                [] => default,
+                [n] => n.parse()?,
+                _ => return Err(USAGE.into()),
+            };
+            let bytes = build(points);
+            std::fs::write(out, &bytes)?;
+            println!(
+                "{out}: a {attribute} of {points} points, {:.1} MB",
+                bytes.len() as f64 / MB
+            );
         }
         ["save", input, out, rest @ ..] => {
             let pretty = match rest {

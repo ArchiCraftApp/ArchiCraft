@@ -67,6 +67,10 @@ crates/archicraft-ifcx/src/validate.rs::parse_error | "recursion limit exceeded"
 crates/archicraft-ifcx/src/validate.rs::SyntaxVisitor::expecting | "any JSON value" | serde expectation inside the JSON parser's error, passed on as the detail of ifcx-file-invalid
 crates/archicraft-ifcx/src/validate.rs::SyntaxKeyVisitor::expecting | "a string key" | serde expectation inside the JSON parser's error, passed on as the detail of ifcx-file-invalid
 crates/archicraft-ifcx/src/validate.rs::SyntaxKeyVisitor::visit_str | "a serde_json token as a key" | serde error inside the JSON parser's error, passed on as the detail of ifcx-file-invalid
+crates/archicraft-ifcx/src/container.rs::Key::deserialize | "a string key" | serde expectation inside the JSON parser's error, as serde_json names it for a Value, passed on as the detail of ifcx-file-invalid or ifcx-detail
+crates/archicraft-ifcx/src/container.rs::read_raw_value_token::Text::deserialize | "raw value" | serde expectation inside the JSON parser's error, as serde_json names it for a Value, passed on as the detail of ifcx-file-invalid or ifcx-detail
+crates/archicraft-ifcx/src/container.rs::Skip::expecting | "any valid JSON value" | serde expectation inside the JSON parser's error, as serde_json names it for a Value, passed on as the detail of ifcx-file-invalid or ifcx-detail
+crates/archicraft-ifcx/src/validate/stream.rs::Check::expecting | "any valid JSON value" | serde expectation inside the JSON parser's error, as serde_json names it for a Value, passed on as the detail of ifcx-detail
 
 # archicraft-geometry: the body-part name keys the element's IFCX sub-node,
 # and mesh checks are diagnostics of the tests that check bodies (IFX-032).

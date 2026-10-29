@@ -19,6 +19,9 @@ json_12="0.5"
 json_13="\"\""
 json_14="{}"
 json_15="[]"
+# The key by which serde_json reads an object as a tree differently: as the first key, its
+# string is the object's JSON text. The readers of raw values read it as a tree does.
+json_16="\"$serde_json::private::RawValue\""
 
 key_0="\"Axis\""
 key_1="\"Body\""

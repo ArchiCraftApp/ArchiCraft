@@ -229,6 +229,183 @@ fn committed_files_parse_and_validate_the_same() {
     assert!(validated > 20, "{validated}");
 }
 
+/// In-file schemas for [`checked_document`]: every data type, enum options
+/// with a repeated one, optional and required fields, arrays without
+/// restrictions, nested arrays and objects, inherited descriptions (twice
+/// the same one, one that is unknown, one that inherits itself until it is
+/// too deep) and a field that inherits an object.
+fn check_schemas() -> Value {
+    let value = |description: Value| json!({ "value": description });
+    let real = json!({"dataType": "Real"});
+    json!({
+        "t::boolean": value(json!({"dataType": "Boolean"})),
+        "t::string": value(json!({"dataType": "String"})),
+        "t::reference": value(json!({"dataType": "Reference"})),
+        "t::integer": value(json!({"dataType": "Integer"})),
+        "t::real": value(real.clone()),
+        "t::enum": value(json!({"dataType": "Enum", "enumRestrictions": {"options": ["a", "b", "b"]}})),
+        "t::enum-none": value(json!({"dataType": "Enum"})),
+        "t::blob": value(json!({"dataType": "Blob"})),
+        "t::any-object": value(json!({"dataType": "Object"})),
+        "t::any-array": value(json!({"dataType": "Array"})),
+        "t::object": value(json!({"dataType": "Object", "objectRestrictions": {"values": {
+            "x": real,
+            "name": {"dataType": "String", "optional": true},
+            "list": {"dataType": "Array", "arrayRestrictions": {"value": {"dataType": "Integer"}}},
+        }}})),
+        "t::points": value(json!({"dataType": "Array", "arrayRestrictions": {"value":
+            {"dataType": "Array", "arrayRestrictions": {"value": real}}}})),
+        "t::records": value(json!({"dataType": "Array", "arrayRestrictions": {"value":
+            {"dataType": "Object", "inherits": ["t::named"], "objectRestrictions": {"values": {"x": real}}}}})),
+        "t::named": value(json!({"dataType": "Object", "objectRestrictions": {"values": {"name": {"dataType": "String"}}}})),
+        "t::child": value(json!({"dataType": "Object", "inherits": ["t::object", "t::named"],
+            "objectRestrictions": {"values": {"w": {"dataType": "Boolean", "optional": true}}}})),
+        "t::twice": value(json!({"dataType": "Real", "inherits": ["t::real", "t::integer", "t::real"]})),
+        "t::unknown": value(json!({"dataType": "Real", "inherits": ["t::real", "t::nothing"]})),
+        "t::loop": value(json!({"dataType": "Real", "inherits": ["t::loop"]})),
+        "t::loop-items": value(json!({"dataType": "Array", "arrayRestrictions": {"value":
+            {"dataType": "Real", "inherits": ["t::loop"]}}})),
+        "t::field-inherits": value(json!({"dataType": "Object", "objectRestrictions": {"values": {
+            "inner": {"dataType": "Object", "inherits": ["t::named"]},
+            "y": {"dataType": "Integer", "optional": true},
+        }}})),
+    })
+}
+
+/// A container whose schemas are [`check_schemas`] and whose one data entry
+/// has the attribute `id` with the value `value`.
+fn checked_document(id: &str, value: &str) -> Vec<u8> {
+    format!(
+        r#"{{"header":{{"id":"check","ifcxVersion":"ifcx_alpha","dataVersion":"1","author":"Test","timestamp":"2026-10-27T00:00:00Z"}},"imports":[],"schemas":{},"data":[{{"path":"a","attributes":{{"{id}":{value}}}}}]}}"#,
+        check_schemas()
+    )
+    .into_bytes()
+}
+
+/// IFX-005, NFR-SEC-003: a raw attribute value, which is checked while it
+/// is read, gets the problems of its tree checked by `check_value`, with
+/// the same first mismatch: for every type and restriction, mismatches deep
+/// inside containers and several at once, inherited descriptions, repeated
+/// fields (the last counts) and the keys by which serde_json reads a tree
+/// differently.
+#[test]
+fn raw_values_are_checked_as_their_trees() {
+    let values = [
+        "true",
+        "null",
+        "0",
+        "-1.5",
+        "18446744073709551615",
+        r#""a""#,
+        r#""b""#,
+        r#""c""#,
+        "[]",
+        "[1, 2]",
+        "[[1, 2], [3, \"x\"], [true]]",
+        "[[1, 2], 5, [\"x\"]]",
+        "[[1], [2, [3]]]",
+        "{}",
+        r#"{"x": 1}"#,
+        r#"{"x": 1, "list": [1, 2]}"#,
+        r#"{"x": "1", "list": [1, "2"]}"#,
+        r#"{"list": ["1"], "x": 1}"#,
+        r#"{"x": 1, "list": [1], "name": 5}"#,
+        r#"{"x": 1, "list": [1], "name": "n", "w": 1}"#,
+        r#"{"x": 1, "list": [1], "name": "n", "w": true, "extra": [[{"deep": 1e10}]]}"#,
+        r#"{"x": "first", "x": 1, "list": []}"#,
+        r#"{"x": 1, "x": "last", "list": []}"#,
+        r#"{"name": "n", "x": 1}"#,
+        r#"[{"name": "n", "x": 1}, {"name": 1, "x": "1"}, {"x": 1}]"#,
+        r#"[{"name": "n", "x": 1}, {"x": "1"}, {"name": 1}]"#,
+        r#"{"inner": {"name": "n"}, "y": 1}"#,
+        r#"{"inner": {"name": 1}, "y": "1"}"#,
+        r#"{"inner": [], "y": 1.5}"#,
+        r#"{"inner": {"x": 1}, "inner": {"name": "n"}}"#,
+        r#"{"inner": {"name": "n"}, "inner": {"x": 1}}"#,
+        r#"{"y": 1}"#,
+        // The keys by which serde_json reads a tree differently: the first
+        // as the only key of an object is the JSON text of its string.
+        r#"{"$serde_json::private::RawValue": "[[1, 2], [3]]"}"#,
+        r#"{"$serde_json::private::RawValue": "{\"x\": 1, \"list\": [\"2\"]}"}"#,
+        r#"{"$serde_json::private::RawValue": "\"b\""}"#,
+        r#"{"x": {"$serde_json::private::RawValue": "\"1\""}, "list": [{"$serde_json::private::RawValue": "2"}]}"#,
+        r#"[{"$serde_json::private::RawValue": "[1, {\"$serde_json::private::RawValue\": \"true\"}]"}]"#,
+        r#"{"x": 1, "list": [], "$serde_json::private::RawValue": "[]"}"#,
+        r#"{"$serde_json::private::Number": "5"}"#,
+    ];
+    let schemas = check_schemas();
+    let mut messages = std::collections::BTreeSet::new();
+    for id in schemas.as_object().unwrap().keys() {
+        for value in values {
+            let bytes = checked_document(id, value);
+            let tree = validate::parse(&bytes).unwrap_or_else(|e| panic!("{id} = {value}: {e}"));
+            let raw = validate::parse_raw(&bytes).unwrap();
+            let problems = validate::validate(&tree);
+            assert_eq!(validate::validate(&raw), problems, "{id} = {value}");
+            messages.extend(problems.iter().map(|p| p.message.to_string()));
+        }
+    }
+    // The cases reach every message of check_value.
+    let reasons = [
+        "ifcx-value-type(expected=\"boolean\", found=\"null\")",
+        "ifcx-value-type(expected=\"string\", found=\"array\")",
+        "ifcx-value-type(expected=\"number\", found=\"object\")",
+        "ifcx-value-type(expected=\"array\", found=\"string\")",
+        "ifcx-value-type(expected=\"object\", found=\"number\")",
+        "ifcx-value-not-option(value=\"b\", options=\"a, b, b\")",
+        "ifcx-value-not-option(value=\"a\", options=\"\")",
+        "ifcx-value-key-missing(key=\"list\")",
+        "ifcx-value-in-key(key=\"list\"",
+        "ifcx-value-in-key(key=\"inner\", reason=ifcx-value-key-missing(key=\"name\"))",
+        "ifcx-schema-array-restrictions",
+        "ifcx-schema-blob",
+        "ifcx-schema-unknown-inherited(id=\"t::nothing\")",
+        "ifcx-schema-too-deep",
+    ];
+    for reason in reasons {
+        assert!(
+            messages.iter().any(|m| m.contains(reason)),
+            "no case reports {reason}: {messages:#?}"
+        );
+    }
+}
+
+/// NFR-SEC-003: a raw value that does not parse as a tree, which `parse_raw`
+/// never lets through but a container deserialised by hand can hold, is
+/// reported with the message of the tree parser, also when it would not
+/// match its description before the damage.
+#[test]
+fn raw_values_that_do_not_parse_get_the_message_of_the_tree_parser() {
+    let values = [
+        "[\"x\", 1e400]",
+        &format!("[\"x\", {}]", nested(200)),
+        r#"["x", "\ud800"]"#,
+        r#"{"$serde_json::private::RawValue": 5}"#,
+        r#"{"$serde_json::private::RawValue": "[1,"}"#,
+        r#"{"$serde_json::private::RawValue": "[1] x"}"#,
+        r#"{"$serde_json::private::RawValue": "[1]", "b": 1}"#,
+        r#"[{"$serde_json::private::RawValue": "\"x\""}, {"$serde_json::private::RawValue": "1e400"}]"#,
+    ];
+    let schemas = json!({ "t::points": check_schemas()["t::points"] });
+    for value in values {
+        let text = format!(
+            r#"{{"header":{{"id":"check","ifcxVersion":"ifcx_alpha","dataVersion":"1","author":"Test","timestamp":"t"}},"imports":[],"schemas":{schemas},"data":[{{"path":"a","attributes":{{"t::points":{value}}}}}]}}"#
+        );
+        let raw: archicraft_ifcx::IfcxFile<&RawValue> = serde_json::from_str(&text).unwrap();
+        let detail = raw.data[0].attributes["t::points"].value().unwrap_err().to_string();
+        let problems = validate::validate(&raw);
+        assert_eq!(problems.len(), 1, "{value}: {problems:?}");
+        assert_eq!(
+            problems[0].message.to_string(),
+            format!(
+                "ifcx-attribute-invalid(id=\"t::points\", reason=ifcx-detail(detail={:?}))",
+                detail
+            ),
+            "{value}"
+        );
+    }
+}
+
 /// NFR-REL-007: opening a malformed file reports the message of the tree
 /// parser.
 #[test]

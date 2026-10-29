@@ -86,6 +86,47 @@ pub fn peak() -> usize {
 /// The golden file the input is built from.
 const WALLS_AND_SLAB: &[u8] = include_bytes!("../golden/walls-and-slab.ifcx");
 
+/// The golden file `walls-and-slab.ifcx` with the attribute `id` of the
+/// first node that has one changed by `edit`, written compact.
+fn with_attribute(id: &str, edit: impl FnOnce(&mut Value)) -> Vec<u8> {
+    let mut file: Value = serde_json::from_slice(WALLS_AND_SLAB).expect("the golden file is JSON");
+    let node = file["data"]
+        .as_array_mut()
+        .expect("a data list")
+        .iter_mut()
+        .find(|n| n["attributes"].get(id).is_some())
+        .unwrap_or_else(|| panic!("no node with {id}"));
+    edit(&mut node["attributes"][id]);
+    serde_json::to_vec(&file).expect("JSON serialises")
+}
+
+/// Points along a helix, `count` of them, each coordinate rounded to six
+/// decimals as the writer rounds them.
+fn helix(count: usize) -> impl Iterator<Item = [f64; 3]> {
+    (0..count).map(|i| {
+        let t = i as f64 * 0.001_234;
+        let round = |v: f64| (v * 1e6).round() / 1e6;
+        [
+            round(10.0 + 5.0 * t.cos()),
+            round(10.0 + 5.0 * t.sin()),
+            round(t * 0.01),
+        ]
+    })
+}
+
+/// The golden file with its first body mesh (`usd::usdgeom::mesh`) replaced
+/// by one of `points` points and as many triangles, valid against its
+/// schema: an attribute of about 50 bytes of text per point, whose JSON tree
+/// takes about 18 times its text.
+pub fn large_mesh(points: usize) -> Vec<u8> {
+    let indices: Vec<usize> = (0..points)
+        .flat_map(|i| [i, (i + 1) % points, (i + 2) % points])
+        .collect();
+    with_attribute("usd::usdgeom::mesh", |mesh| {
+        *mesh = json!({ "points": helix(points).collect::<Vec<_>>(), "faceVertexIndices": indices });
+    })
+}
+
 /// The input of archicraft-4rrc: the golden file `walls-and-slab.ifcx` with
 /// `slabs` more slabs on its ground storey, each a copy of SL-001 with a new
 /// path and an outline of 999 points (a comb of 249 teeth, valid and just
