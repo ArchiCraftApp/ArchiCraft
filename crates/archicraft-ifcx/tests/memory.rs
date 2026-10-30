@@ -1,7 +1,9 @@
 //! Memory of saving and opening (NFR-SEC-003, archicraft-4rrc): the writer
 //! holds the output and one node at a time, the reader the file's bytes and
-//! one attribute at a time as a JSON tree, never a tree of the whole file, so
-//! a valid project that saves to tens of megabytes does not need gigabytes.
+//! one attribute that it reads at a time as a JSON tree, never a tree of the
+//! whole file, and validation checks attribute values without trees
+//! (archicraft-k9w2), so a valid project that saves to tens of megabytes
+//! does not need gigabytes.
 //! docs/testing.md (Fuzzing) records the measurements of the full-size input
 //! (`examples/memory.rs`).
 
@@ -10,7 +12,7 @@ mod memory_probe;
 use std::sync::Mutex;
 
 use archicraft_geometry::ModelGeometry;
-use archicraft_ifcx::WriteOptions;
+use archicraft_ifcx::{WriteOptions, validate};
 use memory_probe::CountingAllocator;
 
 #[global_allocator]
@@ -32,11 +34,21 @@ const SAVE_FACTOR: usize = 4;
 
 /// The largest peak heap of a load, beyond the file's bytes that the caller
 /// holds, as a multiple of the file's size. The container and the flattened
-/// nodes take a few percent of the file. Most of the peak is the JSON tree of
-/// the one attribute being checked, the largest slab mesh: about the size of
-/// this 4 MB file, and no larger in the 52 MB file of 400 slabs. Trees of the
-/// whole file took more than fifty times the file.
-const LOAD_FACTOR: usize = 2;
+/// nodes take a few percent of the file; the attribute values are checked
+/// while they are read, without a JSON tree of any (archicraft-k9w2), and
+/// the reader parses only the attributes it reads, one element at a time.
+/// Trees of the whole file took more than fifty times the file, a tree of
+/// the one attribute being checked about once the file.
+const LOAD_FACTOR: usize = 1;
+
+/// Points of the body mesh in the file of one large attribute: more than
+/// 20 MB of text.
+const MESH_POINTS: usize = 450_000;
+
+/// The size of the file of one large attribute ([`memory_probe::large_mesh`]),
+/// at least: nearly all of it is the attribute's text, since the golden file
+/// around it has less than 27 KB.
+const LARGE_ATTRIBUTE: usize = 20_000_000;
 
 fn options() -> WriteOptions {
     WriteOptions {
@@ -128,4 +140,55 @@ fn rejecting_a_damaged_file_needs_a_small_multiple_of_the_file_size() {
             peak as f64 / damaged.len() as f64
         );
     }
+}
+
+/// NFR-SEC-003: validation checks a raw attribute value while it reads it,
+/// without a JSON tree of it: a body mesh of more than 20 MB of text is
+/// validated in a peak heap of a hundredth of its text, where its tree took
+/// about eighteen times its text.
+#[test]
+fn validating_a_large_attribute_builds_no_tree_of_it() {
+    let _serial = MEASURING.lock().unwrap_or_else(|e| e.into_inner());
+    let bytes = memory_probe::large_mesh(MESH_POINTS);
+    assert!(bytes.len() > LARGE_ATTRIBUTE, "the file has only {} bytes", bytes.len());
+    let file = validate::parse_raw(&bytes).expect("the file parses");
+    // The bundled schemas are parsed once, on first use.
+    assert!(validate::validate(&validate::parse_raw(&golden_compact()).expect("parses")).is_empty());
+    let before = memory_probe::start();
+    let problems = validate::validate(&file);
+    let peak = memory_probe::peak() - before;
+    assert!(problems.is_empty(), "{problems:?}");
+    assert!(
+        peak <= bytes.len() / 100,
+        "validating {} bytes needed a peak of {peak} bytes, {:.3} times the file",
+        bytes.len(),
+        peak as f64 / bytes.len() as f64
+    );
+}
+
+/// The golden file `walls-and-slab.ifcx`, compact.
+fn golden_compact() -> Vec<u8> {
+    memory_probe::many_slabs(0)
+}
+
+/// NFR-SEC-003: opening a file whose one attribute, a body mesh, has more
+/// than 20 MB of text needs a peak heap of at most [`LOAD_FACTOR`] times the
+/// file beyond its bytes: validation reads it without a tree, and the reader
+/// never reads it.
+#[test]
+fn loading_a_file_with_one_large_attribute_builds_no_tree_of_it() {
+    let _serial = MEASURING.lock().unwrap_or_else(|e| e.into_inner());
+    let bytes = memory_probe::large_mesh(MESH_POINTS);
+    assert!(bytes.len() > LARGE_ATTRIBUTE, "the file has only {} bytes", bytes.len());
+    let before = memory_probe::start();
+    let outcome = archicraft_ifcx::load(&bytes).expect("the file loads");
+    let peak = memory_probe::peak() - before;
+    assert_eq!(outcome.project.elements.len(), 5);
+    assert!(outcome.problems.is_empty(), "{:?}", outcome.problems);
+    assert!(
+        peak <= LOAD_FACTOR * bytes.len(),
+        "loading {} bytes needed a peak of {peak} bytes, {:.3} times the file",
+        bytes.len(),
+        peak as f64 / bytes.len() as f64
+    );
 }

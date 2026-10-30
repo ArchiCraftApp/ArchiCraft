@@ -11,18 +11,21 @@
 //! [`Value`] tree, [`parse_raw`], the parser of the open path, as raw JSON
 //! text borrowed from the file's bytes (NFR-SEC-003). Both accept the same
 //! files and reject the others with the same message. The checks here take
-//! either and parse a raw attribute only while they check it.
+//! either; a raw attribute is checked while its text is read, without a tree
+//! of it (`stream`).
+
+mod stream;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::Read;
 
 use indexmap::IndexMap;
-use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
+use serde::de::{self, Deserialize, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-use crate::container::{AttributeValue, DataType, IfcxFile, SERDE_JSON_TOKEN, SchemaEntry, ValueDescription};
+use crate::container::{AttributeValue, DataType, IfcxFile, SERDE_JSON_TOKEN, SchemaEntry, Skip, ValueDescription};
 use crate::message::Message;
 use crate::registry;
 
@@ -32,6 +35,10 @@ pub const MAX_FILE_SIZE: usize = 2 * 1024 * 1024 * 1024;
 pub const MAX_IMPORTS: usize = 32;
 /// Deepest `children`/`inherits` chain (Appendix D.9).
 pub const MAX_COMPOSITION_DEPTH: usize = 64;
+/// Deepest nesting of a schema check, through inherited descriptions and
+/// the descriptions of items and fields, as in the reference
+/// implementation.
+const MAX_SCHEMA_DEPTH: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
@@ -214,7 +221,7 @@ fn type_name(value: &Value) -> &'static str {
 /// does. Returns a message on the first mismatch; the expected and found
 /// types are JSON type names.
 pub fn check_value(desc: &ValueDescription, value: &Value, schemas: &SchemaSet, depth: usize) -> Result<(), Message> {
-    if depth > 64 {
+    if depth > MAX_SCHEMA_DEPTH {
         return Err(Message::new("ifcx-schema-too-deep"));
     }
     if let Some(inherited) = &desc.inherits {
@@ -283,10 +290,12 @@ pub fn check_value(desc: &ValueDescription, value: &Value, schemas: &SchemaSet, 
 }
 
 /// Checks that every attribute is declared and valid (IFX-005). A raw value
-/// is parsed for its check and dropped after it, so that one attribute at a
-/// time is held as a tree (NFR-SEC-003).
+/// is checked while its text is read, as [`check_value`] checks a tree, so
+/// that no attribute is held as a tree (NFR-SEC-003); text that does not
+/// parse as a tree gets the parser's message (`ifcx-detail`).
 pub fn check_attributes<A: AttributeValue>(nodes: &IndexMap<String, FlatNode<A>>, schemas: &SchemaSet) -> Vec<Problem> {
     let mut problems = Vec::new();
+    let mut raw_checks = stream::Checks::new(schemas);
     for (path, node) in nodes {
         for (id, value) in &node.attributes {
             match schemas.get(id) {
@@ -295,10 +304,13 @@ pub fn check_attributes<A: AttributeValue>(nodes: &IndexMap<String, FlatNode<A>>
                     Message::new("ifcx-attribute-undeclared").text("id", id.clone()),
                 )),
                 Some(desc) => {
-                    let checked = value
-                        .value()
-                        .map_err(|e| Message::new("ifcx-detail").text("detail", e.to_string()))
-                        .and_then(|value| check_value(desc, &value, schemas, 0));
+                    let checked = match value.raw() {
+                        Some(raw) => raw_checks.check(desc, raw.get()),
+                        None => value
+                            .value()
+                            .map_err(|e| Message::new("ifcx-detail").text("detail", e.to_string()))
+                            .and_then(|value| check_value(desc, &value, schemas, 0)),
+                    };
                     if let Err(e) = checked {
                         problems.push(Problem::error(
                             Some(path),
@@ -464,9 +476,9 @@ pub fn parse(bytes: &[u8]) -> Result<IfcxFile, Problem> {
 /// nor the range of its numbers, so a first pass reads the whole document
 /// as [`parse`] does, without keeping anything (`Syntax`), before the second
 /// builds the container. When either pass fails, the message comes from
-/// parsing the document as [`parse`] does, each attribute dropped as soon as
-/// it is parsed (`Dropped`): that pass stops where [`parse`] stops, for the
-/// same reason, while it holds one attribute at a time.
+/// parsing the document as [`parse`] does, each attribute read as a tree
+/// reads it but not kept (`Dropped`): that pass stops where [`parse`] stops,
+/// for the same reason, without holding any attribute.
 pub fn parse_raw(bytes: &[u8]) -> Result<IfcxFile<&RawValue>, Problem> {
     check_size(bytes)?;
     let file = serde_json::from_slice::<Syntax>(bytes)
@@ -568,12 +580,13 @@ impl<'de> Visitor<'de> for SyntaxKeyVisitor {
     }
 }
 
-/// An attribute value parsed as a [`Value`] and dropped at once.
+/// An attribute value read as a [`Value`] reads it, without keeping
+/// anything ([`Skip`]).
 struct Dropped;
 
 impl<'de> Deserialize<'de> for Dropped {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Value::deserialize(deserializer).map(|_| Dropped)
+        Skip.deserialize(deserializer).map(|()| Dropped)
     }
 }
 
