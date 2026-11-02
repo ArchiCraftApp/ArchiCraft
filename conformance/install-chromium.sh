@@ -9,9 +9,11 @@
 # this install Playwright's list of packages, with apt retries and stall timeouts, in at most two
 # attempts of INSTALL_SECONDS each, and launch again; a launch that still fails fails the script.
 # Usage: conformance/install-chromium.sh
+#   INSTALL_SECONDS  limit of one install attempt in seconds (default 90), set from the
+#                    environment to check the time-limited fallback with a shorter one
 set -eu
 cd "$(dirname "$0")"
-INSTALL_SECONDS=90
+INSTALL_SECONDS="${INSTALL_SECONDS:-90}"
 
 # A no-op when the cache restored Chromium; otherwise a download from Playwright's CDN.
 npx playwright install chromium
@@ -32,8 +34,10 @@ if launches; then
 fi
 
 echo "::warning::Chromium does not start on this runner image; installing its system libraries."
-# Read by apt-get under Playwright's install-deps, before /etc/apt/apt.conf.d: retry a failed
-# download, give up on a stalled one after 20 s instead of 120, wait for a held dpkg lock.
+# Read by apt-get under Playwright's install-deps before /etc/apt/apt.conf.d, so a file there that
+# sets one of these keys overrides it (ubuntu-24.04 sets none of them today: its 80-retries sets
+# APT::Acquire::Retries). Retry a failed download, give up on a stalled one after 20 s instead of
+# 120, wait for a held dpkg lock.
 apt_config="$(mktemp)"
 cat >"$apt_config" <<'EOF'
 Acquire::Retries "3";
