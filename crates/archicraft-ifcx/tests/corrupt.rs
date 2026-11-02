@@ -107,7 +107,12 @@ const FIXTURES: &[Fixture] = &[
     },
     Fixture {
         name: "bad-survey-point",
-        damage: |v| project_attr(v)["location"]["surveyPoint"] = json!(["east", 2]),
+        damage: |v| {
+            let [easting, northing] = SURVEY_POINT_BEFORE_DAMAGE;
+            let point = &mut project_attr(v)["location"]["surveyPoint"];
+            *point = json!([easting, northing]);
+            point[0] = json!("east");
+        },
     },
     Fixture {
         name: "storey-below-minimum-height",
@@ -602,14 +607,21 @@ fn out_of_range_decimals_are_clamped_and_reported() {
     );
 }
 
+/// The survey point the `bad-survey-point` fixture holds before its easting
+/// is damaged: away from the origin, so the repair is visible in the value.
+const SURVEY_POINT_BEFORE_DAMAGE: [f64; 2] = [12.5, -3.25];
+
 /// PRJ-008: a survey point that is not a point is repaired to the origin and
 /// reported; the rest of the location is kept.
 #[test]
 fn an_invalid_survey_point_is_repaired_and_reported() {
     let (outcome, value) = load("bad-survey-point");
     let location = &outcome.project.site.location;
+    assert_ne!(location.survey_point, SURVEY_POINT_BEFORE_DAMAGE);
     assert_eq!(location.survey_point, [0.0, 0.0]);
-    assert_eq!(*location, reference_model().site.location);
+    let mut expected = reference_model().site.location;
+    expected.survey_point = [0.0, 0.0];
+    assert_eq!(*location, expected);
     let p = problem(
         &outcome,
         &root_path(&value),
