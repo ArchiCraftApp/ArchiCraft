@@ -208,7 +208,12 @@ class OpenPullRequests(unittest.TestCase):
                                 ({}, "gh api graphql: the answer has no repository"),
                                 # A data field that is not an object (archicraft-pdkq).
                                 ({"data": [1]}, "gh api graphql: the answer has no repository"),
-                                ({"data": "x"}, "gh api graphql: the answer has no repository")):
+                                ({"data": "x"}, "gh api graphql: the answer has no repository"),
+                                # A repository field that is not an object (archicraft-3l2no).
+                                ({"data": {"repository": [1]}},
+                                 "gh api graphql: the answer has no repository"),
+                                ({"data": {"repository": "x"}},
+                                 "gh api graphql: the answer has no repository")):
             with self.subTest(answer=answer), mock.patch.object(
                     dashboard, "run_json", lambda cmd, cwd=None, timeout=60, a=answer:
                     a if cmd[:3] == ["gh", "api", "graphql"] else listed):
