@@ -109,13 +109,18 @@ fn tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, enabled: Enabled) {
 /// The side of the toolbar's icons, in points.
 const TOOLBAR_ICON: f32 = 16.0;
 
-/// The toolbar below the menu bar (UI-011): Undo and Redo, greyed out while
-/// they cannot run, with their icons, labels and tooltips from the registry.
-/// Returns the command of the clicked button.
+/// The toolbar below the menu bar (UI-011): Save at the far left (PRJ-003),
+/// a separator, then Undo and Redo, greyed out while they cannot run, with
+/// their icons, labels and tooltips from the registry. Returns the command
+/// of the clicked button.
 pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     let mut chosen = None;
     ui.horizontal(|ui| {
-        for id in [edit::UNDO, edit::REDO] {
+        for (i, id) in [file::SAVE, edit::UNDO, edit::REDO].into_iter().enumerate() {
+            // Save stands apart from the editing commands after it.
+            if i == 1 {
+                ui.separator();
+            }
             let spec = spec(id);
             let enabled = (spec.enabled)(cx);
             let button =

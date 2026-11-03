@@ -4,9 +4,12 @@ use egui::Key;
 
 use super::{Binding, Category, CommandId, CommandSpec, Handler, Scope};
 use crate::app::Then;
+use crate::ui::icons;
 
 /// Open…, which the File menu follows with the Open recent submenu.
 pub const OPEN: CommandId = CommandId::new("file.open");
+/// Save, which the toolbar invokes too (UI-011).
+pub const SAVE: CommandId = CommandId::new("file.save");
 
 pub(super) fn specs() -> Vec<CommandSpec> {
     let file = |id, handler: Handler| CommandSpec::new(id, Category::File, handler).scope(Scope::TextSafe);
@@ -17,11 +20,12 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         file(OPEN.as_str(), |app, ctx, _| app.guard(ctx, Then::Open(None)))
             .menu("file", 0, 1)
             .bind(Binding::primary(Key::O)),
-        file("file.save", |app, _, _| {
+        file(SAVE.as_str(), |app, _, _| {
             app.save(false);
         })
         .menu("file", 1, 0)
-        .bind(Binding::primary(Key::S)),
+        .bind(Binding::primary(Key::S))
+        .icon(icons::SAVE),
         file("file.save-as", |app, _, _| {
             app.save(true);
         })

@@ -641,6 +641,7 @@ fn every_menu_has_a_title() {
 fn toolbar_commands_are_registered() {
     for id in [
         file::OPEN,
+        file::SAVE,
         edit::UNDO,
         edit::REDO,
         view::FIT_WINDOW,
@@ -669,6 +670,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
     let source = include_str!("../ui/shell.rs").replace("\r\n", "\n");
     let commands = |path: &str| -> Vec<CommandId> {
         match path {
+            "file::SAVE" => vec![file::SAVE],
             "edit::UNDO" => vec![edit::UNDO],
             "edit::REDO" => vec![edit::REDO],
             "view::FIT_WINDOW" => vec![view::FIT_WINDOW],
@@ -689,7 +691,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             }
         }
     }
-    assert_eq!(ids.len(), 8, "{ids:?}");
+    assert_eq!(ids.len(), 9, "{ids:?}");
     let mut icons = HashSet::new();
     for id in ids {
         let icon = spec(id.as_str())
@@ -745,8 +747,8 @@ fn command_paths(source: &str) -> Vec<String> {
 /// command at all except File > Open…, after which the Open recent hook
 /// follows. The toolbar, the toolbox and the status bar invoke their
 /// buttons' commands by id (UI-001, UI-011), through constants of the
-/// command modules; the toolbar names Undo and Redo, in that order, and
-/// nothing else. The scan holds on a CRLF copy of the source too, as a
+/// command modules; the toolbar names Save, Undo and Redo, in that order,
+/// and nothing else. The scan holds on a CRLF copy of the source too, as a
 /// Windows checkout with `core.autocrlf` has it.
 #[test]
 fn shell_names_no_command() {
@@ -775,7 +777,7 @@ fn assert_shell_names_no_command(source: &str) {
     let status_bar = function_body(source, "status_bar");
     let rest = source.replace(toolbar, "").replace(toolbox, "").replace(status_bar, "");
     assert_eq!(command_paths(&rest), ["file::OPEN"]);
-    assert_eq!(command_paths(toolbar), ["edit::UNDO", "edit::REDO"]);
+    assert_eq!(command_paths(toolbar), ["file::SAVE", "edit::UNDO", "edit::REDO"]);
     assert!(command_paths(toolbox).contains(&"tools::command".to_owned()));
     assert!(command_paths(status_bar).contains(&"view::PROBLEMS".to_owned()));
     // The scan finds a hand-written menu entry.
