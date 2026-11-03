@@ -21,9 +21,10 @@ pub const ORBIT: ImageSource<'static> = include_image!("../../assets/icons/orbit
 pub const PLAN_3D: ImageSource<'static> = include_image!("../../assets/icons/plan-3d.svg");
 pub const UNDO: ImageSource<'static> = include_image!("../../assets/icons/undo.svg");
 pub const REDO: ImageSource<'static> = include_image!("../../assets/icons/redo.svg");
+pub const SAVE: ImageSource<'static> = include_image!("../../assets/icons/save.svg");
 
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 8] = [SELECT, WALL, SLAB, FIT, ORBIT, PLAN_3D, UNDO, REDO];
+pub const ALL: [ImageSource<'static>; 9] = [SELECT, WALL, SLAB, FIT, ORBIT, PLAN_3D, UNDO, REDO, SAVE];
 
 /// Installs the loader that rasterises the icons for the screen's pixels
 /// (NFR-PORT-005). It does nothing once installed, so the application calls

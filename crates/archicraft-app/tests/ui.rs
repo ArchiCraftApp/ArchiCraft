@@ -511,8 +511,8 @@ fn add_wall(harness: &mut Harness<'static, ArchiCraftApp>) {
 }
 
 /// UI-011: the toolbar lies directly below the menu bar and above the
-/// properties strip, and its only buttons are Undo, then Redo, each its
-/// command's icon and label.
+/// properties strip, and its only buttons are Save, then Undo and Redo
+/// (PRJ-003), each its command's icon and label.
 #[test]
 fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
     let harness = harness("toolbar-place");
@@ -531,7 +531,7 @@ fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
         .collect();
     buttons.sort_by(|a, b| a.0.total_cmp(&b.0));
     let labels: Vec<&str> = buttons.iter().map(|(_, label)| label.as_str()).collect();
-    assert_eq!(labels, ["Undo", "Redo"]);
+    assert_eq!(labels, ["Save", "Undo", "Redo"]);
 }
 
 /// UI-001, NFR-PORT-005: the toolbox and the toolbar show their icons,
@@ -548,7 +548,7 @@ fn the_toolbox_and_the_toolbar_draw_their_icons_for_the_screen() {
         icons::ORBIT,
         icons::PLAN_3D,
     ];
-    let toolbar = [icons::UNDO, icons::REDO];
+    let toolbar = [icons::SAVE, icons::UNDO, icons::REDO];
     for (pixels_per_point, name) in [(1.0, "icons-100"), (2.0, "icons-200")] {
         let harness = harness_at(name, pixels_per_point);
         let textures: Vec<(String, [usize; 2])> = harness
@@ -629,9 +629,42 @@ fn the_toolbar_undoes_and_redoes() {
     assert_eq!(invoked(&mut harness), [("edit.redo", Origin::Toolbar)]);
 }
 
+/// PRJ-003, UI-011: the toolbar's Save saves a project that has a path to
+/// that path without asking: the file exists afterwards and the document
+/// is clean.
+#[test]
+fn the_toolbar_saves_a_project_with_a_path() {
+    let mut harness = harness("toolbar-save");
+    let dir = std::env::temp_dir().join(format!("archicraft-ui-toolbar-save-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("toolbar.ifcx");
+    let _ = std::fs::remove_file(&path);
+    harness.state_mut().workspace().doc.path = Some(path.clone());
+    add_wall(&mut harness);
+    assert!(harness.state_mut().workspace().doc.is_dirty());
+    toolbar_button(&harness, "Save").click();
+    harness.run_steps(2);
+    assert!(path.is_file(), "{} was not written", path.display());
+    assert!(!harness.state_mut().workspace().doc.is_dirty());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// PRJ-003, UI-011: on a project that was never saved the toolbar's Save
+/// invokes `file.save` with `Origin::Toolbar`, whose first save asks where
+/// to save the project.
+#[test]
+fn the_toolbar_save_invokes_file_save() {
+    let mut harness = harness("toolbar-save-new");
+    assert!(harness.state_mut().workspace().doc.path.is_none());
+    harness.state_mut().record_invocations();
+    toolbar_button(&harness, "Save").click();
+    harness.run_steps(2);
+    assert_eq!(invoked(&mut harness), [("file.save", Origin::Toolbar)]);
+}
+
 /// UI-011: hovering a toolbar button shows the command's label in the
 /// current state, its shortcut and its description; a greyed-out button also
-/// gives the reason from the catalogue.
+/// gives the reason from the catalogue. Save shows Cmd/Ctrl+S (PRJ-003).
 #[test]
 fn the_toolbar_tooltips_show_label_shortcut_description_and_reason() {
     let mut harness = harness("toolbar-tooltips");
@@ -661,6 +694,12 @@ fn the_toolbar_tooltips_show_label_shortcut_description_and_reason() {
         assert_present(&harness, text);
     }
     assert!(harness.query_all_by_label("Undo Create wall").next().is_none());
+    let save_keys = harness.ctx.format_shortcut(&Binding::primary(Key::S).shortcut());
+    toolbar_button(&harness, "Save").hover();
+    harness.run_steps(4);
+    for text in ["Save", save_keys.as_str(), "Save the project to its file."] {
+        assert_present(&harness, text);
+    }
 }
 
 /// UI-011: hovering a toolbox tool shows the command's description and its
