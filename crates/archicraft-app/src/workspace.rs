@@ -316,7 +316,7 @@ impl Workspace {
     /// A count for the status line in the user's number format; the
     /// catalogue gets it as text beside the number that selects the plural
     /// (NFR-L10N-001, NFR-L10N-004).
-    fn count_text(&self, count: usize) -> String {
+    pub(crate) fn count_text(&self, count: usize) -> String {
         self.prefs.number_format().format_decimal(count as f64, 0)
     }
 

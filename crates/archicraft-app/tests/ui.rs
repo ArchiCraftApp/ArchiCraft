@@ -1769,6 +1769,124 @@ fn unsaved_prompt_and_tab_title_follow_the_pseudo_locale() {
     }
 }
 
+/// The parts of the main window's chrome that the pseudo-locale audit walks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Chrome {
+    MenuBar,
+    Toolbar,
+    Toolbox,
+    StatusLine,
+    TabBar,
+    Browser,
+}
+
+/// The text of every AccessKit node of the main window's chrome, with the
+/// part it lies in: its label, or the value of a label widget. The parts are
+/// found by their rectangles, the panels' as egui stored them and the tab
+/// bar's between the properties strip and the active view. The properties
+/// strip and the views' canvases are not chrome.
+fn chrome_texts(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<(Chrome, String)> {
+    let panel = |name: &str| {
+        egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new(name))
+            .unwrap_or_else(|| panic!("the {name} panel"))
+            .outer_rect
+    };
+    let [menu, toolbar, properties, status, toolbox, browser] =
+        ["menu", "toolbar", "properties", "status", "toolbox", "browser"].map(panel);
+    let pane_top = {
+        let ws = harness.state_mut().workspace();
+        match ws.active_pane {
+            Some(Pane::Plan(storey)) => ws.plan_views[&storey].last_rect.top(),
+            Some(Pane::View3d(view)) => ws.views_3d[&view].last_rect().top(),
+            None => panic!("a view is open"),
+        }
+    };
+    let tab_bar = egui::Rect::from_x_y_ranges(toolbox.right()..=browser.left(), properties.bottom()..=pane_top);
+    let parts = [
+        (Chrome::MenuBar, menu),
+        (Chrome::Toolbar, toolbar),
+        (Chrome::Toolbox, toolbox),
+        (Chrome::StatusLine, status),
+        (Chrome::TabBar, tab_bar),
+        (Chrome::Browser, browser),
+    ];
+    let mut texts = Vec::new();
+    for node in harness.root().children_recursive() {
+        let ak = node.accesskit_node();
+        // A text run repeats (a piece of) its label widget's text.
+        if ak.role() == Role::TextRun || ak.bounding_box().is_none() {
+            continue;
+        }
+        let Some(text) = ak.label().or_else(|| ak.value()) else {
+            continue;
+        };
+        let centre = node.rect().center();
+        if let Some((part, _)) = parts.iter().find(|(_, rect)| rect.contains(centre)) {
+            texts.push((*part, text.to_string()));
+        }
+    }
+    texts
+}
+
+/// NFR-L10N-001: with the en-XA pseudo-locale installed, every label of the
+/// main window's chrome (menu bar, toolbar, toolbox, the status line of a
+/// plan and of a 3D view with the cursor coordinates, the tab bar and the
+/// project browser) is wrapped in the pseudo markers, so it comes from the
+/// catalogue. Exempt are the user data the chrome shows on its own (the
+/// storey and view names, as tab titles and browser entries; numbers and
+/// file paths only appear inside messages) and the tabs' close buttons,
+/// whose label egui_tiles sets (archicraft-ql4uo).
+#[cfg(debug_assertions)]
+#[test]
+fn the_main_window_chrome_follows_the_pseudo_locale() {
+    let mut harness = harness("chrome-pseudo");
+    let pseudo = Rc::new(Localizer::pseudo());
+    harness.state_mut().set_localizer(Rc::clone(&pseudo));
+    harness.run_steps(2);
+    let user_data: Vec<String> = {
+        let project = &harness.state_mut().workspace().doc.project;
+        let storeys = project.storeys.highest_first().map(|s| s.name.clone());
+        storeys.chain(project.views.iter().map(|v| v.name.clone())).collect()
+    };
+    let is_pseudo = |text: &str| text.starts_with(i18n::pseudo::OPEN) && text.ends_with(i18n::pseudo::CLOSE);
+    let exempt = |text: &str| user_data.iter().any(|name| name == text) || text == "Close";
+
+    // The plan's status line, with the cursor over the plan.
+    let centre = {
+        let ws = harness.state_mut().workspace();
+        ws.plan_views[&ws.active_storey].last_rect.center()
+    };
+    harness.hover_at(centre);
+    harness.run_steps(2);
+    let mut texts = chrome_texts(&mut harness);
+    let cursor = i18n::with(Rc::clone(&pseudo), || tr!("status-cursor", x = "", y = ""));
+    let cursor = cursor.split(' ').next().unwrap();
+    assert!(
+        texts
+            .iter()
+            .any(|(part, text)| *part == Chrome::StatusLine && text.starts_with(cursor)),
+        "the cursor coordinates are shown: {texts:?}"
+    );
+
+    // The 3D view's status line.
+    let switch = i18n::with(Rc::clone(&pseudo), || tr!("toolbox-plan-3d"));
+    harness.get_by_label(&switch).click();
+    harness.run_steps(2);
+    assert!(matches!(
+        harness.state_mut().workspace().active_pane,
+        Some(Pane::View3d(_))
+    ));
+    texts.extend(chrome_texts(&mut harness));
+
+    let parts: std::collections::BTreeSet<Chrome> = texts.iter().map(|(part, _)| *part).collect();
+    assert_eq!(parts.len(), 6, "every part of the chrome has text: {texts:?}");
+    let literal: Vec<_> = texts
+        .iter()
+        .filter(|(_, text)| !is_pseudo(text) && !exempt(text))
+        .collect();
+    assert!(literal.is_empty(), "chrome text not from the catalogue: {literal:?}");
+}
+
 /// A file that cannot be opened, because it does not exist or is larger than
 /// the size limit (lowered here instead of writing 2 GB), shows the “Cannot
 /// open the project” message instead of panicking (NFR-SEC-003, PRJ-008).

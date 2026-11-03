@@ -35,6 +35,7 @@ pub const ENGLISH: &[CatalogueFile] = &[
             "file-",
             "startup-",
             "status-",
+            "toolbox-",
             "browser-",
             "view-",
             "display-mode-",
