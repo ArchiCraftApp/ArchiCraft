@@ -65,8 +65,8 @@ CHECK_ACTION = re.compile(r"EmbarkStudios/cargo-deny-action@")
 # none either.
 GUARD_WORKFLOWS = ("ci.yml", "conformance-matrix.yml", "fuzz.yml", "macos.yml", "windows.yml")
 STATUS_JOB = "Implementation status"
-# The job that guards the loop: its name is no evidence, though its layering step (NFR-MNT-002)
-# is one.
+# The job that guards the loop: its name is no evidence, though its layering step (NFR-MNT-002,
+# NFR-MNT-004) is one.
 LOOP_JOB = "Loop policy"
 # Path prefixes (matched with startswith) of the Python tests that guard the traceability, the
 # loop or its tooling (the dashboard), not a requirement: their test_ methods and files are no
