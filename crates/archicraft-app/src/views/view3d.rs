@@ -18,14 +18,19 @@ pub struct View3dState {
     /// Persistent orbit mode: the primary button orbits (VIEW-021).
     pub orbit: bool,
     fitted: bool,
+    /// The camera distance of the last fit to window, against which the
+    /// view-control bar reads the zoom (UI-001).
+    fit_distance: f64,
     viewport: Option<Viewport>,
     last_rect: Rect,
 }
 
 impl View3dState {
     pub fn new(projection: Projection) -> Self {
+        let camera = Camera3d::new(projection);
         Self {
-            camera: Camera3d::new(projection),
+            camera,
+            fit_distance: camera.distance,
             mode: DisplayMode::ShadedWithEdges,
             orbit: false,
             fitted: false,
@@ -41,6 +46,14 @@ impl View3dState {
                 .camera
                 .fit(DVec3::new(-2.0, -2.0, 0.0), DVec3::new(12.0, 10.0, 3.0)),
         }
+        self.fit_distance = self.camera.distance;
+    }
+
+    /// The zoom in percent: the camera distance of the last fit to window
+    /// against the current one, so 100 % is the fitted view and 200 % half
+    /// its distance (UI-001).
+    pub fn zoom_percent(&self) -> f64 {
+        self.fit_distance / self.camera.distance * 100.0
     }
 
     pub fn last_rect(&self) -> Rect {

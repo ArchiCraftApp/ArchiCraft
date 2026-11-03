@@ -1,7 +1,6 @@
 //! Menu bar, toolbar, tool palette and status line (UI-001, UI-011, UI-017,
-//! NFR-USE-003).
+//! NFR-USE-003). The view-control bar is `ui/view_bar.rs`.
 
-use std::cell::Cell;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -10,14 +9,12 @@ use egui::{Button, RichText, Ui};
 
 use super::command_widgets::{bar_button, icon_and_label, menu_item, shortcut_text, tool_button};
 use crate::commands::{
-    CommandCtx, CommandId, CommandSpec, Enabled, MENUS, MenuEntry, Registry, edit, file, menu_title, tools, view,
-    view3d,
+    CommandCtx, CommandId, CommandSpec, Enabled, MENUS, MenuEntry, Registry, edit, file, menu_title, toolbox_groups,
+    tools, view,
 };
 use crate::input::InputMode;
 use crate::tools::ToolKind;
 use crate::tr;
-use crate::views::camera::ViewPreset;
-use crate::views::render3d::DisplayMode;
 use crate::workspace::{Consumer, Pane, Workspace};
 
 /// The registered command `id`. The ids this file uses are constants of
@@ -153,28 +150,33 @@ pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     chosen
 }
 
-/// The tool palette (UI-001): selection, modelling and view tools, each an
-/// icon and a label, with the command's description and shortcut as tooltip
-/// (UI-011). Returns the command of the clicked button.
+/// The tool palette (UI-001): the toolbox places of the registry's
+/// commands (see [`tool_palette`]). Returns the command of the clicked
+/// button.
 pub fn toolbox(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
+    tool_palette(ui, cx, Registry::get().specs())
+}
+
+/// The tool palette of `specs` (UI-001): a heading per
+/// [`ToolGroup`](crate::commands::ToolGroup) that
+/// has a tool, in group order (selection, modelling, 2D and annotation,
+/// view), then its tools, each an icon and its short label with the
+/// command's description and shortcut as tooltip (UI-011). Returns the
+/// command of the clicked button.
+pub fn tool_palette(ui: &mut Ui, cx: &CommandCtx, specs: &[CommandSpec]) -> Option<CommandId> {
     let mut chosen = None;
-    let mut button = |ui: &mut Ui, id: CommandId, label: String| {
-        if tool_button(ui, cx, spec(id), &label) {
-            chosen = Some(id);
+    for (i, (group, tools)) in toolbox_groups(specs).into_iter().enumerate() {
+        if i > 0 {
+            ui.add_space(6.0);
         }
-    };
-    ui.label(RichText::new(tr!("toolbox-selection")).small().weak());
-    button(ui, tools::command(ToolKind::Select), tr!("toolbox-select"));
-    ui.add_space(6.0);
-    ui.label(RichText::new(tr!("toolbox-modelling")).small().weak());
-    button(ui, tools::command(ToolKind::Wall), tr!("toolbox-wall"));
-    button(ui, tools::command(ToolKind::Slab), tr!("toolbox-slab"));
-    ui.add_space(6.0);
-    ui.label(RichText::new(tr!("toolbox-view-tools")).small().weak());
-    button(ui, view::FIT_WINDOW, tr!("toolbox-fit"));
-    button(ui, view::ORBIT, tr!("toolbox-orbit"));
-    button(ui, view::SWITCH_PLAN_3D, tr!("toolbox-plan-3d"));
-    button(ui, tools::command(ToolKind::Measure), tr!("toolbox-measure"));
+        ui.label(RichText::new(tr!(group.title_key())).small().weak());
+        for spec in tools {
+            let label = spec.toolbox.map(|place| tr!(place.label)).unwrap_or_default();
+            if tool_button(ui, cx, spec, &label) {
+                chosen = Some(spec.id);
+            }
+        }
+    }
     chosen
 }
 
@@ -184,17 +186,12 @@ fn problems_label(ws: &Workspace, count: usize) -> String {
     tr!("status-problems", count = count, count_text = ws.count_text(count))
 }
 
-/// The status line with the input prompt, the last message, the indicator
-/// of suspended groups (ELM-015) and the view-control bar of the active view
-/// (UI-001).
+/// The status line (UI-001): the prompt for the next input step, the
+/// measurement of the measure tool, the last message, the problem count,
+/// the indicator of suspended groups (ELM-015) and, in a plan, the cursor's
+/// coordinates and the storey.
 pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: usize) -> Option<CommandId> {
-    // Shared by the buttons and the Views menu.
-    let chosen = Cell::new(None);
-    let button = |ui: &mut Ui, id: CommandId, label: &str| {
-        if bar_button(ui, cx, spec(id), label) {
-            chosen.set(Some(id));
-        }
-    };
+    let mut chosen = None;
     ui.horizontal(|ui| {
         // The prompt of the step in progress (INP-001, NFR-USE-003).
         let prompt = ws.consumer().step().map_or_else(
@@ -238,74 +235,40 @@ pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: u
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            button(ui, view::PROBLEMS, &problems_label(ws, problem_count));
+            if bar_button(ui, cx, spec(view::PROBLEMS), &problems_label(ws, problem_count)) {
+                chosen = Some(view::PROBLEMS);
+            }
             ui.separator();
             // ELM-015: while groups are suspended; a click resumes them.
             if cx.groups_suspended {
-                button(ui, edit::SUSPEND_GROUPS, &tr!("status-groups-suspended"));
+                if bar_button(ui, cx, spec(edit::SUSPEND_GROUPS), &tr!("status-groups-suspended")) {
+                    chosen = Some(edit::SUSPEND_GROUPS);
+                }
                 ui.separator();
             }
-            match ws.active_pane {
-                Some(Pane::View3d(_)) => {
-                    if let Some(view3d) = cx.view3d {
-                        button(ui, view::FIT_WINDOW, &tr!("status-fit"));
-                        button(ui, view::ORBIT, &tr!("status-orbit"));
-                        egui::ComboBox::from_id_salt("display-mode")
-                            .selected_text(tr!(view3d.mode.label_key()))
-                            .show_ui(ui, |ui| {
-                                for mode in DisplayMode::ALL {
-                                    button(ui, view3d::display(mode), &tr!(mode.label_key()));
-                                }
-                            })
-                            .response
-                            .on_hover_text(tr!("status-display-mode-hint"));
-                        ui.menu_button(tr!("status-views"), |ui| {
-                            for preset in ViewPreset::ALL {
-                                let id = view3d::preset(preset);
-                                if menu_item(ui, cx, spec(id)) {
-                                    chosen.set(Some(id));
-                                }
-                            }
-                        })
-                        .response
-                        .on_hover_text(tr!("status-view-preset-hint"));
-                        button(ui, view3d::TOGGLE_PROJECTION, &tr!("status-perspective"));
-                    }
+            if let Some(Pane::Plan(storey)) = ws.active_pane {
+                let name = ws
+                    .doc
+                    .project
+                    .storeys
+                    .get(storey)
+                    .map(|s| s.name.clone())
+                    .unwrap_or_default();
+                ui.label(RichText::new(tr!("status-plan", storey = name)).small());
+                // INP-014: the cursor's X and Y from the user origin, along
+                // its axes.
+                if let Some(cursor) = ws.plan_views.get(&storey).and_then(|state| state.cursor) {
+                    let p = ws.frames.user_origin.to_local(cursor);
+                    let units = &ws.doc.project.settings.units;
+                    let nf = ws.prefs.number_format();
+                    let x = format_length(p.x, units, &nf, true);
+                    let y = format_length(p.y, units, &nf, true);
+                    ui.label(RichText::new(tr!("status-cursor", x = x, y = y)).small().monospace());
                 }
-                Some(Pane::Plan(storey)) => {
-                    button(ui, view::FIT_WINDOW, &tr!("status-fit"));
-                    button(ui, view::NEXT_ZOOM, &tr!("status-next-zoom"));
-                    button(ui, view::PREVIOUS_ZOOM, &tr!("status-previous-zoom"));
-                    if let Some(state) = ws.plan_views.get(&storey) {
-                        // INP-014: the cursor's X and Y from the user origin,
-                        // along its axes.
-                        if let Some(cursor) = state.cursor {
-                            let p = ws.frames.user_origin.to_local(cursor);
-                            let units = &ws.doc.project.settings.units;
-                            let nf = ws.prefs.number_format();
-                            let x = format_length(p.x, units, &nf, true);
-                            let y = format_length(p.y, units, &nf, true);
-                            ui.label(RichText::new(tr!("status-cursor", x = x, y = y)).small().monospace());
-                        }
-                        // NFR-L10N-004: digit grouping applies to the zoom too.
-                        let scale = ws.prefs.number_format().format_decimal(state.camera.scale, 0);
-                        ui.label(RichText::new(tr!("status-zoom", scale = scale)).small().weak());
-                    }
-                    ui.label(RichText::new(tr!("status-scale")).small().weak());
-                    let name = ws
-                        .doc
-                        .project
-                        .storeys
-                        .get(storey)
-                        .map(|s| s.name.clone())
-                        .unwrap_or_default();
-                    ui.label(RichText::new(tr!("status-plan", storey = name)).small());
-                }
-                None => {}
             }
         });
     });
-    chosen.into_inner()
+    chosen
 }
 
 #[cfg(test)]
@@ -313,8 +276,11 @@ mod tests {
     use std::rc::Rc;
 
     use archicraft_model::template::default_metric_project;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
 
     use super::*;
+    use crate::commands::{Category, ToolGroup};
     use crate::document::Document;
     use crate::i18n::{self, Localizer};
     use crate::persistence::prefs::Preferences;
@@ -329,5 +295,77 @@ mod tests {
         assert_eq!(label(0), "No problems");
         assert_eq!(label(1), "⚠ 1 problem");
         assert_eq!(label(3), "⚠ 3 problems");
+    }
+
+    /// The vertical positions of the labels `labels` in the tool palette of
+    /// `specs`.
+    fn palette_rows(specs: Vec<CommandSpec>, labels: &[&str]) -> Vec<f32> {
+        let cx = CommandCtx::default();
+        let harness = Harness::new_ui(move |ui| {
+            tool_palette(ui, &cx, &specs);
+        });
+        labels
+            .iter()
+            .map(|label| harness.get_by_label(label).rect().top())
+            .collect()
+    }
+
+    /// UI-001: the toolbox shows the Selection, Modelling and View tools
+    /// headings with their tools in that order; a registry with a stub
+    /// Annotation2d tool adds the 2D and annotation heading with its tool in
+    /// third place, between Modelling and View tools.
+    #[test]
+    fn the_tool_palette_groups_the_registrys_tools() {
+        let specs = Registry::get().specs().to_vec();
+        let rows = palette_rows(
+            specs.clone(),
+            &[
+                "Selection",
+                "Select",
+                "Modelling",
+                "Wall",
+                "Slab",
+                "View tools",
+                "Fit",
+                "Orbit",
+                "Plan/3D",
+                "Measure",
+            ],
+        );
+        assert!(rows.is_sorted(), "{rows:?}");
+        let harness = {
+            let cx = CommandCtx::default();
+            let specs = specs.clone();
+            Harness::new_ui(move |ui| {
+                tool_palette(ui, &cx, &specs);
+            })
+        };
+        assert!(
+            harness.query_by_label("2D and annotation").is_none(),
+            "a group without tools has no heading"
+        );
+
+        let mut stubbed = specs;
+        // The stub's label key is not in the catalogue, so it shows as the key.
+        stubbed.push(
+            CommandSpec::new("tool.stub-line", Category::Design, |_, _, _| {}).toolbox(
+                ToolGroup::Annotation2d,
+                0,
+                "toolbox-stub-line",
+            ),
+        );
+        let rows = palette_rows(
+            stubbed,
+            &[
+                "Selection",
+                "Modelling",
+                "Slab",
+                "2D and annotation",
+                "toolbox-stub-line",
+                "View tools",
+                "Fit",
+            ],
+        );
+        assert!(rows.is_sorted(), "{rows:?}");
     }
 }

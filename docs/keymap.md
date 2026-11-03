@@ -31,6 +31,9 @@ table (`commands/d8.rs`) and the OS-reserved tables (`commands/os_reserved.rs`);
 - **Command palette on Primary+Shift+P**, the convention of code editors. The problems list moves
   from Primary+Shift+P to **Primary+Shift+M**, and Preferences gets **Primary+Comma**, the macOS
   convention, also used on Windows and Linux.
+- **Zoom in and out take Primary+= and Primary+-**, as in browsers and drawing programs. egui
+  binds the same keys to its UI scale; the application turns that off, and the UI scale stays with
+  the operating system's display scaling (NFR-PORT-005).
 - **Plan/3D keeps F3 and gains Primary+3.** On a Mac keyboard F3 is a media key (Mission Control)
   and reaches the application only with Fn held.
 - **Transforms follow mnemonics where Primary allows them:** move Primary+D, copy-move
@@ -101,6 +104,8 @@ table (`commands/d8.rs`) and the OS-reserved tables (`commands/os_reserved.rs`);
 | Group | `Cmd+G` | `Ctrl+G` | not while typing | `edit.group` |
 | Ungroup | `Shift+Cmd+G` | `Ctrl+Shift+G` | not while typing | `edit.ungroup` |
 | Settings of tool or selection… | `Cmd+T` | `Ctrl+T` | always | `edit.settings` |
+| Zoom in | `Cmd+Equals` | `Ctrl+Equals` | not while typing | `view.zoom-in` |
+| Zoom out | `Cmd+Minus` | `Ctrl+Minus` | not while typing | `view.zoom-out` |
 | Previous zoom | `Cmd+OpenBracket` | `Ctrl+OpenBracket` | not while typing | `view.previous-zoom` |
 | Next zoom | `Cmd+CloseBracket` | `Ctrl+CloseBracket` | not while typing | `view.next-zoom` |
 | Problems | `Shift+Cmd+M` | `Ctrl+Shift+M` | always | `view.problems` |

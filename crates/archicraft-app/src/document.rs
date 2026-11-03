@@ -130,14 +130,12 @@ impl Document {
             && storey.is_none_or(|s| self.plans.get(&s).is_some_and(|(rev, _)| *rev == revision))
     }
 
-    /// The name shown in the window title: the file name, or the project
-    /// name for an unsaved project.
-    pub fn display_name(&self) -> String {
+    /// The file name of the saved project, if it was saved.
+    pub fn file_name(&self) -> Option<String> {
         self.path
             .as_deref()
             .and_then(Path::file_name)
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| self.project.info.name.clone())
     }
 
     /// Serialises the project for saving as the next data version, as compact
@@ -159,6 +157,28 @@ impl Document {
         self.saved_state = self.history.state_id();
         self.autosaved_state = self.saved_state;
         self.newer_format = false;
+    }
+}
+
+/// The window title (PRJ-003): the project's name with the marker of unsaved
+/// changes while the document is dirty. The file name stays out, so renaming
+/// the project in Project settings renames the window.
+pub fn window_title(doc: &Document) -> String {
+    let name = doc.project.info.name.as_str();
+    if doc.is_dirty() {
+        crate::tr!("window-title-unsaved", name = name)
+    } else {
+        crate::tr!("window-title", name = name)
+    }
+}
+
+/// The question before unsaved changes are lost (PRJ-003), naming the
+/// project and, once it was saved, its file.
+pub fn unsaved_question(doc: &Document) -> String {
+    let name = doc.project.info.name.as_str();
+    match doc.file_name() {
+        Some(file) => crate::tr!("modal-unsaved-text-file", name = name, file = file),
+        None => crate::tr!("modal-unsaved-text", name = name),
     }
 }
 
@@ -233,6 +253,49 @@ mod tests {
         assert!(
             without_header(&again) == without_header(&compact),
             "a compact save after an indented one is the same file"
+        );
+    }
+
+    /// PRJ-003: the title is the project's name, with the marker while there
+    /// are unsaved changes, for a project never saved and one saved under
+    /// another file name; renaming the project with `SetInfo` renames the
+    /// window and marks it unsaved.
+    #[test]
+    fn the_window_title_shows_the_project_name_and_the_unsaved_marker() {
+        let mut doc = Document::new(default_metric_project(), 100);
+        let name = doc.project.info.name.clone();
+        assert_eq!(window_title(&doc), format!("{name} — ArchiCraft"), "clean, never saved");
+        let storey = doc.project.storeys.ground();
+        let wall = doc.project.new_wall(storey, DVec2::ZERO, DVec2::X * 3.0, 0);
+        doc.execute(Command::AddElements(vec![wall])).unwrap();
+        assert_eq!(
+            window_title(&doc),
+            format!("● {name} — ArchiCraft"),
+            "dirty, never saved"
+        );
+        doc.saved_to(PathBuf::from("/tmp/other.ifcx"));
+        assert_eq!(window_title(&doc), format!("{name} — ArchiCraft"), "clean, saved");
+        let mut info = doc.project.info.clone();
+        info.name = "Villa Brandstötter".into();
+        doc.execute(Command::SetInfo(info)).unwrap();
+        assert_eq!(window_title(&doc), "● Villa Brandstötter — ArchiCraft", "renamed");
+        assert!(!window_title(&doc).contains("other.ifcx"));
+    }
+
+    /// PRJ-003: the unsaved-changes question names the project and, once it
+    /// was saved, the file.
+    #[test]
+    fn the_unsaved_question_names_the_project_and_the_file() {
+        let mut doc = Document::new(default_metric_project(), 100);
+        doc.project.info.name = "House".into();
+        assert_eq!(
+            unsaved_question(&doc),
+            "“House” has unsaved changes. Save them before continuing?"
+        );
+        doc.saved_to(PathBuf::from("/tmp/other.ifcx"));
+        assert_eq!(
+            unsaved_question(&doc),
+            "“House” (other.ifcx) has unsaved changes. Save them before continuing?"
         );
     }
 

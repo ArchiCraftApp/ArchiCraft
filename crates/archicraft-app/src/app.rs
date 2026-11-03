@@ -12,7 +12,7 @@ use egui::{Id, RichText, ThemePreference, Ui, ViewportCommand, WidgetText};
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 
 use crate::commands::{CommandCtx, CommandId, Invocation, Origin, Registry, Target};
-use crate::document::Document;
+use crate::document::{Document, unsaved_question, window_title};
 use crate::i18n::{self, Localizer};
 use crate::persistence::autosave::{Abandoned, Autosaver, Clock, Session, SystemClock, find_abandoned};
 use crate::persistence::crash::{RecentLog, reports_since};
@@ -20,7 +20,7 @@ use crate::persistence::prefs::{Preferences, ThemeChoice};
 use crate::persistence::{DataDirs, save_atomically};
 use crate::tr;
 use crate::ui::dialogs::{self, Dialogs};
-use crate::ui::{browser, icons, properties, shell};
+use crate::ui::{browser, icons, properties, shell, view_bar};
 use crate::views::plan;
 use crate::views::view3d::{self, View3dState, model_bounds};
 use crate::workspace::{Pane, Request, Workspace};
@@ -572,12 +572,7 @@ impl ArchiCraftApp {
     }
 
     fn update_title_and_theme(&mut self, ctx: &egui::Context) {
-        let name = self.ws.doc.display_name();
-        let title = if self.ws.doc.is_dirty() {
-            tr!("window-title-unsaved", name = name)
-        } else {
-            tr!("window-title", name = name)
-        };
+        let title = window_title(&self.ws.doc);
         if title != self.title {
             ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -614,7 +609,7 @@ impl ArchiCraftApp {
             ui.heading(prompt.title());
             match &prompt {
                 Prompt::Unsaved(then) => {
-                    ui.label(tr!("modal-unsaved-text", name = self.ws.doc.display_name()));
+                    ui.label(unsaved_question(&self.ws.doc));
                     ui.separator();
                     ui.horizontal(|ui| {
                         let then = then.clone();
@@ -892,6 +887,12 @@ impl eframe::App for ArchiCraftApp {
         self.ws.perf.begin_frame();
         i18n::install(Rc::clone(&self.localizer));
         let ctx = ui.ctx().clone();
+        // Primary+= and Primary+- zoom the active view (UI-001), not the UI
+        // scale, which stays with the operating system's display scaling
+        // (NFR-PORT-005).
+        if ctx.options(|o| o.zoom_with_keyboard) {
+            ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        }
         icons::install_loader(&ctx);
         #[cfg(feature = "perf")]
         self.drive_script(&ctx);
@@ -923,6 +924,14 @@ impl eframe::App for ArchiCraftApp {
             let id = shell::status_bar(ui, &self.ws, &cx, problem_count);
             invoked.extend(id.map(|id| (id, Origin::Toolbar)));
         });
+        // UI-001: the view-control bar of the active view, above the status
+        // line.
+        if let Some(provider) = view_bar::provider(&self.ws, &cx, ctx.zoom_factor()) {
+            egui::Panel::bottom("view_bar").show(ui, |ui| {
+                let id = view_bar::view_bar(ui, &cx, provider.as_ref());
+                invoked.extend(id.map(|id| (id, Origin::Toolbar)));
+            });
+        }
         if self.dialogs.problems {
             egui::Panel::bottom("problems").resizable(true).show(ui, |ui| {
                 dialogs::problems_panel(ui, &mut self.ws, &self.load_problems);

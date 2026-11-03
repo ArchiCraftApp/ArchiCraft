@@ -130,6 +130,8 @@ fn command_ids_are_pinned() {
             "edit.ungroup",
             "edit.suspend-groups",
             "edit.settings",
+            "view.zoom-in",
+            "view.zoom-out",
             "view.fit-window",
             "view.zoom-selection",
             "view.previous-zoom",
@@ -213,9 +215,10 @@ fn primary_binding_follows_the_platform() {
 /// The default shortcuts, each the first binding of its command: the 23 of
 /// the former `ui/actions.rs`, with Problems moved off Primary+Shift+P for
 /// the command palette, Preferences, Group and Ungroup (ELM-015) and the
-/// Measure tool (MEA-001, docs/keymap.md). Primary is Cmd on macOS and Ctrl
+/// Measure tool (MEA-001, docs/keymap.md), and Zoom in and out on
+/// Primary+= and Primary+- (UI-001). Primary is Cmd on macOS and Ctrl
 /// elsewhere.
-const DEFAULT_SHORTCUTS: [(&str, Binding); 27] = [
+const DEFAULT_SHORTCUTS: [(&str, Binding); 29] = [
     ("file.new", Binding::primary(Key::N)),
     ("file.open", Binding::primary(Key::O)),
     ("file.save", Binding::primary(Key::S)),
@@ -234,6 +237,8 @@ const DEFAULT_SHORTCUTS: [(&str, Binding); 27] = [
     ("tool.slab", Binding::key(Key::S)),
     ("tool.measure", Binding::key(Key::M)),
     ("edit.settings", Binding::primary(Key::T)),
+    ("view.zoom-in", Binding::primary(Key::Equals)),
+    ("view.zoom-out", Binding::primary(Key::Minus)),
     ("view.fit-window", Binding::key(Key::F)),
     ("view.zoom-selection", Binding::key(Key::F).shift()),
     ("view.previous-zoom", Binding::primary(Key::OpenBracket)),
@@ -281,7 +286,7 @@ fn registry_keeps_the_default_shortcuts() {
             assert_eq!(spec.scope == Scope::Canvas, off_while_drawing, "{id}");
         }
     }
-    assert_eq!(bound, 30);
+    assert_eq!(bound, 32);
     assert_eq!(spec("edit.redo").default_bindings[1], Binding::primary(Key::Y));
     assert_eq!(
         spec("view.switch-plan-3d").default_bindings[1],
@@ -636,7 +641,8 @@ fn menus_follow_group_and_order() {
     );
     assert_eq!(
         menu("view"),
-        "view.fit-window view.zoom-selection view.previous-zoom view.next-zoom | view.switch-plan-3d \
+        "view.zoom-in view.zoom-out view.fit-window view.zoom-selection view.previous-zoom view.next-zoom | \
+         view.switch-plan-3d \
          view.next-tab view.previous-tab view.orbit | view.reference-lines view.problems | \
          view.place-user-origin view.reset-user-origin | view/display-mode/ view3d.display.shaded \
          view3d.display.shaded-with-edges view3d.display.hidden-line view3d.display.wireframe \
@@ -736,9 +742,10 @@ fn toolbar_commands_are_registered() {
 }
 
 /// UI-001: every button of the toolbar and the toolbox shows an icon of its
-/// own. The commands are the ones `ui/shell.rs` names in `toolbar` and
-/// `toolbox`, so a new button there fails this test until its command is
-/// listed here and has an icon.
+/// own. The toolbar's commands are the ones `ui/shell.rs` names in
+/// `toolbar`, so a new button there fails this test until its command is
+/// listed here and has an icon; the toolbox's are the registry's toolbox
+/// places.
 #[test]
 fn toolbar_and_toolbox_buttons_have_their_own_icons() {
     let source = include_str!("../ui/shell.rs").replace("\r\n", "\n");
@@ -750,21 +757,17 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             "edit::GROUP" => vec![edit::GROUP],
             "edit::UNGROUP" => vec![edit::UNGROUP],
             "tools::MEASURE" => vec![tools::MEASURE],
-            "view::FIT_WINDOW" => vec![view::FIT_WINDOW],
-            "view::ORBIT" => vec![view::ORBIT],
-            "view::SWITCH_PLAN_3D" => vec![view::SWITCH_PLAN_3D],
-            "tools::command" => crate::tools::ToolKind::ALL.map(tools::command).to_vec(),
-            _ => panic!("ui/shell.rs shows {path} in a toolbar: list it here"),
+            _ => panic!("ui/shell.rs shows {path} in the toolbar: list it here"),
         }
     };
-    let mut ids = Vec::new();
-    for name in ["toolbar", "toolbox"] {
-        for id in command_paths(function_body(&source, name))
-            .iter()
-            .flat_map(|p| commands(p))
-        {
-            if !ids.contains(&id) {
-                ids.push(id);
+    let mut ids: Vec<CommandId> = command_paths(function_body(&source, "toolbar"))
+        .iter()
+        .flat_map(|p| commands(p))
+        .collect();
+    for (_, tools) in Registry::get().toolbox() {
+        for spec in tools {
+            if !ids.contains(&spec.id) {
+                ids.push(spec.id);
             }
         }
     }
@@ -777,6 +780,39 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             .unwrap_or_else(|| panic!("{id} has no icon"));
         let uri = icon.uri().unwrap_or_else(|| panic!("{id}: {icon:?} has no uri"));
         assert!(icons.insert(uri), "{id} shares the icon {uri}");
+    }
+}
+
+/// UI-001: the toolbox is the registry's toolbox places: Select under
+/// Selection, Wall and Slab under Modelling, and Fit, Orbit, Plan/3D and
+/// Measure under the view tools; no tool is 2D or annotation yet, so that
+/// group has no heading. Each label is a catalogue key.
+#[test]
+fn the_toolbox_groups_come_from_the_registry() {
+    let groups: Vec<(ToolGroup, Vec<&str>)> = Registry::get()
+        .toolbox()
+        .into_iter()
+        .map(|(group, tools)| (group, tools.iter().map(|s| s.id.as_str()).collect()))
+        .collect();
+    assert_eq!(
+        groups,
+        [
+            (ToolGroup::Selection, vec!["tool.select"]),
+            (ToolGroup::Modelling, vec!["tool.wall", "tool.slab"]),
+            (
+                ToolGroup::View,
+                vec!["view.fit-window", "view.orbit", "view.switch-plan-3d", "tool.measure"]
+            ),
+        ]
+    );
+    let english = Localizer::english();
+    for spec in Registry::get().specs() {
+        if let Some(place) = spec.toolbox {
+            assert!(english.has(place.label), "{}: {}", spec.id, place.label);
+        }
+    }
+    for group in ToolGroup::ALL {
+        assert!(english.has(group.title_key()), "{group:?}");
     }
 }
 
@@ -822,9 +858,9 @@ fn command_paths(source: &str) -> Vec<String> {
 /// command: no command id in a string literal and no `CommandId::new`
 /// anywhere, and outside the toolbar, the toolbox and the status bar no
 /// command at all except File > Open…, after which the Open recent hook
-/// follows. The toolbar, the toolbox and the status bar invoke their
-/// buttons' commands by id (UI-001, UI-011), through constants of the
-/// command modules; the toolbar names Save, Undo, Redo, Measure, Group and
+/// follows. The toolbar and the status bar invoke their buttons' commands
+/// by id (UI-001, UI-011), through constants of the command modules, and the
+/// toolbox shows the registry's toolbox places; the toolbar names Save, Undo, Redo, Measure, Group and
 /// Ungroup, in that order (the order of the buttons; Pick up and Inject take
 /// their place before Measure), and nothing else. The scan holds on a CRLF
 /// copy of the source too, as a
@@ -835,6 +871,19 @@ fn shell_names_no_command() {
     let crlf = source.replace("\r\n", "\n").replace('\n', "\r\n");
     assert_shell_names_no_command(source);
     assert_shell_names_no_command(&crlf);
+}
+
+/// UI-001, UI-017: the view-control bar (`ui/view_bar.rs`) invokes its
+/// controls' commands through constants and families of the command
+/// modules: no command id in a string literal and no `CommandId::new`.
+#[test]
+fn the_view_bar_names_no_command_id() {
+    let source = include_str!("../ui/view_bar.rs");
+    let ids: HashSet<&str> = Registry::get().specs().iter().map(|s| s.id.as_str()).collect();
+    for literal in source.split('"').skip(1).step_by(2) {
+        assert!(!ids.contains(literal), "ui/view_bar.rs names {literal}");
+    }
+    assert!(!source.contains("CommandId::new"), "ui/view_bar.rs makes a command id");
 }
 
 /// The checks of `shell_names_no_command` on `source`, with its line ends
@@ -867,7 +916,9 @@ fn assert_shell_names_no_command(source: &str) {
             "edit::UNGROUP"
         ]
     );
-    assert!(command_paths(toolbox).contains(&"tools::command".to_owned()));
+    // The toolbox comes from the registry's toolbox places.
+    assert!(command_paths(toolbox).is_empty(), "{:?}", command_paths(toolbox));
+    assert!(toolbox.contains("Registry::get()"));
     assert!(command_paths(status_bar).contains(&"view::PROBLEMS".to_owned()));
     assert!(command_paths(status_bar).contains(&"edit::SUSPEND_GROUPS".to_owned()));
     // The scan finds a hand-written menu entry.

@@ -3,7 +3,7 @@
 
 use egui::Key;
 
-use super::{Binding, Category, CommandId, CommandSpec, Registry, Scope};
+use super::{Binding, Category, CommandId, CommandSpec, Registry, Scope, ToolGroup};
 use crate::ArchiCraftApp;
 use crate::tools::{SlabMode, ToolKind, WallMode};
 use crate::ui::icons;
@@ -43,7 +43,7 @@ pub fn slab_mode(mode: SlabMode) -> CommandId {
 }
 
 pub(super) fn specs() -> Vec<CommandSpec> {
-    let tool = |kind: ToolKind, order, key, icon| {
+    let tool = |kind: ToolKind, order, key, icon, (group, place, label)| {
         CommandSpec::with(command(kind), Category::Design, move |app, _, _| {
             app.ws.select_tool(kind)
         })
@@ -51,13 +51,39 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         .bind(Binding::key(key))
         .scope(Scope::Canvas)
         .icon(icon)
+        .toolbox(group, place, label)
         .checked_when(move |cx| cx.tool == kind)
     };
     let mut specs = vec![
-        tool(ToolKind::Select, 0, Key::V, icons::SELECT),
-        tool(ToolKind::Wall, 1, Key::W, icons::WALL),
-        tool(ToolKind::Slab, 2, Key::S, icons::SLAB),
-        tool(ToolKind::Measure, 3, Key::M, icons::MEASURE),
+        tool(
+            ToolKind::Select,
+            0,
+            Key::V,
+            icons::SELECT,
+            (ToolGroup::Selection, 0, "toolbox-select"),
+        ),
+        tool(
+            ToolKind::Wall,
+            1,
+            Key::W,
+            icons::WALL,
+            (ToolGroup::Modelling, 0, "toolbox-wall"),
+        ),
+        tool(
+            ToolKind::Slab,
+            2,
+            Key::S,
+            icons::SLAB,
+            (ToolGroup::Modelling, 1, "toolbox-slab"),
+        ),
+        // The measure tool sits with the view tools: it changes nothing.
+        tool(
+            ToolKind::Measure,
+            3,
+            Key::M,
+            icons::MEASURE,
+            (ToolGroup::View, 3, "toolbox-measure"),
+        ),
     ];
     // The geometry methods are checkable, so the properties strip, the menus
     // and the palette show the same state.
