@@ -4,7 +4,7 @@
 |---|---|
 | **Document** | Software Requirements Specification (SRS) for ArchiCraft v1 |
 | **Version** | 0.3 — draft for review |
-| **Date** | 2026-10-21 |
+| **Date** | 2026-11-03 |
 | **Owner** | Alexander Partsch |
 | **Status** | Draft. Reviewed against the technology choices (R8) on 2026-10-16, which produced version 0.2 (decisions D-2, D-11 and D-12, Section 9.1). Changes since 0.2 are listed in Section 0.3. |
 | **Basis** | Graphisoft Archicad Knowledge Base (offline corpus of 313 articles, scraped 2026-10-16), buildingSMART IFC5-development repository (commit `1a63082`, 2026-09-08), IFCX schema registry ifcx.dev |
@@ -78,7 +78,7 @@ The document is technology-neutral on purpose. Where a requirement constrains th
 |---|---|---|
 | 0.1 | 2026-10-16 | First complete draft, revised after an independent review (60 findings: 2 High, 16 Medium, 42 Low; all addressed). |
 | 0.2 | 2026-10-16 | Reviewed against the technology choices (R8) with the product owner. IFCX is the only file format (D-11, which supersedes D-4), and there is no installer, updater or online service (D-12). This withdraws 22 requirements: imports and exports of other formats, survey-point import, material textures, image export and update checks. Linux is required (NFR-PORT-003 raised to Must, D-2). Solid operations and trims stay Must; R8 plans a 3D Boolean library for them. The JSON nesting limit follows R8 (Appendix D.9). Open question O-17 (product name) added. |
-| 0.3 | 2026-10-21 | Slab point limit: a slab has at most 10,000 points in outline and holes together, for drawn and imported slabs alike (SLB-001, SLB-003, Appendix D.9; product-owner decision of 2026-10-21). |
+| 0.3 | 2026-11-03 | Slab point limit: a slab has at most 10,000 points in outline and holes together, for drawn and imported slabs alike (SLB-001, SLB-003, Appendix D.9; product-owner decision of 2026-10-21). Hardware classes: NFR-PERF-001 refers to the minimum and reference classes of the technology choices (R8) instead of proposed machines, which resolves O-15 (product-owner decision of 2026-11-03). |
 
 Every change to normative text (a requirement, a decision, a limit in an appendix) is recorded here in the same change. Changes collect in the row of the open draft version, and each one sets that row's date and the header's date to its own. The first change after a version has been reviewed opens the next version and sets it in the header. A review is recorded in the version's row and in the header's Status; until then the version is open.
 
@@ -1351,11 +1351,7 @@ IFCX is the only file format for models and project data (decision D-11). Projec
 
 Reference models (defined in Section 7.3): **RM-S** (single-family house, about 300 elements), **RM-M** (five-storey residential building, about 5,000 elements, about 2 million triangles), **RM-L** (about 20,000 elements, about 8 million triangles).
 
-- **NFR-PERF-001** · M — Performance targets shall refer to two hardware classes:
-  - *Minimum* (proposal): Apple MacBook Air M1 with 8 GB RAM, and a Windows laptop with an Intel Core i5-1135G7 (Iris Xe graphics), 8 GB RAM and a 1920×1080 display.
-  - *Reference* (proposal): Apple MacBook Air M2 with 16 GB RAM, and a Windows laptop with an Intel Core Ultra 7 155H (Arc graphics) and 16 GB RAM.
-
-  Linux is measured on the Windows laptop of each class, running the current Ubuntu LTS. The technology choices (R8) support these GPUs; the concrete machines are still to be chosen (O-15).
+- **NFR-PERF-001** · M — Performance targets shall refer to the two hardware classes, *minimum* and *reference*, defined in the technology choices (R8, [Hardware classes](technology-choices.md#hardware-classes)). Each class has an Apple Mac fixed by model and a Windows laptop chosen by criteria; Linux is measured on the Windows laptop of each class, running the current Ubuntu LTS.
   
   All performance targets below are measured on reference hardware unless stated otherwise. *(analysis)*
 - **NFR-PERF-002** · M — Opening RM-M shall take ≤ 10 s; saving it ≤ 5 s. Opening RM-L shall take ≤ 30 s.
@@ -1537,7 +1533,7 @@ The SRS is written on the basis of the following decisions. Each is a recommenda
 | O-12 | Is user-authored parametric content (scripted or visual component authoring) planned at all? This affects the component definition format. | Not in v1 (Section 8); built-in definitions plus "save selection as component" (OBJ-009). |
 | O-13 | Update checks, crash reports and telemetry policy? | Resolved by D-12: no update checks and no telemetry; crash reports stay on the local disk (NFR-SEC-002). |
 | O-14 | Is linking an IFCX reference model (IFX-084) needed in v1? | C. |
-| O-15 | Exact reference hardware and model sizes for performance acceptance. | NFR-PERF-001 and Section 7.3. The technology choices (R8) support both hardware classes; the concrete machines are still to be chosen. |
+| O-15 | Exact reference hardware and model sizes for performance acceptance. | Resolved: the hardware classes are defined in the technology choices (R8, Hardware classes) and referenced by NFR-PERF-001; the model sizes are RM-S, RM-M and RM-L in Section 7.3. Buying the machines stays with the product owner. |
 | O-16 | Semantics of `header.dataVersion`: a save counter or a semantic version? | A save counter (IFX-002). |
 | O-17 | Is the product name "ArchiCraft" clear of trademark conflicts? It resembles "ArchiCAD", Graphisoft's earlier spelling of Archicad, in the same market (NFR-LEG-002). | Keep the name during development; check trademarks before any public release. |
 
