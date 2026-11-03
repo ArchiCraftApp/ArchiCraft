@@ -513,7 +513,7 @@ impl ArchiCraftApp {
 
     /// The state commands are shown and enabled in this frame.
     fn command_ctx(&self, ctx: &egui::Context) -> CommandCtx {
-        CommandCtx::new(&self.ws, ctx.text_edit_focused(), self.dialogs.problems)
+        CommandCtx::new(&self.ws, ctx.text_edit_focused(), &self.dialogs)
     }
 
     /// Keyboard shortcuts (UI-008, HW-003): the default bindings of the
@@ -917,10 +917,10 @@ impl eframe::App for ArchiCraftApp {
             let id = shell::toolbar(ui, &cx);
             invoked.extend(id.map(|id| (id, Origin::Toolbar)));
         });
-        egui::Panel::top("properties").show(ui, |ui| properties::strip(ui, &mut self.ws));
+        egui::Panel::top("properties").show(ui, |ui| properties::strip(ui, &mut self.ws, &cx));
         let problem_count = self.ws.doc.geometry().problems.len() + self.load_problems.len();
         egui::Panel::bottom("status").show(ui, |ui| {
-            let id = shell::status_bar(ui, &mut self.ws, &cx, problem_count);
+            let id = shell::status_bar(ui, &self.ws, &cx, problem_count);
             invoked.extend(id.map(|id| (id, Origin::Toolbar)));
         });
         if self.dialogs.problems {
@@ -936,7 +936,7 @@ impl eframe::App for ArchiCraftApp {
             .resizable(true)
             .default_size(240.0)
             .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| browser::ui(ui, &mut self.ws, &mut self.dialogs, &cx));
+                egui::ScrollArea::vertical().show(ui, |ui| browser::ui(ui, &mut self.ws, &cx));
             });
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
             if self.tree.root.is_none() {
@@ -969,7 +969,7 @@ impl eframe::App for ArchiCraftApp {
         // The commands the panels invoked run before the dialogs, so a dialog
         // one of them opens shows in this frame.
         self.handle_requests(&ctx);
-        if let Some(prefs) = self.dialogs.show(&ctx, &mut self.ws) {
+        if let Some(prefs) = self.dialogs.show(&ctx, &mut self.ws, &cx) {
             self.ws.prefs = prefs;
             self.save_prefs();
         }

@@ -72,6 +72,29 @@ cmd-view-place-user-origin-desc = Click an origin and the direction of its X axi
 cmd-view-reset-user-origin-label = Reset user origin
 cmd-view-reset-user-origin-desc = Measure coordinates from the project origin again.
 
+## View: the active 3D view (VIEW-020, VIEW-050)
+
+cmd-view3d-display-shaded-label = Shaded
+cmd-view3d-display-shaded-desc = Show the active 3D view with shaded faces.
+cmd-view3d-display-shaded-with-edges-label = Shaded with edges
+cmd-view3d-display-shaded-with-edges-desc = Show the active 3D view with shaded faces and their edges.
+cmd-view3d-display-hidden-line-label = Hidden line
+cmd-view3d-display-hidden-line-desc = Show only the visible edges of the active 3D view.
+cmd-view3d-display-wireframe-label = Wireframe
+cmd-view3d-display-wireframe-desc = Show all edges of the active 3D view, also the hidden ones.
+cmd-view3d-preset-top-label = Top
+cmd-view3d-preset-top-desc = Look straight down on the model in the active 3D view.
+cmd-view3d-preset-front-label = Front
+cmd-view3d-preset-front-desc = Look at the front of the model in the active 3D view.
+cmd-view3d-preset-side-label = Side
+cmd-view3d-preset-side-desc = Look at the side of the model in the active 3D view.
+cmd-view3d-preset-isometric-label = Isometric
+cmd-view3d-preset-isometric-desc = Look at the model from above at the isometric angle in the active 3D view.
+cmd-view3d-preset-dimetric-label = Dimetric
+cmd-view3d-preset-dimetric-desc = Look at the model from above at the dimetric angle in the active 3D view.
+cmd-view3d-toggle-projection-label = Perspective
+cmd-view3d-toggle-projection-desc = Switch the active 3D view between perspective and parallel projection.
+
 ## Design
 
 cmd-tool-select-label = Selection tool
@@ -82,6 +105,20 @@ cmd-tool-slab-label = Slab tool
 cmd-tool-slab-desc = Draw slabs by their outline.
 cmd-tool-measure-label = Measure tool
 cmd-tool-measure-desc = Measure distances along picked points and angles in working units, without changing the model.
+cmd-tool-wall-mode-single-label = Single
+cmd-tool-wall-mode-single-desc = Draw one wall from its start to its end point.
+cmd-tool-wall-mode-chain-label = Chain
+cmd-tool-wall-mode-chain-desc = Draw connected walls point by point until the chain is finished.
+cmd-tool-wall-mode-rectangle-label = Rectangle
+cmd-tool-wall-mode-rectangle-desc = Draw four walls around a rectangle from two opposite corners.
+cmd-tool-wall-mode-rotated-rectangle-label = Rotated rectangle
+cmd-tool-wall-mode-rotated-rectangle-desc = Draw four walls around a rectangle from one side and its depth.
+cmd-tool-slab-mode-polygon-label = Polygon
+cmd-tool-slab-mode-polygon-desc = Draw a slab by the corners of its outline.
+cmd-tool-slab-mode-rectangle-label = Rectangle
+cmd-tool-slab-mode-rectangle-desc = Draw a rectangular slab from two opposite corners.
+cmd-tool-slab-mode-rotated-rectangle-label = Rotated rectangle
+cmd-tool-slab-mode-rotated-rectangle-desc = Draw a rectangular slab from one side and its depth.
 
 ## Project
 
@@ -93,6 +130,16 @@ cmd-project-materials-label = Materials…
 cmd-project-materials-desc = Add and edit the materials of the project.
 cmd-project-settings-label = Project settings…
 cmd-project-settings-desc = Change the project's name, address, units and other settings.
+cmd-storey-insert-above-label = Insert storey above
+cmd-storey-insert-above-desc = Insert a new storey above the storey.
+cmd-storey-insert-below-label = Insert storey below
+cmd-storey-insert-below-desc = Insert a new storey below the storey.
+cmd-storey-edit-label = Rename, elevation, height…
+cmd-storey-edit-desc = Open the Storeys dialog to change the storey's name, elevation and height.
+cmd-storey-delete-label = Delete storey…
+cmd-storey-delete-desc = Delete the storey after asking what happens to its elements.
+cmd-material-duplicate-label = Duplicate material
+cmd-material-duplicate-desc = Add a copy of the material selected in the Materials dialog.
 
 ## Help
 
@@ -124,3 +171,5 @@ cmd-reason-nothing-selected = Nothing is selected.
 cmd-reason-no-user-origin = No user origin is placed.
 cmd-reason-nothing-to-group = Select at least two elements or groups to group.
 cmd-reason-nothing-grouped = No selected element belongs to a group.
+cmd-reason-no-3d-view = No 3D view is active.
+cmd-reason-no-material-selected = No material is selected in the Materials dialog.

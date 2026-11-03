@@ -1,16 +1,17 @@
 //! Menu bar, toolbar, tool palette and status line (UI-001, UI-011, UI-017,
 //! NFR-USE-003).
 
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use archicraft_model::project::Projection;
 use archicraft_model::units::format_length;
 use egui::{Button, RichText, Ui};
 
 use super::command_widgets::{bar_button, icon_and_label, menu_item, shortcut_text, tool_button};
 use crate::commands::{
     CommandCtx, CommandId, CommandSpec, Enabled, MENUS, MenuEntry, Registry, edit, file, menu_title, tools, view,
+    view3d,
 };
 use crate::input::InputMode;
 use crate::tools::ToolKind;
@@ -20,7 +21,8 @@ use crate::views::render3d::DisplayMode;
 use crate::workspace::{Consumer, Pane, Workspace};
 
 /// The registered command `id`. The ids this file uses are constants of
-/// `crate::commands`, whose tests check that they are registered.
+/// `crate::commands` and family members, whose tests check that they are
+/// registered.
 fn spec(id: CommandId) -> &'static CommandSpec {
     Registry::get().command(id)
 }
@@ -185,11 +187,12 @@ fn problems_label(ws: &Workspace, count: usize) -> String {
 /// The status line with the input prompt, the last message, the indicator
 /// of suspended groups (ELM-015) and the view-control bar of the active view
 /// (UI-001).
-pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_count: usize) -> Option<CommandId> {
-    let mut chosen = None;
-    let mut button = |ui: &mut Ui, id: CommandId, label: String| {
-        if bar_button(ui, cx, spec(id), &label) {
-            chosen = Some(id);
+pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: usize) -> Option<CommandId> {
+    // Shared by the buttons and the Views menu.
+    let chosen = Cell::new(None);
+    let button = |ui: &mut Ui, id: CommandId, label: &str| {
+        if bar_button(ui, cx, spec(id), label) {
+            chosen.set(Some(id));
         }
     };
     ui.horizontal(|ui| {
@@ -235,51 +238,44 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_coun
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            button(ui, view::PROBLEMS, problems_label(ws, problem_count));
+            button(ui, view::PROBLEMS, &problems_label(ws, problem_count));
             ui.separator();
             // ELM-015: while groups are suspended; a click resumes them.
             if cx.groups_suspended {
-                button(ui, edit::SUSPEND_GROUPS, tr!("status-groups-suspended"));
+                button(ui, edit::SUSPEND_GROUPS, &tr!("status-groups-suspended"));
                 ui.separator();
             }
             match ws.active_pane {
-                Some(Pane::View3d(view_id)) => {
-                    if let Some(state) = ws.views_3d.get_mut(&view_id) {
-                        button(ui, view::FIT_WINDOW, tr!("status-fit"));
-                        button(ui, view::ORBIT, tr!("status-orbit"));
+                Some(Pane::View3d(_)) => {
+                    if let Some(view3d) = cx.view3d {
+                        button(ui, view::FIT_WINDOW, &tr!("status-fit"));
+                        button(ui, view::ORBIT, &tr!("status-orbit"));
                         egui::ComboBox::from_id_salt("display-mode")
-                            .selected_text(tr!(state.mode.label_key()))
+                            .selected_text(tr!(view3d.mode.label_key()))
                             .show_ui(ui, |ui| {
                                 for mode in DisplayMode::ALL {
-                                    ui.selectable_value(&mut state.mode, mode, tr!(mode.label_key()));
+                                    button(ui, view3d::display(mode), &tr!(mode.label_key()));
                                 }
-                            });
+                            })
+                            .response
+                            .on_hover_text(tr!("status-display-mode-hint"));
                         ui.menu_button(tr!("status-views"), |ui| {
                             for preset in ViewPreset::ALL {
-                                if ui.button(tr!(preset.label_key())).clicked() {
-                                    state.camera.apply_preset(preset);
-                                    ui.close();
+                                let id = view3d::preset(preset);
+                                if menu_item(ui, cx, spec(id)) {
+                                    chosen.set(Some(id));
                                 }
                             }
-                        });
-                        let perspective = state.camera.projection == Projection::Perspective;
-                        if ui
-                            .selectable_label(perspective, tr!("status-perspective"))
-                            .on_hover_text(tr!("status-perspective-hint"))
-                            .clicked()
-                        {
-                            state.camera.projection = if perspective {
-                                Projection::Parallel
-                            } else {
-                                Projection::Perspective
-                            };
-                        }
+                        })
+                        .response
+                        .on_hover_text(tr!("status-view-preset-hint"));
+                        button(ui, view3d::TOGGLE_PROJECTION, &tr!("status-perspective"));
                     }
                 }
                 Some(Pane::Plan(storey)) => {
-                    button(ui, view::FIT_WINDOW, tr!("status-fit"));
-                    button(ui, view::NEXT_ZOOM, tr!("status-next-zoom"));
-                    button(ui, view::PREVIOUS_ZOOM, tr!("status-previous-zoom"));
+                    button(ui, view::FIT_WINDOW, &tr!("status-fit"));
+                    button(ui, view::NEXT_ZOOM, &tr!("status-next-zoom"));
+                    button(ui, view::PREVIOUS_ZOOM, &tr!("status-previous-zoom"));
                     if let Some(state) = ws.plan_views.get(&storey) {
                         // INP-014: the cursor's X and Y from the user origin,
                         // along its axes.
@@ -309,7 +305,7 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_coun
             }
         });
     });
-    chosen
+    chosen.into_inner()
 }
 
 #[cfg(test)]

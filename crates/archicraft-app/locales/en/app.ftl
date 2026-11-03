@@ -15,6 +15,11 @@ menu-view = View
 menu-design = Design
 menu-project = Project
 menu-help = Help
+# The submenus of the geometry methods (Design) and the 3D views (View).
+menu-design-wall-mode = Wall method
+menu-design-slab-mode = Slab method
+menu-view-display-mode = Display mode
+menu-view-view-preset = View presets
 
 # The submenu after File > Open… with the recently opened project files.
 menu-file-recent = Open recent
@@ -136,7 +141,6 @@ status-orbit = Orbit
 # The menu of the 3D view presets.
 status-views = Views
 status-perspective = Perspective
-status-perspective-hint = Switch between perspective and parallel projection (VIEW-020)
 status-next-zoom = Next zoom ▶
 status-previous-zoom = ◀ Previous zoom
 # The cursor in a plan from the user origin (INP-014); $x, $y: formatted
@@ -174,10 +178,6 @@ browser-project = Project
 # $name: the storey's name; $elevation: its elevation with the unit.
 browser-storey = { $number }  { $name }  ({ $elevation })
 browser-open-plan = Open plan
-browser-insert-above = Insert storey above
-browser-insert-below = Insert storey below
-browser-storey-settings = Rename, elevation, height…
-browser-delete-storey = Delete storey…
 # $name: the site's name.
 browser-site = Site: { $name }
 # $name: the building's name.
@@ -228,6 +228,11 @@ view-preset-front = Front
 view-preset-side = Side
 view-preset-isometric = Isometric
 view-preset-dimetric = Dimetric
+
+# Tooltips of the display-mode choice and the Views menu in the status bar of
+# a 3D view (UI-011).
+status-display-mode-hint = How the active 3D view draws the model.
+status-view-preset-hint = Turn the camera of the active 3D view to a standard direction.
 
 ## Snap kinds named in the cursor label (INP-008), from SnapKind::label_key
 

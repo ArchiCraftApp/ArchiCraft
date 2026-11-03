@@ -5,6 +5,9 @@ use egui::{Key, KeyboardShortcut, Modifiers};
 
 use super::*;
 use crate::i18n::Localizer;
+use crate::tools::{SlabMode, WallMode};
+use crate::views::camera::ViewPreset;
+use crate::views::render3d::DisplayMode;
 
 fn spec(id: &str) -> &'static CommandSpec {
     Registry::get().spec(id).unwrap_or_else(|| panic!("no command {id}"))
@@ -57,6 +60,26 @@ fn every_command_is_complete() {
                 place.path
             );
         }
+    }
+    // The families are registered from the ALL arrays of their enums, one
+    // command per member, so a new variant cannot be missed.
+    let family = |prefix: &str| ids.iter().filter(|id| id.starts_with(prefix)).count();
+    assert_eq!(family("tool.wall.mode."), WallMode::ALL.len());
+    assert_eq!(family("tool.slab.mode."), SlabMode::ALL.len());
+    assert_eq!(family("view3d.display."), DisplayMode::ALL.len());
+    assert_eq!(family("view3d.preset."), ViewPreset::ALL.len());
+    let member = |id: CommandId, family: &str, code: &str| assert_eq!(id.as_str(), format!("{family}.{code}"));
+    for m in WallMode::ALL {
+        member(tools::wall_mode(m), tools::WALL_MODE, m.code());
+    }
+    for m in SlabMode::ALL {
+        member(tools::slab_mode(m), tools::SLAB_MODE, m.code());
+    }
+    for m in DisplayMode::ALL {
+        member(view3d::display(m), view3d::DISPLAY, m.code());
+    }
+    for p in ViewPreset::ALL {
+        member(view3d::preset(p), view3d::PRESET, p.code());
     }
     for (i, a) in specs.iter().enumerate() {
         for b in &specs[i + 1..] {
@@ -119,14 +142,36 @@ fn command_ids_are_pinned() {
             "view.problems",
             "view.place-user-origin",
             "view.reset-user-origin",
+            "view3d.display.shaded",
+            "view3d.display.shaded-with-edges",
+            "view3d.display.hidden-line",
+            "view3d.display.wireframe",
+            "view3d.preset.top",
+            "view3d.preset.front",
+            "view3d.preset.side",
+            "view3d.preset.isometric",
+            "view3d.preset.dimetric",
+            "view3d.toggle-projection",
             "tool.select",
             "tool.wall",
             "tool.slab",
             "tool.measure",
+            "tool.wall.mode.single",
+            "tool.wall.mode.chain",
+            "tool.wall.mode.rectangle",
+            "tool.wall.mode.rotated-rectangle",
+            "tool.slab.mode.polygon",
+            "tool.slab.mode.rectangle",
+            "tool.slab.mode.rotated-rectangle",
             "project.storeys",
             "project.layers",
             "project.materials",
             "project.settings",
+            "storey.insert-above",
+            "storey.insert-below",
+            "storey.edit",
+            "storey.delete",
+            "material.duplicate",
             "help.shortcuts",
             "help.about",
             "tool.wall.cycle-reference-line",
@@ -380,15 +425,21 @@ fn disabled_commands_name_a_reason_from_the_catalogue() {
             reasons += 1;
         }
     }
-    // Undo, Redo, Delete, Group, Ungroup, Zoom to selection and Reset user
-    // origin.
-    assert_eq!(reasons, 7);
+    // Undo, Redo, Delete, Group, Ungroup, Zoom to selection, Reset user
+    // origin, the ten commands of the active 3D view and Duplicate material.
+    assert_eq!(reasons, 18);
     let everything = CommandCtx {
         can_undo: true,
         can_redo: true,
         selection_items: 2,
         selection_grouped: true,
         user_origin_placed: true,
+        view3d: Some(View3dCtx {
+            mode: DisplayMode::Shaded,
+            projection: archicraft_model::project::Projection::Perspective,
+            orbit: false,
+        }),
+        material_selected: true,
         ..CommandCtx::default()
     };
     for spec in Registry::get().specs() {
@@ -587,12 +638,21 @@ fn menus_follow_group_and_order() {
         menu("view"),
         "view.fit-window view.zoom-selection view.previous-zoom view.next-zoom | view.switch-plan-3d \
          view.next-tab view.previous-tab view.orbit | view.reference-lines view.problems | \
-         view.place-user-origin view.reset-user-origin"
+         view.place-user-origin view.reset-user-origin | view/display-mode/ view3d.display.shaded \
+         view3d.display.shaded-with-edges view3d.display.hidden-line view3d.display.wireframe \
+         view/view-preset/ view3d.preset.top view3d.preset.front view3d.preset.side \
+         view3d.preset.isometric view3d.preset.dimetric view3d.toggle-projection"
     );
-    assert_eq!(menu("design"), "tool.select tool.wall tool.slab tool.measure");
+    assert_eq!(
+        menu("design"),
+        "tool.select tool.wall tool.slab tool.measure | design/wall-mode/ tool.wall.mode.single tool.wall.mode.chain \
+         tool.wall.mode.rectangle tool.wall.mode.rotated-rectangle design/slab-mode/ tool.slab.mode.polygon \
+         tool.slab.mode.rectangle tool.slab.mode.rotated-rectangle"
+    );
     assert_eq!(
         menu("project"),
-        "project.storeys project.layers project.materials project.settings"
+        "project.storeys project.layers project.materials project.settings | storey.insert-above \
+         storey.insert-below storey.edit storey.delete"
     );
     assert_eq!(menu("help"), "help.shortcuts help.about");
 }

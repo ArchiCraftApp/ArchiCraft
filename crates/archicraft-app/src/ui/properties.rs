@@ -16,7 +16,9 @@ use archicraft_model::{
 };
 use egui::{Id, Ui};
 
+use super::command_widgets::command_button;
 use super::widgets::{self, Edited, common};
+use crate::commands::{self, CommandCtx, CommandId, Origin, Registry, Target};
 use crate::input::{DivisionMode, DivisionScope, EQUAL_PARTS, PointInput};
 use crate::tools::{MeasureMode, SlabMode, ToolKind, WallMode};
 use crate::tr;
@@ -703,10 +705,10 @@ fn group_row(ui: &mut Ui, ws: &mut Workspace) {
 
 /// The properties strip below the menu bar. It keeps a height of two rows,
 /// so that the views do not jump when the tool or selection changes.
-pub fn strip(ui: &mut Ui, ws: &mut Workspace) {
+pub fn strip(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
     ui.set_min_height(2.0 * ui.spacing().interact_size.y + ui.spacing().item_spacing.y);
     ui.horizontal_wrapped(|ui| {
-        tool_modes(ui, ws);
+        tool_modes(ui, ws, cx);
         let Some(mut editing) = gather(ws) else {
             ui.label(egui::RichText::new("Nothing selected. Choose a tool, or select elements to edit them.").weak());
             return;
@@ -797,27 +799,13 @@ fn section(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
     });
 }
 
-/// Geometry methods of the active tool, shown at the start of the strip.
-fn tool_modes(ui: &mut Ui, ws: &mut Workspace) {
-    match ws.tool.kind {
-        ToolKind::Wall => {
-            for mode in WallMode::ALL {
-                if ui.selectable_label(ws.tool.wall_mode == mode, mode.label()).clicked() && ws.end_chain() {
-                    ws.tool.wall_mode = mode;
-                    ws.reset_input();
-                }
-            }
-            ui.separator();
-        }
-        ToolKind::Slab => {
-            for mode in SlabMode::ALL {
-                if ui.selectable_label(ws.tool.slab_mode == mode, mode.label()).clicked() {
-                    ws.tool.slab_mode = mode;
-                    ws.reset_input();
-                }
-            }
-            ui.separator();
-        }
+/// Geometry methods of the active tool, shown at the start of the strip:
+/// the commands of the mode family, checked for the current mode (WAL-001,
+/// SLB-001, UI-017).
+fn tool_modes(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
+    let modes: Vec<CommandId> = match ws.tool.kind {
+        ToolKind::Wall => WallMode::ALL.map(commands::tools::wall_mode).to_vec(),
+        ToolKind::Slab => SlabMode::ALL.map(commands::tools::slab_mode).to_vec(),
         // MEA-001: a new mode starts a new measurement.
         ToolKind::Measure => {
             for mode in MeasureMode::ALL {
@@ -829,10 +817,17 @@ fn tool_modes(ui: &mut Ui, ws: &mut Workspace) {
                     ws.input = PointInput::default();
                 }
             }
-            ui.separator();
+            Vec::new()
         }
         ToolKind::Select => return,
+    };
+    for id in modes {
+        if command_button(ui, cx, Registry::get().command(id)) {
+            let target = Target::active(ws);
+            ws.requests.push(Request::Invoke(id, target, Origin::Panel));
+        }
     }
+    ui.separator();
     division(ui, ws);
     ui.separator();
 }

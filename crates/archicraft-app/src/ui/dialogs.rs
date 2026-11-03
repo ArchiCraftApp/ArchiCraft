@@ -9,8 +9,10 @@ use archicraft_model::{Command, Layer, LayerId, MaterialId, ProjectInfo, Project
 use egui::{Context, Id, RichText, Ui};
 
 use super::about;
+use super::command_widgets::command_button;
 use super::widgets::{self, Edited};
-use crate::commands::Registry;
+use crate::commands::project::{DELETE_STOREY, DUPLICATE_MATERIAL, INSERT_STOREY_ABOVE, INSERT_STOREY_BELOW};
+use crate::commands::{CommandCtx, Origin, Registry, Target};
 use crate::input::{ConstraintReference, InputMode};
 use crate::persistence::prefs::{Preferences, SeparatorChoice, ThemeChoice};
 use crate::tr;
@@ -78,11 +80,11 @@ impl Dialogs {
     }
 
     /// Shows the open dialogs. Returns preferences the user confirmed.
-    pub fn show(&mut self, ctx: &Context, ws: &mut Workspace) -> Option<Preferences> {
-        self.storeys_window(ctx, ws);
+    pub fn show(&mut self, ctx: &Context, ws: &mut Workspace, cx: &CommandCtx) -> Option<Preferences> {
+        self.storeys_window(ctx, ws, cx);
         self.delete_storey_window(ctx, ws);
         self.layers_window(ctx, ws);
-        self.materials_window(ctx, ws);
+        self.materials_window(ctx, ws, cx);
         self.project_window(ctx, ws);
         self.settings_window(ctx, ws);
         self.shortcuts_window(ctx);
@@ -90,7 +92,7 @@ impl Dialogs {
         self.preferences_window(ctx, &ws.prefs.number_format())
     }
 
-    fn storeys_window(&mut self, ctx: &Context, ws: &mut Workspace) {
+    fn storeys_window(&mut self, ctx: &Context, ws: &mut Workspace, cx: &CommandCtx) {
         let mut open = self.storeys;
         egui::Window::new("Storeys")
             .open(&mut open)
@@ -176,25 +178,18 @@ impl Dialogs {
                     let selected = self
                         .selected_storey
                         .filter(|s| ws.doc.project.storeys.get(*s).is_some());
-                    for (label, above) in [("Insert above", true), ("Insert below", false)] {
-                        if ui.add_enabled(selected.is_some(), egui::Button::new(label)).clicked()
-                            && let Some(id) = selected
-                        {
-                            let storey = super::browser::new_storey(ws, id, above);
-                            ws.execute(Command::InsertStorey {
-                                reference: id,
-                                above,
-                                storey,
-                            });
+                    // The storey commands act on the storey selected here
+                    // (STR-003, STR-004).
+                    ui.add_enabled_ui(selected.is_some(), |ui| {
+                        for command in [INSERT_STOREY_ABOVE, INSERT_STOREY_BELOW, DELETE_STOREY] {
+                            if command_button(ui, cx, Registry::get().command(command))
+                                && let Some(storey) = selected
+                            {
+                                let target = Target::storey(storey);
+                                ws.requests.push(Request::Invoke(command, target, Origin::Panel));
+                            }
                         }
-                    }
-                    if ui
-                        .add_enabled(selected.is_some(), egui::Button::new("Delete…"))
-                        .clicked()
-                        && let Some(id) = selected
-                    {
-                        self.ask_delete_storey(id);
-                    }
+                    });
                 });
                 ui.label(
                     RichText::new(format!(
@@ -388,7 +383,7 @@ impl Dialogs {
         self.layers = open;
     }
 
-    fn materials_window(&mut self, ctx: &Context, ws: &mut Workspace) {
+    fn materials_window(&mut self, ctx: &Context, ws: &mut Workspace, cx: &CommandCtx) {
         let mut open = self.materials;
         egui::Window::new("Materials")
             .open(&mut open)
@@ -435,14 +430,10 @@ impl Dialogs {
                     material_editor(ui, ws, &material);
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if ui.button("Duplicate").clicked() {
-                            let copy = Material {
-                                id: MaterialId::new(),
-                                name: format!("{} copy", material.name),
-                                ..material.clone()
-                            };
-                            self.selected_material = Some(copy.id);
-                            ws.execute(Command::AddMaterial(copy));
+                        if command_button(ui, cx, Registry::get().command(DUPLICATE_MATERIAL)) {
+                            let target = Target::active(ws);
+                            ws.requests
+                                .push(Request::Invoke(DUPLICATE_MATERIAL, target, Origin::Panel));
                         }
                         if ui.button("Delete…").clicked() {
                             self.delete_material = Some((material.id, None));

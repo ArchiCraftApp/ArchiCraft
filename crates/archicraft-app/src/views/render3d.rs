@@ -37,6 +37,17 @@ impl DisplayMode {
         DisplayMode::Wireframe,
     ];
 
+    /// The stable code in the id of the mode's command,
+    /// `view3d.display.<code>` (UI-017).
+    pub fn code(self) -> &'static str {
+        match self {
+            DisplayMode::Shaded => "shaded",
+            DisplayMode::ShadedWithEdges => "shaded-with-edges",
+            DisplayMode::HiddenLine => "hidden-line",
+            DisplayMode::Wireframe => "wireframe",
+        }
+    }
+
     /// The catalogue key of the mode's name, rendered with `tr!`
     /// (NFR-L10N-001).
     pub fn label_key(self) -> &'static str {
