@@ -58,6 +58,8 @@ pub struct PlanViewState {
     pub pending: Vec<DVec2>,
     /// The guides drawn dashed last frame (INP-006).
     pub guides: Vec<Guide>,
+    /// The lines of the measurement drawn last frame (MEA-001).
+    pub measure: Vec<Vec<DVec2>>,
     /// The plane point under the pointer last frame, for the coordinate
     /// readout of the view-control bar (INP-014).
     pub cursor: Option<DVec2>,
@@ -80,6 +82,7 @@ impl Default for PlanViewState {
             preview: Vec::new(),
             pending: Vec::new(),
             guides: Vec::new(),
+            measure: Vec::new(),
             cursor: None,
         }
     }
@@ -883,6 +886,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
 
     // Drawing.
     draw_plan(&painter, rect, &camera, &plan, ws, &palette);
+    state.measure = draw_measurement(&painter, rect, &camera, ws, storey, &palette);
     if let Some((r, fully)) = area.filter(|(r, _)| r.area() > 4.0) {
         let stroke = Stroke::new(1.0, palette.selection);
         painter.rect_filled(r, 0.0, palette.selection.gamma_multiply(0.08));
@@ -980,6 +984,31 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
 
     response.context_menu(|ui| context_menu(ui, ws));
     ws.plan_views.insert(storey, state);
+}
+
+/// Draws the lines and points of the measure tool's measurement picked on
+/// `storey`, in progress or finished (MEA-001), and returns the lines.
+fn draw_measurement(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: &Camera2d,
+    ws: &Workspace,
+    storey: StoreyId,
+    palette: &Palette,
+) -> Vec<Vec<DVec2>> {
+    let measure = &ws.tool.measure;
+    if ws.tool.kind != ToolKind::Measure || measure.storey != Some(storey) {
+        return Vec::new();
+    }
+    let lines = measure.lines();
+    for line in &lines {
+        let points: Vec<Pos2> = line.iter().map(|q| camera.to_screen(rect, *q)).collect();
+        painter.add(Shape::line(points, Stroke::new(1.5, palette.preview)));
+    }
+    for q in measure.points() {
+        painter.circle_filled(camera.to_screen(rect, *q), 3.0, palette.preview);
+    }
+    lines
 }
 
 /// Runs what a key, click or double-click asks for. Esc that found nothing

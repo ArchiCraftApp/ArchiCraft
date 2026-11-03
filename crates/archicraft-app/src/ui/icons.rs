@@ -24,10 +24,11 @@ pub const REDO: ImageSource<'static> = include_image!("../../assets/icons/redo.s
 pub const SAVE: ImageSource<'static> = include_image!("../../assets/icons/save.svg");
 pub const GROUP: ImageSource<'static> = include_image!("../../assets/icons/group.svg");
 pub const UNGROUP: ImageSource<'static> = include_image!("../../assets/icons/ungroup.svg");
+pub const MEASURE: ImageSource<'static> = include_image!("../../assets/icons/measure.svg");
 
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 11] = [
-    SELECT, WALL, SLAB, FIT, ORBIT, PLAN_3D, UNDO, REDO, SAVE, GROUP, UNGROUP,
+pub const ALL: [ImageSource<'static>; 12] = [
+    SELECT, WALL, SLAB, FIT, ORBIT, PLAN_3D, UNDO, REDO, SAVE, GROUP, UNGROUP, MEASURE,
 ];
 
 /// Installs the loader that rasterises the icons for the screen's pixels

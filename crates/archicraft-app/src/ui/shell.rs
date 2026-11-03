@@ -17,7 +17,7 @@ use crate::tools::ToolKind;
 use crate::tr;
 use crate::views::camera::ViewPreset;
 use crate::views::render3d::DisplayMode;
-use crate::workspace::{Pane, Workspace};
+use crate::workspace::{Consumer, Pane, Workspace};
 
 /// The registered command `id`. The ids this file uses are constants of
 /// `crate::commands`, whose tests check that they are registered.
@@ -110,22 +110,35 @@ fn tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, enabled: Enabled) {
 const TOOLBAR_ICON: f32 = 16.0;
 
 /// The toolbar below the menu bar (UI-011): Save at the far left (PRJ-003),
-/// a separator, Undo and Redo, a separator, then Group and Ungroup
-/// (ELM-015), greyed out while they cannot run, with their icons, labels and
-/// tooltips from the registry. Returns the command of the clicked button.
+/// a separator, Undo and Redo, a separator, the Measure tool (MEA-001), a
+/// separator, then Group and Ungroup (ELM-015), greyed out while they cannot
+/// run, with their icons, labels and tooltips from the registry. A command
+/// with a checked state, such as a tool, shows selected while it is on, as
+/// in the menus. Returns the command of the clicked button.
 pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     let mut chosen = None;
     ui.horizontal(|ui| {
-        let ids = [file::SAVE, edit::UNDO, edit::REDO, edit::GROUP, edit::UNGROUP];
+        let ids = [
+            file::SAVE,
+            edit::UNDO,
+            edit::REDO,
+            tools::MEASURE,
+            edit::GROUP,
+            edit::UNGROUP,
+        ];
         for (i, id) in ids.into_iter().enumerate() {
-            // Save, the history and the groups stand apart.
-            if i == 1 || i == 3 {
+            // Save, the history, the measure tool and the groups stand apart.
+            if i == 1 || i == 3 || i == 4 {
                 ui.separator();
             }
             let spec = spec(id);
             let enabled = (spec.enabled)(cx);
-            let button =
-                Button::new(icon_and_label(spec, TOOLBAR_ICON, spec.label())).image_tint_follows_text_color(true);
+            let atoms = icon_and_label(spec, TOOLBAR_ICON, spec.label());
+            let button = match spec.checked_in(cx) {
+                Some(on) => Button::selectable(on, atoms),
+                None => Button::new(atoms),
+            }
+            .image_tint_follows_text_color(true);
             let response = ui
                 .add_enabled(enabled.is_yes(), button)
                 .on_hover_ui(|ui| tooltip(ui, cx, spec, enabled))
@@ -159,6 +172,7 @@ pub fn toolbox(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     button(ui, view::FIT_WINDOW, tr!("toolbox-fit"));
     button(ui, view::ORBIT, tr!("toolbox-orbit"));
     button(ui, view::SWITCH_PLAN_3D, tr!("toolbox-plan-3d"));
+    button(ui, tools::command(ToolKind::Measure), tr!("toolbox-measure"));
     chosen
 }
 
@@ -194,6 +208,21 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_coun
             },
         );
         ui.label(RichText::new(prompt).small());
+        // MEA-001: the values of the measurement, in working units.
+        if ws.tool.kind == ToolKind::Measure && ws.active_consumer == Consumer::Tool {
+            let readout = ws
+                .tool
+                .measure
+                .readout(&ws.doc.project.settings.units, &ws.prefs.number_format());
+            if !readout.is_empty() {
+                ui.separator();
+                let text: Vec<String> = readout
+                    .into_iter()
+                    .map(|(label, value)| format!("{label} {value}"))
+                    .collect();
+                ui.label(RichText::new(text.join("  ")).small().monospace());
+            }
+        }
         if let Some(status) = &ws.status
             && status.since.elapsed() < Duration::from_secs(8)
         {

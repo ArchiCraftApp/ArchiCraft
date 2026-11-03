@@ -466,9 +466,9 @@ fn the_shortcuts_window_lists_every_binding() {
         .iter()
         .filter(|s| !s.default_bindings.is_empty())
         .count();
-    // The 23 former actions, Preferences, Group and Ungroup (ELM-015) and
-    // the 6 local commands of the plan view.
-    assert_eq!(rows, 32);
+    // The 23 former actions, Preferences, Group and Ungroup (ELM-015), the
+    // Measure tool and the 6 local commands of the plan view.
+    assert_eq!(rows, 33);
     for spec in Registry::get().specs() {
         if !spec.default_bindings.is_empty() {
             assert_present(&harness, &keys(&spec.default_bindings));
@@ -512,7 +512,8 @@ fn add_wall(harness: &mut Harness<'static, ArchiCraftApp>) {
 
 /// UI-011: the toolbar lies directly below the menu bar and above the
 /// properties strip, and its only buttons are Save, then Undo and Redo
-/// (PRJ-003), then Group and Ungroup (ELM-015), each its command's icon and
+/// (PRJ-003), the Measure tool (MEA-001), then Group and Ungroup (ELM-015),
+/// each its command's icon and
 /// label.
 #[test]
 fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
@@ -532,7 +533,7 @@ fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
         .collect();
     buttons.sort_by(|a, b| a.0.total_cmp(&b.0));
     let labels: Vec<&str> = buttons.iter().map(|(_, label)| label.as_str()).collect();
-    assert_eq!(labels, ["Save", "Undo", "Redo", "Group", "Ungroup"]);
+    assert_eq!(labels, ["Save", "Undo", "Redo", "Measure tool", "Group", "Ungroup"]);
 }
 
 /// UI-001, NFR-PORT-005: the toolbox and the toolbar show their icons,
@@ -548,8 +549,16 @@ fn the_toolbox_and_the_toolbar_draw_their_icons_for_the_screen() {
         icons::FIT,
         icons::ORBIT,
         icons::PLAN_3D,
+        icons::MEASURE,
     ];
-    let toolbar = [icons::SAVE, icons::UNDO, icons::REDO, icons::GROUP, icons::UNGROUP];
+    let toolbar = [
+        icons::SAVE,
+        icons::UNDO,
+        icons::REDO,
+        icons::MEASURE,
+        icons::GROUP,
+        icons::UNGROUP,
+    ];
     for (pixels_per_point, name) in [(1.0, "icons-100"), (2.0, "icons-200")] {
         let harness = harness_at(name, pixels_per_point);
         let textures: Vec<(String, [usize; 2])> = harness
@@ -896,7 +905,7 @@ fn invoked_by_shortcut(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<&'s
 
 /// UI-008, HW-003, UI-017: every default binding of the registry, among them
 /// the 23 shortcuts of the former action list, Preferences, Group and
-/// Ungroup, Primary+Y (redo), Backspace (delete) and Primary+3 (plan/3D), invokes its command when its keys are pressed, on
+/// Ungroup, M (measure), Primary+Y (redo), Backspace (delete) and Primary+3 (plan/3D), invokes its command when its keys are pressed, on
 /// macOS and elsewhere. The plan view runs its local commands itself
 /// (`the_plan_views_local_keys_run_their_commands`).
 #[test]
@@ -918,7 +927,7 @@ fn every_default_shortcut_invokes_its_command() {
             }
         }
     }
-    assert_eq!(pressed, 2 * 29);
+    assert_eq!(pressed, 2 * 30);
 }
 
 /// UI-008, INP-003: while a tool takes point input the single-key shortcuts,

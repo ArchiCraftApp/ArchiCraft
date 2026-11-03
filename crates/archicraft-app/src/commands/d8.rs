@@ -219,7 +219,7 @@ pub const ITEMS: [Item; 38] = [
         Tool,
         &[Binding::key(Key::M)],
         Canvas,
-        pending("3d-input-navigation"),
+        registered(tools::MEASURE),
     ),
     item("wall", Tool, &[Binding::key(Key::W)], Canvas, registered(tools::WALL)),
     item("slab", Tool, &[Binding::key(Key::S)], Canvas, registered(tools::SLAB)),

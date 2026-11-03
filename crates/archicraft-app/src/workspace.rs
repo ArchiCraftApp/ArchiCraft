@@ -88,7 +88,7 @@ impl Consumer {
     /// The storey the input in progress started on.
     pub fn storey(&self, tool: &ToolState) -> Option<StoreyId> {
         match self {
-            Consumer::Tool => tool.storey,
+            Consumer::Tool => tool.input_storey(),
             Consumer::UserOrigin(origin) => origin.storey,
         }
     }
@@ -552,12 +552,12 @@ impl Workspace {
     }
 
     /// Selects every visible element of the active tool's kind on the active
-    /// storey, or of every kind with the selection tool (SEL-004), with the
-    /// groups they belong to (ELM-015).
+    /// storey, or of every kind with the selection and the measure tool
+    /// (SEL-004), with the groups they belong to (ELM-015).
     pub fn select_all(&mut self) {
         let project = &self.doc.project;
         let kind = match self.tool.kind {
-            ToolKind::Select => None,
+            ToolKind::Select | ToolKind::Measure => None,
             ToolKind::Wall => Some(archicraft_model::KindTag::Wall),
             ToolKind::Slab => Some(archicraft_model::KindTag::Slab),
         };
@@ -733,7 +733,18 @@ mod tests {
 
     /// Feeds `key` with the cursor at `cursor`.
     fn key_at(ws: &mut Workspace, key: KeyInput, cursor: DVec2) -> Effect {
-        let targets = SnapIndex::default();
+        feed(ws, Feed::Key(key), cursor, &SnapIndex::default())
+    }
+
+    /// What [`feed`] gives point input.
+    enum Feed {
+        Key(KeyInput),
+        Click,
+    }
+
+    /// Feeds a key or a click to the workspace's consumer with the cursor at
+    /// `cursor` and the snap targets `targets`, as a plan view does.
+    fn feed(ws: &mut Workspace, event: Feed, cursor: DVec2, targets: &SnapIndex) -> Effect {
         let units = ws.doc.project.settings.units.clone();
         let nf = ws.prefs.number_format();
         let consumer = ws.active_consumer.get(&ws.tool);
@@ -741,7 +752,7 @@ mod tests {
         let ctx = InputContext {
             project: &ws.doc.project,
             storey: ws.active_storey,
-            targets: &targets,
+            targets,
             pending: &[],
             previous: consumer.reference_point(),
             guides: &[],
@@ -763,7 +774,11 @@ mod tests {
             marked: None,
         };
         ws.input.resolve(cursor, Modifiers::default(), &ctx);
-        let effect = ws.input.key(key, ws.active_consumer.get_mut(&mut ws.tool), &ctx);
+        let consumer = ws.active_consumer.get_mut(&mut ws.tool);
+        let effect = match event {
+            Feed::Key(key) => ws.input.key(key, consumer, &ctx),
+            Feed::Click => ws.input.click(cursor, Modifiers::default(), consumer, &ctx),
+        };
         ws.settle_consumer();
         effect
     }
@@ -861,5 +876,79 @@ mod tests {
         ws.place_user_origin();
         ws.reset_input();
         assert_eq!(ws.active_consumer, Consumer::Tool, "Cancel input ends it");
+    }
+
+    /// MEA-001: the measure tool creates no model element. After 50
+    /// measurements of each mode, finished by Enter, by the angle's third
+    /// point and cleared by Esc, the project revision and the undo count are
+    /// unchanged and no effect asked to run a command.
+    #[test]
+    fn measuring_changes_no_model() {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        add_walls(&mut ws, [0], false);
+        let (revision, undo) = (ws.doc.project.revision, ws.doc.history.undo_len());
+        ws.select_tool(ToolKind::Measure);
+        let targets = ws.snap_index(ws.active_storey);
+        for i in 0..50 {
+            let x = f64::from(i);
+            for mode in crate::tools::MeasureMode::ALL {
+                ws.tool.measure.set_mode(mode);
+                let mut effects = Vec::new();
+                for p in [(x, 10.0), (x + 3.0, 14.0), (x + 3.0, 20.0)] {
+                    effects.push(feed(&mut ws, Feed::Click, DVec2::new(p.0, p.1), &targets));
+                }
+                for key in [KeyInput::Enter, KeyInput::Escape] {
+                    effects.push(feed(&mut ws, Feed::Key(key), DVec2::new(x, 30.0), &targets));
+                }
+                assert!(effects.iter().all(|e| *e == Effect::None), "{effects:?}");
+            }
+        }
+        assert_eq!(ws.tool.kind, ToolKind::Measure);
+        assert_eq!(ws.doc.project.revision, revision);
+        assert_eq!(ws.doc.history.undo_len(), undo);
+    }
+
+    /// MEA-001, INP-001: measure points snap to the nodes of a wall typed
+    /// 4.25 m long through the shared point input: clicks near its ends
+    /// measure 4.25 m within 1e-9.
+    #[test]
+    fn measure_points_snap_to_wall_nodes() {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        ws.select_tool(ToolKind::Wall);
+        let none = SnapIndex::default();
+        let start = DVec2::new(1.0, 2.0);
+        assert_eq!(feed(&mut ws, Feed::Click, start, &none), Effect::None);
+        // The decimal separator of the number format in effect.
+        let typed = format!("4{}25", ws.prefs.number_format().decimal_separator);
+        for key in [KeyInput::Text(typed), KeyInput::Enter] {
+            assert_eq!(key_at(&mut ws, key, DVec2::new(20.0, 2.0)), Effect::None);
+        }
+        let Effect::Execute(command) = key_at(&mut ws, KeyInput::Enter, DVec2::new(20.0, 2.0)) else {
+            panic!("Enter ends the chain")
+        };
+        assert!(ws.execute(command));
+        let wall = ws
+            .doc
+            .project
+            .elements
+            .values()
+            .next()
+            .unwrap()
+            .as_wall()
+            .unwrap()
+            .clone();
+        assert!((wall.start.distance(wall.end) - 4.25).abs() < 1e-12, "{wall:?}");
+
+        ws.select_tool(ToolKind::Measure);
+        let targets = ws.snap_index(ws.active_storey);
+        let near = DVec2::new(0.03, -0.02);
+        for p in [wall.start + near, wall.end - near] {
+            assert_eq!(feed(&mut ws, Feed::Click, p, &targets), Effect::None);
+        }
+        assert_eq!(ws.tool.measure.points(), [wall.start, wall.end], "snapped to the nodes");
+        let Some(crate::tools::Measurement::Distance { total, .. }) = ws.tool.measure.measurement() else {
+            panic!("two points measure a distance")
+        };
+        assert!((total - 4.25).abs() < 1e-9, "{total}");
     }
 }

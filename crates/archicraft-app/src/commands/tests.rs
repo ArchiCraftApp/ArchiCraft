@@ -122,6 +122,7 @@ fn command_ids_are_pinned() {
             "tool.select",
             "tool.wall",
             "tool.slab",
+            "tool.measure",
             "project.storeys",
             "project.layers",
             "project.materials",
@@ -166,9 +167,10 @@ fn primary_binding_follows_the_platform() {
 
 /// The default shortcuts, each the first binding of its command: the 23 of
 /// the former `ui/actions.rs`, with Problems moved off Primary+Shift+P for
-/// the command palette, Preferences, and Group and Ungroup (ELM-015,
-/// docs/keymap.md). Primary is Cmd on macOS and Ctrl elsewhere.
-const DEFAULT_SHORTCUTS: [(&str, Binding); 26] = [
+/// the command palette, Preferences, Group and Ungroup (ELM-015) and the
+/// Measure tool (MEA-001, docs/keymap.md). Primary is Cmd on macOS and Ctrl
+/// elsewhere.
+const DEFAULT_SHORTCUTS: [(&str, Binding); 27] = [
     ("file.new", Binding::primary(Key::N)),
     ("file.open", Binding::primary(Key::O)),
     ("file.save", Binding::primary(Key::S)),
@@ -185,6 +187,7 @@ const DEFAULT_SHORTCUTS: [(&str, Binding); 26] = [
     ("tool.select", Binding::key(Key::V)),
     ("tool.wall", Binding::key(Key::W)),
     ("tool.slab", Binding::key(Key::S)),
+    ("tool.measure", Binding::key(Key::M)),
     ("edit.settings", Binding::primary(Key::T)),
     ("view.fit-window", Binding::key(Key::F)),
     ("view.zoom-selection", Binding::key(Key::F).shift()),
@@ -233,7 +236,7 @@ fn registry_keeps_the_default_shortcuts() {
             assert_eq!(spec.scope == Scope::Canvas, off_while_drawing, "{id}");
         }
     }
-    assert_eq!(bound, 29);
+    assert_eq!(bound, 30);
     assert_eq!(spec("edit.redo").default_bindings[1], Binding::primary(Key::Y));
     assert_eq!(
         spec("view.switch-plan-3d").default_bindings[1],
@@ -420,7 +423,7 @@ fn appendix_d8_commands_have_shortcuts() {
             d8::Owner::Pending { .. } => None,
         })
         .collect();
-    assert_eq!(registered.len(), 13, "{registered:?}");
+    assert_eq!(registered.len(), 14, "{registered:?}");
     for id in registered {
         assert!(!spec(id.as_str()).default_bindings.is_empty(), "{id}");
     }
@@ -586,7 +589,7 @@ fn menus_follow_group_and_order() {
          view.next-tab view.previous-tab view.orbit | view.reference-lines view.problems | \
          view.place-user-origin view.reset-user-origin"
     );
-    assert_eq!(menu("design"), "tool.select tool.wall tool.slab");
+    assert_eq!(menu("design"), "tool.select tool.wall tool.slab tool.measure");
     assert_eq!(
         menu("project"),
         "project.storeys project.layers project.materials project.settings"
@@ -686,6 +689,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             "edit::REDO" => vec![edit::REDO],
             "edit::GROUP" => vec![edit::GROUP],
             "edit::UNGROUP" => vec![edit::UNGROUP],
+            "tools::MEASURE" => vec![tools::MEASURE],
             "view::FIT_WINDOW" => vec![view::FIT_WINDOW],
             "view::ORBIT" => vec![view::ORBIT],
             "view::SWITCH_PLAN_3D" => vec![view::SWITCH_PLAN_3D],
@@ -704,7 +708,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             }
         }
     }
-    assert_eq!(ids.len(), 11, "{ids:?}");
+    assert_eq!(ids.len(), 12, "{ids:?}");
     let mut icons = HashSet::new();
     for id in ids {
         let icon = spec(id.as_str())
@@ -760,8 +764,10 @@ fn command_paths(source: &str) -> Vec<String> {
 /// command at all except File > Open…, after which the Open recent hook
 /// follows. The toolbar, the toolbox and the status bar invoke their
 /// buttons' commands by id (UI-001, UI-011), through constants of the
-/// command modules; the toolbar names Save, Undo, Redo, Group and Ungroup,
-/// in that order (the order of the buttons), and nothing else. The scan holds on a CRLF copy of the source too, as a
+/// command modules; the toolbar names Save, Undo, Redo, Measure, Group and
+/// Ungroup, in that order (the order of the buttons; Pick up and Inject take
+/// their place before Measure), and nothing else. The scan holds on a CRLF
+/// copy of the source too, as a
 /// Windows checkout with `core.autocrlf` has it.
 #[test]
 fn shell_names_no_command() {
@@ -792,7 +798,14 @@ fn assert_shell_names_no_command(source: &str) {
     assert_eq!(command_paths(&rest), ["file::OPEN"]);
     assert_eq!(
         command_paths(toolbar),
-        ["file::SAVE", "edit::UNDO", "edit::REDO", "edit::GROUP", "edit::UNGROUP"]
+        [
+            "file::SAVE",
+            "edit::UNDO",
+            "edit::REDO",
+            "tools::MEASURE",
+            "edit::GROUP",
+            "edit::UNGROUP"
+        ]
     );
     assert!(command_paths(toolbox).contains(&"tools::command".to_owned()));
     assert!(command_paths(status_bar).contains(&"view::PROBLEMS".to_owned()));
