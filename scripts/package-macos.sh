@@ -11,14 +11,44 @@ set -eu
 cd "$(dirname "$0")/.."
 
 if [ "$(uname -s)" != Darwin ]; then
-    echo "package-macos.sh needs macOS (hdiutil, iconutil, codesign)" >&2
+    echo "package-macos.sh needs macOS (hdiutil, codesign, Xcode's actool)" >&2
+    exit 1
+fi
+
+# The app icon is the Icon Composer document packaging/macos/AppIcon.icon (the gradient and
+# the mark of ArchiCraft_Logo.svg), which only actool from Xcode 26 or newer compiles: the
+# selected Xcode's, otherwise the newest in /Applications (GitHub's macOS 15 runners keep
+# Xcode 26 next to an older default).
+actool_version() {
+    "$1" --version 2>/dev/null | awk '/short-bundle-version/ {
+        getline; gsub(/[^0-9.]/, ""); split($0, v, "."); print v[1] * 10000 + v[2] * 100 + v[3]; exit
+    }'
+}
+selected=$(xcrun --find actool 2>/dev/null || true)
+actool=
+best=0
+for tool in "$selected" /Applications/Xcode*.app/Contents/Developer/usr/bin/actool; do
+    [ -x "$tool" ] || continue
+    version=$(actool_version "$tool")
+    [ "${version:-0}" -ge 260000 ] || continue
+    if [ "$tool" = "$selected" ]; then
+        actool=$tool
+        break
+    fi
+    if [ "$version" -gt "$best" ]; then
+        actool=$tool
+        best=$version
+    fi
+done
+if [ -z "$actool" ]; then
+    echo "package-macos.sh needs Xcode 26 or newer: its actool compiles packaging/macos/AppIcon.icon" >&2
     exit 1
 fi
 
 cargo build --release --locked -p archicraft-app --bin archicraft
 
 bin=target/release/archicraft
-icon=ArchiCraft_Logo.png
+macos_min=11.0
 version=$(cargo pkgid -p archicraft-app | sed 's/.*[#@]//')
 commit=$(git describe --always --dirty)
 arch=$(lipo -archs "$bin")
@@ -30,25 +60,29 @@ dmg=$out/ArchiCraft-$version-macos-$arch.dmg
 mnt=$(mktemp -d)
 trap 'hdiutil detach -quiet "$mnt" 2>/dev/null || true; rmdir "$mnt" 2>/dev/null || true' EXIT
 
-rm -rf "$stage" "$out/AppIcon.iconset" "$rw" "$dmg"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$out/AppIcon.iconset"
+rm -rf "$stage" "$rw" "$dmg"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/archicraft"
 cp LICENSE "$app/Contents/Resources/LICENSE"
 cp THIRD-PARTY.md "$app/Contents/Resources/THIRD-PARTY.md"
 
-# Every size iconutil expects, scaled down from the logo in the repository root
-# (rendered from ArchiCraft_Logo.svg at 1024 px, the largest size, so none is upscaled).
-logo_size=$(sips -g pixelWidth -g pixelHeight "$icon" | awk '/pixel(Width|Height)/ { print $2 }' | sort -n | head -n 1)
-if [ "$logo_size" -lt 1024 ]; then
-    echo "$icon is smaller than 1024 px; render it from ArchiCraft_Logo.svg (see README)" >&2
-    exit 1
-fi
-for size in 16 32 128 256 512; do
-    sips -z "$size" "$size" "$icon" --out "$out/AppIcon.iconset/icon_${size}x${size}.png" >/dev/null
-    sips -z $((size * 2)) $((size * 2)) "$icon" --out "$out/AppIcon.iconset/icon_${size}x${size}@2x.png" >/dev/null
+# Assets.car holds the icon that macOS 26 and newer draw in every appearance (light, dark,
+# clear, tinted); an .icns alone they only mask, or shrink onto a grey plate when its shape is
+# not theirs. AppIcon.icns has every size, masked and with Apple's margins, for macOS 11 to 15.
+# actool wants an absolute path.
+DEVELOPER_DIR=${actool%/usr/bin/actool} "$actool" "$PWD/packaging/macos/AppIcon.icon" \
+    --compile "$app/Contents/Resources" --app-icon AppIcon --standalone-icon-behavior all \
+    --platform macosx --target-device mac --minimum-deployment-target "$macos_min" \
+    --enable-on-demand-resources NO --development-region en \
+    --output-partial-info-plist "$out/AppIcon.plist" --output-format human-readable-text \
+    --errors --warnings >&2
+rm -f "$out/AppIcon.plist"
+for file in Assets.car AppIcon.icns; do
+    if [ ! -f "$app/Contents/Resources/$file" ]; then
+        echo "actool did not write $file from packaging/macos/AppIcon.icon" >&2
+        exit 1
+    fi
 done
-iconutil -c icns "$out/AppIcon.iconset" -o "$app/Contents/Resources/AppIcon.icns"
-rm -rf "$out/AppIcon.iconset"
 
 # No CFBundleDocumentTypes: the .ifcx association is made with the user's
 # consent at first start (SRS SW-001), not by installing the bundle.
@@ -62,6 +96,7 @@ cat >"$app/Contents/Info.plist" <<EOF
     <key>CFBundleDisplayName</key><string>ArchiCraft</string>
     <key>CFBundleExecutable</key><string>archicraft</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleIdentifier</key><string>com.graphicraft.archicraft</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>ArchiCraft</string>
@@ -69,7 +104,7 @@ cat >"$app/Contents/Info.plist" <<EOF
     <key>CFBundleShortVersionString</key><string>$version</string>
     <key>CFBundleVersion</key><string>$version</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.graphics-design</string>
-    <key>LSMinimumSystemVersion</key><string>11.0</string>
+    <key>LSMinimumSystemVersion</key><string>$macos_min</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>

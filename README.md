@@ -48,17 +48,30 @@ dialogs, an XDG desktop portal; standard desktops have both.
 
 On macOS, `scripts/package-macos.sh` builds a release and packs it into
 `target/dmg/ArchiCraft-<version>-macos-arm64.dmg`, with `ArchiCraft.app` and a
-link to Applications to drag it to. The app is signed ad hoc; set
+link to Applications to drag it to. It needs Xcode 26 or newer, whose `actool`
+compiles the app icon (below). The app is signed ad hoc; set
 `CODESIGN_IDENTITY` to sign it with a Developer ID instead. On another Mac, an
 ad hoc signed app opens only after the user allows it under System Settings →
 Privacy & Security.
 
 `scripts/package-linux.sh` (a tarball with the executable, icon and desktop entry) and
 `scripts/package-windows.sh` (a zip with the executable, icon embedded; Git Bash, Windows SDK
-and Python with Pillow) do the same on Linux and Windows. All three take the app icon from
-`ArchiCraft_Logo.png`, rendered at 1024 px from the vector source `ArchiCraft_Logo.svg`
-(`rsvg-convert -w 1024 -h 1024 ArchiCraft_Logo.svg -o ArchiCraft_Logo.png`, then copy it to
-`crates/archicraft-app/assets/`). An in-between release for testers, with all three packages
+and Python with Pillow) do the same on Linux and Windows. Both take the app icon from
+`ArchiCraft_Logo.png`, rendered at 1024 px from the logo's source `ArchiCraft_Logo.svg`
+(`rsvg-convert -w 1024 -h 1024 ArchiCraft_Logo.svg -o ArchiCraft_Logo.png`, then copy both to
+`crates/archicraft-app/assets/`, whose PNG is also the window icon and the logo in the About
+window).
+
+The macOS app's icon is the Icon Composer document `packaging/macos/AppIcon.icon`: a gradient
+fill from the logo's black (#000000) at the top to its grey (#292929) at the bottom, and the
+logo's white mark as the layer `Assets/mark.svg`, which holds the two `<path>` elements of
+`ArchiCraft_Logo.svg` in the same viewBox (`0 0 1969 1969`). macOS 26 and newer mask it, give
+it the size of the other icons in the Dock and draw it in the light, dark, clear and tinted
+appearances; `package-macos.sh` compiles it into `Assets.car`, plus an `AppIcon.icns` for
+macOS 11 to 15. When the logo changes, copy its paths into `Assets/mark.svg` and its colours
+into the fill (Icon Composer: Xcode → Open Developer Tool).
+
+An in-between release for testers, with all three packages
 of a pushed commit as a GitHub pre-release, comes from the workflow
 [Preview release](.github/workflows/preview-release.yml): `/preview-release` in Claude Code, or
 `gh workflow run preview-release.yml --ref main -f notes="What to try"`.
