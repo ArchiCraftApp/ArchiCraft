@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use archicraft_model::{Command, CommandError, ElementId, ElementKind, KindTag, Message, StoreyId, ViewId};
+use archicraft_model::{Command, CommandError, ElementId, ElementKind, GroupId, KindTag, Message, StoreyId, ViewId};
 
 use crate::commands::{CommandId, Keymap, Origin, Target};
 use crate::document::Document;
@@ -127,6 +127,9 @@ pub struct Workspace {
     /// position (INP-001).
     pub input: PointInput,
     pub selection: HashSet<ElementId>,
+    /// Groups are suspended: a click selects the member alone (ELM-015).
+    /// Session state, not saved with the project.
+    pub groups_suspended: bool,
     pub hover: Option<ElementId>,
     pub plan_views: HashMap<StoreyId, PlanViewState>,
     /// The snap targets of each storey, following the model's revisions
@@ -164,6 +167,7 @@ impl Workspace {
             frames: InputFrames::default(),
             input: PointInput::default(),
             selection: HashSet::new(),
+            groups_suspended: false,
             hover: None,
             plan_views: HashMap::new(),
             snap_indexes: HashMap::new(),
@@ -408,6 +412,118 @@ impl Workspace {
             .collect()
     }
 
+    /// What a selection of `ids` covers (ELM-015): each grouped element
+    /// stands for the members of its outermost group, unless groups are
+    /// suspended ([`Project::expand_groups`]). Members hidden by their layer
+    /// are left out, so that a group does not select what the views do not
+    /// show (SEL-007); locked members are selected like the others, since
+    /// locking rejects edits, not selection (ELM-013). Every selection path
+    /// goes through here, so all of them treat groups alike.
+    ///
+    /// [`Project::expand_groups`]: archicraft_model::Project::expand_groups
+    pub fn expand_groups(&self, ids: &[ElementId]) -> Vec<ElementId> {
+        if self.groups_suspended {
+            return ids.to_vec();
+        }
+        let project = &self.doc.project;
+        project
+            .expand_groups(ids)
+            .into_iter()
+            .filter(|id| project.element(*id).is_some_and(|e| project.is_visible(e)))
+            .collect()
+    }
+
+    /// Selects what a click on `hit` selects (SEL-001, ELM-015): the element
+    /// with its group alone, or with `toggle` (Shift) the element and its
+    /// group added to the selection, or removed from it if the element was
+    /// selected. A click on nothing clears the selection unless it toggles.
+    pub fn click_select(&mut self, hit: Option<ElementId>, toggle: bool) {
+        let Some(id) = hit else {
+            if !toggle {
+                self.selection.clear();
+            }
+            return;
+        };
+        let covered = self.expand_groups(&[id]);
+        if !toggle {
+            self.selection.clear();
+        }
+        if toggle && self.selection.contains(&id) {
+            for id in &covered {
+                self.selection.remove(id);
+            }
+        } else {
+            self.selection.extend(covered);
+        }
+    }
+
+    /// Selects the elements an area selection caught (SEL-003), added to
+    /// the selection with `add` (Shift). A group is selected whole once one
+    /// of its members is caught, also when the area selects only what lies
+    /// fully inside it (ELM-015).
+    pub fn select_area(&mut self, caught: &[ElementId], add: bool) {
+        let covered = self.expand_groups(caught);
+        if !add {
+            self.selection.clear();
+        }
+        self.selection.extend(covered);
+    }
+
+    /// Selects `id` with its group before a context menu opens on it,
+    /// unless it is selected already (UI-005, ELM-015).
+    pub fn select_for_menu(&mut self, id: ElementId) {
+        if !self.selection.contains(&id) {
+            self.click_select(Some(id), false);
+        }
+    }
+
+    /// The groups and ungrouped elements the selection consists of
+    /// (ELM-015): the outermost group of each grouped element, then the
+    /// ungrouped elements, each once. Group needs two of them.
+    pub fn selection_items(&self) -> (Vec<GroupId>, Vec<ElementId>) {
+        let project = &self.doc.project;
+        let (mut groups, mut loose) = (Vec::new(), Vec::new());
+        for id in self.selected_ids() {
+            match project.outermost_group(id) {
+                Some(group) if !groups.contains(&group) => groups.push(group),
+                Some(_) => {}
+                None => loose.push(id),
+            }
+        }
+        (groups, loose)
+    }
+
+    /// Groups the selection (ELM-015), one undo step, and selects the new
+    /// group.
+    pub fn group_selection(&mut self) {
+        let group = GroupId::new();
+        if self.execute(Command::Group {
+            group,
+            elements: self.selected_ids(),
+        }) {
+            let project = &self.doc.project;
+            self.selection = project
+                .group_members(group)
+                .into_iter()
+                .filter(|id| project.element(*id).is_some_and(|e| project.is_visible(e)))
+                .collect();
+        }
+    }
+
+    /// Removes one level of grouping from every outermost group of the
+    /// selection (ELM-015), one undo step per group. The selection stays.
+    pub fn ungroup_selection(&mut self) {
+        for group in self.selection_items().0 {
+            self.execute(Command::Ungroup { group });
+        }
+    }
+
+    /// Turns the suspension of groups on or off (ELM-015). It is session
+    /// state: the project neither changes nor becomes dirty.
+    pub fn toggle_groups_suspended(&mut self) {
+        self.groups_suspended = !self.groups_suspended;
+    }
+
     /// Deletes the selected elements that are editable (ELM-013).
     pub fn delete_selection(&mut self) {
         let project = &self.doc.project;
@@ -436,7 +552,8 @@ impl Workspace {
     }
 
     /// Selects every visible element of the active tool's kind on the active
-    /// storey, or of every kind with the selection tool (SEL-004).
+    /// storey, or of every kind with the selection tool (SEL-004), with the
+    /// groups they belong to (ELM-015).
     pub fn select_all(&mut self) {
         let project = &self.doc.project;
         let kind = match self.tool.kind {
@@ -448,7 +565,7 @@ impl Workspace {
             Some(Pane::Plan(s)) => Some(s),
             _ => None,
         };
-        self.selection = project
+        let ids: Vec<ElementId> = project
             .elements
             .values()
             .filter(|e| project.is_visible(e))
@@ -456,6 +573,7 @@ impl Workspace {
             .filter(|e| kind.is_none_or(|k| e.tag() == k))
             .map(|e| e.id)
             .collect();
+        self.selection = self.expand_groups(&ids).into_iter().collect();
         let count = self.selection.len();
         self.info(tr!(
             "status-selected",

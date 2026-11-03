@@ -171,20 +171,9 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
         && let Some(p) = response.interact_pointer_pos()
     {
         let hit = hit_at(&state, ws, p).map(|(id, _)| id);
-        let shift = ui.input(|i| i.modifiers.shift);
-        match hit {
-            Some(id) if shift => {
-                if !ws.selection.remove(&id) {
-                    ws.selection.insert(id);
-                }
-            }
-            Some(id) => {
-                ws.selection.clear();
-                ws.selection.insert(id);
-            }
-            None if !shift => ws.selection.clear(),
-            None => {}
-        }
+        // A grouped element selects its group; Shift toggles it whole
+        // (ELM-015).
+        ws.click_select(hit, ui.input(|i| i.modifiers.shift));
     }
     if response.double_clicked_by(PointerButton::Primary)
         && let Some(p) = response.interact_pointer_pos()
@@ -282,6 +271,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
             ws.delete_selection();
             ui.close();
         }
+        super::group_menu_items(ui, ws);
     });
     ws.views_3d.insert(view, state);
 }

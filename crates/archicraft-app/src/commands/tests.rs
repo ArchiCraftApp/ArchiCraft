@@ -103,6 +103,9 @@ fn command_ids_are_pinned() {
             "edit.redo",
             "edit.delete",
             "edit.select-all",
+            "edit.group",
+            "edit.ungroup",
+            "edit.suspend-groups",
             "edit.settings",
             "view.fit-window",
             "view.zoom-selection",
@@ -163,9 +166,9 @@ fn primary_binding_follows_the_platform() {
 
 /// The default shortcuts, each the first binding of its command: the 23 of
 /// the former `ui/actions.rs`, with Problems moved off Primary+Shift+P for
-/// the command palette, and Preferences (docs/keymap.md). Primary is Cmd on
-/// macOS and Ctrl elsewhere.
-const DEFAULT_SHORTCUTS: [(&str, Binding); 24] = [
+/// the command palette, Preferences, and Group and Ungroup (ELM-015,
+/// docs/keymap.md). Primary is Cmd on macOS and Ctrl elsewhere.
+const DEFAULT_SHORTCUTS: [(&str, Binding); 26] = [
     ("file.new", Binding::primary(Key::N)),
     ("file.open", Binding::primary(Key::O)),
     ("file.save", Binding::primary(Key::S)),
@@ -177,6 +180,8 @@ const DEFAULT_SHORTCUTS: [(&str, Binding); 24] = [
     ("edit.redo", Binding::primary(Key::Z).shift()),
     ("edit.delete", Binding::key(Key::Delete)),
     ("edit.select-all", Binding::primary(Key::A)),
+    ("edit.group", Binding::primary(Key::G)),
+    ("edit.ungroup", Binding::primary(Key::G).shift()),
     ("tool.select", Binding::key(Key::V)),
     ("tool.wall", Binding::key(Key::W)),
     ("tool.slab", Binding::key(Key::S)),
@@ -228,7 +233,7 @@ fn registry_keeps_the_default_shortcuts() {
             assert_eq!(spec.scope == Scope::Canvas, off_while_drawing, "{id}");
         }
     }
-    assert_eq!(bound, 27);
+    assert_eq!(bound, 29);
     assert_eq!(spec("edit.redo").default_bindings[1], Binding::primary(Key::Y));
     assert_eq!(
         spec("view.switch-plan-3d").default_bindings[1],
@@ -372,11 +377,14 @@ fn disabled_commands_name_a_reason_from_the_catalogue() {
             reasons += 1;
         }
     }
-    // Undo, Redo, Delete, Zoom to selection and Reset user origin.
-    assert_eq!(reasons, 5);
+    // Undo, Redo, Delete, Group, Ungroup, Zoom to selection and Reset user
+    // origin.
+    assert_eq!(reasons, 7);
     let everything = CommandCtx {
         can_undo: true,
         can_redo: true,
+        selection_items: 2,
+        selection_grouped: true,
         user_origin_placed: true,
         ..CommandCtx::default()
     };
@@ -570,7 +578,7 @@ fn menus_follow_group_and_order() {
     );
     assert_eq!(
         menu("edit"),
-        "edit.undo edit.redo | edit.delete edit.select-all | edit.settings"
+        "edit.undo edit.redo | edit.delete edit.select-all | edit.group edit.ungroup edit.suspend-groups | edit.settings"
     );
     assert_eq!(
         menu("view"),
@@ -644,6 +652,9 @@ fn toolbar_commands_are_registered() {
         file::SAVE,
         edit::UNDO,
         edit::REDO,
+        edit::GROUP,
+        edit::UNGROUP,
+        edit::SUSPEND_GROUPS,
         view::FIT_WINDOW,
         view::PREVIOUS_ZOOM,
         view::NEXT_ZOOM,
@@ -673,6 +684,8 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             "file::SAVE" => vec![file::SAVE],
             "edit::UNDO" => vec![edit::UNDO],
             "edit::REDO" => vec![edit::REDO],
+            "edit::GROUP" => vec![edit::GROUP],
+            "edit::UNGROUP" => vec![edit::UNGROUP],
             "view::FIT_WINDOW" => vec![view::FIT_WINDOW],
             "view::ORBIT" => vec![view::ORBIT],
             "view::SWITCH_PLAN_3D" => vec![view::SWITCH_PLAN_3D],
@@ -691,7 +704,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             }
         }
     }
-    assert_eq!(ids.len(), 9, "{ids:?}");
+    assert_eq!(ids.len(), 11, "{ids:?}");
     let mut icons = HashSet::new();
     for id in ids {
         let icon = spec(id.as_str())
@@ -747,8 +760,8 @@ fn command_paths(source: &str) -> Vec<String> {
 /// command at all except File > Open…, after which the Open recent hook
 /// follows. The toolbar, the toolbox and the status bar invoke their
 /// buttons' commands by id (UI-001, UI-011), through constants of the
-/// command modules; the toolbar names Save, Undo and Redo, in that order,
-/// and nothing else. The scan holds on a CRLF copy of the source too, as a
+/// command modules; the toolbar names Save, Undo, Redo, Group and Ungroup,
+/// in that order (the order of the buttons), and nothing else. The scan holds on a CRLF copy of the source too, as a
 /// Windows checkout with `core.autocrlf` has it.
 #[test]
 fn shell_names_no_command() {
@@ -777,9 +790,13 @@ fn assert_shell_names_no_command(source: &str) {
     let status_bar = function_body(source, "status_bar");
     let rest = source.replace(toolbar, "").replace(toolbox, "").replace(status_bar, "");
     assert_eq!(command_paths(&rest), ["file::OPEN"]);
-    assert_eq!(command_paths(toolbar), ["file::SAVE", "edit::UNDO", "edit::REDO"]);
+    assert_eq!(
+        command_paths(toolbar),
+        ["file::SAVE", "edit::UNDO", "edit::REDO", "edit::GROUP", "edit::UNGROUP"]
+    );
     assert!(command_paths(toolbox).contains(&"tools::command".to_owned()));
     assert!(command_paths(status_bar).contains(&"view::PROBLEMS".to_owned()));
+    assert!(command_paths(status_bar).contains(&"edit::SUSPEND_GROUPS".to_owned()));
     // The scan finds a hand-written menu entry.
     assert_eq!(
         command_paths("item(ui, cx, spec(view::ORBIT), out); crate::tools::ToolKind::Wall"),

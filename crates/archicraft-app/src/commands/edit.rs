@@ -1,4 +1,4 @@
-//! Commands of the Edit menu (UND-001, SEL-004).
+//! Commands of the Edit menu (UND-001, SEL-004, ELM-015).
 
 use egui::Key;
 
@@ -9,6 +9,10 @@ use crate::ui::icons;
 // The edit commands the toolbar invokes (UI-011).
 pub const UNDO: CommandId = CommandId::new("edit.undo");
 pub const REDO: CommandId = CommandId::new("edit.redo");
+pub const GROUP: CommandId = CommandId::new("edit.group");
+pub const UNGROUP: CommandId = CommandId::new("edit.ungroup");
+// The command the status bar's indicator turns off (ELM-015).
+pub const SUSPEND_GROUPS: CommandId = CommandId::new("edit.suspend-groups");
 
 pub(super) fn specs() -> Vec<CommandSpec> {
     let edit = |id, handler: Handler| CommandSpec::new(id, Category::Edit, handler);
@@ -45,8 +49,22 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         edit("edit.select-all", |app, _, _| app.ws.select_all())
             .menu("edit", 1, 1)
             .bind(Binding::primary(Key::A)),
-        edit("edit.settings", |app, _, _| app.dialogs.settings = true)
+        // ELM-015: groups of the selection.
+        edit(GROUP.as_str(), |app, _, _| app.ws.group_selection())
             .menu("edit", 2, 0)
+            .bind(Binding::primary(Key::G))
+            .enabled_when(|cx| Enabled::when(cx.selection_items >= 2, "cmd-reason-nothing-to-group"))
+            .icon(icons::GROUP),
+        edit(UNGROUP.as_str(), |app, _, _| app.ws.ungroup_selection())
+            .menu("edit", 2, 1)
+            .bind(Binding::primary(Key::G).shift())
+            .enabled_when(|cx| Enabled::when(cx.selection_grouped, "cmd-reason-nothing-grouped"))
+            .icon(icons::UNGROUP),
+        edit(SUSPEND_GROUPS.as_str(), |app, _, _| app.ws.toggle_groups_suspended())
+            .menu("edit", 2, 2)
+            .checked_when(|cx| cx.groups_suspended),
+        edit("edit.settings", |app, _, _| app.dialogs.settings = true)
+            .menu("edit", 3, 0)
             .bind(Binding::primary(Key::T))
             .scope(Scope::TextSafe),
     ]

@@ -15,6 +15,13 @@ use crate::workspace::{Pane, Workspace};
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CommandCtx {
     pub selection_empty: bool,
+    /// The groups and ungrouped elements the selection consists of, each
+    /// group counted once (ELM-015); Group needs two.
+    pub selection_items: usize,
+    /// A selected element belongs to a group, which Ungroup can remove.
+    pub selection_grouped: bool,
+    /// Groups are suspended for the session (ELM-015).
+    pub groups_suspended: bool,
     pub active_pane: Option<Pane>,
     /// A tool takes point input, so keys belong to it (UI-008).
     pub drawing: bool,
@@ -51,8 +58,12 @@ impl CommandCtx {
             }),
             _ => None,
         };
+        let (groups, loose) = ws.selection_items();
         Self {
             selection_empty: ws.selection.is_empty(),
+            selection_items: groups.len() + loose.len(),
+            selection_grouped: !groups.is_empty(),
+            groups_suspended: ws.groups_suspended,
             active_pane: ws.active_pane,
             drawing: ws.input.captures_keys(ws.consumer()),
             can_undo: history.can_undo(),
