@@ -6,6 +6,7 @@
 
 pub mod evaluate;
 pub mod extrude;
+pub mod kinds;
 pub mod mesh;
 pub mod message;
 pub mod plan;
@@ -16,7 +17,8 @@ pub mod wall;
 use archicraft_model::KindTag;
 use message::Message;
 
-pub use evaluate::{BodyPart, ElementGeometry, ModelGeometry};
+pub use evaluate::{BodyPart, ElementGeometry, ModelGeometry, PartGeometry};
+pub use kinds::{EvalContext, GeometryKind};
 pub use mesh::{MeshIssue, TriMesh};
 pub use plan::{PlanDrawing, ViewRange, plan_drawing};
 

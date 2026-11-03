@@ -2,7 +2,10 @@
 //! test builds: the feature `test-kinds` is defined in archicraft-model's
 //! `[features]` and enabled only through `[dev-dependencies]`, never by a
 //! normal dependency, a workspace dependency or another feature, so it cannot
-//! reach a release build through feature unification.
+//! reach a release build through feature unification. Another crate may
+//! define a `test-kinds` feature of its own that only forwards to
+//! `<crate>/test-kinds` (archicraft-geometry, whose generator registry has
+//! the test kind behind it), on one line; it is enabled the same way.
 //!
 //! The scan reads every `Cargo.toml` of the repository (hidden directories,
 //! `target` and `node_modules` skipped) line by line, ignoring comments.
@@ -71,10 +74,17 @@ fn is_dev_dependencies(table: &str) -> bool {
     table.split('.').any(|part| part.trim() == "dev-dependencies")
 }
 
+/// The quoted strings of a line, without their quotes.
+fn quoted(line: &str) -> Vec<&str> {
+    line.split('"').skip(1).step_by(2).collect()
+}
+
 /// The lines (1-based number and text) of `manifest` that name the feature
 /// outside `[dev-dependencies]`. In archicraft-model's own manifest
 /// (`is_model`), the definition `test-kinds = …` in `[features]` is allowed
-/// too, but not another feature that enables it.
+/// too; in any manifest, a one-line `test-kinds = ["<crate>/test-kinds", …]`
+/// that only forwards the feature is allowed; but not another feature that
+/// enables it.
 fn leaks(manifest: &str, is_model: bool) -> Vec<(usize, String)> {
     let mut table = "";
     let mut found = Vec::new();
@@ -87,9 +97,18 @@ fn leaks(manifest: &str, is_model: bool) -> Vec<(usize, String)> {
         if !line.contains(FEATURE) || is_dev_dependencies(table) {
             continue;
         }
-        let key = line.split_once('=').map(|(key, _)| key.trim());
-        if is_model && table == "features" && key == Some(FEATURE) {
-            continue;
+        if table == "features"
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == FEATURE
+        {
+            let forwarded = quoted(value);
+            let forwards_only = !forwarded.is_empty()
+                && forwarded
+                    .iter()
+                    .all(|feature| feature.strip_suffix(FEATURE).is_some_and(|c| c.ends_with('/')));
+            if is_model || forwards_only {
+                continue;
+            }
         }
         found.push((n + 1, raw.to_string()));
     }
@@ -135,8 +154,9 @@ fn test_kinds_is_enabled_only_through_dev_dependencies() {
 }
 
 /// The scan flags every way a manifest can enable the feature in a normal
-/// build and accepts the dev-dependency forms, comments and the model's
-/// definition of the feature.
+/// build and accepts the dev-dependency forms, comments, the model's
+/// definition of the feature and another crate's feature that only forwards
+/// it.
 #[test]
 fn the_scan_flags_test_kinds_outside_dev_dependencies() {
     let leaking = [
@@ -147,6 +167,9 @@ fn the_scan_flags_test_kinds_outside_dev_dependencies() {
         "[build-dependencies]\narchicraft-model = { workspace = true, features = [\"test-kinds\"] }\n",
         "[workspace.dependencies]\narchicraft-model = { path = \"m\", features = [\"test-kinds\"] }\n",
         "[features]\nfull = [\"archicraft-model/test-kinds\"]\n",
+        "[features]\ntest-kinds = [\"archicraft-model/test-kinds\", \"extra\"]\n",
+        "[features]\ntest-kinds = [\"test-kinds\"]\n",
+        "[dependencies]\narchicraft-geometry = { workspace = true, features = [\"test-kinds\"] }\n",
         "[dev-dependencies]\nx = \"1\"\n\n[dependencies]\nm = { package = \"archicraft-model\", features = [\"test-kinds\"] }\n",
     ];
     for manifest in leaking {
@@ -166,10 +189,13 @@ fn the_scan_flags_test_kinds_outside_dev_dependencies() {
     assert_eq!(
         leaks("[features]\ntest-kinds = []\n", false).len(),
         1,
-        "only the model defines it"
+        "only the model defines it without forwarding"
     );
 
     let allowed = [
+        "[features]\ntest-kinds = [\"archicraft-model/test-kinds\"]\n",
+        "[features]\ntest-kinds = [\"archicraft-model/test-kinds\", \"archicraft-geometry/test-kinds\"]\n",
+        "[dev-dependencies]\narchicraft-geometry = { workspace = true, features = [\"test-kinds\"] }\n",
         "[dev-dependencies]\narchicraft-model = { workspace = true, features = [\"test-kinds\"] }\n",
         "[dev-dependencies]\narchicraft-model = { workspace = true, features = [\n    \"test-kinds\",\n] }\n",
         "[dev-dependencies.archicraft-model]\nworkspace = true\nfeatures = [\"test-kinds\"]\n",

@@ -128,7 +128,9 @@ pub fn plan_drawing(
             overhead: Vec::new(),
             reference_line: None,
         };
-        for part in &body.parts {
+        // The parts of a compound element are classified like its own
+        // body, under the element id (IFX-016).
+        for part in body.bodies() {
             let Some((lo, hi)) = part.mesh.bounds() else {
                 continue;
             };
@@ -342,5 +344,64 @@ mod tests {
             DVec2::splat((16.0 * 2.0 - 1.5) / 15.0),
         );
         assert_eq!(outline_centroid(&[], &[]), None);
+    }
+
+    /// IFX-016, VIEW-001: the part bodies of a compound element (the test
+    /// kind with parts, which stacks two half-high parts on top of its box)
+    /// are classified like its own body under the element id: cut when the
+    /// plane passes through them, merged into the cut regions by material,
+    /// drawn overhead when above the plane, and picked.
+    #[test]
+    fn a_compound_elements_parts_are_cut_and_picked_under_its_id() {
+        use archicraft_model::kinds::Dummy;
+        use archicraft_model::template::default_metric_project;
+        use archicraft_model::{Command, History};
+        use geo::Area;
+
+        let mut p = default_metric_project();
+        let g = p.storeys.ground();
+        // A 2 × 1 × 1 m box from (3, 1) with two 1 × 1 × 0.5 m parts on top.
+        let mut dummy = Dummy::new(DVec2::new(3.0, 1.0), DVec2::new(2.0, 1.0), p.materials[0].id);
+        dummy.parts = true;
+        let dummy = dummy.into_element(&p, g, 0);
+        let id = dummy.id;
+        History::default()
+            .execute(&mut p, Command::AddElements(vec![dummy]))
+            .unwrap();
+        let geometry = ModelGeometry::evaluate(&p);
+        assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+        let range = |cut| ViewRange {
+            cut,
+            bottom: 0.0,
+            top: 3.0,
+        };
+
+        // Cut at 1.25 m: through the parts, above the body.
+        let plan = plan_drawing(&p, &geometry, g, range(1.25), |_| true);
+        assert_eq!(plan.elements.len(), 1);
+        let element = &plan.elements[0];
+        assert_eq!(element.id, id);
+        assert_eq!(element.cut.len(), 2, "one section per part");
+        assert_eq!(element.projected.len(), 4, "the body's top outline");
+        assert!(element.overhead.is_empty());
+        assert_eq!(plan.cut_regions.len(), 1);
+        let region = &plan.cut_regions[0];
+        assert_eq!(region.polygons.0.len(), 1, "the two part sections merge");
+        assert!((region.polygons.unsigned_area() - 2.0).abs() < 1e-9);
+        assert_eq!(plan.pick(DVec2::new(4.5, 1.5), 0.01), [id], "inside a part's section");
+
+        // Cut at 0.5 m: through the body, below the parts.
+        let plan = plan_drawing(&p, &geometry, g, range(0.5), |_| true);
+        let element = &plan.elements[0];
+        assert_eq!(element.cut.len(), 1);
+        assert!(element.projected.is_empty());
+        assert_eq!(element.overhead.len(), 8, "the parts' bottom outlines, dashed");
+        // Only the parts have a line at x = 4, where they meet.
+        assert!(
+            element
+                .overhead
+                .iter()
+                .any(|[a, b]| (a.x - 4.0).abs() < 1e-9 && (b.x - 4.0).abs() < 1e-9)
+        );
     }
 }

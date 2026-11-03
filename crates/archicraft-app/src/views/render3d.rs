@@ -140,7 +140,7 @@ pub fn build_scene(
     for (element, g, offset) in visible {
         let selected = selection.contains(&element.id);
         let hovered = hover == Some(element.id);
-        for part in &g.parts {
+        for part in g.bodies() {
             let material = project.material(part.material);
             let rgb = material.map_or([0.7, 0.7, 0.7], |m| m.color.0.map(|c| c as f32));
             let opacity = material.map_or(1.0, |m| m.opacity as f32);
@@ -594,6 +594,7 @@ impl Renderer3d {
 
 #[cfg(test)]
 mod tests {
+    use archicraft_geometry::ElementGeometry;
     use archicraft_model::samples;
 
     use super::*;
@@ -606,7 +607,7 @@ mod tests {
         let triangles: usize = geometry
             .elements
             .values()
-            .flat_map(|g| &g.parts)
+            .flat_map(ElementGeometry::bodies)
             .map(|p| p.mesh.triangle_count())
             .sum();
         assert_eq!(scene.opaque.len() + scene.transparent.len(), triangles * 3);
@@ -615,6 +616,57 @@ mod tests {
         assert!((hi.z - 6.0).abs() < 1e-9 && (lo.z - -0.2).abs() < 1e-9);
         // Positions are relative to the local origin.
         assert!(scene.opaque.iter().all(|v| v.position.iter().all(|c| c.abs() < 20.0)));
+    }
+
+    /// IFX-016, VIEW-001: the scene holds the triangles and feature edges of
+    /// a compound element's parts (the test kind with parts) besides its own
+    /// body's, from the one evaluated model.
+    #[test]
+    fn scene_contains_the_parts_of_a_compound_element() {
+        use archicraft_model::glam::DVec2;
+        use archicraft_model::kinds::Dummy;
+        use archicraft_model::template::default_metric_project;
+        use archicraft_model::{Command, History};
+
+        let mut project = default_metric_project();
+        let storey = project.storeys.ground();
+        let material = project.materials[0].id;
+        let mut compound = Dummy::new(DVec2::new(4.0, 0.0), DVec2::new(2.0, 1.0), material);
+        compound.parts = true;
+        let compound = compound.into_element(&project, storey, 0);
+        let id = compound.id;
+        History::default()
+            .execute(&mut project, Command::AddElements(vec![compound]))
+            .unwrap();
+        let geometry = ModelGeometry::evaluate(&project);
+        assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+        let g = geometry.get(id).unwrap();
+        let own_triangles: usize = g.parts.iter().map(|p| p.mesh.triangle_count()).sum();
+        let part_triangles: usize = g
+            .children
+            .iter()
+            .flat_map(|c| &c.parts)
+            .map(|p| p.mesh.triangle_count())
+            .sum();
+        assert!(part_triangles > 0);
+        let own_edges: usize = g.parts.iter().map(|p| p.mesh.feature_edges(1.0).len()).sum();
+        let part_edges: usize = g
+            .children
+            .iter()
+            .flat_map(|c| &c.parts)
+            .map(|p| p.mesh.feature_edges(1.0).len())
+            .sum();
+        assert!(part_edges > 0);
+
+        let scene = build_scene(&project, &geometry, &HashSet::new(), None);
+        assert_eq!(
+            scene.opaque.len() + scene.transparent.len(),
+            (own_triangles + part_triangles) * 3
+        );
+        assert_eq!(scene.edges.len(), (own_edges + part_edges) * 2);
+        // The parts are 0.5 m high on top of the 1 m box.
+        let (_, hi) = scene.bounds.unwrap();
+        assert!((hi.z - 1.5).abs() < 1e-9, "{hi}");
     }
 
     #[test]

@@ -1568,7 +1568,8 @@ fn the_layers_dialog_has_a_snaps_column() {
 
 /// SRS 3.2, ELM-011: an element of a kind without a panel of its own (the
 /// model's test kind) shows the common fields only (name, layer, its kind's
-/// IFC classes), and its missing geometry is the only problem listed.
+/// IFC classes), and it evaluates through the geometry registry like any
+/// kind, so no problem is listed.
 #[test]
 fn a_kind_without_its_own_panel_shows_the_common_fields() {
     let mut harness = harness("test-kind");
@@ -1596,7 +1597,8 @@ fn a_kind_without_its_own_panel_shows_the_common_fields() {
     for specific in ["Thickness", "Reference line", "Length", "Area"] {
         assert!(harness.query_by_label(specific).is_none(), "{specific} is shown");
     }
-    assert_eq!(harness.state_mut().workspace().doc.geometry().problems.len(), 1);
+    let geometry = harness.state_mut().workspace().doc.geometry();
+    assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
 }
 
 /// Adds a 4 m wall and a 4 m × 3 m slab on the ground storey, `slab_type`
@@ -2388,10 +2390,10 @@ fn load_problems_show_as_localized_text() {
     no_key_form(&harness);
 }
 
-/// UI-012, NFR-L10N-001: the problems panel shows each element without
-/// geometry as its name and a sentence from the catalogue: the kind as its
-/// noun, the model's reason for a rejected outline in place, and never a
-/// message key.
+/// UI-012, NFR-L10N-001, NFR-REL-006: the problems panel shows each element
+/// without geometry as its name and a sentence from the catalogue: a
+/// generator that panicked (the test kind asked to), the model's reason for
+/// a rejected outline in place, and never a message key.
 #[test]
 fn geometry_problems_show_as_localized_text() {
     let mut harness = harness("geometry-problem-text");
@@ -2400,8 +2402,9 @@ fn geometry_problems_show_as_localized_text() {
         let project = &mut ws.doc.project;
         let storey = project.storeys.ground();
         let material = project.materials[0].id;
-        let dummy =
-            archicraft_model::kinds::Dummy::new(DVec2::ZERO, DVec2::ONE, material).into_element(project, storey, 0);
+        let mut dummy = archicraft_model::kinds::Dummy::new(DVec2::ZERO, DVec2::ONE, material);
+        dummy.panic_on_evaluate = true;
+        let dummy = dummy.into_element(project, storey, 0);
         // A wall without length, which the commands refuse, put into the
         // project directly so that its outline reaches the geometry.
         let mut wall = project.new_wall(storey, DVec2::new(2.0, 2.0), DVec2::new(2.0, 2.0), 0);
@@ -2414,7 +2417,7 @@ fn geometry_problems_show_as_localized_text() {
     press(&mut harness, Binding::primary(Key::M).shift(), OperatingSystem::Nix);
     harness.run_steps(2);
     harness.get_by_label_contains("2 geometry");
-    harness.get_by_label_contains(": elements of the kind “test element” have no geometry yet");
+    harness.get_by_label_contains("X-001: geometry evaluation failed unexpectedly");
     harness.get_by_label_contains("Zero wall: the outline is invalid: A polygon needs at least three distinct points.");
     for prefix in ["model-", "geometry-"] {
         let keys: Vec<String> = harness

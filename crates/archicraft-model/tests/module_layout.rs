@@ -181,20 +181,28 @@ fn only_kind_modules_match_on_kind_variants() {
 type Allowed = (&'static str, Option<usize>);
 
 /// The crates whose sources [`the_test_kind_is_named_only_in_its_module`]
-/// scans, with the files of each that may name the test kind.
+/// scans, with the files of each that may name the test kind: the model's
+/// kind module and registry line, and the geometry crate's generator module
+/// and its registry line (IFX-016).
 const TEST_KIND_SCOPE: &[(&str, &[Allowed])] = &[
     (
         "archicraft-model",
+        &[("kinds/dummy.rs", None), ("kinds/mod.rs", Some(1))],
+    ),
+    (
+        "archicraft-geometry",
         &[("kinds/dummy.rs", None), ("kinds/mod.rs", Some(1))],
     ),
     ("archicraft-app", &[]),
 ];
 
 /// SRS 3.2, ELM-011: a kind is one module plus one line in the `kinds!`
-/// list. The test kind's identifiers `Dummy` and `dummy` occur in the model
-/// sources only in `kinds/dummy.rs` and on one line of `kinds/mod.rs`, and
-/// in no other scanned crate, so everything else reaches it through the
-/// registry and the hooks.
+/// list, and its geometry one module plus one line in the geometry crate's
+/// registry. Outside `#[cfg(test)]` items, which exercise the test kind on
+/// purpose, the test kind's identifiers `Dummy` and `dummy` occur in the
+/// model and geometry sources only in `kinds/dummy.rs` and on one line of
+/// `kinds/mod.rs`, and in no other scanned crate, so everything else reaches
+/// it through the registries and the hooks.
 #[test]
 fn the_test_kind_is_named_only_in_its_module() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -210,6 +218,7 @@ fn the_test_kind_is_named_only_in_its_module() {
         }
         for file in &files {
             let text = fs::read_to_string(root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+            let text = without_test_items(&text);
             let lines: Vec<(usize, &str)> = text
                 .lines()
                 .enumerate()

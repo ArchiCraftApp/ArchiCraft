@@ -29,8 +29,9 @@ pub struct Dummy {
     pub size: DVec2,
     pub link: VerticalLink,
     pub material: MaterialId,
-    /// Asks for compound parts. [`Kind::parts`] stays empty until the
-    /// compound kinds' part specifications exist (IFX-016).
+    /// Asks for compound parts: [`Kind::parts`] then declares `Part_1`, an
+    /// IfcMember, and `Part_2`, an IfcPlate (IFX-016, Table 5-1), whose
+    /// bodies the geometry crate's generator for this kind adds.
     pub parts: bool,
     /// Asks the geometry generator to panic, to exercise the fallback for
     /// failed elements (NFR-REL-006).
@@ -156,8 +157,20 @@ impl Kind for Dummy {
         self.link.fix_top(height)
     }
 
+    /// IFX-016: two parts of the Table 5-1 part classes when asked for, in
+    /// a stable order so that their ids survive edits.
     fn parts(&self) -> Vec<PartSpec> {
-        Vec::new()
+        if !self.parts {
+            return Vec::new();
+        }
+        [(1, IfcClass::Member), (2, IfcClass::Plate)]
+            .into_iter()
+            .map(|(n, class)| PartSpec {
+                role: format!("Part_{n}"),
+                class,
+                label: format!("Part {n}"),
+            })
+            .collect()
     }
 
     fn container(&self) -> Container {
