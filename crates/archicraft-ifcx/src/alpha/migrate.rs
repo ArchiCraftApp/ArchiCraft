@@ -267,8 +267,9 @@ mod tests {
     /// does not fail validation.
     #[test]
     fn a_migrated_file_declares_the_current_schemas() {
+        let slab = "archicraft::slab";
         let mut old = format_1();
-        old.schemas.shift_remove(schema::SLAB);
+        old.schemas.shift_remove(slab);
         old.schemas.insert(
             "archicraft::retired".into(),
             serde_json::json!({"value": {"dataType": "String"}}),
@@ -277,7 +278,7 @@ mod tests {
         let (file, _) = upgrade(&old, TEST_MIGRATIONS, 2, &mut Vec::new()).unwrap();
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
         assert!(!file.schemas.contains_key("archicraft::retired"));
-        assert_eq!(file.schemas.get(schema::SLAB), schema::declarations().get(schema::SLAB));
+        assert_eq!(file.schemas.get(slab), schema::declarations().get(slab));
     }
 
     /// A file at the current format is read without copying or reporting,

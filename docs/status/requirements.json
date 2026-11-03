@@ -4867,7 +4867,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Junction settings, layer structures (PRF-001), profiles (PRF-004) and presets named by the requirement are not stored because neither the model nor the writer has them. Views are stored only as id, name and projection, since View3d (crates/archicraft-model/src/project.rs:188) holds nothing more (saved-view state of VIEW-004 is missing). Project settings, location, layers, materials, tool defaults, views, counters (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs:212), storeys, and element parameters with reference lines and storey links (element_attributes, crates/archicraft-ifcx/src/alpha/writer.rs:275) are written under archicraft:: attributes.",
+      "gap": "Junction settings, layer structures (PRF-001), profiles (PRF-004) and presets named by the requirement are not stored because neither the model nor the writer has them. Views are stored only as id, name and projection, since View3d (crates/archicraft-model/src/project.rs:188) holds nothing more (saved-view state of VIEW-004 is missing). Project settings, location, layers, materials, tool defaults, views, counters (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs), storeys, and element parameters with reference lines and storey links are written under archicraft:: attributes; each kind's parameters go through its codec under crates/archicraft-ifcx/src/alpha/kinds/ (KindCodec, CODECS; archicraft-hi6f.1), so a new kind or a new attribute is one codec module plus one registry line.",
       "depends_on": []
     },
     {
@@ -4876,7 +4876,7 @@
       "section": "5.2.7",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-ifcx/src/alpha/schema.rs:171 project() (archicraft::project), 259 declarations() (storey 263, element 271, wall 282, slab 295) with complete value descriptions incl. enums, optional fields and quantityKind. Regression check: Test: `ifx_061_every_archicraft_attribute_has_a_complete_value_description` (ifcx)",
+      "evidence": "Done: crates/archicraft-ifcx/src/alpha/schema.rs project() (archicraft::project) and declarations() (storey, element, then every kind's attribute from KindCodec::schema in crates/archicraft-ifcx/src/alpha/kinds/) with complete value descriptions incl. enums, optional fields and quantityKind. Regression check: Test: `ifx_061_every_archicraft_attribute_has_a_complete_value_description` (ifcx)",
       "gap": "",
       "depends_on": []
     },
