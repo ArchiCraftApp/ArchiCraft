@@ -45,15 +45,15 @@ use archicraft_model::tolerance::MODEL_TOLERANCE;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit};
 use archicraft_model::validate::{MAX_DECIMALS, valid_grid_origin, valid_grid_spacing, validate_element};
 use archicraft_model::{
-    BuildingId, Element, ElementId, ElementKind, Group, GroupId, IfcClass, KindTag, Layer, LayerId, MaterialId,
-    PlanGrid, Position, PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab,
-    SlabReference, Storey, StoreyId, StoreyList, TopLink, ViewId, Wall,
+    BuildingId, Element, ElementId, Group, GroupId, IfcClass, KindTag, Layer, LayerId, MaterialId, PlanGrid, Position,
+    PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, SiteId, Storey, StoreyId, StoreyList, ViewId,
 };
 use indexmap::IndexMap;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
+use super::kinds::{self, ReadContext};
 use super::migrate::{self, Migration};
 use super::schema::{self, FORMAT_VERSION};
 use super::writer::IFCX_VERSION;
@@ -81,10 +81,10 @@ pub struct ReadOutcome {
     pub migrated_from: Option<u32>,
 }
 
-type Object = Map<String, Value>;
+pub(crate) type Object = Map<String, Value>;
 
 /// Collects problems for one record, reported at the node `path`.
-struct Report<'a> {
+pub(crate) struct Report<'a> {
     problems: &'a mut Vec<Problem>,
     path: String,
     /// Names the record in every message, for example “layer record 1”
@@ -114,7 +114,7 @@ impl<'a> Report<'a> {
     }
 
     /// The record was loaded with a default or corrected value (PRJ-008).
-    fn repaired(&mut self, reason: Message) {
+    pub(crate) fn repaired(&mut self, reason: Message) {
         let message = Message::new("ifcx-repaired")
             .nested("record", self.record.clone())
             .nested("reason", reason);
@@ -122,7 +122,7 @@ impl<'a> Report<'a> {
     }
 
     /// Unwraps a field, or reports the record as repaired and uses `default`.
-    fn or<T>(&mut self, result: Result<T, Message>, default: T) -> T {
+    pub(crate) fn or<T>(&mut self, result: Result<T, Message>, default: T) -> T {
         match result {
             Ok(v) => v,
             Err(e) => {
@@ -161,22 +161,22 @@ fn record(key: &'static str, index: usize) -> Message {
 
 /// A reason about the field `key` of a record, such as
 /// `ifcx-field-missing`.
-fn about(reason: &'static str, key: &str) -> Message {
+pub(crate) fn about(reason: &'static str, key: &str) -> Message {
     Message::new(reason).text("key", key)
 }
 
-fn field<'v>(map: &'v Object, key: &str) -> Result<&'v Value, Message> {
+pub(crate) fn field<'v>(map: &'v Object, key: &str) -> Result<&'v Value, Message> {
     map.get(key).ok_or_else(|| about("ifcx-field-missing", key))
 }
 
-fn real(map: &Object, key: &str) -> Result<f64, Message> {
+pub(crate) fn real(map: &Object, key: &str) -> Result<f64, Message> {
     field(map, key)?
         .as_f64()
         .filter(|v| v.is_finite())
         .ok_or_else(|| about("ifcx-field-not-number", key))
 }
 
-fn integer(map: &Object, key: &str) -> Result<i64, Message> {
+pub(crate) fn integer(map: &Object, key: &str) -> Result<i64, Message> {
     let v = field(map, key)?;
     v.as_i64()
         .or_else(|| {
@@ -187,7 +187,7 @@ fn integer(map: &Object, key: &str) -> Result<i64, Message> {
         .ok_or_else(|| about("ifcx-field-not-integer", key))
 }
 
-fn text(map: &Object, key: &str) -> Result<String, Message> {
+pub(crate) fn text(map: &Object, key: &str) -> Result<String, Message> {
     field(map, key)?
         .as_str()
         .map(str::to_owned)
@@ -200,29 +200,29 @@ fn boolean(map: &Object, key: &str) -> Result<bool, Message> {
         .ok_or_else(|| about("ifcx-field-not-boolean", key))
 }
 
-fn object<'v>(map: &'v Object, key: &str) -> Result<&'v Object, Message> {
+pub(crate) fn object<'v>(map: &'v Object, key: &str) -> Result<&'v Object, Message> {
     field(map, key)?
         .as_object()
         .ok_or_else(|| about("ifcx-field-not-object", key))
 }
 
-fn array<'v>(map: &'v Object, key: &str) -> Result<&'v Vec<Value>, Message> {
+pub(crate) fn array<'v>(map: &'v Object, key: &str) -> Result<&'v Vec<Value>, Message> {
     field(map, key)?
         .as_array()
         .ok_or_else(|| about("ifcx-field-not-list", key))
 }
 
-fn code<T>(map: &Object, key: &str, parse: impl Fn(&str) -> Option<T>) -> Result<T, Message> {
+pub(crate) fn code<T>(map: &Object, key: &str, parse: impl Fn(&str) -> Option<T>) -> Result<T, Message> {
     let value = text(map, key)?;
     parse(&value).ok_or_else(|| about("ifcx-field-unknown-value", key).text("value", value))
 }
 
-fn uuid(map: &Object, key: &str) -> Result<Uuid, Message> {
+pub(crate) fn uuid(map: &Object, key: &str) -> Result<Uuid, Message> {
     let value = text(map, key)?;
     Uuid::parse_str(&value).map_err(|_| about("ifcx-field-not-uuid", key))
 }
 
-fn point(value: &Value) -> Result<DVec2, Message> {
+pub(crate) fn point(value: &Value) -> Result<DVec2, Message> {
     let items = value.as_array().ok_or_else(|| Message::new("ifcx-point-not-list"))?;
     match items.as_slice() {
         [x, y] => match (x.as_f64(), y.as_f64()) {
@@ -233,7 +233,7 @@ fn point(value: &Value) -> Result<DVec2, Message> {
     }
 }
 
-fn points(value: &Value) -> Result<Vec<DVec2>, Message> {
+pub(crate) fn points(value: &Value) -> Result<Vec<DVec2>, Message> {
     value
         .as_array()
         .ok_or_else(|| Message::new("ifcx-points-not-list"))?
@@ -259,23 +259,6 @@ fn rgb(map: &Object, key: &str) -> Result<Rgb, Message> {
     }
 }
 
-fn top_link(map: &Object) -> Result<TopLink, Message> {
-    let value = real(map, "value")?;
-    match text(map, "link")?.as_str() {
-        "fixed" => Ok(TopLink::Fixed { height: value }),
-        "storey" => Ok(TopLink::Storey {
-            storey: StoreyId::from_uuid(uuid(map, "storey")?),
-            offset: value,
-        }),
-        "relative" => Ok(TopLink::Relative {
-            storeys: i32::try_from(integer(map, "relative")?)
-                .map_err(|_| about("ifcx-field-out-of-range", "relative"))?,
-            offset: value,
-        }),
-        other => Err(about("ifcx-field-unknown-value", "link").text("value", other)),
-    }
-}
-
 /// The optional `predefinedType` of an element or a tool's defaults
 /// (IFX-024). A literal this version does not know, or a type that `kind`
 /// does not offer with `class`, is reported and left out.
@@ -290,16 +273,6 @@ fn predefined_type(map: &Object, kind: KindTag, class: IfcClass, report: &mut Re
                 .text("class", class.code()),
         );
         None
-    }
-}
-
-fn reference_line(map: &Object) -> Result<ReferenceLine, Message> {
-    match text(map, "referenceLine")?.as_str() {
-        "outside" => Ok(ReferenceLine::Outside),
-        "center" => Ok(ReferenceLine::Center),
-        "inside" => Ok(ReferenceLine::Inside),
-        "custom" => Ok(ReferenceLine::Custom(real(map, "referenceOffset")?)),
-        other => Err(about("ifcx-field-unknown-value", "referenceLine").text("value", other)),
     }
 }
 
@@ -866,7 +839,7 @@ fn read_tool_defaults(
 /// One tool's defaults, with `default`'s values for invalid fields and its
 /// placeholder geometry (ELM-001). A class the kind does not allow is
 /// replaced by the default's (ELM-011), and a predefined type the class does
-/// not offer is left out (IFX-024).
+/// not offer is left out (IFX-024). The kind's codec reads the parameters.
 fn read_defaults_slot(
     map: &Object,
     default: &DefaultsSlot,
@@ -907,25 +880,9 @@ fn read_defaults_slot(
         ifc_class = default.ifc_class;
     }
     let predefined_type = predefined_type(map, kind, ifc_class, report);
-    let mut payload = match &default.kind {
-        ElementKind::Wall(w) => Wall {
-            thickness: report.or(real(map, "thickness"), w.thickness),
-            reference_line: report.or(reference_line(map), w.reference_line),
-            base_offset: report.or(real(map, "baseOffset"), w.base_offset),
-            top: report.or(object(map, "top").and_then(top_link), w.top),
-            ..w.clone()
-        }
-        .into(),
-        ElementKind::Slab(s) => Slab {
-            thickness: report.or(real(map, "thickness"), s.thickness),
-            reference: report.or(code(map, "reference", SlabReference::from_code), s.reference),
-            offset: report.or(real(map, "offset"), s.offset),
-            ..s.clone()
-        }
-        .into(),
-        // Kinds without a defaults shape in this format keep the template's.
-        other => other.clone(),
-    };
+    let mut payload = kinds::codec(kind)
+        .and_then(|codec| codec.read_slot(map, &default.kind, report))
+        .unwrap_or_else(|| default.kind.clone());
     payload.set_material(material);
     DefaultsSlot {
         layer,
@@ -1054,8 +1011,9 @@ fn element_record<A: AttributeValue>(path: &str, node: &FlatNode<A>) -> Message 
     Message::new("ifcx-record-element").text("name", name(node).as_deref().unwrap_or(path))
 }
 
-/// Reads the element at `path`. Its attributes are parsed here and dropped
-/// when it is read (NFR-SEC-003).
+/// Reads the element at `path`, its parameters through the kind's codec
+/// (IFX-060). Its attributes are parsed here and dropped when it is read
+/// (NFR-SEC-003).
 fn read_element<A: AttributeValue>(
     project: &Project,
     path: &str,
@@ -1097,84 +1055,20 @@ fn read_element<A: AttributeValue>(
         }
     };
     let predefined_type = predefined_type(common, kind, ifc_class, &mut report);
-    let material_of = |attr: &Object, report: &mut Report<'_>| {
-        let id = report.or(
-            uuid(attr, "material").map(MaterialId::from_uuid),
-            project.materials[0].id,
-        );
-        if project.material(id).is_some() {
-            id
-        } else {
-            report.repaired(
-                Message::new("ifcx-element-material-missing").text("name", project.materials[0].name.clone()),
-            );
-            project.materials[0].id
-        }
+    // The writer never writes a kind it cannot read back.
+    let Some(codec) = kinds::codec(kind) else {
+        report.skipped(Message::new("ifcx-kind-unreadable").kind("kind", kind));
+        return None;
     };
-    let element_kind = match kind {
-        KindTag::Wall => {
-            let attr = attribute(node, schema::WALL);
-            let Some(attr) = attr.as_deref().and_then(Value::as_object) else {
-                report.skipped(Message::new("ifcx-parameters-missing").kind("kind", kind));
-                return None;
-            };
-            let start = field(attr, "start").and_then(point);
-            let end = field(attr, "end").and_then(point);
-            let (start, end) = match (start, end) {
-                (Ok(s), Ok(e)) => (s, e),
-                (Err(e), _) | (_, Err(e)) => {
-                    report.skipped(e);
-                    return None;
-                }
-            };
-            ElementKind::Wall(Wall {
-                start,
-                end,
-                thickness: report.or(real(attr, "thickness"), 0.25),
-                reference_line: report.or(reference_line(attr), ReferenceLine::Outside),
-                base_offset: report.or(real(attr, "baseOffset"), 0.0),
-                top: report.or(
-                    object(attr, "top").and_then(top_link),
-                    TopLink::Relative {
-                        storeys: 1,
-                        offset: 0.0,
-                    },
-                ),
-                material: material_of(attr, &mut report),
-            })
-        }
-        KindTag::Slab => {
-            let attr = attribute(node, schema::SLAB);
-            let Some(attr) = attr.as_deref().and_then(Value::as_object) else {
-                report.skipped(Message::new("ifcx-parameters-missing").kind("kind", kind));
-                return None;
-            };
-            let outline = match field(attr, "outline").and_then(points) {
-                Ok(o) => o,
-                Err(e) => {
-                    report.skipped(e);
-                    return None;
-                }
-            };
-            let holes = match array(attr, "holes").and_then(|h| h.iter().map(points).collect()) {
-                Ok(h) => h,
-                Err(e) => {
-                    report.repaired(Message::new("ifcx-holes-left-out").nested("reason", e));
-                    Vec::new()
-                }
-            };
-            ElementKind::Slab(Slab {
-                outline,
-                holes,
-                thickness: report.or(real(attr, "thickness"), 0.2),
-                reference: report.or(code(attr, "reference", SlabReference::from_code), SlabReference::Top),
-                offset: report.or(real(attr, "offset"), 0.0),
-                material: material_of(attr, &mut report),
-            })
-        }
-        // The writer never writes a kind it cannot read back.
-        _ => {
-            report.skipped(Message::new("ifcx-kind-unreadable").kind("kind", kind));
+    let attr = attribute(node, codec.attribute());
+    let Some(attr) = attr.as_deref().and_then(Value::as_object) else {
+        report.skipped(Message::new("ifcx-parameters-missing").kind("kind", kind));
+        return None;
+    };
+    let element_kind = match codec.read(attr, &ReadContext { project }, &mut report) {
+        Ok(parameters) => parameters,
+        Err(e) => {
+            report.skipped(e);
             return None;
         }
     };

@@ -11,8 +11,9 @@ use serde_json::{Value, json};
 
 use archicraft_model::material::{FillPattern, MaterialCategory};
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, VolumeUnit};
-use archicraft_model::{KindTag, Position, PredefinedType, SlabReference};
+use archicraft_model::{KindTag, Position, PredefinedType};
 
+use super::kinds::{CODECS, Codec};
 use super::writer::IFCX_VERSION;
 use crate::container::{Header, IfcxFile};
 
@@ -22,12 +23,7 @@ pub const FORMAT_VERSION: u32 = 1;
 pub const PROJECT: &str = "archicraft::project";
 pub const STOREY: &str = "archicraft::storey";
 pub const ELEMENT: &str = "archicraft::element";
-pub const WALL: &str = "archicraft::wall";
-pub const SLAB: &str = "archicraft::slab";
 
-pub const REFERENCE_LINES: [&str; 4] = ["outside", "center", "inside", "custom"];
-pub const TOP_LINKS: [&str; 3] = ["fixed", "storey", "relative"];
-pub const KINDS: [&str; 2] = ["wall", "slab"];
 /// The key of the group counter among the name counters (ELM-015).
 pub const GROUP_COUNTER: &str = "group";
 
@@ -35,7 +31,7 @@ fn real() -> Value {
     json!({"dataType": "Real"})
 }
 
-fn length() -> Value {
+pub(crate) fn length() -> Value {
     json!({"dataType": "Real", "quantityKind": "Length"})
 }
 
@@ -43,7 +39,7 @@ fn angle() -> Value {
     json!({"dataType": "Real", "quantityKind": "Plane angle"})
 }
 
-fn integer() -> Value {
+pub(crate) fn integer() -> Value {
     json!({"dataType": "Integer"})
 }
 
@@ -55,25 +51,25 @@ fn boolean() -> Value {
     json!({"dataType": "Boolean"})
 }
 
-fn reference() -> Value {
+pub(crate) fn reference() -> Value {
     json!({"dataType": "Reference"})
 }
 
-fn enumeration<'a>(options: impl IntoIterator<Item = &'a str>) -> Value {
+pub(crate) fn enumeration<'a>(options: impl IntoIterator<Item = &'a str>) -> Value {
     let options: Vec<&str> = options.into_iter().collect();
     json!({"dataType": "Enum", "enumRestrictions": {"options": options}})
 }
 
-fn array(item: Value) -> Value {
+pub(crate) fn array(item: Value) -> Value {
     json!({"dataType": "Array", "arrayRestrictions": {"value": item}})
 }
 
-fn object(fields: &[(&str, Value)]) -> Value {
+pub(crate) fn object(fields: &[(&str, Value)]) -> Value {
     let values: serde_json::Map<String, Value> = fields.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect();
     json!({"dataType": "Object", "objectRestrictions": {"values": values}})
 }
 
-fn optional(mut value: Value) -> Value {
+pub(crate) fn optional(mut value: Value) -> Value {
     if let Some(map) = value.as_object_mut() {
         map.insert("optional".into(), Value::Bool(true));
     }
@@ -110,17 +106,8 @@ fn rgb() -> Value {
     array(real())
 }
 
-fn point2() -> Value {
+pub(crate) fn point2() -> Value {
     array(length())
-}
-
-fn top_link() -> Value {
-    object(&[
-        ("link", enumeration(TOP_LINKS)),
-        ("value", length()),
-        ("storey", optional(reference())),
-        ("relative", optional(integer())),
-    ])
 }
 
 fn positions() -> Value {
@@ -139,35 +126,25 @@ fn snap_excluded() -> Value {
     optional(boolean())
 }
 
-fn wall_defaults() -> Value {
-    object(&[
-        ("thickness", length()),
-        ("referenceLine", enumeration(REFERENCE_LINES)),
-        ("referenceOffset", optional(length())),
-        ("baseOffset", length()),
-        ("top", top_link()),
+/// A tool's defaults slot (ELM-001): the kind's parameters from its codec,
+/// then the common members (the material a string here, a reference on the
+/// element).
+fn defaults_slot(codec: &dyn Codec) -> Value {
+    let mut fields = codec.slot_schema();
+    fields.extend([
         ("material", string()),
         ("layer", string()),
         ("position", positions()),
         ("ifcClass", string()),
         ("predefinedType", predefined_type()),
-    ])
+    ]);
+    object(&fields)
 }
 
-fn slab_defaults() -> Value {
-    object(&[
-        ("thickness", length()),
-        (
-            "reference",
-            enumeration([SlabReference::Top.code(), SlabReference::Bottom.code()]),
-        ),
-        ("offset", length()),
-        ("material", string()),
-        ("layer", string()),
-        ("position", positions()),
-        ("ifcClass", string()),
-        ("predefinedType", predefined_type()),
-    ])
+/// The tool defaults, one slot per kind with a codec, keyed by kind code.
+fn tool_defaults() -> Value {
+    let slots: Vec<(&str, Value)> = CODECS.iter().map(|c| (c.tag().code(), defaults_slot(*c))).collect();
+    object(&slots)
 }
 
 /// The drafting grid of the plan views (INP-013). Optional, because files
@@ -255,10 +232,7 @@ fn project() -> Value {
                 ),
             ])),
         ),
-        (
-            "toolDefaults",
-            object(&[("wall", wall_defaults()), ("slab", slab_defaults())]),
-        ),
+        ("toolDefaults", tool_defaults()),
         (
             "views",
             array(object(&[
@@ -272,7 +246,8 @@ fn project() -> Value {
     ])
 }
 
-/// The `schemas` section written to every file (IFX-061).
+/// The `schemas` section written to every file (IFX-061): the project, the
+/// storey, the common element data and every kind's attribute (IFX-060).
 pub fn declarations() -> IndexMap<String, Value> {
     let mut schemas = IndexMap::new();
     schemas.insert(PROJECT.to_owned(), json!({"value": project()}));
@@ -287,7 +262,7 @@ pub fn declarations() -> IndexMap<String, Value> {
     schemas.insert(
         ELEMENT.to_owned(),
         json!({"value": object(&[
-            ("kind", enumeration(KINDS)),
+            ("kind", enumeration(CODECS.iter().map(|c| c.tag().code()))),
             ("layer", string()),
             ("locked", boolean()),
             ("position", positions()),
@@ -296,30 +271,9 @@ pub fn declarations() -> IndexMap<String, Value> {
             ("group", optional(string())),
         ])}),
     );
-    schemas.insert(
-        WALL.to_owned(),
-        json!({"value": object(&[
-            ("start", point2()),
-            ("end", point2()),
-            ("thickness", length()),
-            ("referenceLine", enumeration(REFERENCE_LINES)),
-            ("referenceOffset", optional(length())),
-            ("baseOffset", length()),
-            ("top", top_link()),
-            ("material", reference()),
-        ])}),
-    );
-    schemas.insert(
-        SLAB.to_owned(),
-        json!({"value": object(&[
-            ("outline", array(point2())),
-            ("holes", array(array(point2()))),
-            ("thickness", length()),
-            ("reference", enumeration([SlabReference::Top.code(), SlabReference::Bottom.code()])),
-            ("offset", length()),
-            ("material", reference()),
-        ])}),
-    );
+    for codec in CODECS {
+        schemas.insert(codec.attribute().to_owned(), json!({"value": codec.schema()}));
+    }
     schemas
 }
 

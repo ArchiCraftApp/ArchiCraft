@@ -154,21 +154,37 @@ mod tests {
         assert!(ALL_KEYS.iter().all(|k| k.starts_with("ifcx-")));
     }
 
+    /// The `.rs` files below `dir`, recursively.
+    fn sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
+            let path = entry.expect("a directory entry").path();
+            if path.is_dir() {
+                sources(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
     /// Every key the sources pass to `Message::new` is in [`ALL_KEYS`], and
     /// every key in it is used, so the catalogue check in the application
-    /// covers exactly what the crate emits.
+    /// covers exactly what the crate emits. Every source file of the crate
+    /// is scanned but this one, so a new module (a kind codec, say) is
+    /// covered without being listed.
     #[test]
     fn all_keys_lists_the_keys_the_sources_use() {
-        let sources = [
-            include_str!("validate.rs"),
-            include_str!("validate/stream.rs"),
-            include_str!("lib.rs"),
-            include_str!("alpha/migrate.rs"),
-            include_str!("alpha/reader.rs"),
-            include_str!("alpha/writer.rs"),
-        ];
+        let mut files = Vec::new();
+        sources(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut files,
+        );
         let mut used = std::collections::BTreeSet::new();
-        for source in sources {
+        let texts: Vec<String> = files
+            .iter()
+            .filter(|p| p.file_name().is_some_and(|n| n != "message.rs"))
+            .map(|p| std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{}: {e}", p.display())))
+            .collect();
+        for source in &texts {
             // The code before its tests.
             let source = source.split("#[cfg(test)]").next().unwrap_or(source);
             for (i, _) in source.match_indices("\"ifcx-") {

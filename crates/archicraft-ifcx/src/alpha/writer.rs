@@ -14,16 +14,14 @@ use std::collections::HashSet;
 use archicraft_geometry::{ModelGeometry, TriMesh};
 use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
-use archicraft_model::project::{DefaultsSlot, NameCounters};
-use archicraft_model::{
-    Element, ElementKind, Group, KindTag, Layer, MaterialId, PredefinedType, Project, ReferenceLine, Slab, TopLink,
-    Wall,
-};
+use archicraft_model::project::NameCounters;
+use archicraft_model::{Element, Group, KindTag, Layer, MaterialId, PredefinedType, Project};
 use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
+use super::kinds::CODECS;
 use super::schema::{self, FORMAT_VERSION};
 use crate::container::{Header, IfcxFile, Import, Node};
 use crate::json::{self, round_coordinate};
@@ -81,33 +79,8 @@ fn child_key(kind: &str, id: Uuid, used: &mut HashSet<String>) -> String {
     key
 }
 
-fn point2(p: archicraft_model::glam::DVec2) -> Value {
-    json!([p.x, p.y])
-}
-
 fn rgb(c: archicraft_model::Rgb) -> Value {
     json!(c.0)
-}
-
-fn top_link(top: TopLink) -> Value {
-    match top {
-        TopLink::Fixed { height } => json!({"link": "fixed", "value": height}),
-        TopLink::Storey { storey, offset } => json!({"link": "storey", "value": offset, "storey": storey.to_string()}),
-        TopLink::Relative { storeys, offset } => json!({"link": "relative", "value": offset, "relative": storeys}),
-    }
-}
-
-fn reference_line(map: &mut Map<String, Value>, line: ReferenceLine) {
-    let code = match line {
-        ReferenceLine::Outside => "outside",
-        ReferenceLine::Center => "center",
-        ReferenceLine::Inside => "inside",
-        ReferenceLine::Custom(_) => "custom",
-    };
-    map.insert("referenceLine".into(), json!(code));
-    if let ReferenceLine::Custom(offset) = line {
-        map.insert("referenceOffset".into(), json!(offset));
-    }
 }
 
 /// Adds `predefinedType` with the IFC 4.3 literal when the element or slot
@@ -118,56 +91,25 @@ fn predefined_type(value: &mut Value, predefined: Option<PredefinedType>) {
     }
 }
 
-/// The wall tool's defaults: the prototype's parameters without its
-/// placeholder geometry.
-fn wall_defaults(slot: &DefaultsSlot, w: &Wall) -> Value {
-    let mut map = Map::new();
-    map.insert("thickness".into(), json!(w.thickness));
-    reference_line(&mut map, w.reference_line);
-    map.insert("baseOffset".into(), json!(w.base_offset));
-    map.insert("top".into(), top_link(w.top));
-    map.insert("material".into(), json!(w.material.to_string()));
-    map.insert("layer".into(), json!(slot.layer.to_string()));
-    map.insert("position".into(), json!(slot.position.code()));
-    map.insert("ifcClass".into(), json!(slot.ifc_class.code()));
-    let mut value = Value::Object(map);
-    predefined_type(&mut value, slot.predefined_type);
-    value
-}
-
-/// The slab tool's defaults: the prototype's parameters without its
-/// placeholder outline.
-fn slab_defaults(slot: &DefaultsSlot, s: &Slab) -> Value {
-    let mut value = json!({
-        "thickness": s.thickness,
-        "reference": s.reference.code(),
-        "offset": s.offset,
-        "material": s.material.to_string(),
-        "layer": slot.layer.to_string(),
-        "position": slot.position.code(),
-        "ifcClass": slot.ifc_class.code(),
-    });
-    predefined_type(&mut value, slot.predefined_type);
-    value
-}
-
-/// The tool defaults, one member per kind code in slot order (ELM-001).
-/// A slot of a kind this format has no defaults shape for is left out with
-/// a warning.
+/// The tool defaults, one member per kind code in slot order (ELM-001): the
+/// prototype's parameters from the kind's codec, then the slot's common
+/// members. A slot of a kind without a codec is left out with a warning.
 fn tool_defaults(p: &Project, warnings: &mut Vec<Problem>) -> Value {
     let mut map = Map::new();
     for (kind, slot) in p.tool_defaults.iter() {
-        let value = match &slot.kind {
-            ElementKind::Wall(w) => wall_defaults(slot, w),
-            ElementKind::Slab(s) => slab_defaults(slot, s),
-            _ => {
-                warnings.push(Problem::warning(
-                    None,
-                    Message::new("ifcx-tool-defaults-not-saved").kind("kind", kind),
-                ));
-                continue;
-            }
+        let Some(mut members) = CODECS.iter().find_map(|c| c.write_slot(&slot.kind)) else {
+            warnings.push(Problem::warning(
+                None,
+                Message::new("ifcx-tool-defaults-not-saved").kind("kind", kind),
+            ));
+            continue;
         };
+        members.insert("material".into(), json!(slot.kind.material().to_string()));
+        members.insert("layer".into(), json!(slot.layer.to_string()));
+        members.insert("position".into(), json!(slot.position.code()));
+        members.insert("ifcClass".into(), json!(slot.ifc_class.code()));
+        let mut value = Value::Object(members);
+        predefined_type(&mut value, slot.predefined_type);
         map.insert(kind.code().into(), value);
     }
     Value::Object(map)
@@ -292,34 +234,12 @@ fn counters(counters: &NameCounters, group_counter: u32) -> Value {
     map.into()
 }
 
-/// The kind's parameter attribute, or `None` for a kind this format
-/// version cannot store yet.
+/// The kind's parameter attribute from its codec (IFX-060), or `None` for
+/// a kind this format version cannot store yet.
 fn element_attributes(e: &Element) -> Option<(&'static str, Value)> {
-    Some(match &e.kind {
-        ElementKind::Wall(w) => {
-            let mut map = Map::new();
-            map.insert("start".into(), point2(w.start));
-            map.insert("end".into(), point2(w.end));
-            map.insert("thickness".into(), json!(w.thickness));
-            reference_line(&mut map, w.reference_line);
-            map.insert("baseOffset".into(), json!(w.base_offset));
-            map.insert("top".into(), top_link(w.top));
-            map.insert("material".into(), json!(w.material.to_string()));
-            (schema::WALL, Value::Object(map))
-        }
-        ElementKind::Slab(s) => (
-            schema::SLAB,
-            json!({
-                "outline": s.outline.iter().map(|p| point2(*p)).collect::<Vec<_>>(),
-                "holes": s.holes.iter().map(|h| h.iter().map(|p| point2(*p)).collect::<Vec<_>>()).collect::<Vec<_>>(),
-                "thickness": s.thickness,
-                "reference": s.reference.code(),
-                "offset": s.offset,
-                "material": s.material.to_string(),
-            }),
-        ),
-        _ => return None,
-    })
+    CODECS
+        .iter()
+        .find_map(|c| c.write(&e.kind).map(|members| (c.attribute(), Value::Object(members))))
 }
 
 /// Mesh points rounded to 10⁻⁶ m (IFX-007) and a triangle list (IFX-032).
