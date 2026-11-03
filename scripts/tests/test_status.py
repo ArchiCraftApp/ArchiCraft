@@ -465,8 +465,8 @@ class CheckTest(StatusTest):
     def test_the_loop_policy_and_the_dashboard_tests_are_no_evidence(self):
         """The loop's self-test, its pull-request rules, the Loop policy job and the dashboard's
         tests guard the loop and its tooling, not a requirement: a done row naming only one of
-        them fails the check. The layering step of that job guards NFR-MNT-002 and still counts
-        (archicraft-47bh)."""
+        them fails the check. The layering step of that job guards NFR-MNT-002 and NFR-MNT-004
+        and still counts (archicraft-47bh)."""
         self.repo.write(status.TESTING_PATH, UNTRACED_TESTING)
         self.repo.write("scripts/tests/test_dashboard.py", "class T:\n    def test_dashboard_lists_the_waiting_prs(self):\n        pass\n")
         for evidence in (
