@@ -80,6 +80,8 @@ cmd-tool-wall-label = Wall tool
 cmd-tool-wall-desc = Draw walls by their reference line.
 cmd-tool-slab-label = Slab tool
 cmd-tool-slab-desc = Draw slabs by their outline.
+cmd-tool-measure-label = Measure tool
+cmd-tool-measure-desc = Measure distances along picked points and angles in working units, without changing the model.
 
 ## Project
 

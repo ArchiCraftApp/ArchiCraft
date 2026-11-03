@@ -29,6 +29,24 @@ prompt-user-origin-key-keep-rotation = keeps the axes unrotated
 prompt-user-origin-key-constrain = constrains angles
 prompt-user-origin-key-cancel = cancels the step
 
+## The measure tool (MEA-001): its modes, the prompts of its steps with
+## their key hints as prompt-measure-key-*, and the labels of its readout in
+## the status line, beside the tracker's ΔX, ΔY and direction a.
+
+tool-measure-mode-distance = Distance
+tool-measure-mode-angle = Angle
+tool-measure-total = Total
+tool-measure-segment = Segment
+tool-measure-angle = Angle
+prompt-measure-distance-first = Measure distance: click the first point
+prompt-measure-distance-next = Measure distance: click the next point or type a distance
+prompt-measure-angle-vertex = Measure angle: click the vertex
+prompt-measure-angle-first-leg = Measure angle: click a point on the first leg
+prompt-measure-angle-second-leg = Measure angle: click a point on the second leg
+prompt-measure-key-finish = or double-click finishes the measurement
+prompt-measure-key-remove-last = removes the last point
+prompt-measure-key-clear = clears the measurement
+
 ## The division control of the drawing tools (INP-010): the one active
 ## division mode, its value and the scope of the division points shown on a
 ## hovered edge.

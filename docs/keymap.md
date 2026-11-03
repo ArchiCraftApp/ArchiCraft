@@ -67,7 +67,7 @@ table (`commands/d8.rs`) and the OS-reserved tables (`commands/os_reserved.rs`);
 | Trim | Transforms and reshaping | `Shift+Cmd+K` | `Ctrl+Shift+K` | not while typing | pending: `drafting-trim-split` |
 | Split | Transforms and reshaping | `Cmd+K` | `Ctrl+K` | not while typing | pending: `drafting-trim-split` |
 | Offset | Transforms and reshaping | `Shift+Cmd+O` | `Ctrl+Shift+O` | not while typing | pending: `edit-reshape-palette` |
-| Measure | Tools | `M` | `M` | not while typing or drawing | pending: `3d-input-navigation` |
+| Measure | Tools | `M` | `M` | not while typing or drawing | `tool.measure` |
 | Wall | Tools | `W` | `W` | not while typing or drawing | `tool.wall` |
 | Slab | Tools | `S` | `S` | not while typing or drawing | `tool.slab` |
 | Column | Tools | `C` | `C` | not while typing or drawing | pending: `profiles-columns-beams` |

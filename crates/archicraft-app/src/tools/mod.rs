@@ -1,10 +1,12 @@
-//! Element tools (WAL-001, SLB-001, INP-002…INP-009).
+//! Element tools (WAL-001, SLB-001, INP-002…INP-009) and the measure tool
+//! (MEA-001).
 //!
 //! A tool collects points in plan; snapping, the constraint modifier and
 //! typed distances (`crate::input::PointInput`) are applied before a point
 //! reaches the tool. When a tool has enough points, it produces a command.
 //! Tools are point-input consumers (`InputConsumer`, INP-001).
 
+mod measure;
 mod slab;
 mod user_origin;
 mod wall;
@@ -15,6 +17,7 @@ use archicraft_model::{Command, Element, ElementKind, KindTag, Project, StoreyId
 
 use crate::input::{Expect, InputConsumer, KeyHint, Outcome, Preview, Resolved, StepSpec};
 
+pub use measure::{MeasureMode, MeasureTool, Measurement};
 pub use slab::SlabMode;
 pub use user_origin::UserOriginTool;
 pub use wall::WallMode;
@@ -25,22 +28,26 @@ pub enum ToolKind {
     Select,
     Wall,
     Slab,
+    /// Measures distances and angles, creating nothing (MEA-001).
+    Measure,
 }
 
 impl ToolKind {
-    pub const ALL: [ToolKind; 3] = [ToolKind::Select, ToolKind::Wall, ToolKind::Slab];
+    pub const ALL: [ToolKind; 4] = [ToolKind::Select, ToolKind::Wall, ToolKind::Slab, ToolKind::Measure];
 
     pub fn label(self) -> &'static str {
         match self {
             ToolKind::Select => "Select",
             ToolKind::Wall => "Wall",
             ToolKind::Slab => "Slab",
+            ToolKind::Measure => "Measure",
         }
     }
 }
 
 /// The tool's state: which tool, its geometry method, and the points entered
-/// so far.
+/// so far. The measure tool keeps its own points, which stay shown after a
+/// measurement is finished (MEA-001).
 #[derive(Clone, Debug)]
 pub struct ToolState {
     pub kind: ToolKind,
@@ -49,6 +56,7 @@ pub struct ToolState {
     pub points: Vec<DVec2>,
     /// The storey the input started on.
     pub storey: Option<StoreyId>,
+    pub measure: MeasureTool,
 }
 
 impl Default for ToolState {
@@ -59,6 +67,7 @@ impl Default for ToolState {
             slab_mode: SlabMode::Polygon,
             points: Vec::new(),
             storey: None,
+            measure: MeasureTool::default(),
         }
     }
 }
@@ -95,16 +104,25 @@ impl ToolState {
     pub fn reset(&mut self) {
         self.points.clear();
         self.storey = None;
+        self.measure.clear();
     }
 
     pub fn is_drawing(&self) -> bool {
-        !self.points.is_empty()
+        !self.points.is_empty() || self.measure.in_progress()
+    }
+
+    /// The storey the input in progress started on, also of a measurement.
+    pub fn input_storey(&self) -> Option<StoreyId> {
+        match self.kind {
+            ToolKind::Measure => self.measure.storey,
+            _ => self.storey,
+        }
     }
 
     /// How many points complete the current operation, if fixed.
     fn needed(&self) -> Option<usize> {
         match self.kind {
-            ToolKind::Select => None,
+            ToolKind::Select | ToolKind::Measure => None,
             ToolKind::Wall => match self.wall_mode {
                 WallMode::Single | WallMode::Rectangle => Some(2),
                 WallMode::RotatedRectangle => Some(3),
@@ -163,7 +181,7 @@ impl ToolState {
     /// Backspace and Esc remove them without touching the project (UND-003);
     /// a click on another storey ends the open chain and starts a new one.
     fn add_point(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
-        if self.kind == ToolKind::Select {
+        if matches!(self.kind, ToolKind::Select | ToolKind::Measure) {
             return Outcome::Continue;
         }
         if self.storey.is_some_and(|s| s != storey) {
@@ -323,6 +341,7 @@ impl InputConsumer for ToolState {
         let n = self.points.len();
         let (prompt, repeat) = match self.kind {
             ToolKind::Select => return None,
+            ToolKind::Measure => return self.measure.step(),
             ToolKind::Wall => match (self.wall_mode, n) {
                 (WallMode::Rectangle, 0) => ("Wall rectangle: click the first corner", false),
                 (WallMode::Rectangle, _) => ("Wall rectangle: click the opposite corner or type a distance", false),
@@ -390,32 +409,50 @@ impl InputConsumer for ToolState {
     }
 
     fn reference_point(&self) -> Option<DVec2> {
-        self.points.last().copied()
+        match self.kind {
+            ToolKind::Measure => self.measure.reference_point(),
+            _ => self.points.last().copied(),
+        }
     }
 
     fn preview(&self, project: &Project, resolved: &Resolved) -> Preview {
-        Preview {
-            outlines: self.outlines(project, resolved.point),
-            ..Preview::default()
+        match self.kind {
+            ToolKind::Measure => self.measure.preview(project, resolved),
+            _ => Preview {
+                outlines: self.outlines(project, resolved.point),
+                ..Preview::default()
+            },
         }
     }
 
     fn commit(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
-        self.add_point(project, storey, point)
+        match self.kind {
+            ToolKind::Measure => self.measure.commit(project, storey, point),
+            _ => self.add_point(project, storey, point),
+        }
     }
 
     /// Every operation, a wall chain too, returns to its previous point
-    /// (INP-003).
+    /// (INP-003); Esc clears a measurement (MEA-001).
     fn cancel_step(&mut self) -> bool {
-        self.pop_point()
+        match self.kind {
+            ToolKind::Measure => self.measure.cancel_step(),
+            _ => self.pop_point(),
+        }
     }
 
     fn backspace(&mut self) -> bool {
-        self.pop_point()
+        match self.kind {
+            ToolKind::Measure => self.measure.backspace(),
+            _ => self.pop_point(),
+        }
     }
 
     fn finish(&mut self, project: &Project) -> Outcome {
-        self.close(project)
+        match self.kind {
+            ToolKind::Measure => self.measure.finish(project),
+            _ => self.close(project),
+        }
     }
 }
 

@@ -163,6 +163,7 @@ toolbox-slab = Slab
 toolbox-fit = Fit
 toolbox-orbit = Orbit
 toolbox-plan-3d = Plan/3D
+toolbox-measure = Measure
 
 ## Project browser (VIEW-003, STR-003, UI-005)
 

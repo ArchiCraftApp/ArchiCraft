@@ -17,8 +17,8 @@ use archicraft_model::{
 use egui::{Id, Ui};
 
 use super::widgets::{self, Edited, common};
-use crate::input::{DivisionMode, DivisionScope, EQUAL_PARTS};
-use crate::tools::{SlabMode, ToolKind, WallMode};
+use crate::input::{DivisionMode, DivisionScope, EQUAL_PARTS, PointInput};
+use crate::tools::{MeasureMode, SlabMode, ToolKind, WallMode};
 use crate::tr;
 use crate::workspace::{Request, Workspace};
 
@@ -49,7 +49,7 @@ fn gather(ws: &Workspace) -> Option<Editing> {
     let project = &ws.doc.project;
     if ws.selection.is_empty() {
         let kind = match ws.tool.kind {
-            ToolKind::Select => return None,
+            ToolKind::Select | ToolKind::Measure => return None,
             ToolKind::Wall => KindTag::Wall,
             ToolKind::Slab => KindTag::Slab,
         };
@@ -814,6 +814,19 @@ fn tool_modes(ui: &mut Ui, ws: &mut Workspace) {
                 if ui.selectable_label(ws.tool.slab_mode == mode, mode.label()).clicked() {
                     ws.tool.slab_mode = mode;
                     ws.reset_input();
+                }
+            }
+            ui.separator();
+        }
+        // MEA-001: a new mode starts a new measurement.
+        ToolKind::Measure => {
+            for mode in MeasureMode::ALL {
+                if ui
+                    .selectable_label(ws.tool.measure.mode == mode, mode.label())
+                    .clicked()
+                {
+                    ws.tool.measure.set_mode(mode);
+                    ws.input = PointInput::default();
                 }
             }
             ui.separator();
