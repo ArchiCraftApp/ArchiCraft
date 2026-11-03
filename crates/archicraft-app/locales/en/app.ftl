@@ -27,7 +27,7 @@ menu-file-recent-empty = No recent projects
 
 ## Window and tab titles (UI-001)
 
-# $name: the project's file name, or its name while it was never saved.
+# $name: the project's name (Project settings).
 window-title = { $name } — ArchiCraft
 # The same while the project has unsaved changes.
 window-title-unsaved = ● { $name } — ArchiCraft
@@ -47,8 +47,10 @@ modal-cancel = Cancel
 modal-save = Save
 modal-dont-save = Don't save
 modal-unsaved-title = Save changes?
-# $name: the project's file name, or its name while it was never saved.
+# $name: the project's name; for a project that was never saved.
 modal-unsaved-text = “{ $name }” has unsaved changes. Save them before continuing?
+# $name: the project's name; $file: the file it was saved to.
+modal-unsaved-text-file = “{ $name }” ({ $file }) has unsaved changes. Save them before continuing?
 modal-load-report-title = The project was opened with problems
 modal-load-report-text = Everything that could be read was loaded. These objects were skipped, repaired or replaced:
 modal-newer-title = Overwrite a newer file?
@@ -123,7 +125,7 @@ status-selected =
     }
 
 ## Status bar (UI-001): the prompt while no tool step is in progress, the
-## problem count and the view-control bar of the active view
+## problem count and the cursor in a plan
 
 status-prompt-select = Click an element to select it, Shift-click to add or remove, drag a rectangle to select several · Tab cycles overlapping elements
 # Appended to a tool's prompt in press-drag-release input mode (INP-020).
@@ -136,30 +138,40 @@ status-problems =
         [one] ⚠ { $count_text } problem
        *[other] ⚠ { $count_text } problems
     }
-status-fit = Fit
-status-orbit = Orbit
-# The menu of the 3D view presets.
-status-views = Views
-status-perspective = Perspective
-status-next-zoom = Next zoom ▶
-status-previous-zoom = ◀ Previous zoom
 # The cursor in a plan from the user origin (INP-014); $x, $y: formatted
 # lengths with their unit.
 status-cursor = X { $x }  Y { $y }
-# The plan's zoom; $scale: points per metre in the user's number format.
-status-zoom = { $scale } pt/m
-status-scale = Scale 1:100
 # $storey: the name of the plan's storey.
 status-plan = Plan: { $storey }
 # The indicator while groups are suspended (ELM-015); a click turns the
 # suspension off.
 status-groups-suspended = Groups suspended
 
+## View-control bar (UI-001): the controls of the active view; the tooltips
+## are the commands' (commands.ftl)
+
+view-bar-zoom-in = Zoom in
+view-bar-zoom-out = Zoom out
+# The view's zoom; $percent: the number in the user's number format. In a
+# plan 100 % is paper size at the drawing scale, in 3D the fitted view.
+view-bar-zoom = { $percent } %
+view-bar-previous-zoom = ◀ Previous zoom
+view-bar-next-zoom = Next zoom ▶
+view-bar-fit = Fit
+view-bar-orbit = Orbit
+view-bar-reference-lines = Reference lines
+# The menu of the 3D view presets.
+view-bar-views = Views
+view-bar-perspective = Perspective
+view-bar-display-mode-hint = How the active 3D view draws the model.
+view-bar-view-preset-hint = Turn the camera of the active 3D view to a standard direction.
+
 ## Toolbox (UI-001): group headings and the short labels of its tools; the
 ## tooltips are the commands' (commands.ftl)
 
 toolbox-selection = Selection
 toolbox-modelling = Modelling
+toolbox-annotation-2d = 2D and annotation
 toolbox-view-tools = View tools
 toolbox-select = Select
 toolbox-wall = Wall
@@ -231,8 +243,6 @@ view-preset-dimetric = Dimetric
 
 # Tooltips of the display-mode choice and the Views menu in the status bar of
 # a 3D view (UI-011).
-status-display-mode-hint = How the active 3D view draws the model.
-status-view-preset-hint = Turn the camera of the active 3D view to a standard direction.
 
 ## Snap kinds named in the cursor label (INP-008), from SnapKind::label_key
 

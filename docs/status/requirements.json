@@ -24,10 +24,10 @@
       "id": "PRJ-003",
       "priority": "M",
       "section": "4.1",
-      "status": "partial",
-      "remaining_effort": "S",
-      "evidence": "",
-      "gap": "The window title shows the file name once the project is saved (Document::display_name, crates/archicraft-app/src/document.rs:135, prefers the path over project.info.name), so after the first save it no longer shows the project name, and renaming the project in Project settings does not change the title. Everything else is in place: New, Open, Open recent, Save (also the toolbar's first button, toolbar in crates/archicraft-app/src/ui/shell.rs, `the_toolbar_saves_a_project_with_a_path`), Save as (the first save opens a file dialog prefilled with the project name), Close, Quit, the unsaved-changes marker (ArchiCraftApp::update_title_and_theme, crates/archicraft-app/src/app.rs:563) and the Save/Don't save/Cancel prompt before New, Open, Close and Quit, including the window's close button (ArchiCraftApp::handle_close_request, crates/archicraft-app/src/app.rs:583).",
+      "status": "done",
+      "remaining_effort": "none",
+      "evidence": "Done: New, Open, Open recent, Save (also the toolbar's first button, toolbar in crates/archicraft-app/src/ui/shell.rs), Save as (the first save opens a file dialog prefilled with the project name), Close and Quit; the window title is the project's name with the unsaved-changes marker (window_title, crates/archicraft-app/src/document.rs:166, set by ArchiCraftApp::update_title_and_theme, crates/archicraft-app/src/app.rs:574), so renaming the project in Project settings renames the window; the Save/Don't save/Cancel prompt before New, Open, Close and Quit, including the window's close button (ArchiCraftApp::guard and handle_close_request, crates/archicraft-app/src/app.rs:342 and 590), names the project and its file (unsaved_question, crates/archicraft-app/src/document.rs:177). Regression check: Test: `the_window_title_shows_the_project_name_and_the_unsaved_marker`, `the_unsaved_question_names_the_project_and_the_file`, `dirty_tracking_follows_undo` (document.rs), `closing_a_dirty_project_asks_and_cancel_keeps_it`, `the_toolbar_saves_a_project_with_a_path` (crates/archicraft-app/tests/ui.rs)",
+      "gap": "",
       "depends_on": []
     },
     {
@@ -285,9 +285,9 @@
       "priority": "M",
       "section": "4.3",
       "status": "partial",
-      "remaining_effort": "M",
+      "remaining_effort": "S",
       "evidence": "",
-      "gap": "Menu bar, properties strip, project browser, view tabs and a status line with the step prompt exist. The tool palette (toolbox, crates/archicraft-app/src/ui/shell.rs:194) shows each button's own icon beside its label (the SVG icons of ui::icons, crates/archicraft-app/src/ui/icons.rs:16, drawn by icon_and_label, crates/archicraft-app/src/ui/shell.rs:152; tests icons_are_white_drawings_inside_their_grid (crates/archicraft-app/src/ui/icons.rs:79), toolbar_and_toolbox_buttons_have_their_own_icons (crates/archicraft-app/src/commands/tests.rs:663) and the_toolbox_and_the_toolbar_draw_their_icons_for_the_screen (crates/archicraft-app/tests/ui.rs:542)). The view tools include the Measure tool (MEA-001), which the toolbar below the menu bar also shows after Redo. Missing: a 2D/annotation tool group (no such tools exist; the palette has selection, wall/slab, view and measure tools). The view-control bar (status_bar, crates/archicraft-app/src/ui/shell.rs:239) has no view rotation (VIEW-060), no real drawing scale (the 'Scale 1:100' label in status_bar (crates/archicraft-app/src/ui/shell.rs:337) is hard-coded, VIEW-013 missing), no active display settings for plan views (only 3D views have a display-mode combo) and no restriction indicator (VIEW-043).",
+      "gap": "Menu bar, properties strip, project browser, view tabs, the view-control bar and the status line with the step prompt exist (main_window_has_the_parts_of_ui_001, crates/archicraft-app/tests/ui.rs:48). The tool palette is generated from the registry's toolbox places grouped by ToolGroup (Selection, Modelling, Annotation2d, View; toolbox_groups, crates/archicraft-app/src/commands/mod.rs:213, tool_palette, crates/archicraft-app/src/ui/shell.rs:166; the_tool_palette_groups_the_registrys_tools, the_toolbox_groups_come_from_the_registry) with each button's own icon (toolbar_and_toolbox_buttons_have_their_own_icons). The view-control bar (crates/archicraft-app/src/ui/view_bar.rs) has ordered slots Zoom, Fit, Rotation, Scale, Display settings and Restrictions, filled per pane type by a ViewBarProvider (view_bar.rs:70): plans show Zoom in, Zoom out, the zoom readout (100 % = paper size at the drawing scale, plan_zoom_percent, view_bar.rs:91), previous and next zoom, Fit and the reference lines; 3D views zoom, fit, orbit, display mode, presets and projection (the_view_bar_shows_the_controls_of_the_active_view, zoom_in_and_out_zoom_the_active_view, filled_slots_show_in_slot_order). Missing: 2D/annotation tools to fill their group (drafting-trim-split), the slot contents for view rotation (VIEW-060), the drawing scale (VIEW-013; the readout assumes 1:100 until then) and the restriction indicator (VIEW-043).",
       "depends_on": []
     },
     {
@@ -5117,7 +5117,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "UI scaling 100-200% is available only through the OS scale factor and egui's built-in Ctrl/Cmd +/-/0 zoom (NFR-PORT-005 holds by inspection and test); egui's zoom factor is not exposed in Preferences (crates/archicraft-app/src/persistence/prefs.rs:34) nor persisted across restarts. DPI changes when the window moves between monitors with different scale factors rely on egui/winit and the per-frame 3D viewport size (ui, crates/archicraft-app/src/views/view3d.rs:102), with no test or recorded manual check on a mixed-DPI multi-monitor setup; the app has a single main window (panes cannot be detached to a second monitor).",
+      "gap": "UI scaling 100-200% follows only the OS scale factor (NFR-PORT-005 holds by inspection and test): egui's built-in Ctrl/Cmd +/-/0 zoom is off, because those keys zoom the active view (UI-001, zoom_with_keyboard in ArchiCraftApp::ui, crates/archicraft-app/src/app.rs), and a UI scale preference (archicraft-8l3) is not yet in Preferences (crates/archicraft-app/src/persistence/prefs.rs:34). DPI changes when the window moves between monitors with different scale factors rely on egui/winit and the per-frame 3D viewport size (ui, crates/archicraft-app/src/views/view3d.rs:102), with no test or recorded manual check on a mixed-DPI multi-monitor setup; the app has a single main window (panes cannot be detached to a second monitor).",
       "depends_on": []
     },
     {
@@ -5476,7 +5476,7 @@
       "section": "6.5",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: egui lays out the UI in points at the operating system's scale factor, and the 3D view renders its viewport in physical pixels (crates/archicraft-app/src/views/view3d.rs:199-214, rect times pixels_per_point), so it stays sharp at every scale; nfr_port_005_main_window_at_100_to_200_percent_scaling (crates/archicraft-app/tests/done_requirements.rs:913) checks the main window at 100, 150 and 200 %. The built-in UI zoom shortcut (Ctrl/Cmd + = / - / 0) is not listed in the Keyboard shortcuts window. Regression check: Test: `nfr_port_005_main_window_at_100_to_200_percent_scaling` (app)",
+      "evidence": "Done: egui lays out the UI in points at the operating system's scale factor, and the 3D view renders its viewport in physical pixels (crates/archicraft-app/src/views/view3d.rs:199-214, rect times pixels_per_point), so it stays sharp at every scale; nfr_port_005_main_window_at_100_to_200_percent_scaling (crates/archicraft-app/tests/done_requirements.rs:913) checks the main window at 100, 150 and 200 %. egui's built-in UI zoom keys (Ctrl/Cmd + = / - / 0) are off, because Primary+= and Primary+- zoom the active view (UI-001); the UI scale follows the operating system until the UI scale preference (archicraft-8l3). Regression check: Test: `nfr_port_005_main_window_at_100_to_200_percent_scaling` (app)",
       "gap": "",
       "depends_on": []
     },

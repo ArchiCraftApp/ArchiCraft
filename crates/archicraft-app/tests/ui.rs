@@ -8,6 +8,7 @@ mod common;
 use std::rc::Rc;
 
 use archicraft_app::commands::{self, Binding, CommandId, Origin, Registry, Target, view_keys};
+use archicraft_app::document::unsaved_question;
 use archicraft_app::i18n::{self, Localizer};
 use archicraft_app::input::{
     ConstraintReference, DivisionMode, DivisionScope, Field, GuideOrigin, InputConsumer, InputMode, SnapKind,
@@ -15,7 +16,7 @@ use archicraft_app::input::{
 use archicraft_app::persistence::DataDirs;
 use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::{ToolKind, WallMode};
-use archicraft_app::ui::icons;
+use archicraft_app::ui::{icons, view_bar};
 use archicraft_app::views::render3d::DisplayMode;
 use archicraft_app::workspace::{Consumer, Pane};
 use archicraft_app::{ArchiCraftApp, tr};
@@ -33,28 +34,67 @@ use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{By, NodeT, Queryable};
 
+/// The rectangle of the panel `name` as egui stored it.
+fn panel(harness: &Harness<'static, ArchiCraftApp>, name: &str) -> egui::Rect {
+    egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new(name))
+        .unwrap_or_else(|| panic!("the {name} panel"))
+        .outer_rect
+}
+
+/// UI-001: the main window has a menu bar, the tool palette, the properties
+/// strip, the project browser, the tab bar of the views, the view-control
+/// bar and the status line with the prompt, each found in its panel.
 #[test]
 fn main_window_has_the_parts_of_ui_001() {
     let harness = harness("parts");
-    // Menu bar, tool palette, project browser, view tabs and status line.
+    let [menu, properties, toolbox, browser, view_bar, status] =
+        ["menu", "properties", "toolbox", "browser", "view_bar", "status"].map(|name| panel(&harness, name));
+    let inside = |label: &str, part: egui::Rect| {
+        assert!(
+            harness
+                .query_all_by_label(label)
+                .any(|n| part.contains(n.rect().center())),
+            "“{label}” is not in {part:?}"
+        );
+    };
+    for label in ["File", "Edit", "View", "Design", "Project", "Help"] {
+        inside(label, menu);
+    }
     for label in [
-        "File",
-        "Edit",
-        "View",
-        "Design",
-        "Project",
-        "Help",
+        "Selection",
         "Select",
+        "Modelling",
         "Wall",
         "Slab",
-        "Storeys",
-        "3D views",
-        "Plan: 00 Ground floor",
-        "3D perspective",
-        "No problems",
+        "View tools",
+        "Measure",
     ] {
-        assert_present(&harness, label);
+        inside(label, toolbox);
     }
+    inside(
+        "Nothing selected. Choose a tool, or select elements to edit them.",
+        properties,
+    );
+    for label in ["Storeys", "3D views"] {
+        inside(label, browser);
+    }
+    // The tab bar lies between the properties strip and the view.
+    let tab = harness
+        .query_all_by_label("Plan: 00 Ground floor")
+        .map(|n| n.rect())
+        .find(|r| r.top() >= properties.bottom() && r.bottom() <= view_bar.top())
+        .expect("the plan's tab");
+    assert!(tab.left() >= toolbox.right() && tab.right() <= browser.left());
+    assert_present(&harness, "3D perspective");
+    for label in ["Zoom in", "Zoom out", "Fit"] {
+        inside(label, view_bar);
+    }
+    inside(&tr!("status-prompt-select"), status);
+    inside("No problems", status);
+    assert!(
+        view_bar.bottom() <= status.top(),
+        "the view-control bar sits above the status line"
+    );
 }
 
 #[test]
@@ -469,8 +509,9 @@ fn the_shortcuts_window_lists_every_binding() {
         .filter(|s| !s.default_bindings.is_empty())
         .count();
     // The 23 former actions, Preferences, Group and Ungroup (ELM-015), the
-    // Measure tool and the 6 local commands of the plan view.
-    assert_eq!(rows, 33);
+    // Measure tool, Zoom in and out (UI-001) and the 6 local commands of
+    // the plan view.
+    assert_eq!(rows, 35);
     for spec in Registry::get().specs() {
         if !spec.default_bindings.is_empty() {
             assert_present(&harness, &keys(&spec.default_bindings));
@@ -836,10 +877,10 @@ fn display_mode_and_projection_from_the_palette() {
     assert_eq!(perspective.accesskit_node().toggled(), Some(Toggled::False));
 }
 
-/// UI-017, VIEW-020, VIEW-050: the status bar's display-mode choice, Views
+/// UI-017, VIEW-020, VIEW-050: the view-control bar's display-mode choice, Views
 /// menu and Perspective button run their commands on the active 3D view.
 #[test]
-fn status_bar_3d_controls_run_their_commands() {
+fn view_bar_3d_controls_run_their_commands() {
     let mut harness = harness("status-3d");
     harness.get_by_label("Plan/3D").click();
     harness.run_steps(2);
@@ -866,6 +907,181 @@ fn status_bar_3d_controls_run_their_commands() {
     harness.get(By::new().role(Role::Button).label("Perspective")).click();
     harness.run_steps(2);
     assert_eq!(camera(&mut harness).projection, Projection::Perspective);
+}
+
+/// The texts of the widgets inside the view-control bar: their labels, or
+/// the values of label widgets.
+fn view_bar_texts(harness: &Harness<'static, ArchiCraftApp>) -> Vec<String> {
+    let bar = panel(harness, "view_bar");
+    harness
+        .root()
+        .children_recursive()
+        .filter(|node| {
+            let ak = node.accesskit_node();
+            ak.role() != Role::TextRun && ak.bounding_box().is_some() && bar.contains(node.rect().center())
+        })
+        .filter_map(|node| {
+            let ak = node.accesskit_node();
+            ak.label().or_else(|| ak.value()).map(|t| t.to_string())
+        })
+        .collect()
+}
+
+/// The zoom readout the view-control bar shows for `percent`.
+fn zoom_readout(harness: &mut Harness<'static, ArchiCraftApp>, percent: f64) -> String {
+    let nf = harness.state_mut().workspace().prefs.number_format();
+    tr!("view-bar-zoom", percent = nf.format_decimal(percent, 0))
+}
+
+/// UI-001: the view-control bar of a plan and of a 3D view shows Zoom in,
+/// Zoom out, Fit and the zoom readout; the 3D bar also shows the display
+/// mode, the view presets and the projection. Neither shows the former
+/// hard-coded "Scale 1:100" or the points-per-metre readout.
+#[test]
+fn the_view_bar_shows_the_controls_of_the_active_view() {
+    let mut harness = harness("view-bar");
+    let has_readout = |texts: &[String]| texts.iter().any(|t| t.ends_with(" %") && t.len() > 2);
+    let plan = view_bar_texts(&harness);
+    for label in [
+        "Zoom in",
+        "Zoom out",
+        "Fit",
+        "◀ Previous zoom",
+        "Next zoom ▶",
+        "Reference lines",
+    ] {
+        assert!(plan.iter().any(|t| t == label), "plan bar lacks {label}: {plan:?}");
+    }
+    assert!(has_readout(&plan), "{plan:?}");
+    let scale = {
+        let ws = harness.state_mut().workspace();
+        ws.plan_views[&ws.active_storey].camera.scale
+    };
+    let expected = zoom_readout(&mut harness, view_bar::plan_zoom_percent(scale, 1.0, 100.0));
+    assert!(plan.contains(&expected), "{expected} in {plan:?}");
+
+    harness.get_by_label("Plan/3D").click();
+    harness.run_steps(3);
+    assert!(matches!(
+        harness.state_mut().workspace().active_pane,
+        Some(Pane::View3d(_))
+    ));
+    let view3d = view_bar_texts(&harness);
+    for label in ["Zoom in", "Zoom out", "Fit", "Orbit", "Views", "Perspective"] {
+        assert!(view3d.iter().any(|t| t == label), "3D bar lacks {label}: {view3d:?}");
+    }
+    assert!(
+        view3d.contains(&zoom_readout(&mut harness, 100.0)),
+        "fitted: {view3d:?}"
+    );
+    let bar = panel(&harness, "view_bar");
+    assert!(
+        harness
+            .query_all(By::new().role(Role::ComboBox))
+            .any(|n| bar.contains(n.rect().center())),
+        "the display-mode choice"
+    );
+    for texts in [&plan, &view3d] {
+        assert!(
+            texts.iter().all(|t| !t.contains("1:100") && !t.contains("pt/m")),
+            "{texts:?}"
+        );
+    }
+    assert!(harness.query_all_by_label_contains("Scale 1:100").next().is_none());
+}
+
+/// UI-001, VIEW-014: Zoom in and Zoom out of the view-control bar, and
+/// Primary+= and Primary+-, zoom the active plan by one step about its
+/// centre, recorded for Previous zoom, and the readout follows; the keys
+/// leave egui's UI zoom alone. In 3D they move the camera closer and away.
+#[test]
+fn zoom_in_and_out_zoom_the_active_view() {
+    let mut harness = harness("zoom-in-out");
+    let scale = |harness: &mut Harness<'static, ArchiCraftApp>| {
+        let ws = harness.state_mut().workspace();
+        ws.plan_views[&ws.active_storey].camera.scale
+    };
+    let before = scale(&mut harness);
+    harness.get_by_label("Zoom in").click();
+    harness.run_steps(2);
+    let zoomed = scale(&mut harness);
+    assert!((zoomed / before - 1.25).abs() < 1e-9, "{before} → {zoomed}");
+    let readout = zoom_readout(&mut harness, view_bar::plan_zoom_percent(zoomed, 1.0, 100.0));
+    assert!(view_bar_texts(&harness).contains(&readout), "{readout}");
+    harness.get_by_label("Zoom out").click();
+    harness.run_steps(2);
+    assert!((scale(&mut harness) - before).abs() < 1e-9);
+    harness.get_by_label("◀ Previous zoom").click();
+    harness.run_steps(2);
+    assert!((scale(&mut harness) - zoomed).abs() < 1e-9, "zoom steps are recorded");
+
+    for os in [OperatingSystem::Mac, OperatingSystem::Nix] {
+        let start = scale(&mut harness);
+        press(&mut harness, Binding::primary(Key::Equals), os);
+        harness.run_steps(1);
+        assert!((scale(&mut harness) / start - 1.25).abs() < 1e-9, "{os:?}");
+        press(&mut harness, Binding::primary(Key::Minus), os);
+        harness.run_steps(1);
+        assert!((scale(&mut harness) - start).abs() < 1e-9, "{os:?}");
+    }
+    assert_eq!(harness.ctx.zoom_factor(), 1.0, "the keys do not scale the UI");
+
+    harness.get_by_label("Plan/3D").click();
+    harness.run_steps(3);
+    let Some(Pane::View3d(view)) = harness.state_mut().workspace().active_pane else {
+        panic!("no 3D view");
+    };
+    let distance =
+        |harness: &mut Harness<'static, ArchiCraftApp>| harness.state_mut().workspace().views_3d[&view].camera.distance;
+    let fitted = distance(&mut harness);
+    harness.get_by_label("Zoom in").click();
+    harness.run_steps(2);
+    assert!((distance(&mut harness) - fitted / 1.25).abs() < 1e-9);
+    assert!(view_bar_texts(&harness).contains(&zoom_readout(&mut harness, 125.0)));
+    harness.get_by_label("Zoom out").click();
+    harness.run_steps(2);
+    assert!((distance(&mut harness) - fitted).abs() < 1e-9);
+}
+
+/// PRJ-003: closing a project with unsaved changes asks whether to save,
+/// naming the project and its file, with Save, Don't save and Cancel; Cancel
+/// keeps the project open and unsaved.
+#[test]
+fn closing_a_dirty_project_asks_and_cancel_keeps_it() {
+    let dir = data_dir("close-dirty");
+    let mut harness = harness_in(&dir, Preferences::default(), 1.0);
+    let file = dir.join("other.ifcx");
+    {
+        let app = harness.state_mut();
+        app.workspace().doc.project.info.name = "Villa".into();
+        assert!(app.save_to(&file));
+        let ws = app.workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+    }
+    harness.run_steps(1);
+    open_menu(&mut harness, "File");
+    harness.get_by_label_contains("Close project").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().prompt_title().as_deref(), Some("Save changes?"));
+    assert_present(
+        &harness,
+        "“Villa” (other.ifcx) has unsaved changes. Save them before continuing?",
+    );
+    let button = |label: &'static str| By::new().role(Role::Button).label(label);
+    // The toolbar has a Save button of its own.
+    assert_eq!(harness.query_all(button("Save")).count(), 2);
+    harness.get(button("Don't save"));
+    // The modal is centred once it knows its size.
+    harness.run_steps(2);
+    harness.get(button("Cancel")).click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().prompt_title(), None);
+    let ws = harness.state_mut().workspace();
+    assert!(ws.doc.is_dirty(), "the project stays unsaved");
+    assert_eq!(ws.doc.path.as_deref(), Some(file.as_path()), "the project stays open");
+    assert_eq!(ws.doc.project.elements.len(), 1);
 }
 
 /// UI-017, MAT-001, UND-001: Duplicate material in the Materials dialog adds
@@ -965,7 +1181,7 @@ fn menus_toolbox_and_status_bar_invoke_commands_by_id() {
     }
 }
 
-/// UI-017, VIEW-014: the status bar of a 3D view invokes Fit and Orbit by
+/// UI-017, VIEW-014: the view-control bar of a 3D view invokes Fit and Orbit by
 /// id with `Origin::Toolbar`.
 #[test]
 fn the_3d_status_bar_invokes_its_commands_by_id() {
@@ -1055,7 +1271,7 @@ fn invoked_by_shortcut(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<&'s
 
 /// UI-008, HW-003, UI-017: every default binding of the registry, among them
 /// the 23 shortcuts of the former action list, Preferences, Group and
-/// Ungroup, M (measure), Primary+Y (redo), Backspace (delete) and Primary+3 (plan/3D), invokes its command when its keys are pressed, on
+/// Ungroup, Zoom in and out, M (measure), Primary+Y (redo), Backspace (delete) and Primary+3 (plan/3D), invokes its command when its keys are pressed, on
 /// macOS and elsewhere. The plan view runs its local commands itself
 /// (`the_plan_views_local_keys_run_their_commands`).
 #[test]
@@ -1077,7 +1293,7 @@ fn every_default_shortcut_invokes_its_command() {
             }
         }
     }
-    assert_eq!(pressed, 2 * 30);
+    assert_eq!(pressed, 2 * 32);
 }
 
 /// UI-008, INP-003: while a tool takes point input the single-key shortcuts,
@@ -1954,8 +2170,10 @@ fn unsaved_prompt_and_tab_title_follow_the_pseudo_locale() {
     assert_eq!(title, i18n::with(Rc::clone(&pseudo), || tr!("modal-unsaved-title")));
     assert!(title.starts_with(i18n::pseudo::OPEN), "{title}");
     assert_present(&harness, &title);
-    let name = harness.state_mut().workspace().doc.display_name();
-    let question = i18n::with(Rc::clone(&pseudo), || tr!("modal-unsaved-text", name = name.as_str()));
+    let question = {
+        let doc = &harness.state_mut().workspace().doc;
+        i18n::with(Rc::clone(&pseudo), || unsaved_question(doc))
+    };
     assert!(question.starts_with(i18n::pseudo::OPEN), "{question}");
     assert_present(&harness, &question);
     for key in ["modal-save", "modal-dont-save", "modal-cancel"] {
@@ -1974,6 +2192,7 @@ enum Chrome {
     MenuBar,
     Toolbar,
     Toolbox,
+    ViewBar,
     StatusLine,
     TabBar,
     Browser,
@@ -1990,8 +2209,16 @@ fn chrome_texts(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<(Chrome, S
             .unwrap_or_else(|| panic!("the {name} panel"))
             .outer_rect
     };
-    let [menu, toolbar, properties, status, toolbox, browser] =
-        ["menu", "toolbar", "properties", "status", "toolbox", "browser"].map(panel);
+    let [menu, toolbar, properties, view_bar, status, toolbox, browser] = [
+        "menu",
+        "toolbar",
+        "properties",
+        "view_bar",
+        "status",
+        "toolbox",
+        "browser",
+    ]
+    .map(panel);
     let pane_top = {
         let ws = harness.state_mut().workspace();
         match ws.active_pane {
@@ -2005,6 +2232,7 @@ fn chrome_texts(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<(Chrome, S
         (Chrome::MenuBar, menu),
         (Chrome::Toolbar, toolbar),
         (Chrome::Toolbox, toolbox),
+        (Chrome::ViewBar, view_bar),
         (Chrome::StatusLine, status),
         (Chrome::TabBar, tab_bar),
         (Chrome::Browser, browser),
@@ -2028,9 +2256,9 @@ fn chrome_texts(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<(Chrome, S
 }
 
 /// NFR-L10N-001: with the en-XA pseudo-locale installed, every label of the
-/// main window's chrome (menu bar, toolbar, toolbox, the status line of a
-/// plan and of a 3D view with the cursor coordinates, the tab bar and the
-/// project browser) is wrapped in the pseudo markers, so it comes from the
+/// main window's chrome (menu bar, toolbar, toolbox, the view-control bar
+/// and the status line of a plan and of a 3D view, with the cursor
+/// coordinates, the tab bar and the project browser) is wrapped in the pseudo markers, so it comes from the
 /// catalogue. Exempt are the user data the chrome shows on its own (the
 /// storey and view names, as tab titles and browser entries; numbers and
 /// file paths only appear inside messages) and the tabs' close buttons,
@@ -2078,7 +2306,7 @@ fn the_main_window_chrome_follows_the_pseudo_locale() {
     texts.extend(chrome_texts(&mut harness));
 
     let parts: std::collections::BTreeSet<Chrome> = texts.iter().map(|(part, _)| *part).collect();
-    assert_eq!(parts.len(), 6, "every part of the chrome has text: {texts:?}");
+    assert_eq!(parts.len(), 7, "every part of the chrome has text: {texts:?}");
     let literal: Vec<_> = texts
         .iter()
         .filter(|(_, text)| !is_pseudo(text) && !exempt(text))

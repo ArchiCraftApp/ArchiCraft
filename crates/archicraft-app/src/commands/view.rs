@@ -1,37 +1,52 @@
-//! Commands of the View menu (VIEW-014, UI-006).
+//! Commands of the View menu (VIEW-014, UI-006, UI-001).
 
 use archicraft_model::project::Projection;
 use egui::Key;
 
-use super::{Binding, Category, CommandId, CommandSpec, Enabled, Handler, Scope, Target};
+use super::{Binding, Category, CommandId, CommandSpec, Enabled, Handler, Scope, Target, ToolGroup};
 use crate::ArchiCraftApp;
 use crate::ui::icons;
 use crate::views::view3d::View3dState;
 use crate::workspace::Pane;
 
-// The view commands the toolbox and the status bar invoke (UI-001).
+// The view commands the toolbox and the view-control bar invoke (UI-001).
+pub const ZOOM_IN: CommandId = CommandId::new("view.zoom-in");
+pub const ZOOM_OUT: CommandId = CommandId::new("view.zoom-out");
 pub const FIT_WINDOW: CommandId = CommandId::new("view.fit-window");
 pub const PREVIOUS_ZOOM: CommandId = CommandId::new("view.previous-zoom");
 pub const NEXT_ZOOM: CommandId = CommandId::new("view.next-zoom");
 pub const SWITCH_PLAN_3D: CommandId = CommandId::new("view.switch-plan-3d");
 pub const ORBIT: CommandId = CommandId::new("view.orbit");
 pub const PROBLEMS: CommandId = CommandId::new("view.problems");
+pub const REFERENCE_LINES: CommandId = CommandId::new("view.reference-lines");
+
+/// How much one Zoom in or Zoom out step magnifies or shrinks the view.
+const ZOOM_STEP: f64 = 1.25;
 
 pub(super) fn specs() -> Vec<CommandSpec> {
     let view = |id, handler: Handler| CommandSpec::new(id, Category::View, handler);
     vec![
-        view(FIT_WINDOW.as_str(), |app, _, target| app.zoom_pane(target.pane, None))
+        // Primary+= and Primary+- are egui's keys for the UI scale, which
+        // the application turns off (`zoom_with_keyboard`).
+        view(ZOOM_IN.as_str(), |app, _, target| zoom(app, target, ZOOM_STEP))
             .menu("view", 0, 0)
+            .bind(Binding::primary(Key::Equals)),
+        view(ZOOM_OUT.as_str(), |app, _, target| zoom(app, target, 1.0 / ZOOM_STEP))
+            .menu("view", 0, 1)
+            .bind(Binding::primary(Key::Minus)),
+        view(FIT_WINDOW.as_str(), |app, _, target| app.zoom_pane(target.pane, None))
+            .menu("view", 0, 2)
             .bind(Binding::key(Key::F))
             .scope(Scope::Canvas)
-            .icon(icons::FIT),
+            .icon(icons::FIT)
+            .toolbox(ToolGroup::View, 0, "toolbox-fit"),
         view("view.zoom-selection", |app, _, target| {
             let ids = app.ws.selected_ids();
             if !ids.is_empty() {
                 app.zoom_pane(target.pane, Some(ids));
             }
         })
-        .menu("view", 0, 1)
+        .menu("view", 0, 3)
         .bind(Binding::key(Key::F).shift())
         .enabled_when(|cx| Enabled::when(!cx.selection_empty, "cmd-reason-nothing-selected")),
         view(PREVIOUS_ZOOM.as_str(), |app, _, target| {
@@ -41,7 +56,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
                 state.previous_zoom();
             }
         })
-        .menu("view", 0, 2)
+        .menu("view", 0, 4)
         .bind(Binding::primary(Key::OpenBracket)),
         view(NEXT_ZOOM.as_str(), |app, _, target| {
             if let Some(Pane::Plan(storey)) = target.pane
@@ -50,7 +65,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
                 state.next_zoom();
             }
         })
-        .menu("view", 0, 3)
+        .menu("view", 0, 5)
         .bind(Binding::primary(Key::CloseBracket)),
         view(SWITCH_PLAN_3D.as_str(), |app, _, target| {
             let pane = match target.pane {
@@ -66,7 +81,8 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         // F3 is a media key on a Mac keyboard and needs Fn (docs/keymap.md).
         .bind(Binding::primary(Key::Num3))
         .scope(Scope::Canvas)
-        .icon(icons::PLAN_3D),
+        .icon(icons::PLAN_3D)
+        .toolbox(ToolGroup::View, 2, "toolbox-plan-3d"),
         // Ctrl+Tab stays off while a tool takes point input, where Tab moves
         // between the typed fields.
         view("view.next-tab", |app, _, _| app.cycle_tab(1))
@@ -81,8 +97,9 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             .bind(Binding::key(Key::O))
             .scope(Scope::Canvas)
             .icon(icons::ORBIT)
+            .toolbox(ToolGroup::View, 1, "toolbox-orbit")
             .checked_when(|cx| cx.view3d.is_some_and(|v| v.orbit)),
-        view("view.reference-lines", |app, _, _| {
+        view(REFERENCE_LINES.as_str(), |app, _, _| {
             app.ws.prefs.show_reference_lines = !app.ws.prefs.show_reference_lines;
             app.save_prefs();
         })
@@ -101,6 +118,26 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             .menu("view", 3, 1)
             .enabled_when(|cx| Enabled::when(cx.user_origin_placed, "cmd-reason-no-user-origin")),
     ]
+}
+
+/// Zooms the target's view about its centre by `factor` (> 1 magnifies):
+/// a plan by its scale, recorded for previous zoom (VIEW-014), a 3D view by
+/// its camera distance.
+fn zoom(app: &mut ArchiCraftApp, target: Target, factor: f64) {
+    match target.pane {
+        Some(Pane::Plan(storey)) => {
+            if let Some(state) = app.ws.plan_views.get_mut(&storey) {
+                state.zoom_by(factor);
+            }
+        }
+        Some(Pane::View3d(view)) => {
+            if let Some(state) = app.ws.views_3d.get_mut(&view) {
+                let rect = state.last_rect();
+                state.camera.zoom_at(rect, rect.center(), 1.0 / factor);
+            }
+        }
+        None => {}
+    }
 }
 
 /// Turns orbit mode of the target's 3D view on or off, opening the first 3D

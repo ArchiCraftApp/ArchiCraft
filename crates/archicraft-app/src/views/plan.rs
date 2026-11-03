@@ -118,6 +118,14 @@ impl PlanViewState {
         }
     }
 
+    /// Zooms by `factor` (> 1 magnifies) about the centre of the view, as
+    /// one step of previous zoom (VIEW-014).
+    pub fn zoom_by(&mut self, factor: f64) {
+        self.zoom_history.record(self.camera);
+        let rect = self.last_rect;
+        self.camera.zoom_at(rect, rect.center(), factor);
+    }
+
     pub fn previous_zoom(&mut self) {
         if let Some(c) = self.zoom_history.previous(self.camera) {
             self.camera = c;

@@ -90,8 +90,9 @@ pub use model::render;
 
 /// Prefixes of keys that are built at runtime, such as
 /// `cmd-<command-id>-label`, the keys archicraft-model, archicraft-ifcx
-/// and archicraft-geometry return, or the `label_key()` of an app enum. Catalogue keys with these prefixes need
-/// no literal `tr!` call.
+/// and archicraft-geometry return, the `label_key()` of an app enum, or the
+/// toolbox headings and labels of the commands' toolbox places (UI-001).
+/// Catalogue keys with these prefixes need no literal `tr!` call.
 pub const DYNAMIC_PREFIXES: &[&str] = &[
     "model-",
     "ifcx-",
@@ -100,6 +101,7 @@ pub const DYNAMIC_PREFIXES: &[&str] = &[
     "display-mode-",
     "view-preset-",
     "snap-kind-",
+    "toolbox-",
 ];
 
 /// Looks up user-visible text in the current [`Localizer`] (NFR-L10N-001).

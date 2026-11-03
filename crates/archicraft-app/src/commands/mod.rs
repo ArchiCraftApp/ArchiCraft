@@ -8,8 +8,10 @@
 //!
 //! The menu bar is built from the commands' [`MenuPlace`]s
 //! ([`Registry::menu`]), so a new command with a menu place appears in its
-//! menu without a change to `ui/shell.rs`. Menus, shortcuts, the toolbar,
-//! the toolbox and the status bar run commands through one entry,
+//! menu without a change to `ui/shell.rs`, and the tool palette is built
+//! from their [`ToolboxPlace`]s ([`Registry::toolbox`]). Menus, shortcuts,
+//! the toolbar, the toolbox, the view-control bar and the status bar run
+//! commands through one entry,
 //! [`ArchiCraftApp::invoke`], which looks the command up here and runs its
 //! [`Handler`].
 
@@ -167,6 +169,61 @@ pub struct MenuPlace {
     pub order: u16,
 }
 
+/// The groups of the tool palette, in palette order (UI-001).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ToolGroup {
+    Selection,
+    Modelling,
+    /// Drafting and annotation tools of the plan views.
+    Annotation2d,
+    View,
+}
+
+impl ToolGroup {
+    pub const ALL: [ToolGroup; 4] = [
+        ToolGroup::Selection,
+        ToolGroup::Modelling,
+        ToolGroup::Annotation2d,
+        ToolGroup::View,
+    ];
+
+    /// The catalogue key of the group's heading.
+    pub fn title_key(self) -> &'static str {
+        match self {
+            ToolGroup::Selection => "toolbox-selection",
+            ToolGroup::Modelling => "toolbox-modelling",
+            ToolGroup::Annotation2d => "toolbox-annotation-2d",
+            ToolGroup::View => "toolbox-view-tools",
+        }
+    }
+}
+
+/// Where a command's button sits in the tool palette (UI-001): its group,
+/// the order within the group and the catalogue key of its short label.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ToolboxPlace {
+    pub group: ToolGroup,
+    pub order: u16,
+    pub label: &'static str,
+}
+
+/// The tool palette of `specs` (UI-001): each group with a command placed in
+/// it, in [`ToolGroup`] order, with its commands sorted by order (ties in
+/// registration order). A group without commands is left out.
+pub fn toolbox_groups(specs: &[CommandSpec]) -> Vec<(ToolGroup, Vec<&CommandSpec>)> {
+    ToolGroup::ALL
+        .into_iter()
+        .filter_map(|group| {
+            let mut tools: Vec<&CommandSpec> = specs
+                .iter()
+                .filter(|spec| spec.toolbox.is_some_and(|place| place.group == group))
+                .collect();
+            tools.sort_by_key(|spec| spec.toolbox.map(|place| place.order));
+            (!tools.is_empty()).then_some((group, tools))
+        })
+        .collect()
+}
+
 /// When a binding is active.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Scope {
@@ -250,6 +307,8 @@ pub struct CommandSpec {
     pub category: Category,
     /// The main-menu entry, if any.
     pub menu: Option<MenuPlace>,
+    /// The button in the tool palette, if any (UI-001).
+    pub toolbox: Option<ToolboxPlace>,
     /// Listed in the command palette only, without a menu entry.
     pub palette_only: bool,
     /// No main-menu entry, but listed in the palette and reachable by
@@ -298,6 +357,7 @@ impl CommandSpec {
             id,
             category,
             menu: None,
+            toolbox: None,
             palette_only: false,
             context_only: false,
             default_bindings: Vec::new(),
@@ -316,6 +376,13 @@ impl CommandSpec {
     /// position `order`.
     pub fn menu(mut self, path: &'static str, group: u16, order: u16) -> Self {
         self.menu = Some(MenuPlace { path, group, order });
+        self
+    }
+
+    /// Places the command's button in the tool palette's `group` at
+    /// position `order`, with the short label of the catalogue key `label`.
+    pub fn toolbox(mut self, group: ToolGroup, order: u16, label: &'static str) -> Self {
+        self.toolbox = Some(ToolboxPlace { group, order, label });
         self
     }
 
@@ -467,6 +534,11 @@ impl Registry {
     /// The entries of the menu `path` (see [`menu_entries`]).
     pub fn menu(&self, path: &str) -> Vec<MenuEntry<'_>> {
         menu_entries(&self.specs, path)
+    }
+
+    /// The groups of the tool palette (see [`toolbox_groups`]).
+    pub fn toolbox(&self) -> Vec<(ToolGroup, Vec<&CommandSpec>)> {
+        toolbox_groups(&self.specs)
     }
 
     /// The default bindings with their commands, in match order.

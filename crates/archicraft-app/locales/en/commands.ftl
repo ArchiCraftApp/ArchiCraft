@@ -47,6 +47,10 @@ cmd-edit-settings-desc = Edit the settings of the selected elements, or the defa
 
 ## View
 
+cmd-view-zoom-in-label = Zoom in
+cmd-view-zoom-in-desc = Magnify the active view about its centre.
+cmd-view-zoom-out-label = Zoom out
+cmd-view-zoom-out-desc = Shrink the active view about its centre.
 cmd-view-fit-window-label = Fit to window
 cmd-view-fit-window-desc = Zoom the active view so that the whole model fits.
 cmd-view-zoom-selection-label = Zoom to selection
