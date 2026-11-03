@@ -7,7 +7,8 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, PredefinedType};
-use crate::ids::{BuildingId, ElementId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
+use crate::group::Group;
+use crate::ids::{BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
@@ -312,9 +313,17 @@ pub struct Project {
     pub layers: Vec<Layer>,
     pub materials: Vec<Material>,
     pub elements: IndexMap<ElementId, Element>,
+    /// Element groups, outermost and nested, in creation order (ELM-015).
+    #[serde(default)]
+    pub groups: IndexMap<GroupId, Group>,
     pub tool_defaults: ToolDefaults,
     pub views: Vec<View3d>,
     pub counters: NameCounters,
+    /// The number of groups named so far: the next group is
+    /// `Group <group_counter + 1>` (ELM-015). Like [`NameCounters`], it
+    /// never goes back, so names do not repeat after a group is removed.
+    #[serde(default)]
+    pub group_counter: u32,
     /// IFCX `header.dataVersion`: incremented on every save (IFX-002, O-16).
     pub data_version: u64,
     /// Incremented on every model change; used to invalidate caches. Not saved.
@@ -422,6 +431,7 @@ impl Project {
             position: slot.position,
             locked: false,
             snap_excluded: false,
+            group: None,
             kind: slot.kind,
         })
     }

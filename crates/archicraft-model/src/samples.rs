@@ -167,6 +167,7 @@ impl FixtureBuilder {
             position,
             locked: false,
             snap_excluded: false,
+            group: None,
             kind,
         });
         id

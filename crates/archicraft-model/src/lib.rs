@@ -8,6 +8,7 @@
 pub mod command;
 pub mod element;
 pub mod fixtures;
+pub mod group;
 pub mod ids;
 pub mod kinds;
 pub mod layer;
@@ -24,7 +25,8 @@ pub mod validate;
 
 pub use command::{Command, CommandError, History};
 pub use element::{CompoundPart, Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, TopLink};
-pub use ids::{BuildingId, ElementId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
+pub use group::Group;
+pub use ids::{BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
 pub use kinds::{ReferenceLine, Slab, SlabReference, Wall};
 pub use layer::Layer;
 pub use material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};

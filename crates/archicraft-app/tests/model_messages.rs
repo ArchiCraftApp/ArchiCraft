@@ -47,6 +47,9 @@ fn representatives() -> Vec<Message> {
             "model-label-project-info",
             "model-label-spatial-names",
             "model-label-location",
+            "model-label-group",
+            "model-label-ungroup",
+            "model-label-rename-group",
         ]
         .map(Message::new),
     );
@@ -120,6 +123,10 @@ fn error_representatives() -> Vec<Message> {
         "model-error-project-name",
         "model-error-spatial-names",
         "model-error-location-invalid",
+        "model-error-duplicate-group-id",
+        "model-error-group-not-found",
+        "model-error-group-name",
+        "model-error-group-change",
         "model-error-polygon-points",
         "model-error-polygon-area",
         "model-error-polygon-self-intersection",

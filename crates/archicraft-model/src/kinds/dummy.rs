@@ -70,6 +70,7 @@ impl Dummy {
             position: Position::Undefined,
             locked: false,
             snap_excluded: false,
+            group: None,
             kind: self.into(),
         }
     }

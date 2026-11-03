@@ -28,6 +28,8 @@ pub const SLAB: &str = "archicraft::slab";
 pub const REFERENCE_LINES: [&str; 4] = ["outside", "center", "inside", "custom"];
 pub const TOP_LINKS: [&str; 3] = ["fixed", "storey", "relative"];
 pub const KINDS: [&str; 2] = ["wall", "slab"];
+/// The key of the group counter among the name counters (ELM-015).
+pub const GROUP_COUNTER: &str = "group";
 
 fn real() -> Value {
     json!({"dataType": "Real"})
@@ -80,14 +82,28 @@ fn optional(mut value: Value) -> Value {
 
 /// The name counters (ELM-019): one integer per kind that has a tool, keyed
 /// by kind code. Counters of other kinds are written only when non-zero and
-/// are not declared.
+/// are not declared. The group counter (ELM-015) is optional: written only
+/// when non-zero.
 fn counters() -> Value {
-    let fields: Vec<(&str, Value)> = KindTag::ALL
+    let mut fields: Vec<(&str, Value)> = KindTag::ALL
         .iter()
         .filter(|kind| kind.descriptor().has_tool)
         .map(|kind| (kind.code(), integer()))
         .collect();
+    fields.push((GROUP_COUNTER, optional(integer())));
     object(&fields)
+}
+
+/// The element groups (ELM-015), outermost and nested. Optional: written
+/// only when the project has groups, so files without groups stay as they
+/// were. A group's `parent` names the group it is nested in, the element's
+/// `group` its innermost group; both are group identities, not node paths.
+fn groups() -> Value {
+    optional(array(object(&[
+        ("id", string()),
+        ("name", string()),
+        ("parent", optional(string())),
+    ])))
 }
 
 fn rgb() -> Value {
@@ -252,6 +268,7 @@ fn project() -> Value {
             ])),
         ),
         ("counters", counters()),
+        ("groups", groups()),
     ])
 }
 
@@ -276,6 +293,7 @@ pub fn declarations() -> IndexMap<String, Value> {
             ("position", positions()),
             ("predefinedType", predefined_type()),
             ("snapExcluded", snap_excluded()),
+            ("group", optional(string())),
         ])}),
     );
     schemas.insert(

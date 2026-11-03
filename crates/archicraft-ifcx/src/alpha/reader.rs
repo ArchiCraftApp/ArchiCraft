@@ -19,9 +19,11 @@
 //! of range, because the writer writes every field. The exceptions are the
 //! optional fields the writer leaves out when they are not set: a material's
 //! cut-fill `background`, a storey's `cutPlaneHeight`, the settings'
-//! `planGrid` (files from before INP-013) and the `snapExcluded` flag of
-//! elements and layers, written only when set (INP-017). Their absence is
-//! no problem.
+//! `planGrid` (files from before INP-013), the `snapExcluded` flag of
+//! elements and layers, written only when set (INP-017), and the project's
+//! `groups`, a group's `parent`, an element's `group` and the `group`
+//! counter, written only for projects with groups (ELM-015). Their absence
+//! is no problem.
 //!
 //! An opened file holds its attribute values as raw JSON text
 //! ([`crate::validate::parse_raw`]); the reader parses the attributes it
@@ -30,7 +32,7 @@
 //! again from the parameters (IFX-010).
 
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
@@ -43,9 +45,9 @@ use archicraft_model::tolerance::MODEL_TOLERANCE;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit};
 use archicraft_model::validate::{MAX_DECIMALS, valid_grid_origin, valid_grid_spacing, validate_element};
 use archicraft_model::{
-    BuildingId, Element, ElementId, ElementKind, IfcClass, KindTag, Layer, LayerId, MaterialId, PlanGrid, Position,
-    PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab, SlabReference,
-    Storey, StoreyId, StoreyList, TopLink, ViewId, Wall,
+    BuildingId, Element, ElementId, ElementKind, Group, GroupId, IfcClass, KindTag, Layer, LayerId, MaterialId,
+    PlanGrid, Position, PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab,
+    SlabReference, Storey, StoreyId, StoreyList, TopLink, ViewId, Wall,
 };
 use indexmap::IndexMap;
 use serde_json::value::RawValue;
@@ -433,6 +435,92 @@ fn read_view(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem
     view.map_err(|e| report.skipped(e)).ok()
 }
 
+/// Group record `index` of the project at `path` (ELM-015). A record without
+/// a valid identity is skipped; a missing or blank name falls back to
+/// `Group`, an invalid parent is left out.
+fn read_group(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem>) -> Option<Group> {
+    let mut report = Report::new(problems, path, record("ifcx-record-group", index));
+    let Some(map) = value.as_object() else {
+        report.skipped(Message::new("ifcx-not-object"));
+        return None;
+    };
+    let id = match uuid(map, "id") {
+        Ok(id) => GroupId::from_uuid(id),
+        Err(e) => {
+            report.skipped(e);
+            return None;
+        }
+    };
+    let mut name = report.or(text(map, "name"), "Group".to_owned());
+    if name.trim().is_empty() {
+        report.repaired(Message::new("ifcx-no-name").text("name", "Group"));
+        name = "Group".to_owned();
+    }
+    Some(Group {
+        id,
+        name,
+        parent: report.optional(map, "parent", uuid).map(GroupId::from_uuid),
+    })
+}
+
+/// The group records of the project at `path`, repaired into a tree
+/// (ELM-015, PRJ-008): a second record of an identity is skipped, a parent
+/// that names no group is dropped, and a parent cycle is broken at the
+/// first of its groups in file order. Each repair is reported against its
+/// record.
+fn read_groups(records: &[Value], path: &str, problems: &mut Vec<Problem>) -> IndexMap<GroupId, Group> {
+    let mut groups = IndexMap::new();
+    let mut indices = HashMap::new();
+    for (index, value) in records.iter().enumerate() {
+        let Some(group) = read_group(index, value, path, problems) else {
+            continue;
+        };
+        if groups.contains_key(&group.id) {
+            Report::new(problems, path, record("ifcx-record-group", index))
+                .skipped(Message::new("ifcx-group-listed-twice"));
+            continue;
+        }
+        indices.insert(group.id, index);
+        groups.insert(group.id, group);
+    }
+    let ids: Vec<GroupId> = groups.keys().copied().collect();
+    for id in &ids {
+        let parent = groups[id].parent;
+        if parent.is_some_and(|p| !groups.contains_key(&p)) {
+            Report::new(problems, path, record("ifcx-record-group", indices[id]))
+                .repaired(Message::new("ifcx-group-parent-missing"));
+            groups[id].parent = None;
+        }
+    }
+    // Every parent exists now. Each group is walked once (NFR-SEC-003): a
+    // walk ends at an outermost group, at a group an earlier walk passed, or
+    // at a group already on its own path, which closes a cycle.
+    let mut walked = HashSet::new();
+    for id in &ids {
+        let mut walk = Vec::new();
+        let mut on_walk = HashSet::new();
+        let mut next = Some(*id);
+        while let Some(group) = next.filter(|g| !walked.contains(g)) {
+            if !on_walk.insert(group) {
+                let cycle = walk
+                    .iter()
+                    .position(|g| *g == group)
+                    .map_or(&walk[..], |at| &walk[at..]);
+                if let Some(&first) = cycle.iter().min_by_key(|g| indices[*g]) {
+                    Report::new(problems, path, record("ifcx-record-group", indices[&first]))
+                        .repaired(Message::new("ifcx-group-cycle"));
+                    groups[&first].parent = None;
+                }
+                break;
+            }
+            walk.push(group);
+            next = groups[&group].parent;
+        }
+        walked.extend(walk);
+    }
+    groups
+}
+
 /// A two-component grid value, checked against the model's range.
 fn grid_vector(map: &Object, key: &str, valid: fn(DVec2) -> bool) -> Result<DVec2, Message> {
     let value = point_field(map, key)?;
@@ -495,6 +583,8 @@ struct ProjectData {
     materials: Vec<Material>,
     tool_defaults: Option<Object>,
     views: Vec<View3d>,
+    /// The element groups (ELM-015), repaired into a tree.
+    groups: IndexMap<GroupId, Group>,
     /// The `counters` object, read once the elements are known.
     counters: Result<Object, Message>,
     newer_format: bool,
@@ -564,6 +654,9 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
     let material_records = report.or(array(attr, "materials").cloned(), Vec::new());
     let layer_records = report.or(array(attr, "layers").cloned(), Vec::new());
     let view_records = report.or(array(attr, "views").cloned(), Vec::new());
+    let group_records = report
+        .optional(attr, "groups", |m, key| array(m, key).cloned())
+        .unwrap_or_default();
     let counters = object(attr, "counters").cloned();
 
     let settings = read_settings(
@@ -613,6 +706,7 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
         .enumerate()
         .filter_map(|(i, v)| read_view(i, v, path, problems))
         .collect();
+    let groups = read_groups(&group_records, path, problems);
     ProjectData {
         settings,
         location,
@@ -623,6 +717,7 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
         materials,
         tool_defaults,
         views,
+        groups,
         counters,
         newer_format,
     }
@@ -697,6 +792,40 @@ fn read_counters(
         counters.set(kind, value);
     }
     counters
+}
+
+/// The group counter (ELM-015), optional in the `counters` object: absent is
+/// zero. Without a readable `counters` object, which the name counters
+/// report, and when it is invalid, negative or out of range like a name
+/// counter, it is the number of groups, so that group names do not repeat.
+fn read_group_counter(map: Option<&Object>, project: &Project, path: &str, problems: &mut Vec<Problem>) -> u32 {
+    let existing = u32::try_from(project.groups.len()).unwrap_or(u32::MAX);
+    let key = schema::GROUP_COUNTER;
+    let Some(map) = map.filter(|m| m.contains_key(key)) else {
+        return if map.is_some() { 0 } else { existing };
+    };
+    let mut report = Report::new(problems, path, Message::new("ifcx-record-counters"));
+    match integer(map, key) {
+        Ok(v) if v < 0 => {
+            report.repaired(about("ifcx-counter-negative", key).count("value", count_of(existing)));
+            existing
+        }
+        Ok(v) => match u32::try_from(v) {
+            Ok(n) if n < u32::MAX => n,
+            _ => {
+                report.repaired(about("ifcx-out-of-range-replaced", key).count("value", count_of(existing)));
+                existing
+            }
+        },
+        Err(e) => {
+            report.repaired(
+                Message::new("ifcx-value-used")
+                    .nested("reason", e)
+                    .count("value", count_of(existing)),
+            );
+            existing
+        }
+    }
 }
 
 /// The tool defaults of the project at `path`, one slot per kind with
@@ -1049,6 +1178,17 @@ fn read_element<A: AttributeValue>(
             return None;
         }
     };
+    // ELM-015: a group that the project does not have is dropped.
+    let group = report
+        .optional(common, "group", uuid)
+        .map(GroupId::from_uuid)
+        .filter(|g| {
+            let known = project.group(*g).is_some();
+            if !known {
+                report.repaired(Message::new("ifcx-element-group-missing"));
+            }
+            known
+        });
     let element = Element {
         id,
         name,
@@ -1059,6 +1199,7 @@ fn read_element<A: AttributeValue>(
         position: report.or(code(common, "position", Position::from_code), Position::default()),
         locked: report.or(boolean(common, "locked"), false),
         snap_excluded: report.optional(common, "snapExcluded", boolean).unwrap_or(false),
+        group,
         kind: element_kind,
     };
     match validate_element(project, &element) {
@@ -1209,9 +1350,11 @@ fn read_migrated<A: AttributeValue>(
         layers: data.layers,
         materials: data.materials,
         elements: IndexMap::new(),
+        groups: data.groups,
         tool_defaults,
         views: data.views,
         counters: NameCounters::default(),
+        group_counter: 0,
         data_version: 0,
         revision: 0,
     };
@@ -1269,6 +1412,7 @@ fn read_migrated<A: AttributeValue>(
         root_path,
         &mut problems,
     );
+    project.group_counter = read_group_counter(data.counters.as_ref().ok(), &project, root_path, &mut problems);
     Ok(ReadOutcome {
         project,
         problems,
