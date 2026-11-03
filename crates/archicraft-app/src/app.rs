@@ -18,6 +18,7 @@ use crate::persistence::autosave::{Abandoned, Autosaver, Clock, Session, SystemC
 use crate::persistence::crash::{RecentLog, reports_since};
 use crate::persistence::prefs::{Preferences, ThemeChoice};
 use crate::persistence::{DataDirs, save_atomically};
+use crate::tr;
 use crate::ui::dialogs::{self, Dialogs};
 use crate::ui::{browser, icons, properties, shell};
 use crate::views::plan;
@@ -66,12 +67,12 @@ enum Prompt {
 }
 
 impl Prompt {
-    fn title(&self) -> &str {
+    fn title(&self) -> String {
         match self {
-            Prompt::Unsaved(_) => "Save changes?",
-            Prompt::Message { title, .. } => title,
-            Prompt::LoadReport => "The project was opened with problems",
-            Prompt::OverwriteNewer { .. } => "Overwrite a newer file?",
+            Prompt::Unsaved(_) => tr!("modal-unsaved-title"),
+            Prompt::Message { title, .. } => title.clone(),
+            Prompt::LoadReport => tr!("modal-load-report-title"),
+            Prompt::OverwriteNewer { .. } => tr!("modal-newer-title"),
         }
     }
 }
@@ -209,7 +210,7 @@ impl ArchiCraftApp {
     /// (NFR-USE-004).
     #[doc(hidden)]
     pub fn prompt_title(&self) -> Option<String> {
-        self.prompt.as_ref().map(|p| p.title().to_owned())
+        self.prompt.as_ref().map(Prompt::title)
     }
 
     /// Lowers the file size limit, so that tests can open an oversized file
@@ -224,9 +225,9 @@ impl ArchiCraftApp {
         self.localizer = localizer;
     }
 
-    fn message(&mut self, title: &str, text: impl Into<String>) {
+    fn message(&mut self, title: String, text: impl Into<String>) {
         self.prompt = Some(Prompt::Message {
-            title: title.to_owned(),
+            title,
             text: text.into(),
         });
     }
@@ -258,11 +259,16 @@ impl ArchiCraftApp {
                 }
                 self.ws.prefs.add_recent(path);
                 self.save_prefs();
-                self.ws.info(format!("Opened {}", path.display()));
+                self.ws.info(tr!("status-opened", path = path.display().to_string()));
             }
             Err(problem) => {
                 let reason = self.ws.render(&problem.located());
-                self.message("Cannot open the project", format!("{}: {reason}", path.display()));
+                let text = tr!(
+                    "modal-cannot-open-text",
+                    path = path.display().to_string(),
+                    reason = reason
+                );
+                self.message(tr!("modal-cannot-open-title"), text);
             }
         }
     }
@@ -284,7 +290,7 @@ impl ArchiCraftApp {
             (Some(path), false) => path.clone(),
             _ => {
                 let mut dialog = rfd::FileDialog::new()
-                    .add_filter("IFCX project", IFCX_EXTENSIONS)
+                    .add_filter(tr!("file-filter-ifcx"), IFCX_EXTENSIONS)
                     .set_file_name(format!("{}.{}", self.ws.doc.project.info.name, IFCX_EXTENSIONS[0]));
                 if let Some(dir) = self.ws.doc.path.as_ref().and_then(|p| p.parent()) {
                     dialog = dialog.set_directory(dir);
@@ -314,14 +320,19 @@ impl ArchiCraftApp {
                 match warnings.first() {
                     Some(w) => {
                         let warning = self.ws.render(&w.located());
-                        self.ws.error(format!("Saved with warnings: {warning}"));
+                        self.ws.error(tr!("status-saved-with-warnings", warning = warning));
                     }
-                    None => self.ws.info(format!("Saved {}", path.display())),
+                    None => self.ws.info(tr!("status-saved", path = path.display().to_string())),
                 }
                 true
             }
             Err(e) => {
-                self.message("The project was not saved", format!("{}: {e}", path.display()));
+                let text = tr!(
+                    "modal-not-saved-text",
+                    path = path.display().to_string(),
+                    reason = e.to_string()
+                );
+                self.message(tr!("modal-not-saved-title"), text);
                 false
             }
         }
@@ -349,7 +360,7 @@ impl ArchiCraftApp {
             Then::Open(path) => {
                 let path = path.or_else(|| {
                     rfd::FileDialog::new()
-                        .add_filter("IFCX project", IFCX_EXTENSIONS)
+                        .add_filter(tr!("file-filter-ifcx"), IFCX_EXTENSIONS)
                         .pick_file()
                 });
                 if let Some(path) = path {
@@ -375,9 +386,9 @@ impl ArchiCraftApp {
                             self.replace_document(doc);
                             self.load_problems = outcome.problems;
                             abandoned.discard();
-                            self.ws.info("Recovered the autosaved project. Save it to keep it.");
+                            self.ws.info(tr!("status-recovered"));
                         }
-                        Err(e) => self.message("Recovery failed", e),
+                        Err(e) => self.message(tr!("modal-recovery-failed-title"), e),
                     }
                 }
             }
@@ -561,11 +572,12 @@ impl ArchiCraftApp {
     }
 
     fn update_title_and_theme(&mut self, ctx: &egui::Context) {
-        let title = format!(
-            "{}{} — ArchiCraft",
-            if self.ws.doc.is_dirty() { "● " } else { "" },
-            self.ws.doc.display_name()
-        );
+        let name = self.ws.doc.display_name();
+        let title = if self.ws.doc.is_dirty() {
+            tr!("window-title-unsaved", name = name)
+        } else {
+            tr!("window-title", name = name)
+        };
         if title != self.title {
             ctx.send_viewport_cmd(ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -602,60 +614,55 @@ impl ArchiCraftApp {
             ui.heading(prompt.title());
             match &prompt {
                 Prompt::Unsaved(then) => {
-                    ui.label(format!(
-                        "“{}” has unsaved changes. Save them before continuing?",
-                        self.ws.doc.display_name()
-                    ));
+                    ui.label(tr!("modal-unsaved-text", name = self.ws.doc.display_name()));
                     ui.separator();
                     ui.horizontal(|ui| {
                         let then = then.clone();
-                        if ui.button("Save").clicked() {
+                        if ui.button(tr!("modal-save")).clicked() {
                             close = true;
                             follow_up = Some(Box::new(move |app, ctx| {
                                 if app.save(false) {
                                     app.proceed(ctx, then);
                                 }
                             }));
-                        } else if ui.button("Don't save").clicked() {
+                        } else if ui.button(tr!("modal-dont-save")).clicked() {
                             close = true;
                             let then = then.clone();
                             follow_up = Some(Box::new(move |app, ctx| app.proceed(ctx, then)));
-                        } else if ui.button("Cancel").clicked() {
+                        } else if ui.button(tr!("modal-cancel")).clicked() {
                             close = true;
                         }
                     });
                 }
                 Prompt::Message { text, .. } => {
                     ui.label(text);
-                    if ui.button("OK").clicked() {
+                    if ui.button(tr!("modal-ok")).clicked() {
                         close = true;
                     }
                 }
                 Prompt::LoadReport => {
-                    ui.label("Everything that could be read was loaded. These objects were skipped, repaired or replaced:");
+                    ui.label(tr!("modal-load-report-text"));
                     egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                         for p in &self.load_problems {
                             ui.label(self.ws.render(&p.located()));
                         }
                     });
-                    if ui.button("OK").clicked() {
+                    if ui.button(tr!("modal-ok")).clicked() {
                         close = true;
                     }
                 }
                 Prompt::OverwriteNewer { save_as } => {
-                    ui.label(
-                        "This file was written by a newer version of ArchiCraft. Saving it with this version may lose data that this version does not know.",
-                    );
+                    ui.label(tr!("modal-newer-text"));
                     ui.horizontal(|ui| {
                         let save_as = *save_as;
-                        if ui.button("Save anyway").clicked() {
+                        if ui.button(tr!("modal-save-anyway")).clicked() {
                             close = true;
                             follow_up = Some(Box::new(move |app, _| {
                                 app.newer_confirmed = true;
                                 app.save(save_as);
                             }));
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(tr!("modal-cancel")).clicked() {
                             close = true;
                         }
                     });
@@ -677,33 +684,33 @@ impl ArchiCraftApp {
         if !self.recovery.is_empty() && self.prompt.is_none() {
             let mut action: Option<(usize, bool)> = None;
             let mut later = false;
-            egui::Window::new("Recover unsaved work")
+            egui::Window::new(tr!("startup-recovery-title"))
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
-                    ui.label(
-                        "ArchiCraft did not close properly last time. These autosaves can be recovered (PRJ-004):",
-                    );
+                    ui.label(tr!("startup-recovery-text"));
                     for (i, a) in self.recovery.iter().enumerate() {
                         ui.horizontal(|ui| {
                             let place = a
                                 .info
                                 .original_path
                                 .as_ref()
-                                .map_or_else(|| "never saved".to_owned(), |p| p.display().to_string());
-                            ui.label(format!(
-                                "{} — autosaved {} ({place})",
-                                a.info.project_name, a.info.saved_at
+                                .map_or_else(|| tr!("startup-recovery-never-saved"), |p| p.display().to_string());
+                            ui.label(tr!(
+                                "startup-recovery-entry",
+                                name = a.info.project_name.as_str(),
+                                time = a.info.saved_at.as_str(),
+                                place = place,
                             ));
-                            if ui.button("Recover").clicked() {
+                            if ui.button(tr!("startup-recovery-recover")).clicked() {
                                 action = Some((i, true));
                             }
-                            if ui.button("Discard").clicked() {
+                            if ui.button(tr!("startup-recovery-discard")).clicked() {
                                 action = Some((i, false));
                             }
                         });
                     }
-                    if ui.button("Decide later").clicked() {
+                    if ui.button(tr!("startup-recovery-later")).clicked() {
                         later = true;
                     }
                 });
@@ -721,19 +728,19 @@ impl ArchiCraftApp {
         }
         if !self.crash_reports.is_empty() {
             let mut dismissed = false;
-            egui::Window::new("ArchiCraft crashed last time")
+            egui::Window::new(tr!("startup-crash-title"))
                 .collapsible(false)
                 .show(ctx, |ui| {
-                    ui.label("A crash report was saved on this computer. Nothing was sent. You can pass it on to the developers if you want to:");
+                    ui.label(tr!("startup-crash-text"));
                     for path in &self.crash_reports {
                         ui.horizontal(|ui| {
                             ui.monospace(path.display().to_string());
-                            if ui.small_button("Copy path").clicked() {
+                            if ui.small_button(tr!("startup-crash-copy-path")).clicked() {
                                 ctx.copy_text(path.display().to_string());
                             }
                         });
                     }
-                    if ui.button("OK").clicked() {
+                    if ui.button(tr!("modal-ok")).clicked() {
                         dismissed = true;
                     }
                 });
@@ -827,11 +834,14 @@ impl egui_tiles::Behavior<Pane> for Behavior<'_> {
             Pane::Plan(storey) => project
                 .storeys
                 .get(*storey)
-                .map_or_else(|| "Plan".to_owned(), |s| format!("Plan: {}", s.name))
+                .map_or_else(
+                    || tr!("tab-plan-missing"),
+                    |s| tr!("tab-plan", storey = s.name.as_str()),
+                )
                 .into(),
             Pane::View3d(view) => project
                 .view(*view)
-                .map_or_else(|| "3D".to_owned(), |v| v.name.clone())
+                .map_or_else(|| tr!("tab-3d-missing"), |v| v.name.clone())
                 .into(),
         }
     }
@@ -930,7 +940,7 @@ impl eframe::App for ArchiCraftApp {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
             if self.tree.root.is_none() {
                 ui.centered_and_justified(|ui| {
-                    ui.label(RichText::new("Open a plan or 3D view from the project browser.").weak());
+                    ui.label(RichText::new(tr!("tab-none")).weak());
                 });
                 return;
             }

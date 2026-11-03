@@ -12,6 +12,7 @@ use crate::document::Document;
 use crate::input::{Frame2d, InputConsumer, PointInput, SnapIndex};
 use crate::persistence::prefs::Preferences;
 use crate::tools::{ToolKind, ToolState, UserOriginTool};
+use crate::tr;
 use crate::views::plan::PlanViewState;
 use crate::views::render3d::{GpuScene, Renderer3d};
 use crate::views::view3d::View3dState;
@@ -271,7 +272,7 @@ impl Workspace {
     /// the model changes, so there is no undo step.
     pub fn reset_user_origin(&mut self) {
         self.frames.user_origin = Frame2d::default();
-        self.info("User origin reset to the project origin");
+        self.info(tr!("status-user-origin-reset"));
     }
 
     /// Ends a transient consumer and goes back to the tool.
@@ -291,7 +292,7 @@ impl Workspace {
         {
             self.frames.user_origin = frame;
             self.end_consumer();
-            self.info("User origin placed");
+            self.info(tr!("status-user-origin-placed"));
         }
     }
 
@@ -303,10 +304,17 @@ impl Workspace {
             return;
         };
         wall.reference_line = wall.reference_line.next();
-        let label = crate::tr!(wall.reference_line.label_key());
+        let label = tr!(wall.reference_line.label_key());
         if self.execute(Command::SetToolDefaults(defaults)) {
-            self.info(format!("Wall reference line: {label}"));
+            self.info(tr!("status-wall-reference-line", location = label));
         }
+    }
+
+    /// A count for the status line in the user's number format; the
+    /// catalogue gets it as text beside the number that selects the plural
+    /// (NFR-L10N-001, NFR-L10N-004).
+    fn count_text(&self, count: usize) -> String {
+        self.prefs.number_format().format_decimal(count as f64, 0)
     }
 
     pub fn info(&mut self, text: impl Into<String>) {
@@ -350,7 +358,7 @@ impl Workspace {
             Err(CommandError::NoChange) => false,
             Err(e) => {
                 let reason = self.render(&e.message());
-                self.error(format!("{label}: {reason}"));
+                self.error(tr!("status-rejected", command = label, reason = reason));
                 false
             }
         }
@@ -358,16 +366,16 @@ impl Workspace {
 
     pub fn undo(&mut self) {
         match self.doc.undo() {
-            Some(label) => self.info(format!("Undone: {}", self.render(&label))),
-            None => self.info("Nothing to undo"),
+            Some(label) => self.info(tr!("status-undone", command = self.render(&label))),
+            None => self.info(tr!("status-nothing-to-undo")),
         }
         self.prune_selection();
     }
 
     pub fn redo(&mut self) {
         match self.doc.redo() {
-            Some(label) => self.info(format!("Redone: {}", self.render(&label))),
-            None => self.info("Nothing to redo"),
+            Some(label) => self.info(tr!("status-redone", command = self.render(&label))),
+            None => self.info(tr!("status-nothing-to-redo")),
         }
         self.prune_selection();
     }
@@ -408,14 +416,18 @@ impl Workspace {
         let locked = self.selection.len() - ids.len();
         if ids.is_empty() {
             if locked > 0 {
-                self.error("The selected elements are locked.");
+                self.error(tr!("status-selection-locked"));
             }
             return;
         }
         if self.execute(Command::DeleteElements(ids)) {
             self.selection.clear();
             if locked > 0 {
-                self.info(format!("{locked} locked element(s) were not deleted."));
+                self.info(tr!(
+                    "status-locked-not-deleted",
+                    count = locked,
+                    count_text = self.count_text(locked),
+                ));
             }
         }
     }
@@ -441,7 +453,12 @@ impl Workspace {
             .filter(|e| kind.is_none_or(|k| e.tag() == k))
             .map(|e| e.id)
             .collect();
-        self.info(format!("{} element(s) selected", self.selection.len()));
+        let count = self.selection.len();
+        self.info(tr!(
+            "status-selected",
+            count = count,
+            count_text = self.count_text(count)
+        ));
     }
 }
 
@@ -477,6 +494,73 @@ mod tests {
         assert_eq!(walls, 2);
         ws.undo();
         assert!(ws.doc.project.elements.is_empty(), "the chain is one undo step");
+    }
+
+    /// Adds a wall per `y`, locked or not, and returns their ids.
+    fn add_walls(ws: &mut Workspace, ys: impl IntoIterator<Item = u32>, locked: bool) -> Vec<ElementId> {
+        let storey = ws.active_storey;
+        let walls: Vec<_> = ys
+            .into_iter()
+            .map(|nth| {
+                let y = f64::from(nth);
+                let mut wall = ws
+                    .doc
+                    .project
+                    .new_wall(storey, DVec2::new(0.0, y), DVec2::new(4.0, y), nth);
+                wall.locked = locked;
+                wall
+            })
+            .collect();
+        let ids = walls.iter().map(|w| w.id).collect();
+        assert!(ws.execute(Command::AddElements(walls)));
+        ids
+    }
+
+    fn status_text(ws: &Workspace) -> &str {
+        &ws.status.as_ref().unwrap().text
+    }
+
+    /// NFR-L10N-001, NFR-L10N-004: Select all reports its count in the
+    /// status line as a Fluent plural, not as “element(s)”, with the number
+    /// in the user's number format (here with digit grouping).
+    #[test]
+    fn select_all_reports_the_count_as_a_plural() {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        add_walls(&mut ws, [0], false);
+        ws.select_all();
+        assert_eq!(status_text(&ws), "1 element selected");
+        add_walls(&mut ws, 1..3, false);
+        ws.select_all();
+        assert_eq!(status_text(&ws), "3 elements selected");
+        add_walls(&mut ws, 3..1500, false);
+        ws.prefs.digit_grouping = true;
+        ws.select_all();
+        let count = ws.prefs.number_format().format_decimal(1500.0, 0);
+        assert_ne!(count, "1500", "the number format groups digits");
+        assert_eq!(status_text(&ws), format!("{count} elements selected"));
+    }
+
+    /// NFR-L10N-001: deleting a selection with locked elements reports the
+    /// ones left as a Fluent plural, and a selection of locked elements only
+    /// says so.
+    #[test]
+    fn deleting_reports_the_locked_elements_left_as_a_plural() {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        for (base, locked) in [(0, 1), (10, 3)] {
+            let mut ids = add_walls(&mut ws, [base], false);
+            ids.extend(add_walls(&mut ws, base + 1..=base + locked, true));
+            ws.selection = ids.into_iter().collect();
+            ws.delete_selection();
+            let expected = if locked == 1 {
+                "1 locked element was not deleted."
+            } else {
+                "3 locked elements were not deleted."
+            };
+            assert_eq!(status_text(&ws), expected);
+        }
+        ws.selection = ws.doc.project.elements.keys().copied().collect();
+        ws.delete_selection();
+        assert_eq!(status_text(&ws), "The selected elements are locked.");
     }
 
     /// UND-003: a chain whose command the project rejects keeps its pending
