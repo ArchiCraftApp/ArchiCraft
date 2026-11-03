@@ -137,53 +137,51 @@ pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
 /// (UI-011). Returns the command of the clicked button.
 pub fn toolbox(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     let mut chosen = None;
-    let mut button = |ui: &mut Ui, id: CommandId, label: &str| {
-        if tool_button(ui, cx, spec(id), label) {
+    let mut button = |ui: &mut Ui, id: CommandId, label: String| {
+        if tool_button(ui, cx, spec(id), &label) {
             chosen = Some(id);
         }
     };
-    ui.label(RichText::new("Selection").small().weak());
-    button(ui, tools::command(ToolKind::Select), ToolKind::Select.label());
+    ui.label(RichText::new(tr!("toolbox-selection")).small().weak());
+    button(ui, tools::command(ToolKind::Select), tr!("toolbox-select"));
     ui.add_space(6.0);
-    ui.label(RichText::new("Modelling").small().weak());
-    for kind in [ToolKind::Wall, ToolKind::Slab] {
-        button(ui, tools::command(kind), kind.label());
-    }
+    ui.label(RichText::new(tr!("toolbox-modelling")).small().weak());
+    button(ui, tools::command(ToolKind::Wall), tr!("toolbox-wall"));
+    button(ui, tools::command(ToolKind::Slab), tr!("toolbox-slab"));
     ui.add_space(6.0);
-    ui.label(RichText::new("View tools").small().weak());
-    for (label, id) in [
-        ("Fit", view::FIT_WINDOW),
-        ("Orbit", view::ORBIT),
-        ("Plan/3D", view::SWITCH_PLAN_3D),
-    ] {
-        button(ui, id, label);
-    }
+    ui.label(RichText::new(tr!("toolbox-view-tools")).small().weak());
+    button(ui, view::FIT_WINDOW, tr!("toolbox-fit"));
+    button(ui, view::ORBIT, tr!("toolbox-orbit"));
+    button(ui, view::SWITCH_PLAN_3D, tr!("toolbox-plan-3d"));
     chosen
+}
+
+/// The label of the status line's problems button: "No problems", or the
+/// count with a Fluent plural, such as "⚠ 1 problem" (NFR-L10N-001).
+fn problems_label(ws: &Workspace, count: usize) -> String {
+    tr!("status-problems", count = count, count_text = ws.count_text(count))
 }
 
 /// The status line with the input prompt, the last message and the
 /// view-control bar of the active view (UI-001).
 pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_count: usize) -> Option<CommandId> {
     let mut chosen = None;
-    let mut button = |ui: &mut Ui, id: CommandId, label: &str| {
-        if bar_button(ui, cx, spec(id), label) {
+    let mut button = |ui: &mut Ui, id: CommandId, label: String| {
+        if bar_button(ui, cx, spec(id), &label) {
             chosen = Some(id);
         }
     };
     ui.horizontal(|ui| {
         // The prompt of the step in progress (INP-001, NFR-USE-003).
         let prompt = ws.consumer().step().map_or_else(
-            || {
-                "Click an element to select it, Shift-click to add or remove, drag a rectangle to select several \
-                 · Tab cycles overlapping elements"
-                    .to_owned()
-            },
+            || tr!("status-prompt-select"),
             |step| {
                 let mut line = step.status_line();
                 // INP-020: the prompts name clicks, which take points in both
                 // modes; press-drag-release adds the drag.
                 if ws.prefs.input_mode == InputMode::DragRelease {
-                    line.push_str(" · Press-drag-release: press at a point, drag and release at the next");
+                    line.push_str(" · ");
+                    line.push_str(&tr!("status-prompt-press-drag-release"));
                 }
                 line
             },
@@ -201,18 +199,13 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_coun
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let label = if problem_count == 0 {
-                "No problems".to_owned()
-            } else {
-                format!("⚠ {problem_count} problem(s)")
-            };
-            button(ui, view::PROBLEMS, &label);
+            button(ui, view::PROBLEMS, problems_label(ws, problem_count));
             ui.separator();
             match ws.active_pane {
                 Some(Pane::View3d(view_id)) => {
                     if let Some(state) = ws.views_3d.get_mut(&view_id) {
-                        button(ui, view::FIT_WINDOW, "Fit");
-                        button(ui, view::ORBIT, "Orbit");
+                        button(ui, view::FIT_WINDOW, tr!("status-fit"));
+                        button(ui, view::ORBIT, tr!("status-orbit"));
                         egui::ComboBox::from_id_salt("display-mode")
                             .selected_text(tr!(state.mode.label_key()))
                             .show_ui(ui, |ui| {
@@ -220,7 +213,7 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_coun
                                     ui.selectable_value(&mut state.mode, mode, tr!(mode.label_key()));
                                 }
                             });
-                        ui.menu_button("Views", |ui| {
+                        ui.menu_button(tr!("status-views"), |ui| {
                             for preset in ViewPreset::ALL {
                                 if ui.button(tr!(preset.label_key())).clicked() {
                                     state.camera.apply_preset(preset);
@@ -230,8 +223,8 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_coun
                         });
                         let perspective = state.camera.projection == Projection::Perspective;
                         if ui
-                            .selectable_label(perspective, "Perspective")
-                            .on_hover_text("Switch between perspective and parallel projection (VIEW-020)")
+                            .selectable_label(perspective, tr!("status-perspective"))
+                            .on_hover_text(tr!("status-perspective-hint"))
                             .clicked()
                         {
                             state.camera.projection = if perspective {
@@ -243,9 +236,9 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_coun
                     }
                 }
                 Some(Pane::Plan(storey)) => {
-                    button(ui, view::FIT_WINDOW, "Fit");
-                    button(ui, view::NEXT_ZOOM, "Next zoom ▶");
-                    button(ui, view::PREVIOUS_ZOOM, "◀ Previous zoom");
+                    button(ui, view::FIT_WINDOW, tr!("status-fit"));
+                    button(ui, view::NEXT_ZOOM, tr!("status-next-zoom"));
+                    button(ui, view::PREVIOUS_ZOOM, tr!("status-previous-zoom"));
                     if let Some(state) = ws.plan_views.get(&storey) {
                         // INP-014: the cursor's X and Y from the user origin,
                         // along its axes.
@@ -255,13 +248,13 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_coun
                             let nf = ws.prefs.number_format();
                             let x = format_length(p.x, units, &nf, true);
                             let y = format_length(p.y, units, &nf, true);
-                            ui.label(RichText::new(format!("X {x}  Y {y}")).small().monospace());
+                            ui.label(RichText::new(tr!("status-cursor", x = x, y = y)).small().monospace());
                         }
                         // NFR-L10N-004: digit grouping applies to the zoom too.
                         let scale = ws.prefs.number_format().format_decimal(state.camera.scale, 0);
-                        ui.label(RichText::new(format!("{scale} pt/m")).small().weak());
+                        ui.label(RichText::new(tr!("status-zoom", scale = scale)).small().weak());
                     }
-                    ui.label(RichText::new("Scale 1:100").small().weak());
+                    ui.label(RichText::new(tr!("status-scale")).small().weak());
                     let name = ws
                         .doc
                         .project
@@ -269,11 +262,35 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_coun
                         .get(storey)
                         .map(|s| s.name.clone())
                         .unwrap_or_default();
-                    ui.label(RichText::new(format!("Plan: {name}")).small());
+                    ui.label(RichText::new(tr!("status-plan", storey = name)).small());
                 }
                 None => {}
             }
         });
     });
     chosen
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use archicraft_model::template::default_metric_project;
+
+    use super::*;
+    use crate::document::Document;
+    use crate::i18n::{self, Localizer};
+    use crate::persistence::prefs::Preferences;
+
+    /// NFR-L10N-001: the problem count of the status line is a Fluent
+    /// plural, so it reads "1 problem" and "3 problems"; none reads "No
+    /// problems" as before.
+    #[test]
+    fn the_problem_count_is_a_plural() {
+        let ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        let label = |count| i18n::with(Rc::new(Localizer::english()), || problems_label(&ws, count));
+        assert_eq!(label(0), "No problems");
+        assert_eq!(label(1), "⚠ 1 problem");
+        assert_eq!(label(3), "⚠ 3 problems");
+    }
 }

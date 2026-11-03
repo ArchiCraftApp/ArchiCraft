@@ -1,10 +1,10 @@
 ### ArchiCraft English message catalogue: main window (NFR-L10N-001).
 ###
-### Menus, window and tab titles, questions and notices, the status line and
-### the project browser, the plan and 3D views. Keys are kebab-case and start
-### with menu-, window-, tab-, modal-, file-, startup-, status-, browser-,
-### view-, display-mode-, view-preset- or snap-kind- (see
-### crates/archicraft-app/src/i18n).
+### Menus, window and tab titles, questions and notices, the status line, the
+### toolbox and the project browser, the plan and 3D views. Keys are
+### kebab-case and start with menu-, window-, tab-, modal-, file-, startup-,
+### status-, toolbox-, browser-, view-, display-mode-, view-preset- or
+### snap-kind- (see crates/archicraft-app/src/i18n).
 
 ## Menu bar (UI-011)
 ## The titles of the menus; the items are commands (commands.ftl).
@@ -116,6 +116,84 @@ status-selected =
         [one] { $count_text } element selected
        *[other] { $count_text } elements selected
     }
+
+## Status bar (UI-001): the prompt while no tool step is in progress, the
+## problem count and the view-control bar of the active view
+
+status-prompt-select = Click an element to select it, Shift-click to add or remove, drag a rectangle to select several · Tab cycles overlapping elements
+# Appended to a tool's prompt in press-drag-release input mode (INP-020).
+status-prompt-press-drag-release = Press-drag-release: press at a point, drag and release at the next
+# The button that shows the problems panel; $count: the problems, for the
+# plural; $count_text: the same number in the user's number format.
+status-problems =
+    { $count ->
+        [0] No problems
+        [one] ⚠ { $count_text } problem
+       *[other] ⚠ { $count_text } problems
+    }
+status-fit = Fit
+status-orbit = Orbit
+# The menu of the 3D view presets.
+status-views = Views
+status-perspective = Perspective
+status-perspective-hint = Switch between perspective and parallel projection (VIEW-020)
+status-next-zoom = Next zoom ▶
+status-previous-zoom = ◀ Previous zoom
+# The cursor in a plan from the user origin (INP-014); $x, $y: formatted
+# lengths with their unit.
+status-cursor = X { $x }  Y { $y }
+# The plan's zoom; $scale: points per metre in the user's number format.
+status-zoom = { $scale } pt/m
+status-scale = Scale 1:100
+# $storey: the name of the plan's storey.
+status-plan = Plan: { $storey }
+
+## Toolbox (UI-001): group headings and the short labels of its tools; the
+## tooltips are the commands' (commands.ftl)
+
+toolbox-selection = Selection
+toolbox-modelling = Modelling
+toolbox-view-tools = View tools
+toolbox-select = Select
+toolbox-wall = Wall
+toolbox-slab = Slab
+toolbox-fit = Fit
+toolbox-orbit = Orbit
+toolbox-plan-3d = Plan/3D
+
+## Project browser (VIEW-003, STR-003, UI-005)
+
+browser-storeys = Storeys
+browser-views = 3D views
+browser-project = Project
+# A storey entry; $number: the storey number, padded to three characters;
+# $name: the storey's name; $elevation: its elevation with the unit.
+browser-storey = { $number }  { $name }  ({ $elevation })
+browser-open-plan = Open plan
+browser-insert-above = Insert storey above
+browser-insert-below = Insert storey below
+browser-storey-settings = Rename, elevation, height…
+browser-delete-storey = Delete storey…
+# $name: the site's name.
+browser-site = Site: { $name }
+# $name: the building's name.
+browser-building = Building: { $name }
+# $count: the elements of the project, for the plural; $count_text: the same
+# number in the user's number format.
+browser-elements =
+    { $count ->
+        [one] { $count_text } element
+       *[other] { $count_text } elements
+    }
+browser-layers = Layers…
+browser-materials = Materials…
+browser-settings = Settings…
+# The name of a storey inserted at or above the ground storey; $number: its
+# storey number with two digits, such as 02.
+browser-new-storey = { $number } Storey
+# The name of a storey inserted below the ground storey; $number: the depth
+# below ground with two digits, such as 01 for storey -1.
+browser-new-basement = -{ $number } Basement
 
 ## Plan and 3D views
 
