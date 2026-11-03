@@ -41,7 +41,7 @@ use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::{TemplateContext, template_tool_defaults};
 use archicraft_model::tolerance::MODEL_TOLERANCE;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit};
-use archicraft_model::validate::{valid_grid_origin, valid_grid_spacing, validate_element};
+use archicraft_model::validate::{MAX_DECIMALS, valid_grid_origin, valid_grid_spacing, validate_element};
 use archicraft_model::{
     BuildingId, Element, ElementId, ElementKind, IfcClass, KindTag, Layer, LayerId, MaterialId, PlanGrid, Position,
     PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, ReferenceLine, SiteId, Slab, SlabReference,
@@ -500,16 +500,12 @@ struct ProjectData {
     newer_format: bool,
 }
 
-/// The largest number of display decimals, as the model's settings check
-/// allows.
-const MAX_DECIMALS: i64 = 8;
-
 /// Display decimals: an integer from 0 to [`MAX_DECIMALS`]. An integer out of
 /// that range is clamped to it and reported (PRJ-008); anything else is
 /// reported and `default` is used.
 fn decimals(map: &Object, key: &str, default: u8, report: &mut Report<'_>) -> u8 {
     let value = report.or(integer(map, key), i64::from(default));
-    let clamped = value.clamp(0, MAX_DECIMALS);
+    let clamped = value.clamp(0, i64::from(MAX_DECIMALS));
     if clamped != value {
         report.repaired(about("ifcx-out-of-range-replaced", key).count("value", usize::try_from(clamped).unwrap_or(0)));
     }
