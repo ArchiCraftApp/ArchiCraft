@@ -8,7 +8,7 @@ sessions, remove finished worktrees and branches, run the sweep). Python 3 stand
 
 The Roadmap page (/roadmap) shows how far the roadmap has come: the epics of docs/roadmap.md
 placed by their dependencies with the share of their task estimates that is done, the
-increments with their exit criteria, the SRS requirement status of docs/implementation-status.md
+increments with their exit criteria, the six demos of the showcase track, the SRS requirement status of docs/implementation-status.md
 and the pace of the last 7 days. The Code map page (/code) shows the Rust modules of origin/main as a component map and as a
 dependency graph, coloured by how recently or how much they changed, with the files that open
 PRs and running sessions are changing now.
@@ -1069,6 +1069,67 @@ def build_roadmap_doc(sha):
             "req_history": sorted(history, key=lambda r: r["t"])}
 
 
+SHOWCASE_TITLE = re.compile(r"^Showcase (\d+): (.+)$")
+
+
+def showcase_demos(beads, ready=(), live=None):
+    """The demos of the roadmap's showcase track, in order, from the beads alone.
+
+    A demo is an epic labelled `showcase` titled "Showcase <n>: ...", holding one verification
+    task. The demo's beads are the showcase beads its verification task waits for, transitively,
+    that no earlier demo already needs (the "cumulative" counts of docs/roadmap.md). A bead the
+    loop split counts through its leaves.
+    """
+    live = live or {}
+    by_id = {b["id"]: b for b in beads}
+    kids = {}
+    for b in beads:
+        if b.get("parent"):
+            kids.setdefault(b["parent"], []).append(b)
+
+    def leaves(b):
+        if b["id"] not in kids:
+            return [b]
+        return [x for c in kids[b["id"]] for x in leaves(c)]
+    is_showcase = lambda b: "showcase" in (b.get("labels") or [])
+    epics = sorted(((int(m.group(1)), m.group(2), b) for b in beads
+                    if b.get("issue_type") == "epic" and is_showcase(b)
+                    for m in [SHOWCASE_TITLE.match(b["title"])] if m), key=lambda t: t[0])
+    est = lambda x: x.get("estimated_minutes") or 0
+    taken, demos = set(), []
+    for n, title, epic in epics:
+        verify = next(iter(sorted(kids.get(epic["id"], []), key=lambda x: x["id"])), None)
+        targets = [d["depends_on_id"] for d in (verify or {}).get("dependencies") or [] if d["type"] == "blocks"]
+        need, stack = [], [verify["id"]] if verify else []
+        while stack:
+            b = by_id.get(stack.pop())
+            if not b or b["id"] in taken or not is_showcase(b):
+                continue
+            taken.add(b["id"])
+            need.append(b)
+            stack += [d["depends_on_id"] for d in b.get("dependencies") or [] if d["type"] == "blocks"]
+        ls = sorted({x["id"]: x for b in need for x in leaves(b)}.values(),
+                    key=lambda x: (x["status"] == "closed", x["id"] == (verify or {}).get("id"), x.get("priority", 9), x["id"]))
+        status = epic["status"]
+        state = ("accepted" if status == "closed" else
+                 "demo" if verify and verify["status"] == "closed" else
+                 "in_progress" if any(x["status"] in ("in_progress", "closed") for x in ls) else "planned")
+        demos.append({
+            "n": n, "id": epic["id"], "title": title[:1].upper() + title[1:], "status": status, "state": state,
+            "verify": verify and {"id": verify["id"], "status": verify["status"]},
+            "targets": [{"id": t, "title": by_id[t]["title"] if t in by_id else "", "status": by_id[t]["status"] if t in by_id else None}
+                        for t in targets],
+            "est_total": sum(est(x) for x in ls), "est_done": sum(est(x) for x in ls if x["status"] == "closed"),
+            "leaves": len(ls), "leaves_done": sum(x["status"] == "closed" for x in ls),
+            "in_progress": sum(x["status"] == "in_progress" for x in ls),
+            "live": [{"bead": x["id"], "state": live[x["id"]]["state"]} for x in ls if x["id"] in live],
+            "tasks": [{"id": x["id"], "title": x["title"], "status": x["status"], "est": est(x),
+                       "done": est(x) if x["status"] == "closed" else 0, "children": 0,
+                       "ready": x["id"] in ready, "live": [live[x["id"]]["state"]] if x["id"] in live else []}
+                      for x in ls]})
+    return demos
+
+
 def roadmap_view():
     sha = run(["git", "rev-parse", "--short", "origin/main"]).strip()
     if ROADMAP["sha"] != sha:
@@ -1123,7 +1184,8 @@ def roadmap_view():
                and (iso_to_epoch(b.get("closed_at")) or 0) > now - 7 * 86400)
     closed_times = sorted([iso_to_epoch(b.get("closed_at")), b.get("estimated_minutes") or 0]
                           for b in beads if b["id"] in under and b["status"] == "closed" and b.get("closed_at"))
-    return {"sha": sha, "epics": epics, "exits": doc["exits"], "reqs": doc["reqs"], "scenarios": doc["scenarios"],
+    return {"sha": sha, "epics": epics, "showcase": showcase_demos(beads, ready, live),
+            "exits": doc["exits"], "reqs": doc["reqs"], "scenarios": doc["scenarios"],
             "req_history": doc["req_history"], "pace_minutes_per_day": week / 7, "closed": closed_times,
             "generated": epoch_to_iso(now)}
 
@@ -2434,6 +2496,13 @@ PAGE_ROADMAP = r"""<!doctype html>
 .bar-lbl{pointer-events:none;font-size:10px}
 .epic{cursor:pointer}.epic.dim{opacity:.3}
 .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px}
+.demos{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:8px}
+@media (max-width:1100px){.demos{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:600px){.demos{grid-template-columns:1fr}}
+.demo{background:var(--chip);border-radius:8px;padding:9px 11px;cursor:pointer;border:2px solid transparent;min-width:0}
+.demo.next{border-color:var(--s1)}.demo.on{border-color:var(--fg)}
+.demo .k{font-size:11px;color:var(--mute)}.demo .row{display:flex;justify-content:space-between;gap:6px;align-items:baseline}
+.demo .t{font-size:12px;font-weight:600;margin:2px 0 6px;min-height:2.6em}
 .inc{border-top:1px solid var(--line);padding:9px 0}.inc:first-of-type{border-top:0;padding-top:0}
 .inc .row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .req-row{display:grid;grid-template-columns:70px 1fr 120px;gap:8px;align-items:center;margin:6px 0;font-size:12px}
@@ -2455,7 +2524,7 @@ const tipAttr = html => `data-tip="${esc(html)}"`;
 const h = m => Math.round(m / 60).toLocaleString();
 const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
 const sec = (title, body, cls = "", right = "") => `<section class="${cls}"><h2>${title}${right ? `<span class="right">${right}</span>` : ""}</h2>${body}</section>`;
-let R = null, selected = null, hover = null;
+let R = null, selected = null, hover = null, demo = null;
 const STATE = {done: ["--ok", "done"], in_progress: ["--s1", "in progress"], planned: ["--mute", "planned"]};
 const AS = {done: ["bg-ok", "passes"], partial: ["bg-warn", "partial"], "not-yet-possible": ["bg-mute", "not yet possible"], missing: ["bg-mute", "missing"]};
 
@@ -2496,6 +2565,24 @@ function hero() {
       <div class="small mute" style="margin-top:6px">average of the last 7 days${eta ? ` · increment 1 at this pace: about ${Math.round(days)} days, around ${eta}` : ""}</div>
       <div class="k" style="margin-top:8px">Acceptance scenarios</div><div class="chips">${scen}</div></div>
   </div>`, "wide");
+}
+
+// --- showcase -------------------------------------------------------------------------------
+const DEMO = {accepted: ["ok", "accepted"], demo: ["ok", "ready to show"], in_progress: ["run", "in progress"], planned: ["mute", "planned"]};
+function showcase() {
+  const D = R.showcase || []; if (!D.length) return "";
+  const next = D.find(d => d.state !== "accepted"), shown = D.find(d => d.n === demo) || next;
+  const tiles = D.map(d => { const [cls, label] = DEMO[d.state];
+    return `<div class="demo${d === next ? " next" : ""}${d.n === demo ? " on" : ""}" onclick="demo=demo===${d.n}?null:${d.n};render()" ${tipAttr(`<b>Demo ${d.n}: ${esc(d.title)}</b><br><span class="mute">${esc(d.id)}</span><br>targets: ${esc(d.targets.map(t => t.id).join(", "))}`)}>
+      <div class="row"><span class="k">Demo ${d.n}</span><span class="small ${cls}">${label}</span></div>
+      <div class="t">${esc(d.title)}</div>
+      <div class="track" style="background:color-mix(in srgb,var(--mute) 25%,transparent)"><i style="width:${pct(d.est_done, d.est_total)}%;background:${d.state === "accepted" || d.state === "demo" ? "var(--ok)" : "var(--s1)"}"></i></div>
+      <div class="small"><b>${pct(d.est_done, d.est_total)}%</b> <span class="mute">· ${d.leaves_done}/${d.leaves} tasks · ${h(d.est_done)}/${h(d.est_total)} h${d.live.length ? ` · <span style="color:var(--run)">●</span> ${d.live.length}` : ""}</span></div></div>`; }).join("");
+  const tasks = !shown ? "" : `<h3>Demo ${shown.n}: ${esc(shown.title)} <span class="small mute">${shown.n === demo ? "all tasks" : "next up"} · the last task is the demo's verification</span></h3>` +
+    (shown.n === demo ? shown.tasks : shown.tasks.filter(t => t.status !== "closed").slice(0, 8)).map(taskRow).join("");
+  const all = D.reduce((s, d) => s + d.est_total, 0), allDone = D.reduce((s, d) => s + d.est_done, 0);
+  return sec("Showcase demos", `<div class="small mute" style="margin-bottom:8px">Jakob's feature requests of 2026-11-03 as six demos, one after another (docs/roadmap.md, "Showcase track"). A demo's beads are the showcase beads its verification task needs that no earlier demo needs. The loop stops for the demo when its verification task closes.</div>
+    <div class="demos">${tiles}</div>${tasks}`, "wide", `<span class="small mute">${pct(allDone, all)}% of ${h(all)} h · click a demo for all its tasks</span>`);
 }
 
 // --- gantt ----------------------------------------------------------------------------------
@@ -2606,7 +2693,7 @@ function detail() {
 function render() {
   if (!R) return;
   const scroll = scrollY;
-  $("#main").innerHTML = hero() + sec("Roadmap", `<div class="small mute" style="margin-bottom:6px">Epics placed by their dependencies: earliest start in engineer-days with unlimited parallelism, as in docs/roadmap.md. The filled part of a bar is the share of its task estimates that is done. Hover a bar for what it needs (orange) and unblocks (blue).</div><div id="gantt"></div>`, "wide") +
+  $("#main").innerHTML = hero() + showcase() + sec("Roadmap", `<div class="small mute" style="margin-bottom:6px">Epics placed by their dependencies: earliest start in engineer-days with unlimited parallelism, as in docs/roadmap.md. The filled part of a bar is the share of its task estimates that is done. Hover a bar for what it needs (orange) and unblocks (blue).</div><div id="gantt"></div>`, "wide") +
     detail() + increments() + requirements();
   gantt($("#gantt")); reqChart($("#reqchart"));
   scrollTo(0, scroll);
@@ -2627,7 +2714,8 @@ async function load() {
     const r = await fetch("/api/roadmap"), d = await r.json();
     if (d.error) throw new Error(d.error);
     $("#live").innerHTML = `<span class="dot bg-ok pulse"></span>live · origin/main ${esc(d.sha)} · checked ${new Date(d.generated).toLocaleTimeString()}`;
-    const key = JSON.stringify([d.sha, d.epics.map(e => [e.est_done, e.state, e.live.length, e.tasks.map(t => t.status + t.live.length)])]);
+    const key = JSON.stringify([d.sha, d.epics.map(e => [e.est_done, e.state, e.live.length, e.tasks.map(t => t.status + t.live.length)]),
+      d.showcase.map(s => [s.state, s.tasks.map(t => t.status + t.ready + t.live.length)])]);
     if (key !== lastKey) { lastKey = key; R = d; render(); }
   } catch (e) { $("#live").innerHTML = `<span class="dot bg-bad"></span><span class="bad">${esc(e.message || "dashboard server not reachable")}</span>`; }
 }
