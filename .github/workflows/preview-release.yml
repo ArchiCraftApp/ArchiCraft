@@ -1,13 +1,15 @@
 name: Preview release
 
 # An in-between release ("preview") of a pushed commit for testers: a macOS DMG (Apple silicon),
-# a Linux tarball (x86_64) and a Windows zip (x86_64), published as a GitHub pre-release that is
-# never marked as the latest release. Its tag is preview-<version>-<yyyymmdd>-<sha7>: it does not
-# match v*, so it starts none of the workflows of a real release (ci.yml, macos.yml), and a tag
-# created with the workflow's token starts no workflow anyway. Every package takes its app icon
-# from the logo in the repository root (ArchiCraft_Logo.png). The commit must have passed CI
-# unless allow_untested is set. Start it with /preview-release (.claude/skills/preview-release)
-# or by hand: gh workflow run preview-release.yml --ref main -f notes="What to try"
+# a Linux tarball and a Flatpak bundle (x86_64) and a Windows zip (x86_64), published as a GitHub
+# pre-release that is never marked as the latest release. Its tag is
+# preview-<version>-<yyyymmdd>-<sha7>: it does not match v*, so it starts none of the workflows of
+# a real release (ci.yml, macos.yml), and a tag created with the workflow's token starts no
+# workflow anyway. The Linux and Windows packages take their app icon from the logo in the
+# repository root (ArchiCraft_Logo.png), the macOS one from the Icon Composer document
+# packaging/macos/AppIcon.icon. The commit must have passed CI unless allow_untested is set. Start
+# it with /preview-release (.claude/skills/preview-release) or by hand:
+# gh workflow run preview-release.yml --ref main -f notes="What to try"
 on:
   workflow_dispatch:
     inputs:
@@ -90,6 +92,14 @@ jobs:
             os: ubuntu-22.04
             script: scripts/package-linux.sh
             asset: linux-x86_64.tar.gz
+          # The build in a Flatpak bundle for GNOME Software and KDE Discover. The binary runs on
+          # the freedesktop runtime's glibc, so the newer runner image does no harm; Ubuntu
+          # 22.04's flatpak-builder 1.2 cannot build it, because it runs appstream-compose inside
+          # the SDK, and SDK 26.08 no longer has it (24.04's 1.4 uses the host's appstreamcli).
+          - name: Linux Flatpak
+            os: ubuntu-24.04
+            script: scripts/package-flatpak.sh
+            asset: linux-x86_64.flatpak
           - name: Windows
             os: windows-latest
             script: scripts/package-windows.sh
@@ -104,12 +114,21 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install the pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
+      # The runner image is part of the key: the two Linux entries build on different Ubuntu
+      # releases, and the tarball (glibc 2.35) must not link objects compiled against 24.04's.
       - uses: Swatinem/rust-cache@v2
         with:
-          key: preview-release
+          key: preview-release-${{ matrix.os }}
       - name: Install Pillow for the Windows icon
         if: runner.os == 'Windows'
         run: python -m pip install --disable-pip-version-check pillow==11.3.0
+      # elfutils has eu-strip, which flatpak-builder only recommends but runs on the binary.
+      - name: Install flatpak-builder and Pillow for the Flatpak bundle
+        if: matrix.script == 'scripts/package-flatpak.sh'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            flatpak flatpak-builder elfutils python3-pil
       - name: Build and package
         env:
           SCRIPT: ${{ matrix.script }}
@@ -165,6 +184,7 @@ jobs:
           - **macOS** (Apple silicon, macOS 11 or later): open the DMG and drag ArchiCraft to Applications. The app is signed ad hoc, so macOS blocks its first start: allow it under System Settings → Privacy & Security → Open Anyway.
           - **Windows** (x86_64): unzip and start `ArchiCraft\archicraft.exe`. The executable is not signed: on the SmartScreen warning choose More info → Run anyway.
           - **Linux** (x86_64, glibc 2.35 or later): unpack and start `ArchiCraft/archicraft`; it needs a Vulkan driver and, for file dialogs, an XDG desktop portal. For a menu entry, put `archicraft` on your `PATH`, `archicraft.desktop` into `~/.local/share/applications` and `archicraft.png` into `~/.local/share/icons`.
+          - **Linux Flatpak** (x86_64): open the `.flatpak` file with GNOME Software or KDE Discover, or run `flatpak install --user` with it; the first install fetches the freedesktop runtime from Flathub. ArchiCraft then has a menu entry; GNOME Software, KDE Discover or `flatpak uninstall com.graphicraft.archicraft` remove it. The bundle has no update source: a later preview's bundle, installed the same way, replaces it.
 
           `SHA256SUMS.txt` lists the checksums of the packages.
           EOF
