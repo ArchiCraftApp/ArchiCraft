@@ -522,9 +522,36 @@ expression: review_view(&bytes)
                   },
                   "slab": {
                     "dataType": "Integer"
+                  },
+                  "group": {
+                    "dataType": "Integer",
+                    "optional": true
                   }
                 }
               }
+            },
+            "groups": {
+              "dataType": "Array",
+              "arrayRestrictions": {
+                "value": {
+                  "dataType": "Object",
+                  "objectRestrictions": {
+                    "values": {
+                      "id": {
+                        "dataType": "String"
+                      },
+                      "name": {
+                        "dataType": "String"
+                      },
+                      "parent": {
+                        "dataType": "String",
+                        "optional": true
+                      }
+                    }
+                  }
+                }
+              },
+              "optional": true
             }
           }
         }
@@ -598,6 +625,10 @@ expression: review_view(&bytes)
             },
             "snapExcluded": {
               "dataType": "Boolean",
+              "optional": true
+            },
+            "group": {
+              "dataType": "String",
               "optional": true
             }
           }

@@ -1,5 +1,5 @@
 //! Command and undo behaviour (NFR-MNT-001, UND-001, UND-002, STR-004,
-//! STR-005, ELM-013, LAY-002, DSP-003, INP-013).
+//! STR-005, ELM-013, ELM-015, LAY-002, DSP-003, INP-013).
 
 #![allow(clippy::unwrap_used)]
 
@@ -12,8 +12,8 @@ use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::default_metric_project;
 use archicraft_model::validate::{MAX_GRID_SPACING, MAX_HEIGHT, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
 use archicraft_model::{
-    Arg, Command, CommandError, Element, ElementKind, History, IfcClass, KindTag, Layer, Material, Message, PlanGrid,
-    ProjectSettings, Slab, Storey, StoreyId, TopLink, Wall,
+    Arg, Command, CommandError, Element, ElementId, ElementKind, Group, GroupId, History, IfcClass, KindTag, Layer,
+    Material, Message, PlanGrid, Project, ProjectSettings, Slab, Storey, StoreyId, TopLink, Wall,
 };
 use common::{ground, wall};
 
@@ -1344,4 +1344,440 @@ fn locked_walls_accept_the_snap_flag_unless_their_layer_is_locked() {
     let (variant, message) = rejection(h.execute(&mut p, Command::UpdateElements(vec![excluded])));
     assert_eq!((variant, message.key()), ("Locked", "model-error-layer-locked"));
     assert!(!p.element(id).unwrap().snap_excluded);
+}
+
+/// Executes `command` and checks that undo gives back the project before it
+/// and redo the project after it, apart from the cache revision, with the
+/// elements and groups in the same order (UND-001).
+#[track_caller]
+fn assert_undo_redo_exact(p: &mut Project, h: &mut History, command: Command) {
+    let order = |p: &Project| {
+        let elements: Vec<ElementId> = p.elements.keys().copied().collect();
+        let groups: Vec<GroupId> = p.groups.keys().copied().collect();
+        (elements, groups)
+    };
+    let same = |p: &Project, expected: &Project| {
+        assert_eq!(
+            *p,
+            Project {
+                revision: p.revision,
+                ..expected.clone()
+            }
+        );
+        assert_eq!(order(p), order(expected));
+    };
+    let before = p.clone();
+    h.execute(p, command).unwrap();
+    let after = p.clone();
+    assert_ne!(after, before);
+    h.undo(p).unwrap();
+    same(p, &before);
+    h.redo(p).unwrap();
+    same(p, &after);
+}
+
+/// Three walls A, B and C on the ground storey, added by command.
+fn three_walls() -> (Project, History, [ElementId; 3]) {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let walls = [0.0, 1.0, 2.0].map(|y| wall(&p, (0.0, y), (5.0, y)));
+    let ids = walls.each_ref().map(|w| w.id);
+    h.execute(&mut p, Command::AddElements(walls.to_vec())).unwrap();
+    (p, h, ids)
+}
+
+fn group_of(p: &Project, element: ElementId) -> Option<GroupId> {
+    p.element(element).unwrap().group
+}
+
+/// ELM-015, UND-001: grouping, renaming and ungrouping are one undo step
+/// each and undo and redo to the exact project. A new group is named from
+/// the project's group counter.
+#[test]
+fn group_ungroup_and_rename_undo_and_redo_exactly() {
+    let (mut p, mut h, [a, b, c]) = three_walls();
+    let group = GroupId::new();
+    let command = Command::Group {
+        group,
+        elements: vec![a, b],
+    };
+    assert_eq!(command.label(), Message::new("model-label-group"));
+    assert_undo_redo_exact(&mut p, &mut h, command);
+    assert_eq!(
+        p.group(group),
+        Some(&Group {
+            id: group,
+            name: "Group 1".into(),
+            parent: None,
+        })
+    );
+    assert_eq!(
+        (group_of(&p, a), group_of(&p, b), group_of(&p, c)),
+        (Some(group), Some(group), None)
+    );
+    assert_eq!(p.group_counter, 1);
+
+    let rename = Command::RenameGroup {
+        group,
+        name: "  Stair core ".into(),
+    };
+    assert_eq!(rename.label(), Message::new("model-label-rename-group"));
+    assert_undo_redo_exact(&mut p, &mut h, rename);
+    assert_eq!(p.group(group).unwrap().name, "Stair core");
+
+    let ungroup = Command::Ungroup { group };
+    assert_eq!(ungroup.label(), Message::new("model-label-ungroup"));
+    assert_undo_redo_exact(&mut p, &mut h, ungroup);
+    assert!(p.groups.is_empty());
+    assert!(p.elements.values().all(|e| e.group.is_none()));
+
+    // The counter does not go back, so the next group gets a new name.
+    let next = GroupId::new();
+    h.execute(
+        &mut p,
+        Command::Group {
+            group: next,
+            elements: vec![b, c],
+        },
+    )
+    .unwrap();
+    assert_eq!(p.group(next).unwrap().name, "Group 2");
+    h.undo(&mut p).unwrap();
+    assert_eq!(p.group_counter, 1);
+}
+
+/// ELM-015: selecting a member of a group groups the group, which becomes
+/// a child of the new one; ungrouping the outer group gives back the inner
+/// group (A, B) unchanged.
+#[test]
+fn grouping_a_group_with_an_element_nests_it_and_ungrouping_restores_it() {
+    let (mut p, mut h, [a, b, c]) = three_walls();
+    let (inner, outer) = (GroupId::new(), GroupId::new());
+    h.execute(
+        &mut p,
+        Command::Group {
+            group: inner,
+            elements: vec![a, b],
+        },
+    )
+    .unwrap();
+    let inner_before = p.group(inner).unwrap().clone();
+    assert_undo_redo_exact(
+        &mut p,
+        &mut h,
+        Command::Group {
+            group: outer,
+            elements: vec![a, c],
+        },
+    );
+    assert_eq!(p.group(inner).unwrap().parent, Some(outer));
+    assert_eq!(p.group(outer).unwrap().parent, None);
+    assert_eq!(p.group(outer).unwrap().name, "Group 2");
+    assert_eq!(
+        (group_of(&p, a), group_of(&p, b), group_of(&p, c)),
+        (Some(inner), Some(inner), Some(outer))
+    );
+    assert_eq!(p.group_members(outer), [a, b, c]);
+    assert_eq!(p.group_path(b), [outer, inner]);
+
+    h.execute(&mut p, Command::Ungroup { group: outer }).unwrap();
+    assert_eq!(p.group(inner), Some(&inner_before));
+    assert_eq!(p.groups.len(), 1);
+    assert_eq!(p.group_members(inner), [a, b]);
+    assert_eq!(group_of(&p, c), None);
+}
+
+/// ELM-015: ungrouping a nested group removes only that level: its
+/// members and child groups move to its parent.
+#[test]
+fn ungrouping_a_nested_group_moves_its_contents_to_the_parent() {
+    let (mut p, mut h, [a, b, c]) = three_walls();
+    let d = wall(&p, (0.0, 3.0), (5.0, 3.0));
+    let d_id = d.id;
+    h.execute(&mut p, Command::AddElements(vec![d])).unwrap();
+    let [innermost, middle, outer] = [GroupId::new(), GroupId::new(), GroupId::new()];
+    for (group, elements) in [(innermost, vec![a, b]), (middle, vec![a, c]), (outer, vec![c, d_id])] {
+        h.execute(&mut p, Command::Group { group, elements }).unwrap();
+    }
+    // outer { middle { innermost { A, B }, C }, D }
+    assert_undo_redo_exact(&mut p, &mut h, Command::Ungroup { group: middle });
+    assert_eq!(p.group(innermost).unwrap().parent, Some(outer));
+    assert_eq!(group_of(&p, c), Some(outer));
+    assert_eq!(group_of(&p, a), Some(innermost));
+    assert!(p.group(middle).is_none());
+    assert_eq!(p.group_members(outer), [a, b, c, d_id]);
+}
+
+/// ELM-015: fewer than two items after resolving each element to its
+/// outermost group change nothing: one element, one element twice, nothing,
+/// or only members of one group.
+#[test]
+fn grouping_a_single_item_changes_nothing() {
+    let (mut p, mut h, [a, b, c]) = three_walls();
+    let group = GroupId::new();
+    h.execute(
+        &mut p,
+        Command::Group {
+            group,
+            elements: vec![a, b],
+        },
+    )
+    .unwrap();
+    let before = p.clone();
+    let depth = h.undo_len();
+    for elements in [vec![c], vec![c, c], vec![], vec![a], vec![a, b], vec![b, a, b]] {
+        let result = h.execute(
+            &mut p,
+            Command::Group {
+                group: GroupId::new(),
+                elements: elements.clone(),
+            },
+        );
+        assert_eq!(result, Err(CommandError::NoChange), "{elements:?}");
+    }
+    assert_eq!(p, before);
+    assert_eq!(h.undo_len(), depth);
+}
+
+/// ELM-015: the group commands name existing groups and elements, a new
+/// group's id is new, and a group name is not blank.
+#[test]
+fn group_commands_reject_unknown_ids_and_blank_names() {
+    let (mut p, mut h, [a, b, c]) = three_walls();
+    let group = GroupId::new();
+    h.execute(
+        &mut p,
+        Command::Group {
+            group,
+            elements: vec![a, b],
+        },
+    )
+    .unwrap();
+    let before = p.clone();
+    let unknown = GroupId::new();
+    let cases = [
+        (
+            Command::Group {
+                group: GroupId::new(),
+                elements: vec![c, ElementId::new()],
+            },
+            ("NotFound", "model-error-element-not-found"),
+        ),
+        (
+            Command::Group {
+                group,
+                elements: vec![a, c],
+            },
+            ("Invalid", "model-error-duplicate-group-id"),
+        ),
+        (
+            Command::Ungroup { group: unknown },
+            ("NotFound", "model-error-group-not-found"),
+        ),
+        (
+            Command::RenameGroup {
+                group: unknown,
+                name: "Core".into(),
+            },
+            ("NotFound", "model-error-group-not-found"),
+        ),
+        (
+            Command::RenameGroup {
+                group,
+                name: "  ".into(),
+            },
+            ("Invalid", "model-error-group-name"),
+        ),
+        (
+            Command::RenameGroup {
+                group,
+                name: "Group 1".into(),
+            },
+            ("NoChange", "model-error-no-change"),
+        ),
+    ];
+    for (command, expected) in cases {
+        let label = command.label();
+        let (variant, message) = rejection(h.execute(&mut p, command));
+        assert_eq!((variant, message.key()), expected, "{label}");
+    }
+    assert_eq!(p, before);
+}
+
+/// ELM-015, UND-001: deleting every member of a group removes the group, and
+/// undo restores both the elements and the group; deleting one of three
+/// members keeps it.
+#[test]
+fn deleting_all_members_removes_the_group_and_undo_restores_both() {
+    let (mut p, mut h, [a, b, c]) = three_walls();
+    let group = GroupId::new();
+    h.execute(
+        &mut p,
+        Command::Group {
+            group,
+            elements: vec![a, b, c],
+        },
+    )
+    .unwrap();
+    h.execute(&mut p, Command::DeleteElements(vec![b])).unwrap();
+    assert_eq!(p.group_members(group), [a, c]);
+    h.undo(&mut p).unwrap();
+
+    assert_undo_redo_exact(&mut p, &mut h, Command::DeleteElements(vec![c, a, b]));
+    assert!(p.elements.is_empty());
+    assert!(p.groups.is_empty());
+    h.undo(&mut p).unwrap();
+    assert_eq!(p.group_members(group), [a, b, c]);
+}
+
+/// ELM-015: deleting the members of a nested group removes that group and
+/// keeps its parent, which still has members.
+#[test]
+fn deleting_the_members_of_a_nested_group_keeps_its_parent() {
+    let (mut p, mut h, [a, b, c]) = three_walls();
+    let (inner, outer) = (GroupId::new(), GroupId::new());
+    h.execute(
+        &mut p,
+        Command::Group {
+            group: inner,
+            elements: vec![a, b],
+        },
+    )
+    .unwrap();
+    h.execute(
+        &mut p,
+        Command::Group {
+            group: outer,
+            elements: vec![b, c],
+        },
+    )
+    .unwrap();
+    assert_undo_redo_exact(&mut p, &mut h, Command::DeleteElements(vec![a, b]));
+    assert!(p.group(inner).is_none());
+    assert_eq!(p.group_members(outer), [c]);
+}
+
+/// ELM-015: a storey deleted with its elements removes the groups it
+/// leaves empty, undoably, and keeps a group with members elsewhere.
+#[test]
+fn deleting_a_storey_with_its_elements_removes_the_groups_left_empty() {
+    let (mut p, mut h, [a, ..]) = three_walls();
+    let first = p.storeys.as_slice()[1].id;
+    let upper: Vec<Element> = [0.0, 1.0]
+        .map(|y| {
+            let mut w = p.new_wall(first, DVec2::new(0.0, y), DVec2::new(4.0, y), 0);
+            if let ElementKind::Wall(wall) = &mut w.kind {
+                wall.top = TopLink::Fixed { height: 2.5 };
+            }
+            w.name = format!("Upper {y}");
+            w
+        })
+        .to_vec();
+    let [u1, u2] = [upper[0].id, upper[1].id];
+    h.execute(&mut p, Command::AddElements(upper)).unwrap();
+    let (upstairs, across) = (GroupId::new(), GroupId::new());
+    h.execute(
+        &mut p,
+        Command::Group {
+            group: upstairs,
+            elements: vec![u1, u2],
+        },
+    )
+    .unwrap();
+    h.execute(
+        &mut p,
+        Command::Group {
+            group: across,
+            elements: vec![a, u1],
+        },
+    )
+    .unwrap();
+    // across { upstairs { U1, U2 }, A }
+    assert_undo_redo_exact(
+        &mut p,
+        &mut h,
+        Command::DeleteStorey {
+            storey: first,
+            elements: StoreyElements::Delete,
+        },
+    );
+    assert!(p.group(upstairs).is_none());
+    assert_eq!(p.group_members(across), [a]);
+}
+
+/// ELM-015, ELM-013: grouping edits neither geometry nor parameters, so
+/// locked elements and elements on locked layers may be grouped and
+/// ungrouped.
+#[test]
+fn locked_elements_can_be_grouped_and_ungrouped() {
+    let (mut p, mut h, [a, b, c]) = three_walls();
+    let locked = Element {
+        locked: true,
+        ..p.element(a).unwrap().clone()
+    };
+    h.execute(&mut p, Command::UpdateElements(vec![locked])).unwrap();
+    let layer = p.layer(p.element(b).unwrap().layer).unwrap().clone();
+    h.execute(&mut p, Command::UpdateLayer(Layer { locked: true, ..layer }))
+        .unwrap();
+    let group = GroupId::new();
+    h.execute(
+        &mut p,
+        Command::Group {
+            group,
+            elements: vec![a, b, c],
+        },
+    )
+    .unwrap();
+    assert_eq!(p.group_members(group), [a, b, c]);
+    h.execute(&mut p, Command::Ungroup { group }).unwrap();
+    assert!(p.groups.is_empty());
+}
+
+/// ELM-015: membership changes only through the group commands. Updating
+/// an element to another group is refused, edits and moves keep the group,
+/// and an added element names an existing group or none.
+#[test]
+fn membership_changes_only_through_the_group_commands() {
+    let (mut p, mut h, [a, b, c]) = three_walls();
+    let group = GroupId::new();
+    h.execute(
+        &mut p,
+        Command::Group {
+            group,
+            elements: vec![a, b],
+        },
+    )
+    .unwrap();
+    for target in [None, Some(GroupId::new())] {
+        let moved = Element {
+            group: target,
+            ..p.element(a).unwrap().clone()
+        };
+        let (variant, message) = rejection(h.execute(&mut p, Command::UpdateElements(vec![moved])));
+        assert_eq!((variant, message.key()), ("Invalid", "model-error-group-change"));
+    }
+    let joined = Element {
+        group: Some(group),
+        ..p.element(c).unwrap().clone()
+    };
+    let (variant, message) = rejection(h.execute(&mut p, Command::UpdateElements(vec![joined])));
+    assert_eq!((variant, message.key()), ("Invalid", "model-error-group-change"));
+
+    h.execute(
+        &mut p,
+        Command::MoveElements {
+            ids: vec![a, b],
+            delta: DVec2::new(1.0, 0.0),
+        },
+    )
+    .unwrap();
+    assert_eq!((group_of(&p, a), group_of(&p, b)), (Some(group), Some(group)));
+
+    let mut stray = wall(&p, (0.0, 9.0), (5.0, 9.0));
+    stray.group = Some(GroupId::new());
+    let (variant, message) = rejection(h.execute(&mut p, Command::AddElements(vec![stray.clone()])));
+    assert_eq!((variant, message.key()), ("NotFound", "model-error-group-not-found"));
+    stray.group = Some(group);
+    h.execute(&mut p, Command::AddElements(vec![stray.clone()])).unwrap();
+    assert_eq!(p.group_members(group), [a, b, stray.id]);
 }

@@ -398,6 +398,7 @@ pub fn default_metric_project_with(ids: &mut dyn FnMut(&str) -> Uuid) -> Project
         layers,
         materials,
         elements: IndexMap::new(),
+        groups: IndexMap::new(),
         tool_defaults,
         views: vec![
             View3d {
@@ -412,6 +413,7 @@ pub fn default_metric_project_with(ids: &mut dyn FnMut(&str) -> Uuid) -> Project
             },
         ],
         counters: NameCounters::default(),
+        group_counter: 0,
         data_version: 0,
         revision: 0,
     }

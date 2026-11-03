@@ -16,7 +16,8 @@ use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
 use archicraft_model::project::{DefaultsSlot, NameCounters};
 use archicraft_model::{
-    Element, ElementKind, KindTag, Layer, MaterialId, PredefinedType, Project, ReferenceLine, Slab, TopLink, Wall,
+    Element, ElementKind, Group, KindTag, Layer, MaterialId, PredefinedType, Project, ReferenceLine, Slab, TopLink,
+    Wall,
 };
 use indexmap::IndexMap;
 use serde::Serialize;
@@ -207,12 +208,25 @@ fn material_record(m: &Material) -> Value {
     })
 }
 
+/// A group entry of the project (ELM-015); `parent` only for a nested group.
+fn group_record(g: &Group) -> Value {
+    let mut record = json!({
+        "id": g.id.to_string(),
+        "name": g.name,
+    });
+    if let Some(parent) = g.parent {
+        record["parent"] = json!(parent.to_string());
+    }
+    record
+}
+
 /// `archicraft::project`: settings and every resource, used or not (IFX-060,
-/// IFX-067).
+/// IFX-067). `groups` only when the project has groups (ELM-015), so files
+/// of projects without them stay as they were.
 fn project_attribute(p: &Project, warnings: &mut Vec<Problem>) -> Value {
     let units = &p.settings.units;
     let grid = &p.settings.plan_grid;
-    json!({
+    let mut value = json!({
         "formatVersion": FORMAT_VERSION.to_string(),
         "info": {
             "number": p.info.number,
@@ -255,19 +269,27 @@ fn project_attribute(p: &Project, warnings: &mut Vec<Problem>) -> Value {
             "name": v.name,
             "projection": v.projection.code(),
         })).collect::<Vec<_>>(),
-        "counters": counters(&p.counters),
-    })
+        "counters": counters(&p.counters, p.group_counter),
+    });
+    if !p.groups.is_empty() {
+        value["groups"] = p.groups.values().map(group_record).collect();
+    }
+    value
 }
 
 /// Name counters (ELM-019) by kind code: every kind that has a tool, so that
-/// files keep the same keys, plus any other kind with a non-zero counter.
-fn counters(counters: &NameCounters) -> Value {
-    KindTag::ALL
+/// files keep the same keys, plus any other kind with a non-zero counter,
+/// and the group counter (ELM-015) when it is not zero.
+fn counters(counters: &NameCounters, group_counter: u32) -> Value {
+    let mut map: Map<String, Value> = KindTag::ALL
         .iter()
         .filter(|kind| kind.descriptor().has_tool || counters.get(**kind) != 0)
         .map(|&kind| (kind.code().to_owned(), json!(counters.get(kind))))
-        .collect::<Map<_, _>>()
-        .into()
+        .collect();
+    if group_counter != 0 {
+        map.insert(schema::GROUP_COUNTER.into(), json!(group_counter));
+    }
+    map.into()
 }
 
 /// The kind's parameter attribute, or `None` for a kind this format
@@ -532,6 +554,10 @@ fn write_element(
             predefined_type(&mut common, e.predefined_type);
             if e.snap_excluded {
                 common["snapExcluded"] = json!(true);
+            }
+            // ELM-015: only for a grouped element.
+            if let Some(group) = e.group {
+                common["group"] = json!(group.to_string());
             }
             node.attributes.insert(schema::ELEMENT.into(), common);
             node.attributes.insert(key.into(), value);

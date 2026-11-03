@@ -1,5 +1,5 @@
 //! Command objects and the undo history (NFR-MNT-001, UND-001, UND-002,
-//! UND-005, STR-005).
+//! UND-005, STR-005, ELM-015).
 //!
 //! Every change to a project is a [`Command`]. Executing a command first plans
 //! it against the current project, which validates it and produces a list of
@@ -9,14 +9,15 @@
 //! and identities stay stable. Commands are serialisable, so they can be
 //! logged and replayed.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::element::{Element, KindTag};
-use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
+use crate::group::Group;
+use crate::ids::{ElementId, GroupId, LayerId, MaterialId, StoreyId};
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
@@ -92,6 +93,25 @@ pub enum Command {
         building: String,
     },
     SetLocation(Location),
+    /// Groups elements in a new group with the identity `group` (ELM-015).
+    /// An element that already belongs to a group joins through its
+    /// outermost group, which becomes a child of the new one, so groups
+    /// nest. The new group is named `Group <n>` from the project's group
+    /// counter. Fewer than two distinct elements and groups change nothing.
+    Group {
+        group: GroupId,
+        elements: Vec<ElementId>,
+    },
+    /// Removes one level of grouping (ELM-015): the group's child groups and
+    /// its own members move to its parent, or out of every group if it is
+    /// an outermost group.
+    Ungroup {
+        group: GroupId,
+    },
+    RenameGroup {
+        group: GroupId,
+        name: String,
+    },
 }
 
 /// Why a command was rejected. Each variant carries a message key with its
@@ -160,6 +180,9 @@ impl Command {
             Command::SetInfo(_) => Message::new("model-label-project-info"),
             Command::SetSpatialNames { .. } => Message::new("model-label-spatial-names"),
             Command::SetLocation(_) => Message::new("model-label-location"),
+            Command::Group { .. } => Message::new("model-label-group"),
+            Command::Ungroup { .. } => Message::new("model-label-ungroup"),
+            Command::RenameGroup { .. } => Message::new("model-label-rename-group"),
         }
     }
 
@@ -313,6 +336,22 @@ impl Command {
                 }
                 Ok(vec![Edit::SetLocation(*location)])
             }
+            Command::Group { group, elements } => plan_group(project, *group, elements),
+            Command::Ungroup { group } => plan_ungroup(project, *group),
+            Command::RenameGroup { group, name } => {
+                let old = find_group(project, *group)?;
+                let name = name.trim();
+                if name.is_empty() {
+                    return Err(invalid("model-error-group-name"));
+                }
+                if old.name == name {
+                    return Err(CommandError::NoChange);
+                }
+                Ok(vec![Edit::ReplaceGroup(Group {
+                    name: name.to_owned(),
+                    ..old.clone()
+                })])
+            }
         }
     }
 }
@@ -321,6 +360,12 @@ fn find_element(project: &Project, id: ElementId) -> Result<&Element, CommandErr
     project
         .element(id)
         .ok_or_else(|| not_found("model-error-element-not-found"))
+}
+
+fn find_group(project: &Project, id: GroupId) -> Result<&Group, CommandError> {
+    project
+        .group(id)
+        .ok_or_else(|| not_found("model-error-group-not-found"))
 }
 
 fn storey_edit(project: &Project, list: StoreyList) -> Result<Vec<Edit>, CommandError> {
@@ -406,6 +451,9 @@ fn plan_add_elements(project: &Project, elements: &[Element]) -> Result<Vec<Edit
         if project.element(element.id).is_some() || elements[..i].iter().any(|e| e.id == element.id) {
             return Err(invalid("model-error-duplicate-element-id"));
         }
+        if element.group.is_some_and(|g| project.group(g).is_none()) {
+            return Err(not_found("model-error-group-not-found"));
+        }
         let element = validate::validate_element(project, element).map_err(CommandError::Invalid)?;
         counters.bump(element.tag());
         edits.push(Edit::InsertElement {
@@ -432,6 +480,104 @@ fn plan_delete_elements(project: &Project, ids: &[ElementId]) -> Result<Vec<Edit
         }
         edits.push(Edit::RemoveElement { id: *id });
     }
+    edits.extend(remove_emptied_groups(project, &edits));
+    Ok(edits)
+}
+
+/// Removes the groups that the element removals among `edits` leave without
+/// members, nested groups included (ELM-015). A group that was empty before
+/// stays.
+fn remove_emptied_groups(project: &Project, edits: &[Edit]) -> Vec<Edit> {
+    let removed: HashSet<ElementId> = edits
+        .iter()
+        .filter_map(|edit| match edit {
+            Edit::RemoveElement { id } => Some(*id),
+            _ => None,
+        })
+        .collect();
+    let mut emptied = HashSet::new();
+    let mut kept = HashSet::new();
+    for e in project.elements.values() {
+        let groups = if removed.contains(&e.id) {
+            &mut emptied
+        } else {
+            &mut kept
+        };
+        groups.extend(project.group_path(e.id));
+    }
+    project
+        .groups
+        .keys()
+        .filter(|g| emptied.contains(*g) && !kept.contains(*g))
+        .map(|&id| Edit::RemoveGroup { id })
+        .collect()
+}
+
+/// Plans [`Command::Group`]: each element stands for its outermost group if
+/// it has one, and for itself otherwise (ELM-015). Locks do not matter:
+/// grouping edits neither geometry nor parameters (ELM-013).
+fn plan_group(project: &Project, group: GroupId, elements: &[ElementId]) -> Result<Vec<Edit>, CommandError> {
+    if project.group(group).is_some() {
+        return Err(invalid("model-error-duplicate-group-id"));
+    }
+    let mut seen_groups = HashSet::new();
+    let mut seen_elements = HashSet::new();
+    let (mut groups, mut loose) = (Vec::new(), Vec::new());
+    for id in elements {
+        let element = find_element(project, *id)?;
+        match project.outermost_group(*id) {
+            Some(g) if seen_groups.insert(g) => groups.push(find_group(project, g)?),
+            Some(_) => {}
+            None if seen_elements.insert(*id) => loose.push(element),
+            None => {}
+        }
+    }
+    if groups.len() + loose.len() < 2 {
+        return Err(CommandError::NoChange);
+    }
+    let n = project.group_counter.saturating_add(1);
+    let mut edits = vec![
+        Edit::InsertGroup {
+            index: project.groups.len(),
+            group: Group {
+                id: group,
+                name: Group::automatic_name(n),
+                parent: None,
+            },
+        },
+        Edit::SetGroupCounter(n),
+    ];
+    edits.extend(groups.into_iter().map(|g| {
+        Edit::ReplaceGroup(Group {
+            parent: Some(group),
+            ..g.clone()
+        })
+    }));
+    edits.extend(loose.into_iter().map(|e| {
+        Edit::ReplaceElement(Element {
+            group: Some(group),
+            ..e.clone()
+        })
+    }));
+    Ok(edits)
+}
+
+/// Plans [`Command::Ungroup`] (ELM-015). Like grouping, it ignores locks.
+fn plan_ungroup(project: &Project, group: GroupId) -> Result<Vec<Edit>, CommandError> {
+    let parent = find_group(project, group)?.parent;
+    let mut edits: Vec<Edit> = project
+        .groups
+        .values()
+        .filter(|g| g.parent == Some(group))
+        .map(|g| Edit::ReplaceGroup(Group { parent, ..g.clone() }))
+        .collect();
+    edits.extend(project.elements.values().filter(|e| e.group == Some(group)).map(|e| {
+        Edit::ReplaceElement(Element {
+            group: parent,
+            ..e.clone()
+        })
+    }));
+    edits.push(Edit::RemoveGroup { id: group });
     Ok(edits)
 }
 
@@ -455,6 +601,11 @@ fn plan_update_elements(project: &Project, elements: &[Element]) -> Result<Vec<E
         }
         if old.tag() != element.tag() {
             return Err(invalid("model-error-kind-change"));
+        }
+        // ELM-015: membership changes only through the group commands, which
+        // keep every group with members.
+        if old.group != element.group {
+            return Err(invalid("model-error-group-change"));
         }
         if let Some(reason) = project.edit_lock_reason(old) {
             let layer_locked = project.layer(old.layer).is_some_and(|l| l.locked);
@@ -577,6 +728,7 @@ fn plan_delete_storey(project: &Project, storey: StoreyId, mode: StoreyElements)
         edits.push(Edit::SetToolDefaults(defaults));
     }
     check_linked_heights(project, &list, &edits)?;
+    edits.extend(remove_emptied_groups(project, &edits));
     edits.push(Edit::SetStoreys(list));
     Ok(edits)
 }
@@ -693,6 +845,7 @@ fn check_slot(project: &Project, kind: KindTag, slot: &DefaultsSlot) -> Result<(
         position: slot.position,
         locked: false,
         snap_excluded: false,
+        group: None,
         kind: slot.kind.clone(),
     };
     validate::validate_prototype(project, &prototype).map_err(invalid_slot)?;
@@ -738,6 +891,10 @@ pub enum Edit {
     SetSpatialNames { site: String, building: String },
     SetLocation(Location),
     SetCounters(NameCounters),
+    InsertGroup { index: usize, group: Group },
+    RemoveGroup { id: GroupId },
+    ReplaceGroup(Group),
+    SetGroupCounter(u32),
 }
 
 impl Edit {
@@ -826,6 +983,29 @@ impl Edit {
             },
             Edit::SetLocation(location) => Edit::SetLocation(std::mem::replace(&mut project.site.location, location)),
             Edit::SetCounters(counters) => Edit::SetCounters(std::mem::replace(&mut project.counters, counters)),
+            Edit::InsertGroup { index, group } => {
+                let id = group.id;
+                let index = index.min(project.groups.len());
+                project.groups.shift_insert(index, id, group);
+                Edit::RemoveGroup { id }
+            }
+            Edit::RemoveGroup { id } => {
+                let (index, _, group) = project
+                    .groups
+                    .shift_remove_full(&id)
+                    .ok_or_else(|| not_found("model-error-group-not-found"))?;
+                Edit::InsertGroup { index, group }
+            }
+            Edit::ReplaceGroup(group) => {
+                let slot = project
+                    .groups
+                    .get_mut(&group.id)
+                    .ok_or_else(|| not_found("model-error-group-not-found"))?;
+                Edit::ReplaceGroup(std::mem::replace(slot, group))
+            }
+            Edit::SetGroupCounter(counter) => {
+                Edit::SetGroupCounter(std::mem::replace(&mut project.group_counter, counter))
+            }
         };
         project.revision += 1;
         Ok(inverse)

@@ -18,8 +18,8 @@ use archicraft_model::template::default_metric_project;
 use archicraft_model::units::{LengthUnit, NumberFormat, format_angle, format_length, parse_length};
 use archicraft_model::validate::validate_element;
 use archicraft_model::{
-    Command, CommandError, Element, ElementKind, History, IfcClass, KindTag, Layer, LayerId, MaterialId, Message,
-    Position, Project, ReferenceLine, Slab, SlabReference, Storey, StoreyId, TopLink, Wall,
+    Command, CommandError, Element, ElementKind, GroupId, History, IfcClass, KindTag, Layer, LayerId, MaterialId,
+    Message, Position, Project, ReferenceLine, Slab, SlabReference, Storey, StoreyId, TopLink, Wall,
 };
 use common::{ground, wall};
 
@@ -672,10 +672,13 @@ fn variant(command: &Command) -> usize {
         Command::SetInfo(_) => 18,
         Command::SetSpatialNames { .. } => 19,
         Command::SetLocation(_) => 20,
+        Command::Group { .. } => 21,
+        Command::Ungroup { .. } => 22,
+        Command::RenameGroup { .. } => 23,
     }
 }
 
-const VARIANTS: usize = 21;
+const VARIANTS: usize = 24;
 
 /// A recorded session that executes every command variant at least once.
 struct Session {
@@ -826,6 +829,25 @@ fn scripted_session() -> Session {
         ..p.site.location
     };
     run(&mut p, Command::SetLocation(location));
+    let partner = wall(&p, (0.0, 6.0), (5.0, 6.0));
+    let partner_id = partner.id;
+    run(&mut p, Command::AddElements(vec![partner]));
+    let group = GroupId::new();
+    run(
+        &mut p,
+        Command::Group {
+            group,
+            elements: vec![wid, partner_id],
+        },
+    );
+    run(
+        &mut p,
+        Command::RenameGroup {
+            group,
+            name: "Party walls".into(),
+        },
+    );
+    run(&mut p, Command::Ungroup { group });
 
     Session {
         start,

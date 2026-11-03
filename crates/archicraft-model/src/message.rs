@@ -45,6 +45,9 @@ pub const ALL_KEYS: &[&str] = &[
     "model-label-project-info",
     "model-label-spatial-names",
     "model-label-location",
+    "model-label-group",
+    "model-label-ungroup",
+    "model-label-rename-group",
     // Element kinds (KindDescriptor::label_key and noun_key).
     "model-kind-wall",
     "model-kind-wall-noun",
@@ -83,6 +86,10 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-project-name",
     "model-error-spatial-names",
     "model-error-location-invalid",
+    "model-error-duplicate-group-id",
+    "model-error-group-not-found",
+    "model-error-group-name",
+    "model-error-group-change",
     // Element validation (validate.rs, Kind::validate).
     "model-error-coordinates-range",
     "model-error-polygon-points",

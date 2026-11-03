@@ -5,7 +5,7 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{ElementId, LayerId, StoreyId};
+use crate::ids::{ElementId, GroupId, LayerId, StoreyId};
 pub use crate::kinds::{ElementKind, KindTag};
 use crate::storey::StoreyList;
 use crate::transform::PlanTransform;
@@ -374,6 +374,10 @@ pub struct Element {
     /// Excluded elements are drawn but provide no snap targets (INP-017).
     #[serde(default)]
     pub snap_excluded: bool,
+    /// The innermost group the element belongs to (ELM-015). It changes only
+    /// through the group commands.
+    #[serde(default)]
+    pub group: Option<GroupId>,
     pub kind: ElementKind,
 }
 

@@ -13,7 +13,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::KINDS;
 use archicraft_model::message::{ALL_KEYS, ARG_NAMES};
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Arg, Command, History, KindTag, Layer, Message, Project, Storey};
+use archicraft_model::{Arg, Command, GroupId, History, KindTag, Layer, Message, Project, Storey};
 use common::{ground, wall};
 
 /// NFR-MNT-002, NFR-L10N-001: the catalogue lives in the application; the
@@ -58,6 +58,9 @@ const VARIANTS: &[&str] = &[
     "SetInfo",
     "SetSpatialNames",
     "SetLocation",
+    "Group",
+    "Ungroup",
+    "RenameGroup",
 ];
 
 fn variant(command: &Command) -> &'static str {
@@ -83,6 +86,9 @@ fn variant(command: &Command) -> &'static str {
         Command::SetInfo(_) => "SetInfo",
         Command::SetSpatialNames { .. } => "SetSpatialNames",
         Command::SetLocation(_) => "SetLocation",
+        Command::Group { .. } => "Group",
+        Command::Ungroup { .. } => "Ungroup",
+        Command::RenameGroup { .. } => "RenameGroup",
     }
 }
 
@@ -149,6 +155,15 @@ fn one_of_each(p: &Project) -> Vec<Command> {
             building: "B".into(),
         },
         Command::SetLocation(p.site.location),
+        Command::Group {
+            group: GroupId::new(),
+            elements: vec![w.id],
+        },
+        Command::Ungroup { group: GroupId::new() },
+        Command::RenameGroup {
+            group: GroupId::new(),
+            name: "Core".into(),
+        },
     ]
 }
 

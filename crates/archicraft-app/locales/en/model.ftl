@@ -41,6 +41,9 @@ model-label-project-settings = Change project settings
 model-label-project-info = Change project information
 model-label-spatial-names = Rename site and building
 model-label-location = Change project location
+model-label-group = Group
+model-label-ungroup = Ungroup
+model-label-rename-group = Rename group
 
 ## Element kinds: the label (a name on its own, such as a heading) and the
 ## noun inside a sentence, with $count selecting the plural.
@@ -104,6 +107,10 @@ model-error-display-precision = Display precision is limited to { $max_text } de
 model-error-project-name = The project needs a name.
 model-error-spatial-names = Site and building need names.
 model-error-location-invalid = The location has invalid values.
+model-error-duplicate-group-id = A group with this ID already exists.
+model-error-group-not-found = The group does not exist.
+model-error-group-name = A group needs a name.
+model-error-group-change = An element joins or leaves a group only through Group and Ungroup.
 
 ## Element validation (ELM-017, EDT-018, EDT-019). $kind is an element kind
 ## noun, $class an IFC class name such as IfcWall.

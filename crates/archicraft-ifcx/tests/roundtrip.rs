@@ -997,3 +997,240 @@ fn defaults_slots_with_predefined_types_round_trip() {
     assert_eq!(slots.get(KindTag::Slab).unwrap().predefined_type, None);
     assert_eq!(slots.get(KindTag::Wall), defaults.get(KindTag::Wall));
 }
+
+/// The walls-and-slab sample grouped by command into Outer { Inner { W-001,
+/// W-002 }, W-003 } and Pair { SL-001, W-004 }, with Inner renamed. The
+/// groups are in the order Inner, Outer, Pair.
+fn grouped_sample() -> (archicraft_model::Project, [archicraft_model::GroupId; 3]) {
+    use archicraft_model::{Command, GroupId, History};
+
+    let mut project = samples::storey_with_walls_and_slab();
+    let mut history = History::default();
+    let [w1, w2, w3, w4, s1] = ["W-001", "W-002", "W-003", "W-004", "SL-001"].map(|n| element_named(&project, n).id);
+    let groups = [GroupId::new(), GroupId::new(), GroupId::new()];
+    let [inner, outer, pair] = groups;
+    for (group, elements) in [(inner, vec![w1, w2]), (outer, vec![w2, w3]), (pair, vec![s1, w4])] {
+        history
+            .execute(&mut project, Command::Group { group, elements })
+            .unwrap();
+    }
+    history
+        .execute(
+            &mut project,
+            Command::RenameGroup {
+                group: inner,
+                name: "Inner".into(),
+            },
+        )
+        .unwrap();
+    (project, groups)
+}
+
+fn groups_of(value: &mut Value) -> &mut Vec<Value> {
+    value["data"][0]["attributes"]["archicraft::project"]["groups"]
+        .as_array_mut()
+        .unwrap()
+}
+
+/// The reports whose text contains `part`, with their severities.
+fn reports_with(loaded: &archicraft_ifcx::ReadOutcome, part: &str) -> Vec<(Severity, String)> {
+    loaded
+        .problems
+        .iter()
+        .map(|p| (p.severity, p.message.to_string()))
+        .filter(|(_, text)| text.contains(part))
+        .collect()
+}
+
+/// ELM-015: nested groups, their names and every membership survive a save
+/// and a load bit for bit, and the file validates. Only a nested group
+/// carries a parent and only a grouped element a group; the group counter
+/// is saved with the name counters.
+#[test]
+fn nested_groups_and_memberships_round_trip() {
+    let (project, [inner, outer, pair]) = grouped_sample();
+    let bytes = save(&project);
+    let problems = validate::validate(&validate::parse(&bytes).unwrap());
+    assert!(problems.is_empty(), "{problems:#?}");
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    let attr = &value["data"][0]["attributes"]["archicraft::project"];
+    assert_eq!(
+        attr["groups"],
+        serde_json::json!([
+            {"id": inner.to_string(), "name": "Inner", "parent": outer.to_string()},
+            {"id": outer.to_string(), "name": "Group 2"},
+            {"id": pair.to_string(), "name": "Group 3"},
+        ])
+    );
+    assert_eq!(attr["counters"]["group"], 3);
+    let group_of = |name| value["data"][node_index(&value, name)]["attributes"]["archicraft::element"]["group"].clone();
+    assert_eq!(group_of("W-001"), inner.to_string());
+    assert_eq!(group_of("W-003"), outer.to_string());
+    assert_eq!(group_of("SL-001"), pair.to_string());
+
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    let mut expected = project.clone();
+    expected.revision = 0;
+    expected.data_version = 7;
+    assert_eq!(loaded.project, expected);
+    assert!(
+        loaded.project.groups.keys().eq(project.groups.keys()),
+        "the order is kept"
+    );
+    let w1 = element_named(&loaded.project, "W-001").id;
+    assert_eq!(loaded.project.group_path(w1), [outer, inner]);
+}
+
+/// ELM-015, PRJ-008: a parent cycle in the file is broken at the first of
+/// its groups in file order, with a warning; every group and membership is
+/// kept.
+#[test]
+fn a_parent_cycle_in_the_file_is_broken_with_a_warning() {
+    let (project, [inner, outer, pair]) = grouped_sample();
+    let bytes = edit(&project, |v| {
+        let groups = groups_of(v);
+        // Inner -> Outer -> Inner, and Pair -> Pair.
+        groups[1]["parent"] = inner.to_string().into();
+        groups[2]["parent"] = pair.to_string().into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let cycles = reports_with(&loaded, "ifcx-group-cycle");
+    assert_eq!(cycles.len(), 2, "{:#?}", loaded.problems);
+    assert!(cycles[0].1.contains("ifcx-record-group(index=0)"), "{cycles:#?}");
+    assert!(cycles[1].1.contains("ifcx-record-group(index=2)"), "{cycles:#?}");
+    assert!(cycles.iter().all(|(severity, _)| *severity == Severity::Warning));
+    assert_eq!(loaded.problems.len(), 2, "{:#?}", loaded.problems);
+    let p = &loaded.project;
+    assert_eq!(p.groups.len(), 3);
+    assert_eq!(p.group(inner).unwrap().parent, None);
+    assert_eq!(p.group(outer).unwrap().parent, Some(inner));
+    assert_eq!(p.group(pair).unwrap().parent, None);
+    let w3 = element_named(p, "W-003").id;
+    assert_eq!(p.group_path(w3), [inner, outer]);
+}
+
+/// ELM-015, PRJ-008: a group whose parent does not exist becomes an
+/// outermost group, and an element that names a missing group is
+/// ungrouped, each with a warning. The group left without members stays.
+#[test]
+fn a_dangling_parent_and_a_missing_group_reference_are_dropped_with_warnings() {
+    let (project, [inner, outer, _]) = grouped_sample();
+    let bytes = edit(&project, |v| {
+        groups_of(v)[0]["parent"] = uuid::Uuid::new_v4().to_string().into();
+        let i = node_index(v, "W-003");
+        v["data"][i]["attributes"]["archicraft::element"]["group"] = uuid::Uuid::new_v4().to_string().into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert_eq!(loaded.problems.len(), 2, "{:#?}", loaded.problems);
+    let parent = reports_with(&loaded, "ifcx-group-parent-missing");
+    assert_eq!(parent.len(), 1, "{:#?}", loaded.problems);
+    assert!(parent[0].1.contains("ifcx-record-group(index=0)"));
+    let member = reports_with(&loaded, "ifcx-element-group-missing");
+    assert_eq!(member.len(), 1, "{:#?}", loaded.problems);
+    assert!(member[0].1.contains(r#"ifcx-record-element(name="W-003")"#));
+    assert!([&parent[0], &member[0]].iter().all(|(s, _)| *s == Severity::Warning));
+    let p = &loaded.project;
+    assert_eq!(p.group(inner).unwrap().parent, None);
+    assert_eq!(element_named(p, "W-003").group, None);
+    assert_eq!(p.groups.len(), 3);
+    assert!(p.group_members(outer).is_empty());
+}
+
+/// ELM-015: groups, an element's group and the group counter are written
+/// only when present, so the file of a project without groups carries none
+/// of them, like every file written before groups existed, and reads
+/// without groups and without a problem.
+#[test]
+fn a_file_without_groups_loads_without_any_and_without_a_warning() {
+    for project in samples() {
+        assert!(project.groups.is_empty());
+        let bytes = save(&project);
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        let attr = &value["data"][0]["attributes"]["archicraft::project"];
+        assert!(attr.get("groups").is_none(), "{}", project.info.name);
+        assert!(attr["counters"].get("group").is_none(), "{}", project.info.name);
+        let nodes = value["data"].as_array().unwrap();
+        assert!(
+            nodes
+                .iter()
+                .all(|n| n["attributes"]["archicraft::element"].get("group").is_none())
+        );
+        let loaded = archicraft_ifcx::load(&bytes).unwrap();
+        assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+        assert!(loaded.project.groups.is_empty());
+        assert_eq!(loaded.project.group_counter, 0);
+        assert!(loaded.project.elements.values().all(|e| e.group.is_none()));
+    }
+}
+
+/// ELM-015, IFX-061: the embedded schemas declare the project's groups, an
+/// element's group and the group counter as optional members, so files with
+/// and without groups validate on their own.
+#[test]
+fn groups_are_declared_as_optional_members() {
+    use serde_json::json;
+
+    let value: Value = serde_json::from_slice(&save(&samples::storey_with_walls_and_slab())).unwrap();
+    let members = |desc: &Value| desc["objectRestrictions"]["values"].clone();
+    let project = members(&value["schemas"]["archicraft::project"]["value"]);
+    assert_eq!(project["groups"]["dataType"], "Array");
+    assert_eq!(project["groups"]["optional"], true);
+    let group = members(&project["groups"]["arrayRestrictions"]["value"]);
+    assert_eq!(group["id"], json!({"dataType": "String"}));
+    assert_eq!(group["name"], json!({"dataType": "String"}));
+    assert_eq!(group["parent"], json!({"dataType": "String", "optional": true}));
+    let element = members(&value["schemas"]["archicraft::element"]["value"]);
+    assert_eq!(element["group"], json!({"dataType": "String", "optional": true}));
+    let counters = members(&project["counters"]);
+    assert_eq!(counters["group"], json!({"dataType": "Integer", "optional": true}));
+    // The group counter shares the counters object with the kinds' counters.
+    assert!(archicraft_model::KindTag::ALL.iter().all(|k| k.code() != "group"));
+}
+
+/// PRJ-008: a group record that is not an object, one without an identity
+/// and a second record of an identity already read are skipped and
+/// reported; a missing name is repaired with a default.
+#[test]
+fn damaged_group_records_are_skipped_or_repaired_and_reported() {
+    let (project, [inner, outer, pair]) = grouped_sample();
+    let bytes = edit(&project, |v| {
+        let groups = groups_of(v);
+        groups[2].as_object_mut().unwrap().remove("name");
+        groups.push("a group".into());
+        groups.push(serde_json::json!({"name": "No id"}));
+        groups.push(serde_json::json!({"id": outer.to_string(), "name": "Again"}));
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let skipped = reports_with(&loaded, "ifcx-skipped(record=ifcx-record-group");
+    assert_eq!(skipped.len(), 3, "{:#?}", loaded.problems);
+    assert!(skipped[0].1.contains("index=3") && skipped[0].1.contains("ifcx-not-object"));
+    assert!(skipped[1].1.contains("index=4") && skipped[1].1.contains(r#"ifcx-field-missing(key="id")"#));
+    assert!(skipped[2].1.contains("index=5") && skipped[2].1.contains("ifcx-group-listed-twice"));
+    let repaired = reports_with(&loaded, "ifcx-repaired(record=ifcx-record-group(index=2)");
+    assert_eq!(repaired.len(), 1, "{:#?}", loaded.problems);
+    let p = &loaded.project;
+    assert!(p.groups.keys().eq([inner, outer, pair].iter()));
+    assert_eq!(p.group(outer).unwrap().name, "Group 2");
+    assert_eq!(p.group(pair).unwrap().name, "Group");
+}
+
+/// ELM-015, PRJ-008: an invalid group counter is repaired to the number of
+/// groups, so that automatic group names do not repeat.
+#[test]
+fn an_invalid_group_counter_is_repaired_to_the_number_of_groups() {
+    let (project, _) = grouped_sample();
+    for (counter, reason) in [
+        (serde_json::json!(-1), "ifcx-counter-negative"),
+        (serde_json::json!("x"), "ifcx-value-used"),
+    ] {
+        let bytes = edit(&project, |v| {
+            v["data"][0]["attributes"]["archicraft::project"]["counters"]["group"] = counter.clone();
+        });
+        let loaded = archicraft_ifcx::load(&bytes).unwrap();
+        assert_eq!(loaded.project.group_counter, 3);
+        let repaired = reports_with(&loaded, "ifcx-record-counters");
+        assert_eq!(repaired.len(), 1, "{:#?}", loaded.problems);
+        assert!(repaired[0].1.contains(reason), "{repaired:#?}");
+    }
+}

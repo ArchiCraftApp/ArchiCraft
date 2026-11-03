@@ -349,3 +349,36 @@ fn load_path_reads_files_and_reports_missing_ones() {
         "{problem}"
     );
 }
+
+/// A chain of 100,000 nested groups whose outermost group names the
+/// innermost one as its parent loads in under a second with the one cycle
+/// broken: the reader walks each group's parents once, not once per group
+/// below it (ELM-015, PRJ-008, NFR-SEC-003).
+#[test]
+fn a_chain_of_100000_nested_groups_with_a_cycle_loads_quickly() {
+    const GROUPS: usize = 100_000;
+    let mut value: Value = serde_json::from_slice(&golden("walls-and-slab.ifcx")).unwrap();
+    let ids: Vec<String> = (0..GROUPS).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+    let groups: Vec<Value> = (0..GROUPS)
+        .map(|i| json!({"id": ids[i], "name": format!("G{i}"), "parent": ids[(i + 1) % GROUPS]}))
+        .collect();
+    value["data"][0]["attributes"]["archicraft::project"]["groups"] = Value::Array(groups);
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let start = Instant::now();
+    let outcome = archicraft_ifcx::load(&bytes).unwrap();
+    let elapsed = start.elapsed();
+    assert_eq!(outcome.project.groups.len(), GROUPS);
+    let cycles: Vec<String> = outcome
+        .problems
+        .iter()
+        .map(|p| p.message.to_string())
+        .filter(|m| m.contains("ifcx-group-cycle"))
+        .collect();
+    assert_eq!(cycles.len(), 1, "{cycles:#?}");
+    assert!(cycles[0].contains("ifcx-record-group(index=0)"), "{cycles:#?}");
+    assert_eq!(
+        outcome.project.groups.values().filter(|g| g.parent.is_none()).count(),
+        1
+    );
+    assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
+}

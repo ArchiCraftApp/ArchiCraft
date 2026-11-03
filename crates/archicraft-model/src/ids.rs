@@ -73,3 +73,7 @@ id_type!(
     /// Identity of a view definition.
     ViewId
 );
+id_type!(
+    /// Identity of an element group (ELM-015).
+    GroupId
+);
