@@ -192,7 +192,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
     {
         state.camera.target = point;
         state.camera.distance = (state.camera.eye() - point).length().max(0.1);
-        ws.info("Orbit pivot set");
+        ws.info(crate::tr!("status-orbit-pivot-set"));
     }
 
     let painter = ui.painter_at(rect);
@@ -232,21 +232,22 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
             painter.text(
                 rect.center(),
                 Align2::CENTER_CENTER,
-                "3D views need a GPU (wgpu), which is not available.",
+                crate::tr!("view-3d-no-gpu"),
                 FontId::proportional(14.0),
                 ui.visuals().weak_text_color(),
             );
         }
     }
-    let label = format!(
-        "{} · {}{}",
-        match state.camera.projection {
-            Projection::Perspective => "Perspective",
-            Projection::Parallel => "Parallel",
-        },
-        state.mode.label(),
-        if state.orbit { " · Orbit" } else { "" }
-    );
+    let projection = match state.camera.projection {
+        Projection::Perspective => crate::tr!("view-projection-perspective"),
+        Projection::Parallel => crate::tr!("view-projection-parallel"),
+    };
+    let mode = crate::tr!(state.mode.label_key());
+    let label = if state.orbit {
+        crate::tr!("view-3d-overlay-orbit", projection = projection, mode = mode)
+    } else {
+        crate::tr!("view-3d-overlay", projection = projection, mode = mode)
+    };
     painter.text(
         rect.left_top() + egui::vec2(8.0, 6.0),
         Align2::LEFT_TOP,

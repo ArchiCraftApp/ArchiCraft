@@ -7,7 +7,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use archicraft_app::i18n::{DYNAMIC_PREFIXES, catalogue};
+use archicraft_app::i18n::{DYNAMIC_PREFIXES, Localizer, catalogue};
+use archicraft_app::input::SnapKind;
+use archicraft_app::views::camera::ViewPreset;
+use archicraft_app::views::render3d::DisplayMode;
 use proc_macro2::{TokenStream, TokenTree};
 use syn::punctuated::Punctuated;
 use syn::visit::{self, Visit};
@@ -209,4 +212,30 @@ fn tr_keys_and_the_english_catalogue_match() {
 
     // The pilot keys are found, so the scan reached the migrated files.
     assert!(used.contains_key("menu-help") && used.contains_key("dlg-about-heading"));
+}
+
+/// NFR-L10N-001: the display modes, view presets and snap kinds the 3D
+/// toolbar and the cursor label name are in the English catalogue; only the
+/// free point, which the cursor does not name, has no key.
+#[test]
+fn display_mode_view_preset_and_snap_kind_label_keys_exist_in_english() {
+    let english = Localizer::english();
+    let mut keys: Vec<&str> = DisplayMode::ALL.map(DisplayMode::label_key).to_vec();
+    keys.extend(ViewPreset::ALL.map(ViewPreset::label_key));
+    for kind in SnapKind::ALL {
+        match kind.label_key() {
+            Some(key) => keys.push(key),
+            None => assert_eq!(kind, SnapKind::Free, "{kind:?} has no label key"),
+        }
+    }
+    let missing: Vec<&&str> = keys.iter().filter(|key| !english.has(key)).collect();
+    assert!(
+        missing.is_empty(),
+        "label keys missing from the English catalogue: {missing:?}"
+    );
+    assert!(
+        keys.iter()
+            .all(|key| DYNAMIC_PREFIXES.iter().any(|p| key.starts_with(p))),
+        "label keys are built at runtime and need a dynamic prefix: {keys:?}"
+    );
 }

@@ -1,8 +1,9 @@
 ### ArchiCraft English message catalogue: main window (NFR-L10N-001).
 ###
 ### Menus, window and tab titles, questions and notices, the status line and
-### the project browser. Keys are kebab-case and start with menu-, window-,
-### tab-, modal-, file-, startup-, status- or browser- (see
+### the project browser, the plan and 3D views. Keys are kebab-case and start
+### with menu-, window-, tab-, modal-, file-, startup-, status-, browser-,
+### view-, display-mode-, view-preset- or snap-kind- (see
 ### crates/archicraft-app/src/i18n).
 
 ## Menu bar (UI-011)
@@ -95,6 +96,8 @@ status-nothing-to-redo = Nothing to redo
 status-rejected = { $command }: { $reason }
 status-user-origin-reset = User origin reset to the project origin
 status-user-origin-placed = User origin placed
+# A double-click in a 3D view moved the orbit pivot to the clicked point.
+status-orbit-pivot-set = Orbit pivot set
 # $location: where the wall tool's reference line now lies, for example
 # Exterior face (WAL-007).
 status-wall-reference-line = Wall reference line: { $location }
@@ -113,3 +116,52 @@ status-selected =
         [one] { $count_text } element selected
        *[other] { $count_text } elements selected
     }
+
+## Plan and 3D views
+
+# Beside the element under the cursor in a plan; $name: the element's name,
+# for example W-1; $kind: its kind, for example Wall.
+view-plan-hover = { $name } · { $kind }
+# Shown in a 3D view when the computer has no usable graphics adapter.
+view-3d-no-gpu = 3D views need a GPU (wgpu), which is not available.
+# The corner label of a 3D view; $projection: view-projection-perspective or
+# view-projection-parallel; $mode: the display mode, for example Shaded.
+view-3d-overlay = { $projection } · { $mode }
+# The same while orbit mode is on.
+view-3d-overlay-orbit = { $projection } · { $mode } · Orbit
+view-projection-perspective = Perspective
+view-projection-parallel = Parallel
+
+## Display modes of the 3D views (VIEW-050), from DisplayMode::label_key
+
+display-mode-shaded = Shaded
+display-mode-shaded-with-edges = Shaded with edges
+display-mode-hidden-line = Hidden line
+display-mode-wireframe = Wireframe
+
+## View presets of the 3D views, from ViewPreset::label_key
+
+view-preset-top = Top
+view-preset-front = Front
+view-preset-side = Side
+view-preset-isometric = Isometric
+view-preset-dimetric = Dimetric
+
+## Snap kinds named in the cursor label (INP-008), from SnapKind::label_key
+
+snap-kind-node = node
+snap-kind-handle = handle
+snap-kind-centre = centre
+snap-kind-axis-point = axis point
+snap-kind-centroid = centroid
+snap-kind-intersection = intersection
+snap-kind-midpoint = midpoint
+snap-kind-division = division point
+snap-kind-guide-intersection = guide intersection
+snap-kind-perpendicular = perpendicular
+snap-kind-tangent = tangent
+snap-kind-edge = on edge
+snap-kind-guide = guide
+snap-kind-grid = grid
+snap-kind-constrained = constrained
+snap-kind-typed = typed

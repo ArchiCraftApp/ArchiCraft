@@ -281,15 +281,15 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Opti
                             chosen = Some(view::ORBIT);
                         }
                         egui::ComboBox::from_id_salt("display-mode")
-                            .selected_text(state.mode.label())
+                            .selected_text(tr!(state.mode.label_key()))
                             .show_ui(ui, |ui| {
                                 for mode in DisplayMode::ALL {
-                                    ui.selectable_value(&mut state.mode, mode, mode.label());
+                                    ui.selectable_value(&mut state.mode, mode, tr!(mode.label_key()));
                                 }
                             });
                         ui.menu_button("Views", |ui| {
                             for preset in ViewPreset::ALL {
-                                if ui.button(preset.label()).clicked() {
+                                if ui.button(tr!(preset.label_key())).clicked() {
                                     state.camera.apply_preset(preset);
                                     ui.close();
                                 }

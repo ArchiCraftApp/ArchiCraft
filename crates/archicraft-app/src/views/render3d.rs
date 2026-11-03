@@ -37,12 +37,14 @@ impl DisplayMode {
         DisplayMode::Wireframe,
     ];
 
-    pub fn label(self) -> &'static str {
+    /// The catalogue key of the mode's name, rendered with `tr!`
+    /// (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
         match self {
-            DisplayMode::Shaded => "Shaded",
-            DisplayMode::ShadedWithEdges => "Shaded with edges",
-            DisplayMode::HiddenLine => "Hidden line",
-            DisplayMode::Wireframe => "Wireframe",
+            DisplayMode::Shaded => "display-mode-shaded",
+            DisplayMode::ShadedWithEdges => "display-mode-shaded-with-edges",
+            DisplayMode::HiddenLine => "display-mode-hidden-line",
+            DisplayMode::Wireframe => "display-mode-wireframe",
         }
     }
 

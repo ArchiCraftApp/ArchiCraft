@@ -131,13 +131,15 @@ impl ViewPreset {
         ViewPreset::Dimetric,
     ];
 
-    pub fn label(self) -> &'static str {
+    /// The catalogue key of the preset's name, rendered with `tr!`
+    /// (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
         match self {
-            ViewPreset::Top => "Top",
-            ViewPreset::Front => "Front",
-            ViewPreset::Side => "Side",
-            ViewPreset::Isometric => "Isometric",
-            ViewPreset::Dimetric => "Dimetric",
+            ViewPreset::Top => "view-preset-top",
+            ViewPreset::Front => "view-preset-front",
+            ViewPreset::Side => "view-preset-side",
+            ViewPreset::Isometric => "view-preset-isometric",
+            ViewPreset::Dimetric => "view-preset-dimetric",
         }
     }
 }
