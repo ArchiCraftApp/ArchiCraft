@@ -34,3 +34,14 @@ dlg-units-slope-format = Slope format
 dlg-units-slope-sample = 30° pitch: { $sample }
 dlg-units-area-unit = Area unit
 dlg-units-volume-unit = Volume unit
+
+## Properties strip (UI-002)
+
+# A selection that is one group (ELM-015); $name: the group's name; $count:
+# its elements, for the plural; $count_text: the same number in the user's
+# number format.
+dlg-properties-group =
+    { $count ->
+        [one] Group: { $name } ({ $count_text } element)
+       *[other] Group: { $name } ({ $count_text } elements)
+    }

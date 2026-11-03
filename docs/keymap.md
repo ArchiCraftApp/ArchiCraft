@@ -98,6 +98,8 @@ table (`commands/d8.rs`) and the OS-reserved tables (`commands/os_reserved.rs`);
 | Close project | `Cmd+W` | `Ctrl+W` | always | `file.close` |
 | Preferences… | `Cmd+Comma` | `Ctrl+Comma` | always | `file.preferences` |
 | Quit | `Cmd+Q` | `Ctrl+Q` | always | `file.quit` |
+| Group | `Cmd+G` | `Ctrl+G` | not while typing | `edit.group` |
+| Ungroup | `Shift+Cmd+G` | `Ctrl+Shift+G` | not while typing | `edit.ungroup` |
 | Settings of tool or selection… | `Cmd+T` | `Ctrl+T` | always | `edit.settings` |
 | Previous zoom | `Cmd+OpenBracket` | `Ctrl+OpenBracket` | not while typing | `view.previous-zoom` |
 | Next zoom | `Cmd+CloseBracket` | `Ctrl+CloseBracket` | not while typing | `view.next-zoom` |

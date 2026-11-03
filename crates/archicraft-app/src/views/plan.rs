@@ -789,19 +789,10 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
             _ => 0,
         };
         state.pick = Some((world, index));
-        match candidates.get(index % candidates.len().max(1)) {
-            Some(id) if shift => {
-                if !ws.selection.remove(id) {
-                    ws.selection.insert(*id);
-                }
-            }
-            Some(id) => {
-                ws.selection.clear();
-                ws.selection.insert(*id);
-            }
-            None if !shift => ws.selection.clear(),
-            None => {}
-        }
+        // A grouped element selects its group; Shift toggles it whole
+        // (ELM-015).
+        let hit = candidates.get(index % candidates.len().max(1)).copied();
+        ws.click_select(hit, shift);
     }
     // Points from the primary button in the chosen input mode (INP-020): a
     // press that becomes a drag takes its point where the button went down.
@@ -878,14 +869,13 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         let a = camera.to_world(rect, r.left_bottom());
         let b = camera.to_world(rect, r.right_top());
         let shift = ui.input(|i| i.modifiers.shift);
-        if !shift {
-            ws.selection.clear();
-        }
-        for element in &plan.elements {
-            if element.in_rect(a.min(b), a.max(b), fully) {
-                ws.selection.insert(element.id);
-            }
-        }
+        let caught: Vec<ElementId> = plan
+            .elements
+            .iter()
+            .filter(|e| e.in_rect(a.min(b), a.max(b), fully))
+            .map(|e| e.id)
+            .collect();
+        ws.select_area(&caught, shift);
     }
     if !response.dragged_by(PointerButton::Primary) {
         state.area_start = None;
@@ -1162,11 +1152,8 @@ fn context_menu(ui: &mut Ui, ws: &mut Workspace) {
         }
         ui.separator();
     }
-    if let Some(id) = ws.hover
-        && !ws.selection.contains(&id)
-    {
-        ws.selection.clear();
-        ws.selection.insert(id);
+    if let Some(id) = ws.hover {
+        ws.select_for_menu(id);
     }
     let has_selection = !ws.selection.is_empty();
     if ui.add_enabled(has_selection, egui::Button::new("Delete")).clicked() {
@@ -1184,6 +1171,7 @@ fn context_menu(ui: &mut Ui, ws: &mut Workspace) {
         ws.requests.push(Request::ZoomTo(ws.selected_ids()));
         ui.close();
     }
+    super::group_menu_items(ui, ws);
     ui.separator();
     if ui.button("Select all").clicked() {
         ws.select_all();

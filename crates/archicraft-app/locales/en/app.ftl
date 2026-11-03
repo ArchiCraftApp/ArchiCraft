@@ -147,6 +147,9 @@ status-zoom = { $scale } pt/m
 status-scale = Scale 1:100
 # $storey: the name of the plan's storey.
 status-plan = Plan: { $storey }
+# The indicator while groups are suspended (ELM-015); a click turns the
+# suspension off.
+status-groups-suspended = Groups suspended
 
 ## Toolbox (UI-001): group headings and the short labels of its tools; the
 ## tooltips are the commands' (commands.ftl)

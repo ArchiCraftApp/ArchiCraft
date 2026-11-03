@@ -110,15 +110,16 @@ fn tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, enabled: Enabled) {
 const TOOLBAR_ICON: f32 = 16.0;
 
 /// The toolbar below the menu bar (UI-011): Save at the far left (PRJ-003),
-/// a separator, then Undo and Redo, greyed out while they cannot run, with
-/// their icons, labels and tooltips from the registry. Returns the command
-/// of the clicked button.
+/// a separator, Undo and Redo, a separator, then Group and Ungroup
+/// (ELM-015), greyed out while they cannot run, with their icons, labels and
+/// tooltips from the registry. Returns the command of the clicked button.
 pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     let mut chosen = None;
     ui.horizontal(|ui| {
-        for (i, id) in [file::SAVE, edit::UNDO, edit::REDO].into_iter().enumerate() {
-            // Save stands apart from the editing commands after it.
-            if i == 1 {
+        let ids = [file::SAVE, edit::UNDO, edit::REDO, edit::GROUP, edit::UNGROUP];
+        for (i, id) in ids.into_iter().enumerate() {
+            // Save, the history and the groups stand apart.
+            if i == 1 || i == 3 {
                 ui.separator();
             }
             let spec = spec(id);
@@ -167,8 +168,9 @@ fn problems_label(ws: &Workspace, count: usize) -> String {
     tr!("status-problems", count = count, count_text = ws.count_text(count))
 }
 
-/// The status line with the input prompt, the last message and the
-/// view-control bar of the active view (UI-001).
+/// The status line with the input prompt, the last message, the indicator
+/// of suspended groups (ELM-015) and the view-control bar of the active view
+/// (UI-001).
 pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_count: usize) -> Option<CommandId> {
     let mut chosen = None;
     let mut button = |ui: &mut Ui, id: CommandId, label: String| {
@@ -206,6 +208,11 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_coun
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             button(ui, view::PROBLEMS, problems_label(ws, problem_count));
             ui.separator();
+            // ELM-015: while groups are suspended; a click resumes them.
+            if cx.groups_suspended {
+                button(ui, edit::SUSPEND_GROUPS, tr!("status-groups-suspended"));
+                ui.separator();
+            }
             match ws.active_pane {
                 Some(Pane::View3d(view_id)) => {
                     if let Some(state) = ws.views_3d.get_mut(&view_id) {

@@ -11,7 +11,7 @@ use archicraft_model::project::DefaultsSlot;
 use archicraft_model::units::{NumberFormat, UnitSettings, format_area, format_length, format_volume};
 use archicraft_model::validate::signed_area;
 use archicraft_model::{
-    Command, Element, ElementKind, IfcClass, KindTag, LayerId, MaterialId, Position, PredefinedType, Project,
+    Command, Element, ElementKind, GroupId, IfcClass, KindTag, LayerId, MaterialId, Position, PredefinedType, Project,
     ReferenceLine, SlabReference, StoreyId, TopLink,
 };
 use egui::{Id, Ui};
@@ -662,6 +662,45 @@ fn lock_toggle(ui: &mut Ui, ws: &mut Workspace) {
     }
 }
 
+/// The group the selection is (ELM-015): one outermost group whose visible
+/// members are all selected, and nothing else.
+fn selected_group(ws: &Workspace) -> Option<GroupId> {
+    let (groups, loose) = ws.selection_items();
+    let ([group], []) = (&groups[..], &loose[..]) else {
+        return None;
+    };
+    let project = &ws.doc.project;
+    let visible = project
+        .group_members(*group)
+        .into_iter()
+        .filter(|id| project.element(*id).is_some_and(|e| project.is_visible(e)))
+        .count();
+    (visible == ws.selection.len()).then_some(*group)
+}
+
+/// The name and size of the selected group, such as "Group: Group 3 (5
+/// elements)", and a field that renames it, one undo step (ELM-015).
+fn group_row(ui: &mut Ui, ws: &mut Workspace) {
+    let Some(group) = selected_group(ws) else {
+        return;
+    };
+    let project = &ws.doc.project;
+    let Some(name) = project.group(group).map(|g| g.name.clone()) else {
+        return;
+    };
+    let count = project.group_members(group).len();
+    ui.label(tr!(
+        "dlg-properties-group",
+        name = name.as_str(),
+        count = count,
+        count_text = ws.count_text(count)
+    ));
+    if let Edited::Changed(name) = widgets::text(ui, Id::new("properties-group-name"), Some(&name), 110.0) {
+        ws.execute(Command::RenameGroup { group, name });
+    }
+    ui.separator();
+}
+
 /// The properties strip below the menu bar. It keeps a height of two rows,
 /// so that the views do not jump when the tool or selection changes.
 pub fn strip(ui: &mut Ui, ws: &mut Workspace) {
@@ -674,6 +713,7 @@ pub fn strip(ui: &mut Ui, ws: &mut Workspace) {
         };
         ui.strong(summary(ws, &editing));
         ui.separator();
+        group_row(ui, ws);
         if editing.targets.is_empty() {
             ui.label("The selected elements are locked.");
             lock_toggle(ui, ws);

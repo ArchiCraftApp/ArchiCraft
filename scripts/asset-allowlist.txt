@@ -19,4 +19,6 @@ crates/archicraft-app/assets/icons/plan-3d.svg | Toolbox Plan/3D view tool icon,
 crates/archicraft-app/assets/icons/undo.svg | Toolbar Undo icon, drawn for ArchiCraft in archicraft-mpxdh (style in crates/archicraft-app/src/ui/icons.rs) | CC BY 4.0, as the repository (LICENSE)
 crates/archicraft-app/assets/icons/redo.svg | Toolbar Redo icon, drawn for ArchiCraft in archicraft-mpxdh (style in crates/archicraft-app/src/ui/icons.rs) | CC BY 4.0, as the repository (LICENSE)
 crates/archicraft-app/assets/icons/save.svg | Toolbar Save icon (an arrow into a tray), drawn for ArchiCraft in archicraft-g1b.1 (style in crates/archicraft-app/src/ui/icons.rs) | CC BY 4.0, as the repository (LICENSE)
+crates/archicraft-app/assets/icons/group.svg | Toolbar Group icon (two squares inside corner marks), drawn for ArchiCraft in archicraft-6mgh.1 (style in crates/archicraft-app/src/ui/icons.rs) | CC BY 4.0, as the repository (LICENSE)
+crates/archicraft-app/assets/icons/ungroup.svg | Toolbar Ungroup icon (two squares moving apart), drawn for ArchiCraft in archicraft-6mgh.1 (style in crates/archicraft-app/src/ui/icons.rs) | CC BY 4.0, as the repository (LICENSE)
 packaging/macos/AppIcon.icon/Assets/mark.svg | The white mark of ArchiCraft_Logo.svg (its two paths), the foreground layer of the macOS app icon, added in archicraft-voux5 | CC BY 4.0, as the repository (LICENSE)
