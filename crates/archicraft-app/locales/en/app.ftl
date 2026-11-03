@@ -1,7 +1,9 @@
 ### ArchiCraft English message catalogue: main window (NFR-L10N-001).
 ###
-### Menus, the status line and the project browser. Keys are kebab-case and
-### start with menu-, status- or browser- (see crates/archicraft-app/src/i18n).
+### Menus, window and tab titles, questions and notices, the status line and
+### the project browser. Keys are kebab-case and start with menu-, window-,
+### tab-, modal-, file-, startup-, status- or browser- (see
+### crates/archicraft-app/src/i18n).
 
 ## Menu bar (UI-011)
 ## The titles of the menus; the items are commands (commands.ftl).
@@ -16,3 +18,98 @@ menu-help = Help
 # The submenu after File > Open… with the recently opened project files.
 menu-file-recent = Open recent
 menu-file-recent-empty = No recent projects
+
+## Window and tab titles (UI-001)
+
+# $name: the project's file name, or its name while it was never saved.
+window-title = { $name } — ArchiCraft
+# The same while the project has unsaved changes.
+window-title-unsaved = ● { $name } — ArchiCraft
+# $storey: the storey's name, for example 00 Ground floor.
+tab-plan = Plan: { $storey }
+# A plan tab whose storey no longer exists, for the frame before it closes.
+tab-plan-missing = Plan
+# A 3D tab whose view no longer exists, for the frame before it closes.
+tab-3d-missing = 3D
+tab-none = Open a plan or 3D view from the project browser.
+
+## Questions and messages in front of the main window (PRJ-003, PRJ-008,
+## IFX-062)
+
+modal-ok = OK
+modal-cancel = Cancel
+modal-save = Save
+modal-dont-save = Don't save
+modal-unsaved-title = Save changes?
+# $name: the project's file name, or its name while it was never saved.
+modal-unsaved-text = “{ $name }” has unsaved changes. Save them before continuing?
+modal-load-report-title = The project was opened with problems
+modal-load-report-text = Everything that could be read was loaded. These objects were skipped, repaired or replaced:
+modal-newer-title = Overwrite a newer file?
+modal-newer-text = This file was written by a newer version of ArchiCraft. Saving it with this version may lose data that this version does not know.
+modal-save-anyway = Save anyway
+modal-cannot-open-title = Cannot open the project
+# $path: the file; $reason: why it cannot be opened.
+modal-cannot-open-text = { $path }: { $reason }
+modal-not-saved-title = The project was not saved
+# $path: the file; $reason: the system's error message.
+modal-not-saved-text = { $path }: { $reason }
+modal-recovery-failed-title = Recovery failed
+
+# The file type in the Open and Save dialogs.
+file-filter-ifcx = IFCX project
+
+## Startup notices: autosaves to recover (PRJ-004) and the crash report of
+## the last session (NFR-SEC-002)
+
+startup-recovery-title = Recover unsaved work
+startup-recovery-text = ArchiCraft did not close properly last time. These autosaves can be recovered (PRJ-004):
+# $name: the project's name; $time: when it was autosaved; $place: its
+# file, or startup-recovery-never-saved.
+startup-recovery-entry = { $name } — autosaved { $time } ({ $place })
+startup-recovery-never-saved = never saved
+startup-recovery-recover = Recover
+startup-recovery-discard = Discard
+startup-recovery-later = Decide later
+startup-crash-title = ArchiCraft crashed last time
+startup-crash-text = A crash report was saved on this computer. Nothing was sent. You can pass it on to the developers if you want to:
+startup-crash-copy-path = Copy path
+
+## Status line messages
+
+# $path: the file.
+status-opened = Opened { $path }
+# $path: the file.
+status-saved = Saved { $path }
+# $warning: the first warning of the save.
+status-saved-with-warnings = Saved with warnings: { $warning }
+status-recovered = Recovered the autosaved project. Save it to keep it.
+# $command: what was undone, for example Create wall.
+status-undone = Undone: { $command }
+# $command: what was redone, for example Create wall.
+status-redone = Redone: { $command }
+status-nothing-to-undo = Nothing to undo
+status-nothing-to-redo = Nothing to redo
+# $command: the rejected command, for example Create wall; $reason: why the
+# project rejected it.
+status-rejected = { $command }: { $reason }
+status-user-origin-reset = User origin reset to the project origin
+status-user-origin-placed = User origin placed
+# $location: where the wall tool's reference line now lies, for example
+# Exterior face (WAL-007).
+status-wall-reference-line = Wall reference line: { $location }
+status-selection-locked = The selected elements are locked.
+# $count: the locked elements of the selection that stayed, for the plural;
+# $count_text: the same number in the user's number format.
+status-locked-not-deleted =
+    { $count ->
+        [one] { $count_text } locked element was not deleted.
+       *[other] { $count_text } locked elements were not deleted.
+    }
+# $count: the elements now selected, for the plural; $count_text: the same
+# number in the user's number format.
+status-selected =
+    { $count ->
+        [one] { $count_text } element selected
+       *[other] { $count_text } elements selected
+    }

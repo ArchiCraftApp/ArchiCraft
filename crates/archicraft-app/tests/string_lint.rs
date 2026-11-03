@@ -46,8 +46,7 @@ use syn::{Attribute, Expr, ExprLit, Lit, LitStr, Macro, Stmt, Token, Type};
 /// only shrinks. The About window and the Help menu title were migrated first
 /// (archicraft-o4x.1); the comments name the task that empties each group.
 const PENDING: &[&str] = &[
-    // archicraft-e19: main window, views, tools and workspace.
-    "crates/archicraft-app/src/app.rs",
+    // archicraft-e19: main window and views.
     "crates/archicraft-app/src/input/snap.rs",
     "crates/archicraft-app/src/ui/browser.rs",
     "crates/archicraft-app/src/ui/shell.rs::status_bar",
@@ -56,8 +55,7 @@ const PENDING: &[&str] = &[
     "crates/archicraft-app/src/views/plan.rs",
     "crates/archicraft-app/src/views/render3d.rs",
     "crates/archicraft-app/src/views/view3d.rs",
-    "crates/archicraft-app/src/workspace.rs",
-    // archicraft-e19, prompts with archicraft-bnf: tool labels, descriptions and prompts.
+    // archicraft-bnf: tool labels, descriptions and prompts.
     "crates/archicraft-app/src/tools/mod.rs",
     "crates/archicraft-app/src/tools/slab.rs",
     "crates/archicraft-app/src/tools/wall.rs",

@@ -27,7 +27,9 @@ pub const ENGLISH: &[CatalogueFile] = &[
     CatalogueFile {
         name: "en/app.ftl",
         source: include_str!("../../locales/en/app.ftl"),
-        prefixes: &["menu-", "status-", "browser-"],
+        prefixes: &[
+            "menu-", "window-", "tab-", "modal-", "file-", "startup-", "status-", "browser-",
+        ],
     },
     CatalogueFile {
         name: "en/commands.ftl",

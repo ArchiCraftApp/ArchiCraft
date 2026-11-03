@@ -27,6 +27,10 @@
 //! | Prefix | Area | File |
 //! |---|---|---|
 //! | `menu-` | menu titles and items that are not commands | `app.ftl` |
+//! | `window-`, `tab-` | window and tab titles, the empty tab area | `app.ftl` |
+//! | `modal-` | questions and messages in front of the main window | `app.ftl` |
+//! | `file-` | file types of the open and save dialogs | `app.ftl` |
+//! | `startup-` | startup notices: autosaves to recover, the last crash | `app.ftl` |
 //! | `status-` | status-line messages | `app.ftl` |
 //! | `browser-` | project browser | `app.ftl` |
 //! | `cmd-<command-id>-label`, `cmd-<command-id>-desc` | command labels and descriptions | `commands.ftl` |

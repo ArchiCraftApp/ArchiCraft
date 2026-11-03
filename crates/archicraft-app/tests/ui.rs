@@ -1674,6 +1674,51 @@ fn about_window_follows_the_pseudo_locale() {
     }
 }
 
+/// NFR-L10N-001: with the en-XA pseudo-locale installed, the plan tab title
+/// and the unsaved-changes prompt (title, question and buttons) come out
+/// wrapped in the pseudo markers, so they come from the catalogue; the
+/// storey name in the tab title is user data and passes through unchanged.
+#[cfg(debug_assertions)]
+#[test]
+fn unsaved_prompt_and_tab_title_follow_the_pseudo_locale() {
+    let mut harness = harness("unsaved-pseudo");
+    let pseudo = Rc::new(Localizer::pseudo());
+    harness.state_mut().set_localizer(Rc::clone(&pseudo));
+    harness.run_steps(2);
+    let tab = i18n::with(Rc::clone(&pseudo), || tr!("tab-plan", storey = "00 Ground floor"));
+    assert!(
+        tab.starts_with(i18n::pseudo::OPEN) && tab.contains("00 Ground floor"),
+        "{tab}"
+    );
+    assert_present(&harness, &tab);
+
+    {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+        assert!(ws.execute(Command::AddElements(vec![wall])));
+    }
+    harness.run_steps(1);
+    press(&mut harness, Binding::primary(Key::N), OperatingSystem::Nix);
+    harness.run_steps(2);
+    let title = harness.state_mut().prompt_title().unwrap();
+    assert_eq!(title, i18n::with(Rc::clone(&pseudo), || tr!("modal-unsaved-title")));
+    assert!(title.starts_with(i18n::pseudo::OPEN), "{title}");
+    assert_present(&harness, &title);
+    let name = harness.state_mut().workspace().doc.display_name();
+    let question = i18n::with(Rc::clone(&pseudo), || tr!("modal-unsaved-text", name = name.as_str()));
+    assert!(question.starts_with(i18n::pseudo::OPEN), "{question}");
+    assert_present(&harness, &question);
+    for key in ["modal-save", "modal-dont-save", "modal-cancel"] {
+        let button = i18n::with(Rc::clone(&pseudo), || tr!(key));
+        assert!(button.starts_with(i18n::pseudo::OPEN), "{button}");
+        assert_present(&harness, &button);
+    }
+    for english in ["Save changes?", "Save", "Don't save", "Cancel"] {
+        assert!(harness.query_all_by_label(english).next().is_none(), "{english}");
+    }
+}
+
 /// A file that cannot be opened, because it does not exist or is larger than
 /// the size limit (lowered here instead of writing 2 GB), shows the “Cannot
 /// open the project” message instead of panicking (NFR-SEC-003, PRJ-008).
