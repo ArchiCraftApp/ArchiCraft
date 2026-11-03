@@ -71,6 +71,48 @@ Increment 1 holds 19 epics and 254 engineer-days because Appendix F's increment 
 Decisions D-1..D-12 and Section 8 are respected: IFCX is the native and only file format (templates, libraries and reference models are `.ifcx`); no installer or online service (the only network access is the consent-gated import fetch of `ifcx-interop`); one home storey per element with site-level containment only for terrain and grids (D-3); one material concept with per-face appearance overrides (D-5); junctions from reference-line contact with tested order independence (D-6); explicit commands for every gesture (D-7); sections, railings, curtain walls and presets as Should in increment 3 (D-8, D-9); one closed circular wall (D-10); `.ifcx` registration with consent and local crash reports (D-12). Nothing from Section 8 is planned (no scripting SDK, no DXF, no rendering). The headless crates (`archicraft-model`, `archicraft-geometry`, `archicraft-ifcx`) gain no UI dependency in any epic; every epic places UI work in `archicraft-app` only. Dependencies list only technical prerequisites (a type, a service or a kind that must exist); increment membership expresses the soft ordering, no dependency points to a later increment, and the build script checks coverage (567 IDs, each exactly once), key format, sizes, cycles and increment order mechanically.
 
 
+## Showcase track (feature requests of 2026-11-03)
+
+Jakob Brandstötter's feature requests of 2026-11-03 are pulled forward so the app can be shown in demos soon. Every bead a demo needs has the label `showcase` and priority 0, so `bd ready` and `/bead-loop` take these beads before all other work. A `red-main` bead still goes first. Each bead stays in its roadmap epic. Its edges to other epics' "Verify exit criterion" tasks were replaced by edges to the beads it actually builds on. Guard edges keep every other bead waiting for what it waited for before, so the rest of the roadmap keeps its order. Some acceptance clauses would have pulled a long chain into a showcase bead. Those clauses moved into follow-up beads, which keep the source bead's priority.
+
+There are six demos, one after another. Almost every showcase bead touches `archicraft-app`, so the loop runs them one at a time. If all of them were open at once, every demo would be ready only near the end. Each demo is therefore an epic with the label `showcase` that holds one verification task. That task waits for the demo's target beads, adds an end-to-end kittest of the demo script and updates the status rows. The beads that only the next demo needs wait for this verification task (gate edges, noted on each bead). When the task closes, the loop stops for the demo ([loop-tutorial.md](loop-tutorial.md), section 3) and then goes on with the next demo.
+
+In all, the showcase needs **107 beads**: 101 feature beads (13 of them new) and 6 verification tasks, about 932 hours of estimated work. 49 of these beads are estimated above 480 minutes. The loop usually slices such a bead into two to four pieces, so expect about 175 bead sessions.
+
+| Demo | Epic | Requests | Target beads | Ready after (beads, cumulative) | Work (h, cumulative) |
+|---|---|---|---|---|---|
+| 1. Save, measure and group in the toolbar; resizable toolbox | `archicraft-mn49k` | 13, 14, 15, 18 | `archicraft-g1b.1`, `archicraft-g1b.2`, `archicraft-3g7.1`, `archicraft-6mgh.1` | 9 | 48 |
+| 2. Room labels and text | `archicraft-8bsuj` | 2, 3, 11 | `archicraft-1fo`, `archicraft-vwt`, `archicraft-awj`, `archicraft-u4vm.2` | 23 | 169 |
+| 3. Columns and parameter transfer | `archicraft-tukkk` | 8, 12 | `archicraft-k553`, `archicraft-xasp` | 37 | 295 |
+| 4. Marquee selection; editing walls and slabs | `archicraft-vivib` | 16, 17 | `archicraft-yaln`, `archicraft-az5p`, `archicraft-6os3`, `archicraft-7cbh.1` | 52 | 427 |
+| 5. 2D drafting: lines, polylines, arcs, circles, ellipses, splines, hatches | `archicraft-qzn7x` | 1, 4, 5, 6 | `archicraft-ns3c`, `archicraft-3wwu`, `archicraft-m5yw`, `archicraft-dppa`, `archicraft-o5it`, `archicraft-sre3.1` | 73 | 602 |
+| 6. Doors and windows | `archicraft-xfmo9` | 9, 10 | `archicraft-uc8d`, `archicraft-v0v7`, `archicraft-drcb`, `archicraft-2me` | 107 | 932 |
+
+| # | Request | Beads | Demo |
+|---|---|---|---|
+| 1 | Line and polyline tool | `archicraft-ns3c`, `archicraft-j47m`, `archicraft-3wwu` | 5 |
+| 2 | Room label tool | `archicraft-1fo`, `archicraft-vwt` | 2 |
+| 3 | Text tool | `archicraft-u4vm.2`, `archicraft-u4vm.1` | 2 |
+| 4 | Curve tool (2D spline) | `archicraft-dppa` | 5 |
+| 5 | 2D shapes: circle, ellipse and more | `archicraft-ns3c`, `archicraft-m5yw`, `archicraft-sre3.1` | 5 |
+| 6 | Hatch tool with typical material hatches | `archicraft-o5it`, `archicraft-a67d`, `archicraft-q6en` | 5 |
+| 7 | JPG/PNG import placed in the plan | `archicraft-lq4no` | decision |
+| 8 | 3D column tool | `archicraft-k553`, `archicraft-i4gl` | 3 |
+| 9 | Window tool | `archicraft-uc8d`, `archicraft-t9q8`, `archicraft-v0v7`, `archicraft-drcb` | 6 |
+| 10 | Door tool | `archicraft-uc8d`, `archicraft-t9q8`, `archicraft-v0v7`, `archicraft-drcb` | 6 |
+| 11 | Room label by one click into an enclosed room, "Raum1" with the area | `archicraft-vwt`, `archicraft-1fo`, `archicraft-awj` | 2 |
+| 12 | Parameter transfer in the toolbar next to Undo/Redo | `archicraft-8yrc`, `archicraft-xasp` | 3 |
+| 13 | Measure tool in the toolbar | `archicraft-3g7.1` | 1 |
+| 14 | Group tool in the toolbar | `archicraft-pt6a.1`, `archicraft-6mgh.1` | 1 |
+| 15 | Save button at the far left of the toolbar | `archicraft-g1b.1` | 1 |
+| 16 | Edit existing walls and slabs: corner points, stretch, lengthen | `archicraft-yaln`, `archicraft-6os3`, `archicraft-az5p` | 4 |
+| 17 | Marquee selection next to the Select arrow | `archicraft-7cbh.1`, `archicraft-062g` | 4 |
+| 18 | Resizable toolbox, one or two columns, tooltips with explanations | `archicraft-g1b.2` | 1 |
+
+The clauses moved out of showcase beads went to these follow-ups, at their source's priority: `archicraft-3g7.2` (Measure in 3D views: height mode, ΔZ and slope, spatial angles and the AS-04 measure step), `archicraft-pt6a.2` (Remap groups in duplicate, paste and reidentify_all), `archicraft-6mgh.2` (Move a group as one with the Transform tool and edit single members of a group), `archicraft-7cbh.2` (Limit transforms and the other edit commands to the selection region and stretch its nodes on Move), `archicraft-vr8h.2` (Find host candidates in 3D views and draw preview overlays without scene uploads), `archicraft-5ok.1` (Write NetArea and Height for spaces and read foreign IfcSpace nodes), `archicraft-sre3.2` (Trace slabs, walls and fills from 2D lines), `archicraft-sre3.3` (Use splines as trim and extend boundaries, split edges and distribution paths), `archicraft-sre3.4` (Reshape and split drafting fills like slab outlines), `archicraft-r3rc.1` (Area selection in 3D views), `archicraft-5il4.1` (Cut, save and reopen openings, doors and windows in layered F2 walls).
+
+Requirements: the room labels (SPC-001), text blocks (ANN-007) and drafting fills (ANN-003) are Could requirements. The showcase pulls beads forward from later epics: the room labels from `could-scope-polish` (increment 4), the text from `sections-elevations-dims`, and the groups, parameter transfer and marquee from `templates-presets` (both increment 3). Their SRS priorities and epics stay as they are. ANN-013 (ellipses) is new in SRS 0.3. JPG/PNG images in plans contradict D-11, which withdrew XCH-003. They wait for the product owner's decision in `archicraft-lq4no` (label `human`).
+
 ## Epic table
 
 | # | Key | Title | Inc | Prio | Days | M/S/C/done | Depends on |
@@ -80,7 +122,7 @@ Decisions D-1..D-12 and Section 8 are respected: IFCX is the native and only fil
 | 3 | `selection-transforms` | Selection model, part selection (edit mode) and transform commands | 1 | 1 | 15 | 13/3/1/0 | `point-input-snapping`, `element-kind-framework` |
 | 4 | `edit-reshape-palette` | Node/edge edit palette, offsets, polygon editing, contour detection and validation | 1 | 1 | 13 | 8/4/0/0 | `point-input-snapping`, `selection-transforms` |
 | 5 | `plan-attributes` | Graphic attribute resources: pens, line types, fills and material plan display | 1 | 1 | 10 | 9/4/1/0 | `element-kind-framework` |
-| 6 | `drafting-trim-split` | 2D construction geometry with the shared arc type, trim, extend, split and array | 1 | 1 | 13 | 8/3/2/0 | `element-kind-framework`, `point-input-snapping`, `plan-attributes`, `selection-transforms`, `edit-reshape-palette` |
+| 6 | `drafting-trim-split` | 2D construction geometry with the shared arc type, trim, extend, split and array | 1 | 1 | 13 | 8/4/2/0 | `element-kind-framework`, `point-input-snapping`, `plan-attributes`, `selection-transforms`, `edit-reshape-palette` |
 | 7 | `plan-renderer` | GPU plan renderer with drawing scale, line weights, hatches, skin separators and golden images | 1 | 1 | 12 | 2/5/1/0 | `plan-attributes`, `layer-structures` |
 | 8 | `plan-views-browser` | Plan view range and display ranges, saved views, project browser, layers and layout persistence | 1 | 1 | 15 | 10/6/0/0 | `element-kind-framework` |
 | 9 | `layer-structures` | Layer structures, skins, core faces and multi-skin bodies | 1 | 1 | 12 | 9/2/0/0 | `element-kind-framework` |
@@ -225,10 +267,10 @@ Exit criterion: AS-07 and AS-08 pass; release candidate.
 
 ### 6. `drafting-trim-split` (archicraft-sre3) — 2D construction geometry with the shared arc type, trim, extend, split and array
 
-- **Increment:** 1 · **Priority:** 1 · **Size:** 13 days · **Requirements:** 13 (8 M / 3 S / 2 C / 0 done)
+- **Increment:** 1 · **Priority:** 1 · **Size:** 13 days · **Requirements:** 14 (8 M / 4 S / 2 C / 0 done)
 - **Labels:** increment-1, archicraft-model, archicraft-geometry, archicraft-app, drafting
 - **Depends on:** `element-kind-framework`, `point-input-snapping`, `plan-attributes`, `selection-transforms`, `edit-reshape-palette`
-- **SRS IDs:** ANN-001 ANN-002 ANN-003 ANN-010 ANN-011 EDT-004 EDT-005 EDT-011 EDT-012 EDT-013 EDT-020 WAL-030 WAL-031
+- **SRS IDs:** ANN-001 ANN-002 ANN-003 ANN-010 ANN-011 ANN-013 EDT-004 EDT-005 EDT-011 EDT-012 EDT-013 EDT-020 WAL-030 WAL-031
 
 **Goal.** Add the 2D reference-element kinds (lines, chains, polylines, arcs, circles, then rectangles, splines, tangent arcs and drafting fills) bound to a view and a layer, usable as tracing input and as cutters, together with the exact Arc/PolyCurve type and the single tessellate(curve, settings) function that arc walls, slab rings, plan cuts and the IFCX writer reuse later (so curved-geometry and fixture F8 are not a retrofit), and the linear editing commands: trim, extend, split, explicit-command variants of every gesture (D-7), arrays and path distribution, plus wall split and merge. Join/unjoin (WAL-022) lives with the junction engine.
 
@@ -784,4 +826,4 @@ Exit criterion: AS-07 and AS-08 pass; release candidate.
 
 ## Coverage check
 
-All 567 live requirement IDs appear exactly once across the 40 epics (checked mechanically by build_final.py: 0 missing, 0 duplicates, 0 unknown, 0 dangling dependencies, 0 cycles; every dependency sits in the same or an earlier increment). Epics per increment: 1 -> 19, 2 -> 11, 3 -> 7, 4 -> 3. Priorities: 1: 19, 2: 16, 3: 4, 4: 1.
+All 568 live requirement IDs appear exactly once across the 40 epics (567 checked mechanically by build_final.py, plus ANN-013, added on 2026-11-03 to `drafting-trim-split`: 0 missing, 0 duplicates, 0 unknown, 0 dangling dependencies, 0 cycles; every dependency sits in the same or an earlier increment). Epics per increment: 1 -> 19, 2 -> 11, 3 -> 7, 4 -> 3. Priorities: 1: 19, 2: 16, 3: 4, 4: 1.
