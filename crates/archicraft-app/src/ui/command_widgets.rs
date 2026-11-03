@@ -1,8 +1,9 @@
-//! Widgets that run commands (UI-011, UI-017): menu items and the buttons of
-//! the toolbox, the status bar and the panels. Their label, enabled and
-//! checked state come from the registry in the state of the frame, and their
-//! tooltip is the command's description with its shortcut from the effective
-//! keymap, so every place a command appears shows the same text and state.
+//! Widgets that run commands (UI-011, UI-017): menu items, toolbox and
+//! status-bar buttons and the buttons of panels and dialogs. Their label,
+//! enabled and checked state come from the registry in the state of the
+//! frame, and their tooltip is the command's description with its shortcut
+//! from the effective keymap, so every place a command appears shows the
+//! same text and state.
 
 use egui::{Atom, Atoms, Button, Image, Response, RichText, Ui, Vec2};
 
@@ -103,6 +104,19 @@ pub fn bar_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, label: &str)
     let response = match spec.checked_in(cx) {
         Some(on) => ui.add_enabled(enabled, Button::selectable(on, label)),
         None => ui.add_enabled(enabled, Button::new(RichText::new(label).small()).small()),
+    };
+    with_tooltip(response, ui, cx, spec).clicked()
+}
+
+/// A button of `spec` with its label in the state `cx`, for panels and
+/// dialogs: a button, or a selectable label for an on/off command. Returns
+/// true when clicked.
+pub fn command_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec) -> bool {
+    let label = spec.label_in(cx);
+    let enabled = spec.enabled_in(cx).is_yes();
+    let response = match spec.checked_in(cx) {
+        Some(on) => ui.add_enabled(enabled, Button::selectable(on, label)),
+        None => ui.add_enabled(enabled, Button::new(label)),
     };
     with_tooltip(response, ui, cx, spec).clicked()
 }

@@ -1,32 +1,19 @@
 //! The project browser (VIEW-003, STR-003, UI-005).
 
+use archicraft_model::StoreyId;
 use archicraft_model::units::format_length;
-use archicraft_model::{Command, Storey, StoreyId};
 use egui::{RichText, Ui};
 
-use super::command_widgets::bar_button;
-use super::dialogs::Dialogs;
+use super::command_widgets::{bar_button, menu_item};
+use crate::commands::project::{DELETE_STOREY, EDIT_STOREY, INSERT_STOREY_ABOVE, INSERT_STOREY_BELOW};
 use crate::commands::{CommandCtx, Origin, Registry, Target, project};
 use crate::tr;
 use crate::workspace::{Pane, Request, Workspace};
 
-/// A new storey for inserting next to `reference`, named by its future
-/// number in the user's language.
-pub fn new_storey(ws: &Workspace, reference: StoreyId, above: bool) -> Storey {
-    let project = &ws.doc.project;
-    let number = project.storeys.number(reference).unwrap_or(0) + if above { 1 } else { 0 };
-    let height = project.storeys.get(reference).map_or(3.0, |s| s.height);
-    let name = if number >= 0 {
-        tr!("browser-new-storey", number = format!("{number:02}"))
-    } else {
-        tr!("browser-new-basement", number = format!("{:02}", -number))
-    };
-    Storey::new(name, 0.0, height)
-}
-
-/// The browser: the storeys, the 3D views and the project, whose buttons run
-/// commands (UI-011, UI-017).
-pub fn ui(ui: &mut Ui, ws: &mut Workspace, dialogs: &mut Dialogs, cx: &CommandCtx) {
+/// The browser (VIEW-003): the storeys, the 3D views and the project. The
+/// storeys' context menus and the project's buttons run commands (UI-011,
+/// UI-017).
+pub fn ui(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
     egui::CollapsingHeader::new(RichText::new(tr!("browser-storeys")).strong())
         .default_open(true)
         .show(ui, |ui| {
@@ -63,32 +50,11 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, dialogs: &mut Dialogs, cx: &CommandCt
                         ws.requests.push(Request::OpenPane(Pane::Plan(id)));
                         ui.close();
                     }
-                    if ui.button(tr!("browser-insert-above")).clicked() {
-                        let storey = new_storey(ws, id, true);
-                        ws.execute(Command::InsertStorey {
-                            reference: id,
-                            above: true,
-                            storey,
-                        });
-                        ui.close();
-                    }
-                    if ui.button(tr!("browser-insert-below")).clicked() {
-                        let storey = new_storey(ws, id, false);
-                        ws.execute(Command::InsertStorey {
-                            reference: id,
-                            above: false,
-                            storey,
-                        });
-                        ui.close();
-                    }
-                    if ui.button(tr!("browser-storey-settings")).clicked() {
-                        dialogs.storeys = true;
-                        dialogs.selected_storey = Some(id);
-                        ui.close();
-                    }
-                    if ui.button(tr!("browser-delete-storey")).clicked() {
-                        dialogs.ask_delete_storey(id);
-                        ui.close();
+                    let target = Target::storey(id);
+                    for command in [INSERT_STOREY_ABOVE, INSERT_STOREY_BELOW, EDIT_STOREY, DELETE_STOREY] {
+                        if menu_item(ui, cx, Registry::get().command(command)) {
+                            ws.requests.push(Request::Invoke(command, target, Origin::ContextMenu));
+                        }
                     }
                 });
             }

@@ -6,7 +6,8 @@ use archicraft_model::project::Projection;
 use archicraft_model::{ElementId, StoreyId};
 
 use super::Keymap;
-use crate::tools::ToolKind;
+use crate::tools::{SlabMode, ToolKind, WallMode};
+use crate::ui::dialogs::Dialogs;
 use crate::views::render3d::DisplayMode;
 use crate::workspace::{Pane, Workspace};
 
@@ -37,18 +38,24 @@ pub struct CommandCtx {
     pub problems_open: bool,
     pub reference_lines_shown: bool,
     pub user_origin_placed: bool,
-    /// The active tool; the toolbox and the Design menu check it.
+    /// The active tool and the geometry methods of the wall and slab tools
+    /// (WAL-001, SLB-001).
     pub tool: ToolKind,
+    pub wall_mode: WallMode,
+    pub slab_mode: SlabMode,
     /// The state of the active 3D view, if a 3D view is active.
     pub view3d: Option<View3dCtx>,
+    /// The Materials dialog is open with a material selected (MAT-001).
+    pub material_selected: bool,
     /// The keys that run each command, for the shortcuts shown (UI-009,
     /// UI-011).
     pub keymap: Keymap,
 }
 
 impl CommandCtx {
-    /// The snapshot of `ws`; the rest of the application state is passed in.
-    pub fn new(ws: &Workspace, text_focused: bool, problems_open: bool) -> Self {
+    /// The snapshot of `ws` and the open `dialogs`; whether a text field has
+    /// focus is passed in.
+    pub fn new(ws: &Workspace, text_focused: bool, dialogs: &Dialogs) -> Self {
         let history = &ws.doc.history;
         let view3d = match ws.active_pane {
             Some(Pane::View3d(view)) => ws.views_3d.get(&view).map(|state| View3dCtx {
@@ -71,11 +78,17 @@ impl CommandCtx {
             undo_label: history.undo_label().map(|l| ws.render(&l)),
             redo_label: history.redo_label().map(|l| ws.render(&l)),
             text_focused,
-            problems_open,
+            problems_open: dialogs.problems,
             reference_lines_shown: ws.prefs.show_reference_lines,
             user_origin_placed: ws.frames.user_origin.is_placed(),
             tool: ws.tool.kind,
+            wall_mode: ws.tool.wall_mode,
+            slab_mode: ws.tool.slab_mode,
             view3d,
+            material_selected: dialogs.materials
+                && dialogs
+                    .selected_material
+                    .is_some_and(|m| ws.doc.project.material(m).is_some()),
             keymap: ws.keymap.clone(),
         }
     }
@@ -127,6 +140,16 @@ impl Target {
             element: None,
         }
     }
+
+    /// The storey `storey` with its plan, as the browser's context menu and
+    /// the Storeys dialog pass it.
+    pub fn storey(storey: StoreyId) -> Self {
+        Self {
+            storey,
+            pane: Some(Pane::Plan(storey)),
+            element: None,
+        }
+    }
 }
 
 /// Where an invocation came from, for logging and the test recorder.
@@ -137,7 +160,8 @@ pub enum Origin {
     Palette,
     ContextMenu,
     Toolbar,
-    /// A button of a panel or dialog, such as the browser.
+    /// A button of a panel or dialog: the properties strip, the browser,
+    /// the Storeys or Materials dialog.
     Panel,
     Test,
 }
@@ -148,4 +172,35 @@ pub struct Invocation {
     pub id: super::CommandId,
     pub target: Target,
     pub origin: Origin,
+}
+
+#[cfg(test)]
+mod tests {
+    use archicraft_model::template::default_metric_project;
+
+    use super::*;
+    use crate::commands::{Registry, project};
+    use crate::document::Document;
+    use crate::persistence::prefs::Preferences;
+
+    /// UI-017, MAT-001: Duplicate material is enabled only while the
+    /// Materials dialog is open with an existing material selected.
+    #[test]
+    fn duplicate_material_needs_the_dialogs_selection() {
+        let ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        let material = ws.doc.project.materials.first().expect("a material").id;
+        let duplicate = Registry::get().command(project::DUPLICATE_MATERIAL);
+        let enabled = |dialogs: &Dialogs| duplicate.enabled_in(&CommandCtx::new(&ws, false, dialogs)).is_yes();
+        let mut dialogs = Dialogs {
+            selected_material: Some(material),
+            ..Dialogs::default()
+        };
+        assert!(!enabled(&dialogs), "the dialog is closed");
+        dialogs.materials = true;
+        assert!(enabled(&dialogs));
+        dialogs.selected_material = None;
+        assert!(!enabled(&dialogs), "nothing is selected");
+        dialogs.selected_material = Some(archicraft_model::MaterialId::new());
+        assert!(!enabled(&dialogs), "the selected material no longer exists");
+    }
 }

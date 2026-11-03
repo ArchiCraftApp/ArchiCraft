@@ -131,6 +131,18 @@ impl ViewPreset {
         ViewPreset::Dimetric,
     ];
 
+    /// The stable code in the id of the preset's command,
+    /// `view3d.preset.<code>` (UI-017).
+    pub fn code(self) -> &'static str {
+        match self {
+            ViewPreset::Top => "top",
+            ViewPreset::Front => "front",
+            ViewPreset::Side => "side",
+            ViewPreset::Isometric => "isometric",
+            ViewPreset::Dimetric => "dimetric",
+        }
+    }
+
     /// The catalogue key of the preset's name, rendered with `tr!`
     /// (NFR-L10N-001).
     pub fn label_key(self) -> &'static str {

@@ -7,7 +7,7 @@ mod common;
 
 use std::rc::Rc;
 
-use archicraft_app::commands::{self, Binding, Origin, Registry, Target, view_keys};
+use archicraft_app::commands::{self, Binding, CommandId, Origin, Registry, Target, view_keys};
 use archicraft_app::i18n::{self, Localizer};
 use archicraft_app::input::{
     ConstraintReference, DivisionMode, DivisionScope, Field, GuideOrigin, InputConsumer, InputMode, SnapKind,
@@ -16,16 +16,18 @@ use archicraft_app::persistence::DataDirs;
 use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::{ToolKind, WallMode};
 use archicraft_app::ui::icons;
+use archicraft_app::views::render3d::DisplayMode;
 use archicraft_app::workspace::{Consumer, Pane};
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
+use archicraft_model::project::Projection;
 use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_length};
 use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{
-    Command, ElementId, ElementKind, IfcClass, KindTag, PredefinedType, ProjectSettings, ReferenceLine,
+    Command, ElementId, ElementKind, IfcClass, KindTag, Material, PredefinedType, ProjectSettings, ReferenceLine,
 };
 use common::{assert_present, data_dir, harness, harness_at, harness_in};
-use egui::accesskit::Role;
+use egui::accesskit::{Role, Toggled};
 use egui::os::OperatingSystem;
 use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;
@@ -760,6 +762,154 @@ fn a_tooltip_shows_the_rebound_shortcut() {
     harness.run_steps(4);
     let keys = harness.ctx.format_shortcut(&shift_w.shortcut());
     assert_present(&harness, &format!("Draw walls by their reference line ({keys})"));
+}
+
+/// Invokes `id` on the active target as the command palette does.
+fn invoke_from_palette(harness: &mut Harness<'static, ArchiCraftApp>, id: CommandId) {
+    let ctx = harness.ctx.clone();
+    let app = harness.state_mut();
+    let target = Target::active(app.workspace());
+    app.invoke(&ctx, id, target, Origin::Palette);
+    harness.run_steps(2);
+}
+
+/// UI-017, STR-003, UND-001: Insert storey above, invoked from the palette,
+/// inserts a storey right above the active storey, and Undo removes it.
+#[test]
+fn insert_storey_above_from_the_palette_is_undoable() {
+    let mut harness = harness("palette-storey");
+    let (active, before) = {
+        let ws = harness.state_mut().workspace();
+        let ids: Vec<_> = ws.doc.project.storeys.highest_first().map(|s| s.id).collect();
+        (ws.active_storey, ids)
+    };
+    invoke_from_palette(&mut harness, commands::project::INSERT_STOREY_ABOVE);
+    let storeys = &harness.state_mut().workspace().doc.project.storeys;
+    assert_eq!(storeys.highest_first().count(), before.len() + 1);
+    let above = storeys.relative(active, 1).expect("a storey above").id;
+    assert!(!before.contains(&above), "the storey above is the new one");
+    invoke_from_palette(&mut harness, commands::edit::UNDO);
+    let storeys = &harness.state_mut().workspace().doc.project.storeys;
+    assert_eq!(storeys.highest_first().map(|s| s.id).collect::<Vec<_>>(), before);
+}
+
+/// UI-017, WAL-001: the wall methods are commands; invoked from the palette,
+/// Chain switches the wall tool's method and the properties strip shows
+/// Chain selected.
+#[test]
+fn a_wall_mode_from_the_palette_shows_in_the_strip() {
+    let mut harness = harness("palette-wall-mode");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    invoke_from_palette(&mut harness, commands::tools::wall_mode(WallMode::Single));
+    assert_eq!(harness.state_mut().workspace().tool.wall_mode, WallMode::Single);
+    let selected = |harness: &Harness<'static, ArchiCraftApp>, label: &str| {
+        harness
+            .get(By::new().role(Role::Button).label(label))
+            .accesskit_node()
+            .toggled()
+    };
+    assert_eq!(selected(&harness, "Chain"), Some(Toggled::False));
+    invoke_from_palette(&mut harness, commands::tools::wall_mode(WallMode::Chain));
+    assert_eq!(harness.state_mut().workspace().tool.wall_mode, WallMode::Chain);
+    assert_eq!(selected(&harness, "Chain"), Some(Toggled::True));
+    assert_eq!(selected(&harness, "Single"), Some(Toggled::False));
+}
+
+/// UI-017, VIEW-020, VIEW-050: the display mode and the projection of the
+/// active 3D view are commands, and the status bar shows their state.
+#[test]
+fn display_mode_and_projection_from_the_palette() {
+    let mut harness = harness("palette-3d");
+    harness.get_by_label("Plan/3D").click();
+    harness.run_steps(2);
+    let Some(Pane::View3d(view)) = harness.state_mut().workspace().active_pane else {
+        panic!("no 3D view");
+    };
+    invoke_from_palette(&mut harness, commands::view3d::display(DisplayMode::Wireframe));
+    invoke_from_palette(&mut harness, commands::view3d::TOGGLE_PROJECTION);
+    let state = &harness.state_mut().workspace().views_3d[&view];
+    assert_eq!(state.mode, DisplayMode::Wireframe);
+    assert_eq!(state.camera.projection, Projection::Parallel);
+    harness.get_by_value("Wireframe");
+    let perspective = harness.get(By::new().role(Role::Button).label("Perspective"));
+    assert_eq!(perspective.accesskit_node().toggled(), Some(Toggled::False));
+}
+
+/// UI-017, VIEW-020, VIEW-050: the status bar's display-mode choice, Views
+/// menu and Perspective button run their commands on the active 3D view.
+#[test]
+fn status_bar_3d_controls_run_their_commands() {
+    let mut harness = harness("status-3d");
+    harness.get_by_label("Plan/3D").click();
+    harness.run_steps(2);
+    let Some(Pane::View3d(view)) = harness.state_mut().workspace().active_pane else {
+        panic!("no 3D view");
+    };
+    let camera = |harness: &mut Harness<'static, ArchiCraftApp>| harness.state_mut().workspace().views_3d[&view].camera;
+    // The status bar shows the 3D controls from the frame after the switch.
+    harness.run_steps(2);
+    harness.get(By::new().role(Role::ComboBox)).click();
+    harness.run_steps(2);
+    harness.get_by_label("Wireframe").click();
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state_mut().workspace().views_3d[&view].mode,
+        DisplayMode::Wireframe
+    );
+    harness.get_by_label("Views").click();
+    harness.run_steps(2);
+    harness.get_by_label("Top").click();
+    harness.run_steps(2);
+    assert!((camera(&mut harness).pitch.to_degrees() - 89.9).abs() < 1e-9);
+    assert_eq!(camera(&mut harness).projection, Projection::Parallel);
+    harness.get(By::new().role(Role::Button).label("Perspective")).click();
+    harness.run_steps(2);
+    assert_eq!(camera(&mut harness).projection, Projection::Perspective);
+}
+
+/// UI-017, MAT-001, UND-001: Duplicate material in the Materials dialog adds
+/// a copy of the selected material under a new id and selects it, and Undo
+/// removes it; without the dialog's selection the command does nothing.
+#[test]
+fn duplicate_material_copies_the_selected_material() {
+    let mut harness = harness("duplicate-material");
+    let materials =
+        |harness: &mut Harness<'static, ArchiCraftApp>| harness.state_mut().workspace().doc.project.materials.to_vec();
+    let before = materials(&mut harness);
+    let original = before[0].clone();
+    invoke_from_palette(&mut harness, commands::project::DUPLICATE_MATERIAL);
+    assert_eq!(materials(&mut harness), before, "nothing is selected");
+
+    // The browser's Materials… button.
+    harness.get_by_label("Materials…").click();
+    harness.run_steps(2);
+    harness.get(By::new().role(Role::Button).label(&original.name)).click();
+    harness.run_steps(2);
+    harness.get_by_label("Duplicate material").click();
+    harness.run_steps(3);
+    let after = materials(&mut harness);
+    assert_eq!(after.len(), before.len() + 1);
+    let copy = after.iter().find(|m| !before.contains(m)).expect("the copy").clone();
+    assert_ne!(copy.id, original.id);
+    assert_eq!(copy.name, format!("{} copy", original.name));
+    assert_eq!(
+        Material {
+            id: original.id,
+            name: original.name.clone(),
+            ..copy.clone()
+        },
+        original
+    );
+    let row = harness.get(By::new().role(Role::Button).label(&copy.name));
+    assert_eq!(
+        row.accesskit_node().toggled(),
+        Some(Toggled::True),
+        "the copy is selected"
+    );
+
+    invoke_from_palette(&mut harness, commands::edit::UNDO);
+    assert_eq!(materials(&mut harness), before);
 }
 
 /// The commands invoked since the last call, with their origin.
@@ -2688,4 +2838,32 @@ fn the_division_value_field_follows_the_mode() {
         DivisionMode::Half
     );
     assert!(harness.query(text_field(&shown.1)).is_none());
+}
+
+/// UI-017: the wall and slab geometry methods, the display mode and the
+/// projection are switched by their commands, never by the widgets of the
+/// status bar, the browser and the properties strip themselves.
+#[test]
+fn panels_switch_modes_only_through_commands() {
+    for (file, source) in [
+        ("ui/shell.rs", include_str!("../src/ui/shell.rs")),
+        ("ui/browser.rs", include_str!("../src/ui/browser.rs")),
+        ("ui/properties.rs", include_str!("../src/ui/properties.rs")),
+    ] {
+        let source: String = source.split_whitespace().collect::<Vec<_>>().join(" ");
+        // Field assignments; ` = ` with its spaces leaves out `==`, and the
+        // leading dot leaves out bindings such as `let projection =`.
+        for field in [".wall_mode", ".slab_mode", ".mode", ".projection"] {
+            assert!(!source.contains(&format!("{field} = ")), "{file} assigns `{field}`");
+        }
+        for borrow in [
+            "&mut ws.tool.wall_mode",
+            "&mut ws.tool.slab_mode",
+            "&mut state.mode",
+            "&mut state.camera.projection",
+            "apply_preset(",
+        ] {
+            assert!(!source.contains(borrow), "{file} has `{borrow}`");
+        }
+    }
 }

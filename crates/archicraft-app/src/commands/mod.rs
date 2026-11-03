@@ -24,10 +24,11 @@ pub mod os_reserved;
 pub mod project;
 pub mod tools;
 pub mod view;
+pub mod view3d;
 pub mod view_keys;
 
 use std::cmp::Reverse;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 pub use binding::Binding;
 pub use ctx::{CommandCtx, Enabled, Invocation, Origin, Target, View3dCtx};
@@ -44,6 +45,13 @@ pub struct CommandId(&'static str);
 impl CommandId {
     pub const fn new(id: &'static str) -> Self {
         Self(id)
+    }
+
+    /// The id of a member of a parameterised family, such as
+    /// `tool.wall.mode.chain` from `tool.wall.mode` and `chain`. The registry
+    /// makes each one once and keeps it for the life of the program.
+    pub fn member(family: &str, code: &str) -> Self {
+        Self(Box::leak(format!("{family}.{code}").into_boxed_str()))
     }
 
     pub const fn as_str(self) -> &'static str {
@@ -82,6 +90,10 @@ pub fn menu_title(path: &str) -> Option<String> {
         "design" => crate::tr!("menu-design"),
         "project" => crate::tr!("menu-project"),
         "help" => crate::tr!("menu-help"),
+        "design/wall-mode" => crate::tr!("menu-design-wall-mode"),
+        "design/slab-mode" => crate::tr!("menu-design-slab-mode"),
+        "view/display-mode" => crate::tr!("menu-view-display-mode"),
+        "view/view-preset" => crate::tr!("menu-view-view-preset"),
         _ => return None,
     })
 }
@@ -201,6 +213,36 @@ impl Scope {
 /// Runs a command on its target.
 pub type Handler = fn(&mut ArchiCraftApp, &egui::Context, Target);
 
+/// A function of a command. A closure, so that the commands of a family
+/// registered in a loop (one per wall mode, display mode, …) each carry their
+/// own member.
+pub struct Callback<F: ?Sized>(Arc<F>);
+
+impl<F: ?Sized> Clone for Callback<F> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
+
+impl<F: ?Sized> std::fmt::Debug for Callback<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Callback")
+    }
+}
+
+impl<F: ?Sized> std::ops::Deref for Callback<F> {
+    type Target = F;
+
+    fn deref(&self) -> &F {
+        &self.0
+    }
+}
+
+/// What runs a command, see [`Handler`].
+pub type Run = Callback<dyn Fn(&mut ArchiCraftApp, &egui::Context, Target) + Send + Sync>;
+/// Whether an on/off command is on, see [`CommandSpec::checked`].
+pub type Check = Callback<dyn Fn(&CommandCtx) -> bool + Send + Sync>;
+
 /// The description of one command.
 #[derive(Clone, Debug)]
 pub struct CommandSpec {
@@ -228,22 +270,32 @@ pub struct CommandSpec {
     /// regardless (Undo reports that there is nothing to undo).
     pub enabled: fn(&CommandCtx) -> Enabled,
     /// For an on/off command, whether it is on; menus show a check box.
-    pub checked: Option<fn(&CommandCtx) -> bool>,
+    pub checked: Option<Check>,
     /// A label that depends on the state, such as "Undo Create wall"; `None`
     /// from the function falls back to the catalogue label.
     pub dynamic_label: Option<fn(&CommandCtx) -> Option<String>>,
     /// The icon of the command's toolbox or toolbar button, one of
     /// [`crate::ui::icons`] (UI-001).
     pub icon: Option<egui::ImageSource<'static>>,
-    pub handler: Handler,
+    pub handler: Run,
 }
 
 impl CommandSpec {
     /// An always enabled command without menu entry and bindings, in the
     /// [`Scope::Global`] scope, that runs `handler`.
     pub fn new(id: &'static str, category: Category, handler: Handler) -> Self {
+        Self::with(CommandId::new(id), category, handler)
+    }
+
+    /// [`CommandSpec::new`] with a closure as handler, for a member of a
+    /// family ([`CommandId::member`]).
+    pub fn with(
+        id: CommandId,
+        category: Category,
+        handler: impl Fn(&mut ArchiCraftApp, &egui::Context, Target) + Send + Sync + 'static,
+    ) -> Self {
         Self {
-            id: CommandId::new(id),
+            id,
             category,
             menu: None,
             palette_only: false,
@@ -256,7 +308,7 @@ impl CommandSpec {
             checked: None,
             dynamic_label: None,
             icon: None,
-            handler,
+            handler: Callback(Arc::new(handler)),
         }
     }
 
@@ -302,8 +354,8 @@ impl CommandSpec {
         self
     }
 
-    pub fn checked_when(mut self, checked: fn(&CommandCtx) -> bool) -> Self {
-        self.checked = Some(checked);
+    pub fn checked_when(mut self, checked: impl Fn(&CommandCtx) -> bool + Send + Sync + 'static) -> Self {
+        self.checked = Some(Callback(Arc::new(checked)));
         self
     }
 
@@ -342,7 +394,7 @@ impl CommandSpec {
 
     /// For an on/off command, whether it is on in the state `cx`.
     pub fn checked_in(&self, cx: &CommandCtx) -> Option<bool> {
-        self.checked.map(|checked| checked(cx))
+        self.checked.as_ref().map(|checked| checked(cx))
     }
 }
 
@@ -364,6 +416,7 @@ impl Registry {
             file::specs(),
             edit::specs(),
             view::specs(),
+            view3d::specs(),
             tools::specs(),
             project::specs(),
             help::specs(),
@@ -398,10 +451,17 @@ impl Registry {
     }
 
     /// The registered command `id`, for the ids the application names
-    /// itself (constants of the command modules, whose tests check that they
-    /// are registered).
+    /// itself (constants of the command modules and family members, whose
+    /// tests check that they are registered).
     pub fn command(&self, id: CommandId) -> &CommandSpec {
         self.spec(id.as_str()).unwrap_or_else(|| panic!("no command {id}"))
+    }
+
+    /// The id of the member `code` of the family `family`, such as
+    /// `tool.wall.mode.chain`, as registered.
+    pub fn member(&self, family: &str, code: &str) -> CommandId {
+        let id = format!("{family}.{code}");
+        self.spec(&id).unwrap_or_else(|| panic!("no command {id}")).id
     }
 
     /// The entries of the menu `path` (see [`menu_entries`]).

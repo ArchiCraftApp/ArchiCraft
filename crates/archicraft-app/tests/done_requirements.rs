@@ -307,16 +307,16 @@ fn str_003_storeys_are_inserted_renamed_and_deleted_from_dialog_and_browser() {
     open_menu(&mut h, "Project");
     h.get_by_label("Storeys…").click();
     h.run_steps(2);
-    for label in ["Insert above", "Insert below", "Delete…"] {
+    for label in ["Insert storey above", "Insert storey below", "Delete storey…"] {
         assert_present(&h, label);
     }
 
     // Insert above and below the first floor.
     select_in_storeys_dialog(&mut h, "1");
-    h.get_by_label("Insert above").click();
+    h.get_by_label("Insert storey above").click();
     h.run_steps(2);
     browser_row_label(&h, "02 Storey");
-    h.get_by_label("Insert below").click();
+    h.get_by_label("Insert storey below").click();
     h.run_steps(2);
     browser_row_label(&h, "01 Storey");
     assert_eq!(
@@ -341,8 +341,10 @@ fn str_003_storeys_are_inserted_renamed_and_deleted_from_dialog_and_browser() {
 
     // Delete asks first (STR-004), then removes the storey.
     select_in_storeys_dialog(&mut h, "3");
-    h.get_by_label("Delete…").click();
-    h.run_steps(2);
+    h.get_by_label("Delete storey…").click();
+    // The button invokes storey.delete after the dialogs are drawn, so the
+    // prompt opens in the next frame and takes clicks in the one after.
+    h.run_steps(3);
     h.get_by_label("Delete storey “02 Storey”?");
     h.get_by_label("Delete storey").click();
     h.run_steps(2);
