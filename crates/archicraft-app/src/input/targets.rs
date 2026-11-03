@@ -765,6 +765,11 @@ pub(crate) mod tests {
     use crate::persistence::prefs::Preferences;
     use crate::workspace::Workspace;
 
+    /// The name of `kind` in the cursor label, in English.
+    fn label(kind: SnapKind) -> String {
+        kind.label_key().map(|key| crate::tr!(key)).unwrap_or_default()
+    }
+
     /// Explicit nodes and edges, for tests of snapping.
     struct Explicit<'a> {
         nodes: &'a [DVec2],
@@ -1299,7 +1304,7 @@ pub(crate) mod tests {
         );
         let near_upper = upper + DVec2::new(0.03, 0.02);
         let s = snap(&index, &[], near_upper, 0.1, 0.0, previous);
-        assert_eq!((s.kind, s.kind.label()), (SnapKind::Tangent, "tangent"));
+        assert_eq!((s.kind, label(s.kind)), (SnapKind::Tangent, "tangent".to_owned()));
         assert!(s.point.distance(upper) < 1e-12);
         assert_eq!(snap(&index, &[], near_upper, 0.1, 0.0, None).kind, SnapKind::Free);
         let inside = Some(centre + DVec2::new(0.2, 0.1));
@@ -1334,7 +1339,7 @@ pub(crate) mod tests {
         let ground = ws.doc.project.storeys.ground();
         let index = ws.snap_index(ground);
         let s = snap(&index, &[], DVec2::new(6.05, 4.47), 0.2, 0.0, None);
-        assert_eq!((s.kind, s.kind.label()), (SnapKind::Centroid, "centroid"));
+        assert_eq!((s.kind, label(s.kind)), (SnapKind::Centroid, "centroid".to_owned()));
         assert!(s.point.distance(DVec2::new(6.0, 4.5)) < 1e-12, "{s:?}");
     }
 
@@ -1386,14 +1391,14 @@ pub(crate) mod tests {
             ..Synthetic::default()
         };
         let index = index_with(&[&plain, &synthetic]);
-        for (point, kind, label) in [
+        for (point, kind, name) in [
             (axis, SnapKind::AxisPoint, "axis point"),
             (handle, SnapKind::Handle, "handle"),
             (corner, SnapKind::Node, "node"),
         ] {
             let found = candidates(&index, &[], point + DVec2::new(0.04, 0.03), 0.2, 0.0, None, &[]);
             assert_candidates(&found, &[(kind, point)]);
-            assert_eq!((kind.level(), kind.label()), (Some(SnapLevel::Node), label));
+            assert_eq!((kind.level(), label(kind)), (Some(SnapLevel::Node), name.to_owned()));
         }
     }
 

@@ -144,26 +144,29 @@ impl SnapKind {
         })
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            SnapKind::Node => "node",
-            SnapKind::Handle => "handle",
-            SnapKind::Centre => "centre",
-            SnapKind::AxisPoint => "axis point",
-            SnapKind::Centroid => "centroid",
-            SnapKind::Intersection => "intersection",
-            SnapKind::Midpoint => "midpoint",
-            SnapKind::Division => "division point",
-            SnapKind::GuideIntersection => "guide intersection",
-            SnapKind::Perpendicular => "perpendicular",
-            SnapKind::Tangent => "tangent",
-            SnapKind::Edge => "on edge",
-            SnapKind::Guide => "guide",
-            SnapKind::Grid => "grid",
-            SnapKind::Constrained => "constrained",
-            SnapKind::Typed => "typed",
-            SnapKind::Free => "",
-        }
+    /// The catalogue key of the kind's name in the cursor label (INP-008,
+    /// NFR-L10N-001), rendered with `tr!`; `None` for a free point, which the
+    /// label does not name.
+    pub fn label_key(self) -> Option<&'static str> {
+        Some(match self {
+            SnapKind::Node => "snap-kind-node",
+            SnapKind::Handle => "snap-kind-handle",
+            SnapKind::Centre => "snap-kind-centre",
+            SnapKind::AxisPoint => "snap-kind-axis-point",
+            SnapKind::Centroid => "snap-kind-centroid",
+            SnapKind::Intersection => "snap-kind-intersection",
+            SnapKind::Midpoint => "snap-kind-midpoint",
+            SnapKind::Division => "snap-kind-division",
+            SnapKind::GuideIntersection => "snap-kind-guide-intersection",
+            SnapKind::Perpendicular => "snap-kind-perpendicular",
+            SnapKind::Tangent => "snap-kind-tangent",
+            SnapKind::Edge => "snap-kind-edge",
+            SnapKind::Guide => "snap-kind-guide",
+            SnapKind::Grid => "snap-kind-grid",
+            SnapKind::Constrained => "snap-kind-constrained",
+            SnapKind::Typed => "snap-kind-typed",
+            SnapKind::Free => return None,
+        })
     }
 }
 

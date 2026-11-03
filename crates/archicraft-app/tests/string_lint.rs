@@ -47,13 +47,11 @@ use syn::{Attribute, Expr, ExprLit, Lit, LitStr, Macro, Stmt, Token, Type};
 /// (archicraft-o4x.1); the comments name the task that empties each group.
 const PENDING: &[&str] = &[
     // archicraft-e19: main window and views.
-    "crates/archicraft-app/src/input/snap.rs",
     "crates/archicraft-app/src/ui/browser.rs",
     "crates/archicraft-app/src/ui/shell.rs::status_bar",
     "crates/archicraft-app/src/ui/shell.rs::toolbox",
-    "crates/archicraft-app/src/views/camera.rs",
+    // archicraft-z8d: only the canvas context menus of the plan and 3D views.
     "crates/archicraft-app/src/views/plan.rs",
-    "crates/archicraft-app/src/views/render3d.rs",
     "crates/archicraft-app/src/views/view3d.rs",
     // archicraft-bnf: tool labels, descriptions and prompts.
     "crates/archicraft-app/src/tools/mod.rs",

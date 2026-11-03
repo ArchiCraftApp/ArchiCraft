@@ -33,6 +33,8 @@
 //! | `startup-` | startup notices: autosaves to recover, the last crash | `app.ftl` |
 //! | `status-` | status-line messages | `app.ftl` |
 //! | `browser-` | project browser | `app.ftl` |
+//! | `view-` | texts of the plan and 3D views | `app.ftl` |
+//! | `display-mode-`, `view-preset-`, `snap-kind-` | names of the 3D display modes and view presets and of the snap kinds in the cursor label, from `label_key()` | `app.ftl` |
 //! | `cmd-<command-id>-label`, `cmd-<command-id>-desc` | command labels and descriptions | `commands.ftl` |
 //! | `dlg-<dialog>-` | dialogs, for example `dlg-about-title` | `dialogs.ftl` |
 //! | `tool-`, `prompt-` | drawing tools and their input prompts | `tools.ftl` |
@@ -87,10 +89,18 @@ use catalogue::CatalogueFile;
 pub use model::render;
 
 /// Prefixes of keys that are built at runtime, such as
-/// `cmd-<command-id>-label` or the keys archicraft-model, archicraft-ifcx
-/// and archicraft-geometry return. Catalogue keys with these prefixes need
+/// `cmd-<command-id>-label`, the keys archicraft-model, archicraft-ifcx
+/// and archicraft-geometry return, or the `label_key()` of an app enum. Catalogue keys with these prefixes need
 /// no literal `tr!` call.
-pub const DYNAMIC_PREFIXES: &[&str] = &["model-", "ifcx-", "geometry-", "cmd-"];
+pub const DYNAMIC_PREFIXES: &[&str] = &[
+    "model-",
+    "ifcx-",
+    "geometry-",
+    "cmd-",
+    "display-mode-",
+    "view-preset-",
+    "snap-kind-",
+];
 
 /// Looks up user-visible text in the current [`Localizer`] (NFR-L10N-001).
 ///

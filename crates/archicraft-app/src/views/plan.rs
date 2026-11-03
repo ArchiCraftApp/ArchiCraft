@@ -651,11 +651,11 @@ pub fn cursor_state_glyph(p: Pos2, state: CursorState, color: Color32) -> Vec<Sh
 /// (INP-002, INP-008); empty for a free point without a tracker.
 pub fn cursor_label(tracker: Option<String>, snap: SnapKind) -> String {
     let mut label = tracker.unwrap_or_default();
-    if !snap.label().is_empty() {
+    if let Some(key) = snap.label_key() {
         if !label.is_empty() {
             label.push('\n');
         }
-        label.push_str(snap.label());
+        label.push_str(&crate::tr!(key));
     }
     label
 }
@@ -974,7 +974,11 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     if let (Some(id), Some(p)) = (ws.hover, pointer)
         && let Some(e) = ws.doc.project.element(id)
     {
-        let text = format!("{} · {}", e.name, crate::tr!(e.tag().label_key()));
+        let text = crate::tr!(
+            "view-plan-hover",
+            name = e.name.as_str(),
+            kind = crate::tr!(e.tag().label_key())
+        );
         painter.text(
             p + egui::vec2(14.0, -14.0),
             Align2::LEFT_BOTTOM,
