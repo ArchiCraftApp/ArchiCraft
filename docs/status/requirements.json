@@ -4111,6 +4111,16 @@
       "depends_on": []
     },
     {
+      "id": "ANN-013",
+      "priority": "S",
+      "section": "4.26",
+      "status": "missing",
+      "remaining_effort": "M",
+      "evidence": "",
+      "gap": "Ellipses and elliptical arcs as 2D shapes by centre and both semi-axes at any rotation, with pen and line type.",
+      "depends_on": []
+    },
+    {
       "id": "ANN-012",
       "priority": "C",
       "section": "4.26",

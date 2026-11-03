@@ -15,10 +15,10 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 |---|---:|---:|---:|---:|
 | done | 69 | 8 | 1 | 78 |
 | partial | 110 | 35 | 6 | 151 |
-| missing | 135 | 156 | 47 | 338 |
-| **total** | 314 | 199 | 54 | 567 |
+| missing | 135 | 157 | 47 | 339 |
+| **total** | 314 | 200 | 54 | 568 |
 
-Remaining effort of the 489 open requirements: S 114, M 214, L 136, XL 25.
+Remaining effort of the 490 open requirements: S 114, M 215, L 136, XL 25.
 
 <!-- status:end counts -->
 
@@ -54,7 +54,7 @@ Remaining effort of the 489 open requirements: S 114, M 214, L 136, XL 25.
 | 4.23 | Terrain and site | 0/0/7 | 0/0/3 | 0/0/1 | 11 |
 | 4.24 | Objects and component library | 0/0/6 | 0/0/6 | 0/0/1 | 13 |
 | 4.25 | Spaces | 0/0/0 | 0/0/0 | 0/0/2 | 2 |
-| 4.26 | 2D drafting and annotation | 0/0/2 | 0/0/4 | 0/0/6 | 12 |
+| 4.26 | 2D drafting and annotation | 0/0/2 | 0/0/5 | 0/0/6 | 13 |
 | 4.27 | Materials and appearance | 1/3/0 | 0/1/2 | 0/0/0 | 7 |
 | 4.28 | Layers and visibility | 2/2/0 | 0/0/1 | 0/0/0 | 5 |
 | 4.29 | Measurement and element information | 0/0/1 | 0/3/1 | 0/0/1 | 6 |
@@ -736,6 +736,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 |---|---|---|---|---|
 | ANN-001 | M | missing | L | 2D construction lines (single, chained straight+arc), polylines, arcs and circles by centre/radius and three points, each with pen and line type; drawing them in plan. |
 | ANN-011 | S | missing | L | Rectangles, rotated rectangles, splines, tangent arcs/circles with solution choice. |
+| ANN-013 | S | missing | M | Ellipses and elliptical arcs as 2D shapes by centre and both semi-axes at any rotation, with pen and line type. |
 | ANN-012 | C | missing | M | 2D construction geometry in section/elevation views. |
 | ANN-002 | M | missing | M | 2D elements owned by a view and a layer; usable as tracing input and trim/split cutters. |
 | ANN-003 | C | missing | M | Drafting fills with DSP-009 patterns showing their area. |
