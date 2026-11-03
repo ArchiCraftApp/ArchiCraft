@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tests of how scripts/dashboard.py reads open pull requests on their way through the merge queue.
+"""Tests of how scripts/dashboard.py reads open pull requests on their way through the merge queue,
+and how it groups the showcase beads into the roadmap's demos.
 
 GitHub clears a PR's autoMergeRequest when the merge queue takes it in and again when the queue
 drops it, so auto-merge alone cannot tell a queued PR, a dropped one and one that waits for the
@@ -325,6 +326,44 @@ class OpenPullRequests(unittest.TestCase):
         self.assertFalse("!p.auto_merge" in dashboard.PAGE)
         self.assertTrue("p.needs_you" in dashboard.PAGE)
         self.assertFalse(WAITS in dashboard.PAGE)
+
+
+def bead(id, status="open", labels=("showcase",), needs=(), parent=None, minutes=60, type="task", title=None):
+    """One bead as `bd list --brief --json` returns it."""
+    deps = [{"issue_id": id, "depends_on_id": d, "type": "blocks"} for d in needs]
+    return {"id": id, "title": title or id, "status": status, "priority": 0, "issue_type": type,
+            "labels": list(labels), "estimated_minutes": minutes, "parent": parent, "dependencies": deps}
+
+
+def demo(n, verify_needs, verify_status="open", status="open"):
+    """A showcase epic "Showcase <n>: ..." and its verification task <epic>.1."""
+    return [bead(f"x-d{n}", status, type="epic", title=f"Showcase {n}: demo {n}", minutes=None),
+            bead(f"x-d{n}.1", verify_status, needs=verify_needs, parent=f"x-d{n}")]
+
+
+class ShowcaseDemos(unittest.TestCase):
+    def test_a_demo_holds_the_showcase_beads_it_needs_that_no_earlier_demo_needs(self):
+        beads = demo(2, ["x-b"]) + demo(1, ["x-a"]) + [
+            bead("x-base", "closed"), bead("x-a", needs=["x-base"]), bead("x-b", needs=["x-a", "x-c", "x-other"]),
+            bead("x-c"), bead("x-other", labels=())]
+        d1, d2 = dashboard.showcase_demos(beads)
+        self.assertEqual((d1["n"], d1["title"]), (1, "Demo 1"))
+        self.assertEqual([t["id"] for t in d1["tasks"]], ["x-a", "x-d1.1", "x-base"])
+        self.assertEqual([t["id"] for t in d2["tasks"]], ["x-b", "x-c", "x-d2.1"])
+        self.assertEqual((d1["leaves_done"], d1["leaves"], d1["est_done"], d1["est_total"]), (1, 3, 60, 180))
+        self.assertEqual((d1["state"], d2["state"]), ("in_progress", "planned"))
+
+    def test_a_split_bead_counts_through_its_leaves(self):
+        beads = demo(1, ["x-a"]) + [bead("x-a", "in_progress"), bead("x-a.1", "closed", parent="x-a", minutes=30),
+                                    bead("x-a.2", parent="x-a", minutes=90)]
+        (d,) = dashboard.showcase_demos(beads, ready={"x-a.2"})
+        self.assertEqual([(t["id"], t["ready"]) for t in d["tasks"]], [("x-a.2", True), ("x-d1.1", False), ("x-a.1", False)])
+        self.assertEqual((d["est_done"], d["est_total"]), (30, 180))
+
+    def test_a_closed_verification_task_makes_the_demo_ready_to_show_until_it_is_accepted(self):
+        shown, = dashboard.showcase_demos(demo(1, [], verify_status="closed"))
+        accepted, = dashboard.showcase_demos(demo(1, [], verify_status="closed", status="closed"))
+        self.assertEqual((shown["state"], accepted["state"]), ("demo", "accepted"))
 
 
 if __name__ == "__main__":
