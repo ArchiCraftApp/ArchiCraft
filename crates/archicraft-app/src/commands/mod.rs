@@ -21,7 +21,7 @@ pub mod file;
 mod help;
 pub mod keymap;
 pub mod os_reserved;
-mod project;
+pub mod project;
 pub mod tools;
 pub mod view;
 pub mod view_keys;
@@ -30,7 +30,7 @@ use std::cmp::Reverse;
 use std::sync::LazyLock;
 
 pub use binding::Binding;
-pub use ctx::{CommandCtx, Enabled, Invocation, Origin, Target};
+pub use ctx::{CommandCtx, Enabled, Invocation, Origin, Target, View3dCtx};
 use egui::InputState;
 pub use keymap::Keymap;
 
@@ -334,6 +334,16 @@ impl CommandSpec {
     pub fn description(&self) -> String {
         crate::tr!(&self.id.description_key())
     }
+
+    /// Whether the command can run in the state `cx`.
+    pub fn enabled_in(&self, cx: &CommandCtx) -> Enabled {
+        (self.enabled)(cx)
+    }
+
+    /// For an on/off command, whether it is on in the state `cx`.
+    pub fn checked_in(&self, cx: &CommandCtx) -> Option<bool> {
+        self.checked.map(|checked| checked(cx))
+    }
 }
 
 /// All commands, built once at startup from the registration functions of
@@ -385,6 +395,13 @@ impl Registry {
     /// The command with the given id.
     pub fn spec(&self, id: &str) -> Option<&CommandSpec> {
         self.specs.iter().find(|s| s.id.as_str() == id)
+    }
+
+    /// The registered command `id`, for the ids the application names
+    /// itself (constants of the command modules, whose tests check that they
+    /// are registered).
+    pub fn command(&self, id: CommandId) -> &CommandSpec {
+        self.spec(id.as_str()).unwrap_or_else(|| panic!("no command {id}"))
     }
 
     /// The entries of the menu `path` (see [`menu_entries`]).

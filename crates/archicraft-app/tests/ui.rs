@@ -7,7 +7,7 @@ mod common;
 
 use std::rc::Rc;
 
-use archicraft_app::commands::{Binding, Origin, Registry, Target, view_keys};
+use archicraft_app::commands::{self, Binding, Origin, Registry, Target, view_keys};
 use archicraft_app::i18n::{self, Localizer};
 use archicraft_app::input::{
     ConstraintReference, DivisionMode, DivisionScope, Field, GuideOrigin, InputConsumer, InputMode, SnapKind,
@@ -661,6 +661,56 @@ fn the_toolbar_tooltips_show_label_shortcut_description_and_reason() {
         assert_present(&harness, text);
     }
     assert!(harness.query_all_by_label("Undo Create wall").next().is_none());
+}
+
+/// UI-011: hovering a toolbox tool shows the command's description and its
+/// shortcut; View ▸ Fit to window and the status bar's Fit button show the
+/// same text, from the same command.
+#[test]
+fn toolbox_menu_and_status_bar_tooltips_show_description_and_shortcut() {
+    let mut harness = harness("command-tooltips");
+    harness.get_by_label("Wall").hover();
+    harness.run_steps(4);
+    assert_present(&harness, "Draw walls by their reference line (W)");
+
+    let fit = format!(
+        "Zoom the active view so that the whole model fits ({})",
+        harness.ctx.format_shortcut(&Binding::key(Key::F).shortcut())
+    );
+    open_menu(&mut harness, "View");
+    harness.get_by_label_contains("Fit to window").hover();
+    harness.run_steps(4);
+    assert_present(&harness, &fit);
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    // The status bar's Fit lies below the toolbox's.
+    let status_fit = harness
+        .query_all_by_label("Fit")
+        .map(|n| n.rect())
+        .max_by(|a, b| a.min.y.total_cmp(&b.min.y))
+        .unwrap()
+        .center();
+    harness.hover_at(status_fit);
+    harness.run_steps(4);
+    assert_present(&harness, &fit);
+}
+
+/// UI-011, UI-009: the tooltip shows the key the keymap binds now; with the
+/// Wall tool rebound to Shift+W, the toolbox's Wall button says so.
+#[test]
+fn a_tooltip_shows_the_rebound_shortcut() {
+    let mut harness = harness("rebound-tooltip");
+    let shift_w = Binding::key(Key::W).shift();
+    harness
+        .state_mut()
+        .workspace()
+        .keymap
+        .set(commands::tools::WALL, vec![shift_w]);
+    harness.run_steps(1);
+    harness.get_by_label("Wall").hover();
+    harness.run_steps(4);
+    let keys = harness.ctx.format_shortcut(&shift_w.shortcut());
+    assert_present(&harness, &format!("Draw walls by their reference line ({keys})"));
 }
 
 /// The commands invoked since the last call, with their origin.

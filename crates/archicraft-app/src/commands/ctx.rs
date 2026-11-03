@@ -2,8 +2,12 @@
 //! the application state, the target it acts on and where the invocation
 //! came from.
 
+use archicraft_model::project::Projection;
 use archicraft_model::{ElementId, StoreyId};
 
+use super::Keymap;
+use crate::tools::ToolKind;
+use crate::views::render3d::DisplayMode;
 use crate::workspace::{Pane, Workspace};
 
 /// A cheap snapshot of the state that decides whether commands are enabled,
@@ -26,12 +30,27 @@ pub struct CommandCtx {
     pub problems_open: bool,
     pub reference_lines_shown: bool,
     pub user_origin_placed: bool,
+    /// The active tool; the toolbox and the Design menu check it.
+    pub tool: ToolKind,
+    /// The state of the active 3D view, if a 3D view is active.
+    pub view3d: Option<View3dCtx>,
+    /// The keys that run each command, for the shortcuts shown (UI-009,
+    /// UI-011).
+    pub keymap: Keymap,
 }
 
 impl CommandCtx {
     /// The snapshot of `ws`; the rest of the application state is passed in.
     pub fn new(ws: &Workspace, text_focused: bool, problems_open: bool) -> Self {
         let history = &ws.doc.history;
+        let view3d = match ws.active_pane {
+            Some(Pane::View3d(view)) => ws.views_3d.get(&view).map(|state| View3dCtx {
+                mode: state.mode,
+                projection: state.camera.projection,
+                orbit: state.orbit,
+            }),
+            _ => None,
+        };
         Self {
             selection_empty: ws.selection.is_empty(),
             active_pane: ws.active_pane,
@@ -44,8 +63,20 @@ impl CommandCtx {
             problems_open,
             reference_lines_shown: ws.prefs.show_reference_lines,
             user_origin_placed: ws.frames.user_origin.is_placed(),
+            tool: ws.tool.kind,
+            view3d,
+            keymap: ws.keymap.clone(),
         }
     }
+}
+
+/// The state of the active 3D view that its commands show (VIEW-014,
+/// VIEW-020).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct View3dCtx {
+    pub mode: DisplayMode,
+    pub projection: Projection,
+    pub orbit: bool,
 }
 
 /// Whether a command can run now.
@@ -95,6 +126,8 @@ pub enum Origin {
     Palette,
     ContextMenu,
     Toolbar,
+    /// A button of a panel or dialog, such as the browser.
+    Panel,
     Test,
 }
 

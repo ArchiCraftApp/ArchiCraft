@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use archicraft_model::{Command, CommandError, ElementId, ElementKind, KindTag, Message, StoreyId, ViewId};
 
-use crate::commands::{CommandId, Keymap};
+use crate::commands::{CommandId, Keymap, Origin, Target};
 use crate::document::Document;
 use crate::input::{Frame2d, InputConsumer, PointInput, SnapIndex};
 use crate::persistence::prefs::Preferences;
@@ -44,6 +44,9 @@ pub enum Request {
     /// Write the preferences, changed outside the Preferences dialog, to
     /// their file.
     SavePreferences,
+    /// Run a command from a panel or dialog, which has no access to the
+    /// application (UI-017).
+    Invoke(CommandId, Target, Origin),
 }
 
 /// The frames point input measures in, shared by all plan views: session

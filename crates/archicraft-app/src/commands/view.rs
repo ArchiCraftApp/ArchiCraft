@@ -80,7 +80,8 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             .menu("view", 1, 3)
             .bind(Binding::key(Key::O))
             .scope(Scope::Canvas)
-            .icon(icons::ORBIT),
+            .icon(icons::ORBIT)
+            .checked_when(|cx| cx.view3d.is_some_and(|v| v.orbit)),
         view("view.reference-lines", |app, _, _| {
             app.ws.prefs.show_reference_lines = !app.ws.prefs.show_reference_lines;
             app.save_prefs();
