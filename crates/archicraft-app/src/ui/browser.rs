@@ -4,7 +4,9 @@ use archicraft_model::units::format_length;
 use archicraft_model::{Command, Storey, StoreyId};
 use egui::{RichText, Ui};
 
+use super::command_widgets::bar_button;
 use super::dialogs::Dialogs;
+use crate::commands::{CommandCtx, Origin, Registry, Target, project};
 use crate::workspace::{Pane, Request, Workspace};
 
 /// A new storey for inserting next to `reference`, named by its future
@@ -21,7 +23,9 @@ pub fn new_storey(ws: &Workspace, reference: StoreyId, above: bool) -> Storey {
     Storey::new(name, 0.0, height)
 }
 
-pub fn ui(ui: &mut Ui, ws: &mut Workspace, dialogs: &mut Dialogs) {
+/// The browser: the storeys, the 3D views and the project, whose buttons run
+/// commands (UI-011, UI-017).
+pub fn ui(ui: &mut Ui, ws: &mut Workspace, dialogs: &mut Dialogs, cx: &CommandCtx) {
     egui::CollapsingHeader::new(RichText::new("Storeys").strong())
         .default_open(true)
         .show(ui, |ui| {
@@ -102,14 +106,15 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, dialogs: &mut Dialogs) {
             ui.label(format!("Building: {}", project.building.name));
             ui.label(format!("{} elements", project.elements.len()));
             ui.horizontal_wrapped(|ui| {
-                if ui.small_button("Layers…").clicked() {
-                    dialogs.layers = true;
-                }
-                if ui.small_button("Materials…").clicked() {
-                    dialogs.materials = true;
-                }
-                if ui.small_button("Settings…").clicked() {
-                    dialogs.open_project_settings(ws);
+                for (command, label) in [
+                    (project::LAYERS, "Layers…"),
+                    (project::MATERIALS, "Materials…"),
+                    (project::SETTINGS, "Settings…"),
+                ] {
+                    if bar_button(ui, cx, Registry::get().command(command), label) {
+                        let target = Target::active(ws);
+                        ws.requests.push(Request::Invoke(command, target, Origin::Panel));
+                    }
                 }
             });
         });

@@ -19,8 +19,9 @@ pub use slab::SlabMode;
 pub use user_origin::UserOriginTool;
 pub use wall::WallMode;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ToolKind {
+    #[default]
     Select,
     Wall,
     Slab,
@@ -34,14 +35,6 @@ impl ToolKind {
             ToolKind::Select => "Select",
             ToolKind::Wall => "Wall",
             ToolKind::Slab => "Slab",
-        }
-    }
-
-    pub fn description(self) -> &'static str {
-        match self {
-            ToolKind::Select => "Select elements by clicking or by dragging a rectangle",
-            ToolKind::Wall => "Draw walls by their reference line",
-            ToolKind::Slab => "Draw slabs by their outline",
         }
     }
 }

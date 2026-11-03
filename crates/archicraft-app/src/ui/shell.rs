@@ -6,8 +6,9 @@ use std::time::Duration;
 
 use archicraft_model::project::Projection;
 use archicraft_model::units::format_length;
-use egui::{Atom, Atoms, Button, Image, RichText, Ui, Vec2};
+use egui::{Button, RichText, Ui};
 
+use super::command_widgets::{bar_button, icon_and_label, menu_item, shortcut_text, tool_button};
 use crate::commands::{
     CommandCtx, CommandId, CommandSpec, Enabled, MENUS, MenuEntry, Registry, edit, file, menu_title, tools, view,
 };
@@ -18,45 +19,10 @@ use crate::views::camera::ViewPreset;
 use crate::views::render3d::DisplayMode;
 use crate::workspace::{Pane, Workspace};
 
-/// The text of the first default binding of `spec`, if it has one.
-fn shortcut_text(ui: &Ui, spec: &CommandSpec) -> Option<String> {
-    spec.default_bindings
-        .first()
-        .map(|b| ui.ctx().format_shortcut(&b.shortcut()))
-}
-
 /// The registered command `id`. The ids this file uses are constants of
 /// `crate::commands`, whose tests check that they are registered.
 fn spec(id: CommandId) -> &'static CommandSpec {
-    Registry::get()
-        .spec(id.as_str())
-        .unwrap_or_else(|| panic!("no command {id}"))
-}
-
-/// The menu item of `spec`: its label, shortcut, enabled state and, for an
-/// on/off command, a check box, all from the registry.
-fn item(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, out: &mut Option<CommandId>) {
-    let label = spec.label_in(cx);
-    let enabled = (spec.enabled)(cx).is_yes();
-    let clicked = if let Some(checked) = spec.checked {
-        let mut on = checked(cx);
-        let mut atoms = Atoms::new(label);
-        if let Some(text) = shortcut_text(ui, spec) {
-            atoms.push_right(Atom::grow());
-            atoms.push_right(RichText::new(text).weak());
-        }
-        ui.add_enabled(enabled, egui::Checkbox::new(&mut on, atoms)).clicked()
-    } else {
-        let mut button = Button::new(label);
-        if let Some(text) = shortcut_text(ui, spec) {
-            button = button.shortcut_text(text);
-        }
-        ui.add_enabled(enabled, button).clicked()
-    };
-    if clicked {
-        *out = Some(spec.id);
-        ui.close();
-    }
+    Registry::get().command(id)
 }
 
 /// What the user chose in the menu bar.
@@ -72,7 +38,9 @@ fn menu(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, path: &str, chosen: &mut C
     for entry in Registry::get().menu(path) {
         match entry {
             MenuEntry::Command(spec) => {
-                item(ui, cx, spec, &mut chosen.command);
+                if menu_item(ui, cx, spec) {
+                    chosen.command = Some(spec.id);
+                }
                 if spec.id == file::OPEN {
                     open_recent(ui, ws, &mut chosen.recent);
                 }
@@ -128,7 +96,7 @@ fn tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, enabled: Enabled) {
     ui.set_max_width(ui.spacing().tooltip_width);
     ui.horizontal(|ui| {
         ui.strong(spec.label_in(cx));
-        if let Some(keys) = shortcut_text(ui, spec) {
+        if let Some(keys) = shortcut_text(spec, &cx.keymap, |b| ui.ctx().format_shortcut(&b.shortcut())) {
             ui.weak(keys);
         }
     });
@@ -140,21 +108,6 @@ fn tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, enabled: Enabled) {
 
 /// The side of the toolbar's icons, in points.
 const TOOLBAR_ICON: f32 = 16.0;
-/// The side of the toolbox's icons, in points.
-const TOOLBOX_ICON: f32 = 20.0;
-/// The size of a toolbox button, in points.
-const TOOLBOX_BUTTON: [f32; 2] = [88.0, 26.0];
-
-/// The icon of `spec` (UI-001, `ui/icons.rs`) with a side of `size` points,
-/// then `label`. The button that shows them must tint its images with its
-/// text colour, so the white icon takes the colour of the label.
-fn icon_and_label<'a>(spec: &CommandSpec, size: f32, label: impl Into<Atom<'a>>) -> Atoms<'a> {
-    let mut atoms = Atoms::new(label);
-    if let Some(icon) = &spec.icon {
-        atoms.push_left(Image::new(icon.clone()).fit_to_exact_size(Vec2::splat(size)));
-    }
-    atoms
-}
 
 /// The toolbar below the menu bar (UI-011): Undo and Redo, greyed out while
 /// they cannot run, with their icons, labels and tooltips from the registry.
@@ -179,35 +132,23 @@ pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     chosen
 }
 
-/// What a toolbox button shows: the icon of `spec` and `label`, both at the
-/// button's left, so the icons line up in a column.
-fn toolbox_atoms<'a>(spec: &CommandSpec, label: &'a str) -> Atoms<'a> {
-    let mut atoms = icon_and_label(spec, TOOLBOX_ICON, label);
-    atoms.push_right(Atom::grow());
-    atoms
-}
-
 /// The tool palette (UI-001): selection, modelling and view tools, each an
-/// icon and a label. Returns the command of the clicked button.
-pub fn toolbox(ui: &mut Ui, ws: &Workspace) -> Option<CommandId> {
+/// icon and a label, with the command's description and shortcut as tooltip
+/// (UI-011). Returns the command of the clicked button.
+pub fn toolbox(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     let mut chosen = None;
-    let tool_button = |ui: &mut Ui, kind: ToolKind, chosen: &mut Option<CommandId>| {
-        let spec = spec(tools::command(kind));
-        let shortcut = shortcut_text(ui, spec).map(|s| format!(" ({s})")).unwrap_or_default();
-        let button = Button::selectable(ws.tool.kind == kind, toolbox_atoms(spec, kind.label()));
-        let response = ui
-            .add_sized(TOOLBOX_BUTTON, button.image_tint_follows_text_color(true))
-            .on_hover_text(format!("{}{shortcut}", kind.description()));
-        if response.clicked() {
-            *chosen = Some(spec.id);
+    let mut button = |ui: &mut Ui, id: CommandId, label: &str| {
+        if tool_button(ui, cx, spec(id), label) {
+            chosen = Some(id);
         }
     };
     ui.label(RichText::new("Selection").small().weak());
-    tool_button(ui, ToolKind::Select, &mut chosen);
+    button(ui, tools::command(ToolKind::Select), ToolKind::Select.label());
     ui.add_space(6.0);
     ui.label(RichText::new("Modelling").small().weak());
-    tool_button(ui, ToolKind::Wall, &mut chosen);
-    tool_button(ui, ToolKind::Slab, &mut chosen);
+    for kind in [ToolKind::Wall, ToolKind::Slab] {
+        button(ui, tools::command(kind), kind.label());
+    }
     ui.add_space(6.0);
     ui.label(RichText::new("View tools").small().weak());
     for (label, id) in [
@@ -215,22 +156,20 @@ pub fn toolbox(ui: &mut Ui, ws: &Workspace) -> Option<CommandId> {
         ("Orbit", view::ORBIT),
         ("Plan/3D", view::SWITCH_PLAN_3D),
     ] {
-        let spec = spec(id);
-        let tip = shortcut_text(ui, spec)
-            .map(|s| format!("{} ({s})", spec.label()))
-            .unwrap_or_else(|| spec.label());
-        let button = Button::new(toolbox_atoms(spec, label)).image_tint_follows_text_color(true);
-        if ui.add_sized(TOOLBOX_BUTTON, button).on_hover_text(tip).clicked() {
-            chosen = Some(spec.id);
-        }
+        button(ui, id, label);
     }
     chosen
 }
 
 /// The status line with the input prompt, the last message and the
 /// view-control bar of the active view (UI-001).
-pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Option<CommandId> {
+pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, problem_count: usize) -> Option<CommandId> {
     let mut chosen = None;
+    let mut button = |ui: &mut Ui, id: CommandId, label: &str| {
+        if bar_button(ui, cx, spec(id), label) {
+            chosen = Some(id);
+        }
+    };
     ui.horizontal(|ui| {
         // The prompt of the step in progress (INP-001, NFR-USE-003).
         let prompt = ws.consumer().step().map_or_else(
@@ -267,19 +206,13 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Opti
             } else {
                 format!("⚠ {problem_count} problem(s)")
             };
-            if ui.small_button(label).clicked() {
-                chosen = Some(view::PROBLEMS);
-            }
+            button(ui, view::PROBLEMS, &label);
             ui.separator();
             match ws.active_pane {
                 Some(Pane::View3d(view_id)) => {
                     if let Some(state) = ws.views_3d.get_mut(&view_id) {
-                        if ui.small_button("Fit").clicked() {
-                            chosen = Some(view::FIT_WINDOW);
-                        }
-                        if ui.selectable_label(state.orbit, "Orbit").clicked() {
-                            chosen = Some(view::ORBIT);
-                        }
+                        button(ui, view::FIT_WINDOW, "Fit");
+                        button(ui, view::ORBIT, "Orbit");
                         egui::ComboBox::from_id_salt("display-mode")
                             .selected_text(tr!(state.mode.label_key()))
                             .show_ui(ui, |ui| {
@@ -310,15 +243,9 @@ pub fn status_bar(ui: &mut Ui, ws: &mut Workspace, problem_count: usize) -> Opti
                     }
                 }
                 Some(Pane::Plan(storey)) => {
-                    if ui.small_button("Fit").clicked() {
-                        chosen = Some(view::FIT_WINDOW);
-                    }
-                    if ui.small_button("Next zoom ▶").clicked() {
-                        chosen = Some(view::NEXT_ZOOM);
-                    }
-                    if ui.small_button("◀ Previous zoom").clicked() {
-                        chosen = Some(view::PREVIOUS_ZOOM);
-                    }
+                    button(ui, view::FIT_WINDOW, "Fit");
+                    button(ui, view::NEXT_ZOOM, "Next zoom ▶");
+                    button(ui, view::PREVIOUS_ZOOM, "◀ Previous zoom");
                     if let Some(state) = ws.plan_views.get(&storey) {
                         // INP-014: the cursor's X and Y from the user origin,
                         // along its axes.

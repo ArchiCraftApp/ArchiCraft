@@ -39,6 +39,12 @@ fn every_command_is_complete() {
             assert!(english.has(&key), "{id}: no English text for {key}");
             assert!(!english.format(&key, None).trim().is_empty(), "{id}: {key} is empty");
         }
+        // UI-011: the description is the short text of the tooltip.
+        let description = english.format(&spec.id.description_key(), None);
+        assert!(
+            description.chars().count() <= 120,
+            "{id}: the description has more than 120 characters"
+        );
         assert!(
             spec.menu.is_some() || spec.palette_only || spec.context_only,
             "{id} has no menu place and is neither palette_only nor context_only"

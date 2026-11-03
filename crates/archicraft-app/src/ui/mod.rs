@@ -2,6 +2,7 @@
 
 pub mod about;
 pub mod browser;
+pub mod command_widgets;
 pub mod dialogs;
 pub mod icons;
 pub mod properties;
