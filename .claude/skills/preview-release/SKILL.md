@@ -9,8 +9,9 @@ argument-hint: "[branch or commit] [notes for testers]"
 `.github/workflows/preview-release.yml` builds the commit at the tip of a branch on macOS
 (Apple silicon), Linux and Windows (x86_64) and publishes the three packages with
 `SHA256SUMS.txt` as a GitHub pre-release tagged `preview-<version>-<yyyymmdd>-<sha7>`. It is
-never marked as the latest release and starts none of the `v*` release workflows. Every package
-takes its icon from `ArchiCraft_Logo.png` in the repository root. The repository is public: a
+never marked as the latest release and starts none of the `v*` release workflows. The Linux and
+Windows packages take their icon from `ArchiCraft_Logo.png` in the repository root, the macOS
+one from the Icon Composer document `packaging/macos/AppIcon.icon`. The repository is public: a
 preview is visible to everyone, so start one only when the user asked for it.
 
 Arguments (`$ARGUMENTS`): optionally a branch (default `main`), then optionally the notes for

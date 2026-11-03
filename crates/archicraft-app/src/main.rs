@@ -23,7 +23,7 @@ fn main() -> eframe::Result {
         .with_app_id("archicraft")
         .with_inner_size([1440.0, 900.0])
         .with_min_inner_size([800.0, 500.0]);
-    if let Some(icon) = archicraft_app::icon() {
+    if let Some(icon) = archicraft_app::viewport_icon() {
         viewport = viewport.with_icon(icon);
     }
     let options = eframe::NativeOptions {

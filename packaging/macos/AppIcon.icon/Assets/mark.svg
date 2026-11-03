@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1969 1969">
+  <!-- The white mark of ArchiCraft_Logo.svg (its two paths, at the same place): the foreground
+       layer of the macOS app icon. Icon Composer draws it over the document's gradient fill. -->
+  <path d="M794.489,1435.883l379.773,-0l0,379.773c-209.743,0 -379.773,-170.03 -379.773,-379.773Z" fill="#fff"/>
+  <path d="M448.571,1435.883l0,-322.55l0.023,0l652.525,-652.525l0,-1.465l419.061,0l-0,976.54l-305.129,0l0,-238.738l95.599,0l0,-528.271l-121.275,0l-528.271,528.271l92.598,0l0,238.738l-305.129,0Z" fill="#fff"/>
+</svg>
