@@ -1,18 +1,19 @@
 ---
 name: preview-release
-description: Publish an in-between (preview) release of ArchiCraft on GitHub — a macOS DMG, a Linux tarball and a Windows zip of one pushed commit, as a pre-release — by starting .github/workflows/preview-release.yml and reporting the release link. Use when the user asks for a preview, in-between, test or nightly-style build or release, for installers or executables of the current state for testers, or invokes /preview-release.
+description: Publish an in-between (preview) release of ArchiCraft on GitHub — a macOS DMG, a Linux tarball, a Linux Flatpak bundle and a Windows zip of one pushed commit, as a pre-release — by starting .github/workflows/preview-release.yml and reporting the release link. Use when the user asks for a preview, in-between, test or nightly-style build or release, for installers or executables of the current state for testers, or invokes /preview-release.
 argument-hint: "[branch or commit] [notes for testers]"
 ---
 
 # Publishing a preview release
 
 `.github/workflows/preview-release.yml` builds the commit at the tip of a branch on macOS
-(Apple silicon), Linux and Windows (x86_64) and publishes the three packages with
-`SHA256SUMS.txt` as a GitHub pre-release tagged `preview-<version>-<yyyymmdd>-<sha7>`. It is
-never marked as the latest release and starts none of the `v*` release workflows. The Linux and
-Windows packages take their icon from `ArchiCraft_Logo.png` in the repository root, the macOS
-one from the Icon Composer document `packaging/macos/AppIcon.icon`. The repository is public: a
-preview is visible to everyone, so start one only when the user asked for it.
+(Apple silicon), Linux and Windows (x86_64) and publishes the four packages (a DMG, a tarball,
+a Flatpak bundle and a zip) with `SHA256SUMS.txt` as a GitHub pre-release tagged
+`preview-<version>-<yyyymmdd>-<sha7>`. It is never marked as the latest release and starts none
+of the `v*` release workflows. The Linux and Windows packages take their icon from
+`ArchiCraft_Logo.png` in the repository root, the macOS one from the Icon Composer document
+`packaging/macos/AppIcon.icon`. The repository is public: a preview is visible to everyone, so
+start one only when the user asked for it.
 
 Arguments (`$ARGUMENTS`): optionally a branch (default `main`), then optionally the notes for
 testers. Do not invent notes: GitHub lists the merged pull requests since the previous preview
@@ -52,8 +53,10 @@ on its own.
    - Failure: `gh run view <id> --log-failed | tail -n 80`, name the failed job and the error
      in a few lines. A failure in `Name and CI status` is usually a preview of the same commit
      from today or a CI run that did not pass; one in `Package (…)` is a build or packaging
-     error of that OS (`scripts/package-macos.sh`, `scripts/package-linux.sh`,
-     `scripts/package-windows.sh`). Propose the fix; do not retry blindly.
+     error of that package (`scripts/package-macos.sh`, `scripts/package-linux.sh`,
+     `scripts/package-flatpak.sh`, `scripts/package-windows.sh`). `Package (Linux Flatpak)`
+     also fails when Flathub, where it fetches the freedesktop runtime and SDK, is
+     unreachable. Propose the fix; do not retry blindly.
 
 ## Cleaning up
 

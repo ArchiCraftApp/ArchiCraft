@@ -5,13 +5,14 @@
 # Usage: scripts/package-flatpak.sh
 # Output: target/flatpak/ArchiCraft-<version>-linux-<arch>.flatpak
 #
-# Needs Linux with flatpak, flatpak-builder and Python with Pillow (python3-pil), which scales
-# ArchiCraft_Logo.png to the icon sizes (Flatpak refuses exported icons above 512 px). The
-# binary is built outside the Flatpak build sandbox (that has no network for crates) and copied
-# in. flatpak-builder installs the freedesktop runtime and SDK from Flathub into the user
-# installation when they are missing; the bundle names Flathub as the runtime's source, so
-# installing it fetches the runtime too. The bundle has no update remote and nothing is set up
-# at first start beyond what the app itself does (SRS D-12).
+# Needs Linux with flatpak, flatpak-builder 1.4 or newer (Ubuntu 24.04 or later: 1.2 runs
+# appstream-compose inside the SDK, which SDK 26.08 no longer has) and Python with Pillow
+# (python3-pil), which scales ArchiCraft_Logo.png to the icon sizes (Flatpak refuses exported
+# icons above 512 px). The binary is built outside the Flatpak build sandbox (that has no
+# network for crates) and copied in. flatpak-builder installs the freedesktop runtime and SDK
+# from Flathub into the user installation when they are missing; the bundle names Flathub as
+# the runtime's source, so installing it fetches the runtime too. The bundle has no update
+# remote and nothing is set up at first start beyond what the app itself does (SRS D-12).
 set -eu
 cd "$(dirname "$0")/.."
 
