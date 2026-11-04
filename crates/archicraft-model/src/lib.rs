@@ -15,6 +15,7 @@ pub mod kinds;
 pub mod layer;
 pub mod material;
 pub mod message;
+pub mod outline;
 pub mod project;
 pub mod samples;
 pub mod storey;

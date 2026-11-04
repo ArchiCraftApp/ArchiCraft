@@ -300,6 +300,7 @@ name = "archicraft-model"
 version = "0.1.0"
 dependencies = [
  "archicraft-model",
+ "geo",
  "glam",
  "indexmap",
  "serde",
