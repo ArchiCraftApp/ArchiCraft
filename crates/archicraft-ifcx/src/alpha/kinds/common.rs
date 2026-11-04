@@ -3,8 +3,10 @@
 //! reference line (WAL-003), the drafting view of 2D elements (ANN-002) and
 //! the repair of a material reference (PRJ-008).
 
+#[cfg(feature = "test-kinds")]
+use archicraft_model::DraftingView;
 use archicraft_model::glam::DVec2;
-use archicraft_model::{DraftingView, MaterialId, ReferenceLine, StoreyId, TopLink};
+use archicraft_model::{MaterialId, ReferenceLine, StoreyId, TopLink};
 use serde_json::{Map, Value, json};
 
 use super::ReadContext;
@@ -25,19 +27,25 @@ pub(crate) fn reference_line_schema() -> Value {
     schema::enumeration(["outside", "center", "inside", "custom"])
 }
 
+// Only the test kinds have a drafting view so far, so the view's helpers are
+// compiled with them; the first release kind with a view drops the cfg.
+
 /// The drafting view of a 2D element (ANN-002): its type and, for a plan
 /// view, the storey.
+#[cfg(feature = "test-kinds")]
 pub(crate) fn drafting_view_schema() -> Value {
     schema::object(&[("type", schema::enumeration(["plan"])), ("storey", schema::reference())])
 }
 
 /// The view in the model's own form, `{"type": "plan", "storey": "<uuid>"}`.
+#[cfg(feature = "test-kinds")]
 pub(crate) fn drafting_view_value(view: DraftingView) -> Value {
     json!(view)
 }
 
 /// The view from its members. Whether it belongs to the element's home
 /// storey is checked with the element (ANN-002).
+#[cfg(feature = "test-kinds")]
 pub(crate) fn read_drafting_view(map: &Object) -> Result<DraftingView, Message> {
     match text(map, "type")?.as_str() {
         "plan" => Ok(DraftingView::plan(StoreyId::from_uuid(uuid(map, "storey")?))),
