@@ -28,8 +28,8 @@ use archicraft_model::template::default_metric_project;
 use archicraft_model::units::{AngleUnit, LengthUnit, SlopeFormat};
 use archicraft_model::validate::{MIN_CORNER_ANGLE_DEG, MIN_EDGE_LENGTH};
 use archicraft_model::{
-    ElementKind, KindTag, MODEL_TOLERANCE, MaterialCategory, MaterialId, Project, ReferenceLine, Slab, SlabReference,
-    TopLink, Wall,
+    DrawingScale, ElementKind, KindTag, MODEL_TOLERANCE, MaterialCategory, MaterialId, Project, ReferenceLine, Slab,
+    SlabReference, TopLink, Wall,
 };
 
 /// Floats are compared with this absolute tolerance: the defaults are exact
@@ -120,7 +120,7 @@ const ROWS: &[Row] = &[
     row!("D.1 Plan cut plane; view range: cut plane 1.10 m above the storey elevation (STR-008)", |p| close(p.settings.cut_plane_height, 1.10)),
     row!("D.1 Plan cut plane; view range: no storey overrides the cut plane (STR-008)", |p| equal(storey_cut_planes(p), vec![None, None])),
     row!("D.1 Plan cut plane; view range: bottom at the storey elevation, top at the next storey", elsewhere GEOMETRY),
-    row!("D.1 Drawing scale: 1:100", pending "plan-renderer (archicraft-dbc9)"),
+    row!("D.1 Drawing scale: 1:100", |_| equal(DrawingScale::default().denominator(), 100)),
     row!("D.1 Model tolerance; repair thresholds: model tolerance 0.01 mm (NFR-ACC-003)", |_| close(MODEL_TOLERANCE, 0.000_01)),
     row!("D.1 Model tolerance; repair thresholds: edges shorter than 0.1 mm (EDT-019)", |_| close(MIN_EDGE_LENGTH, 0.000_1)),
     row!("D.1 Model tolerance; repair thresholds: sliver angles below 0.1° (EDT-019)", |_| close(MIN_CORNER_ANGLE_DEG, 0.1)),

@@ -153,6 +153,9 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-parse-length",
     "model-error-parse-angle",
     "model-error-parse-slope",
+    // Drawing scales (drawing.rs, ScaleError::message).
+    "model-error-parse-scale",
+    "model-error-scale-range",
     // Unit names (units.rs, label_key).
     "model-unit-length-m",
     "model-unit-length-cm",

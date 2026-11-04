@@ -158,6 +158,12 @@ view-bar-zoom = { $percent } %
 view-bar-previous-zoom = ◀ Previous zoom
 view-bar-next-zoom = Next zoom ▶
 view-bar-fit = Fit
+# The drawing scale of a 2D view (VIEW-013); $denominator: the n of 1:n.
+view-bar-drawing-scale = Drawing scale
+view-bar-drawing-scale-value = 1:{ $denominator }
+view-bar-drawing-scale-custom = Custom…
+view-bar-drawing-scale-hint = The scale of the drawing: line weights, hatches and text sizes are paper millimetres at this scale. Zooming does not change it.
+view-bar-drawing-scale-custom-hint = Type a scale such as 1:75 or 75 and press Enter.
 view-bar-orbit = Orbit
 view-bar-reference-lines = Reference lines
 # The menu of the 3D view presets.

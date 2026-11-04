@@ -6,6 +6,7 @@
 //! (NFR-MNT-001).
 
 pub mod command;
+pub mod drawing;
 pub mod element;
 pub mod fixtures;
 pub mod group;
@@ -24,6 +25,7 @@ pub mod units;
 pub mod validate;
 
 pub use command::{Command, CommandError, History};
+pub use drawing::DrawingScale;
 pub use element::{CompoundPart, Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, TopLink};
 pub use group::Group;
 pub use ids::{BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};

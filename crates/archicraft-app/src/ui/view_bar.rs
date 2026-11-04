@@ -6,15 +6,16 @@
 //! type fills the slots it has controls for and leaves the others empty, so
 //! a later feature fills a slot in its provider without touching the bar.
 
-use archicraft_model::units::NumberFormat;
-use egui::{RichText, Ui};
+use archicraft_model::units::{NumberFormat, UnitSettings};
+use archicraft_model::{DrawingScale, StoreyId};
+use egui::{Key, RichText, TextEdit, Ui};
 
 use super::command_widgets::{bar_button, menu_item};
 use crate::commands::{CommandCtx, CommandId, CommandSpec, Registry, View3dCtx, view, view3d};
-use crate::tr;
 use crate::views::camera::ViewPreset;
 use crate::views::render3d::DisplayMode;
 use crate::workspace::{Pane, Workspace};
+use crate::{i18n, tr};
 
 /// The slots of the bar, in the order they are shown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -64,6 +65,26 @@ pub enum Item {
         hint: String,
         commands: Vec<CommandId>,
     },
+    /// The drawing scale of the 2D view `view` (VIEW-013): a drop-down of
+    /// the preset scales and a custom scale typed into a field, which
+    /// belongs to `view`. `units` and `number_format` render the message of
+    /// a rejected scale.
+    Scale {
+        view: Pane,
+        selected: DrawingScale,
+        units: UnitSettings,
+        number_format: NumberFormat,
+    },
+}
+
+/// What the user chose in the bar.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BarAction {
+    /// The command of a clicked control.
+    Command(CommandId),
+    /// A drawing scale for the active 2D view (VIEW-013). It is view state,
+    /// not a model change, so it is not undoable, like zoom.
+    Scale(DrawingScale),
 }
 
 /// Fills the bar's slots for one pane type.
@@ -71,10 +92,6 @@ pub trait ViewBarProvider {
     /// The controls of `slot`, or `None` to leave it empty.
     fn slot(&self, slot: Slot) -> Option<Vec<Item>>;
 }
-
-/// The drawing scale of plans until views have their own (VIEW-013, default
-/// 1:100).
-const DRAWING_SCALE: f64 = 100.0;
 
 /// The physical size of one egui point at a zoom factor of 1, in
 /// millimetres: the reference pixel of 1/96 inch, which the operating
@@ -109,13 +126,25 @@ fn zoom_items(percent: f64, nf: &NumberFormat) -> Vec<Item> {
     ]
 }
 
-/// The bar of a plan view: zoom with the zoom history, fit and the plan's
-/// display settings. Rotation (VIEW-060), scale (VIEW-013) and the
-/// restriction indicator (VIEW-043) follow with their features.
+/// A drawing scale as the bar shows it, such as "1:100".
+pub fn scale_text(scale: DrawingScale) -> String {
+    tr!(
+        "view-bar-drawing-scale-value",
+        denominator = scale.denominator().to_string()
+    )
+}
+
+/// The bar of a plan view: zoom with the zoom history, fit, the drawing
+/// scale (VIEW-013) and the plan's display settings. Rotation (VIEW-060)
+/// and the restriction indicator (VIEW-043) follow with their features.
 #[derive(Clone, Debug)]
 pub struct PlanBar {
+    /// The storey of the plan.
+    pub storey: StoreyId,
     pub zoom_percent: f64,
     pub number_format: NumberFormat,
+    pub scale: DrawingScale,
+    pub units: UnitSettings,
 }
 
 impl ViewBarProvider for PlanBar {
@@ -128,11 +157,17 @@ impl ViewBarProvider for PlanBar {
                 Some(items)
             }
             Slot::Fit => Some(vec![Item::Command(view::FIT_WINDOW, tr!("view-bar-fit"))]),
+            Slot::Scale => Some(vec![Item::Scale {
+                view: Pane::Plan(self.storey),
+                selected: self.scale,
+                units: self.units.clone(),
+                number_format: self.number_format,
+            }]),
             Slot::Display => Some(vec![Item::Command(
                 view::REFERENCE_LINES,
                 tr!("view-bar-reference-lines"),
             )]),
-            Slot::Rotation | Slot::Scale | Slot::Restrictions => None,
+            Slot::Rotation | Slot::Restrictions => None,
         }
     }
 }
@@ -185,8 +220,11 @@ pub fn provider(ws: &Workspace, cx: &CommandCtx, zoom_factor: f32) -> Option<Box
         Pane::Plan(storey) => {
             let state = ws.plan_views.get(&storey)?;
             Some(Box::new(PlanBar {
-                zoom_percent: plan_zoom_percent(state.camera.scale, zoom_factor, DRAWING_SCALE),
+                storey,
+                zoom_percent: plan_zoom_percent(state.camera.scale, zoom_factor, f64::from(state.scale.denominator())),
                 number_format,
+                scale: state.scale,
+                units: ws.doc.project.settings.units.clone(),
             }))
         }
         Pane::View3d(id) => {
@@ -205,8 +243,8 @@ fn spec(id: CommandId) -> &'static CommandSpec {
 }
 
 /// The bar with the slots of `provider`, a separator between two filled
-/// slots. Returns the command of the clicked control.
-pub fn view_bar(ui: &mut Ui, cx: &CommandCtx, provider: &dyn ViewBarProvider) -> Option<CommandId> {
+/// slots. Returns what the user chose.
+pub fn view_bar(ui: &mut Ui, cx: &CommandCtx, provider: &dyn ViewBarProvider) -> Option<BarAction> {
     let mut chosen = None;
     ui.horizontal(|ui| {
         let mut first = true;
@@ -228,13 +266,13 @@ pub fn view_bar(ui: &mut Ui, cx: &CommandCtx, provider: &dyn ViewBarProvider) ->
     chosen
 }
 
-/// Shows one control and returns its command when clicked.
-fn item_ui(ui: &mut Ui, cx: &CommandCtx, item: Item) -> Option<CommandId> {
+/// Shows one control and returns what the user chose with it.
+fn item_ui(ui: &mut Ui, cx: &CommandCtx, item: Item) -> Option<BarAction> {
     let mut chosen = None;
     match item {
         Item::Command(id, label) => {
             if bar_button(ui, cx, spec(id), &label) {
-                chosen = Some(id);
+                chosen = Some(BarAction::Command(id));
             }
         }
         Item::Readout(text) => {
@@ -251,7 +289,7 @@ fn item_ui(ui: &mut Ui, cx: &CommandCtx, item: Item) -> Option<CommandId> {
                 .show_ui(ui, |ui| {
                     for (id, label) in options {
                         if bar_button(ui, cx, spec(id), &label) {
-                            chosen = Some(id);
+                            chosen = Some(BarAction::Command(id));
                         }
                     }
                 })
@@ -262,21 +300,121 @@ fn item_ui(ui: &mut Ui, cx: &CommandCtx, item: Item) -> Option<CommandId> {
             ui.menu_button(label, |ui| {
                 for id in commands {
                     if menu_item(ui, cx, spec(id)) {
-                        chosen = Some(id);
+                        chosen = Some(BarAction::Command(id));
                     }
                 }
             })
             .response
             .on_hover_text(hint);
         }
+        Item::Scale {
+            view,
+            selected,
+            units,
+            number_format,
+        } => chosen = scale_ui(ui, view, selected, &units, &number_format).map(BarAction::Scale),
     }
+    chosen
+}
+
+/// The custom drawing scale being typed, kept in egui's memory between
+/// frames per view.
+#[derive(Clone, Debug, Default)]
+struct CustomScale {
+    text: String,
+    /// The message of the rejected text, shown beside the field.
+    error: Option<String>,
+    /// Whether the field takes the keyboard focus this frame.
+    focus: bool,
+}
+
+/// The drawing-scale drop-down of `view` (VIEW-013): the presets, then
+/// "Custom…", which opens a field beside the drop-down. Enter in the field
+/// applies the typed scale; text that is not a scale keeps the old one and
+/// shows why; Escape in the field or choosing a preset closes it. The field
+/// is the view's own: the bar of another view does not show it. Returns the
+/// chosen scale.
+fn scale_ui(
+    ui: &mut Ui,
+    view: Pane,
+    selected: DrawingScale,
+    units: &UnitSettings,
+    nf: &NumberFormat,
+) -> Option<DrawingScale> {
+    let custom_id = ui.make_persistent_id(("drawing-scale-custom", view));
+    let mut custom: Option<CustomScale> = ui.data(|d| d.get_temp(custom_id));
+    let mut chosen = None;
+    egui::ComboBox::from_label(tr!("view-bar-drawing-scale"))
+        .selected_text(scale_text(selected))
+        // Every preset and "Custom…" without scrolling.
+        .height(f32::INFINITY)
+        .show_ui(ui, |ui| {
+            for preset in DrawingScale::PRESETS {
+                if ui.selectable_label(preset == selected, scale_text(preset)).clicked() {
+                    chosen = Some(preset);
+                    custom = None;
+                }
+            }
+            ui.separator();
+            if ui
+                .selectable_label(false, tr!("view-bar-drawing-scale-custom"))
+                .clicked()
+            {
+                custom = Some(CustomScale {
+                    focus: true,
+                    ..CustomScale::default()
+                });
+            }
+        })
+        .response
+        .on_hover_text(tr!("view-bar-drawing-scale-hint"));
+    if let Some(c) = &mut custom {
+        let field = ui
+            .add(
+                TextEdit::singleline(&mut c.text)
+                    .id(custom_id.with("field"))
+                    .hint_text(scale_text(selected))
+                    .desired_width(64.0),
+            )
+            .on_hover_text(tr!("view-bar-drawing-scale-custom-hint"));
+        if std::mem::take(&mut c.focus) {
+            field.request_focus();
+        }
+        if let Some(error) = &c.error {
+            ui.label(RichText::new(error).small().color(ui.visuals().error_fg_color));
+        }
+        if field.lost_focus() {
+            if ui.input(|i| i.key_pressed(Key::Enter)) {
+                match c.text.parse::<DrawingScale>() {
+                    Ok(scale) => chosen = Some(scale),
+                    Err(e) => {
+                        c.error = Some(i18n::render(&e.message(), units, nf));
+                        c.focus = true;
+                    }
+                }
+            } else if ui.input(|i| i.key_pressed(Key::Escape)) {
+                custom = None;
+            }
+        }
+        if chosen.is_some() {
+            custom = None;
+        }
+    }
+    ui.data_mut(|d| match custom {
+        Some(c) => {
+            d.insert_temp(custom_id, c);
+        }
+        None => d.remove::<CustomScale>(custom_id),
+    });
     chosen
 }
 
 #[cfg(test)]
 mod tests {
+    use egui::Key;
+    use egui::accesskit::Role;
     use egui_kittest::Harness;
-    use egui_kittest::kittest::Queryable;
+    use egui_kittest::kittest::{By, NodeT, Queryable};
 
     use super::*;
 
@@ -305,20 +443,139 @@ mod tests {
         assert!(xs.windows(2).all(|w| w[0] < w[1]), "{xs:?}");
     }
 
-    /// UI-001: the plan's bar leaves Rotation, Scale and Restrictions empty
-    /// until their features fill them; there is no hard-coded scale.
-    #[test]
-    fn the_plan_bar_leaves_the_later_slots_empty() {
-        let bar = PlanBar {
+    fn plan_bar(storey: StoreyId, scale: DrawingScale) -> PlanBar {
+        PlanBar {
+            storey,
             zoom_percent: 100.0,
             number_format: NumberFormat::default(),
-        };
-        for slot in [Slot::Rotation, Slot::Scale, Slot::Restrictions] {
+            scale,
+            units: UnitSettings::default(),
+        }
+    }
+
+    /// UI-001, VIEW-013: the plan's bar fills the Scale slot with the view's
+    /// drawing scale and leaves Rotation and Restrictions empty until their
+    /// features fill them.
+    #[test]
+    fn the_plan_bar_leaves_the_later_slots_empty() {
+        let bar = plan_bar(StoreyId::new(), DrawingScale::default());
+        for slot in [Slot::Rotation, Slot::Restrictions] {
             assert_eq!(bar.slot(slot), None, "{slot:?}");
         }
-        for slot in [Slot::Zoom, Slot::Fit, Slot::Display] {
+        for slot in [Slot::Zoom, Slot::Fit, Slot::Scale, Slot::Display] {
             assert!(bar.slot(slot).is_some(), "{slot:?}");
         }
+        assert!(matches!(
+            bar.slot(Slot::Scale).as_deref(),
+            Some([Item::Scale { selected, .. }]) if *selected == DrawingScale::default()
+        ));
+    }
+
+    /// A harness of the plan's bar at `scale` that keeps the last action.
+    fn scale_harness(scale: DrawingScale) -> Harness<'static, Option<BarAction>> {
+        let cx = CommandCtx::default();
+        let storey = StoreyId::new();
+        Harness::new_ui_state(
+            move |ui, action: &mut Option<BarAction>| {
+                if let Some(a) = view_bar(ui, &cx, &plan_bar(storey, scale)) {
+                    *action = Some(a);
+                }
+            },
+            None,
+        )
+    }
+
+    /// Opens the custom scale field from the drop-down that shows `current`
+    /// and types `text` into it.
+    fn open_custom_scale<State>(h: &mut Harness<'static, State>, current: &str, text: &str) {
+        h.get(By::new().role(Role::ComboBox).value(current)).click();
+        h.run();
+        h.get_by_label("Custom…").click();
+        h.run();
+        h.get(By::new().role(Role::TextInput)).type_text(text);
+        h.run();
+    }
+
+    /// Types `text` into the custom scale field, opened from the drop-down,
+    /// and presses Enter.
+    fn type_custom_scale(h: &mut Harness<'static, Option<BarAction>>, current: &str, text: &str) {
+        open_custom_scale(h, current, text);
+        h.key_press(Key::Enter);
+        h.run();
+    }
+
+    /// VIEW-013: the drop-down offers the preset scales; choosing one
+    /// returns it.
+    #[test]
+    fn the_scale_drop_down_offers_the_presets() {
+        let mut h = scale_harness(DrawingScale::default());
+        h.get(By::new().role(Role::ComboBox).value("1:100")).click();
+        h.run();
+        for preset in DrawingScale::PRESETS {
+            h.get_by_label(&preset.to_string());
+        }
+        h.get_by_label("1:50").click();
+        h.run();
+        assert_eq!(*h.state(), Some(BarAction::Scale(DrawingScale::new(50).unwrap())));
+    }
+
+    /// VIEW-013: a typed custom scale is applied with Enter; text that is
+    /// not a scale is not applied and the field says why.
+    #[test]
+    fn a_custom_scale_is_typed() {
+        let mut h = scale_harness(DrawingScale::default());
+        type_custom_scale(&mut h, "1:100", "1:75");
+        assert_eq!(*h.state(), Some(BarAction::Scale(DrawingScale::new(75).unwrap())));
+        assert!(h.query(By::new().role(Role::TextInput)).is_none(), "the field closes");
+
+        let mut h = scale_harness(DrawingScale::default());
+        type_custom_scale(&mut h, "1:100", "abc");
+        assert_eq!(*h.state(), None);
+        h.get_by_label_contains("“abc” is not a drawing scale");
+        assert!(
+            h.query(By::new().role(Role::TextInput)).is_some(),
+            "the field stays open"
+        );
+        h.key_press(Key::Escape);
+        h.run();
+        assert!(h.query(By::new().role(Role::TextInput)).is_none(), "Escape closes it");
+        assert_eq!(*h.state(), None);
+    }
+
+    /// VIEW-013: the custom scale field belongs to the plan whose bar opened
+    /// it: the bar of another plan does not show it, so Enter there cannot
+    /// set that plan's scale, and the first plan's bar still shows it with
+    /// the typed text on return.
+    #[test]
+    fn the_custom_scale_field_belongs_to_its_plan() {
+        let cx = CommandCtx::default();
+        let (ground, upper) = (StoreyId::new(), StoreyId::new());
+        let mut h = Harness::new_ui_state(
+            move |ui, (storey, action): &mut (StoreyId, Option<BarAction>)| {
+                if let Some(a) = view_bar(ui, &cx, &plan_bar(*storey, DrawingScale::default())) {
+                    *action = Some(a);
+                }
+            },
+            (ground, None),
+        );
+        open_custom_scale(&mut h, "1:100", "1:75");
+        let field = By::new().role(Role::TextInput);
+
+        h.state_mut().0 = upper;
+        h.run();
+        assert!(h.query(field.clone()).is_none(), "not in another plan's bar");
+        h.key_press(Key::Enter);
+        h.run();
+        assert_eq!(h.state().1, None);
+
+        h.state_mut().0 = ground;
+        h.run();
+        assert_eq!(
+            h.get(field).accesskit_node().value().as_deref(),
+            Some("1:75"),
+            "still open in its own plan's bar"
+        );
+        assert_eq!(h.state().1, None);
     }
 
     /// UI-001: a plan at 100 % shows one model metre as 10 mm on screen at
