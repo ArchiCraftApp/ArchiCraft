@@ -52,8 +52,8 @@ else runs without you.
 With `/bead-loop`, the session you typed it in coordinates. It never writes code itself: it
 starts a batch of up to three beads at once, one session each (they appear in the sidebar),
 whose crates do not overlap, and checks each result. Run only one coordinator at a time. When
-a batch has reported, it lists one line per bead and a `Needs you:` line when something does;
-type `continue` to start the next batch.
+a batch has reported, it lists one line per bead, and whatever needs you it asks right there,
+as a question with buttons to choose from (section 3); type `continue` to start the next batch.
 
 Start with small numbers (3 to 5). Each bead is a full working session, so you see cost and
 quality before you let a run go longer. The coordinator never waits for a merge: a bead
@@ -91,16 +91,22 @@ A bead that was cut off keeps its branch; open its session again and type `/bead
 
 ## 3. When you are needed
 
+The coordinator asks you in its own session, with a question card: you pick an answer, or
+type your own under "Other". It asks once the batch's sessions are running, so nothing waits
+for you while you read; a question you answer with "Later" comes back after the next sweep.
+What leaves you nothing to choose (the main checkout could not be updated, a bead waits on
+someone outside) is a line of its report instead.
+
 ### An epic is complete: the demo
 
 The coordinator builds and starts the app from the latest `main`, lists what the epic
 delivered and gives you a short script of things to try.
 
 - Try them.
-- Everything works: answer "OK". The epic is closed.
-- Something is off: describe each problem in your own words ("the wall preview flickers when
-  I snap to a corner"). Claude files each one as a bug bead under the epic; the epic stays
-  open and the next run picks them up.
+- Everything works: answer "Accept". The epic is closed.
+- Something is off: answer "Findings" and describe each problem in your own words ("the wall
+  preview flickers when I snap to a corner"). Claude files each one as a bug bead under the
+  epic; the epic stays open and the next run picks them up.
 
 This is your main quality check. Tests prove behaviour; only you can tell whether the CAD
 tool feels right.
@@ -109,24 +115,28 @@ tool feels right.
 
 A bead labelled `tier:fable` (a memory or architecture redesign, or your choice after a bead
 got stuck at `max`) runs on Claude Fable 5.1, which costs 2.5 times as much per token as Opus
-5.5. The coordinator never starts it: it names it in its `Needs you:` line. To run it, start a
-new Code session, pick Claude Fable 5.1 (effort `high`) in the model menu and type
-`/bead <id>`. To run it on Opus instead:
-`bd update <id> --remove-label tier:fable --add-label tier:max`.
+5.5. The coordinator never starts it: it asks you. "Start it myself": start a new Code session,
+pick Claude Fable 5.1 (effort `high`) in the model menu and type `/bead <id>`. "Run at max":
+it runs on Opus 5.5 at effort `max` in the next batch
+(`bd update <id> --remove-label tier:fable --add-label tier:max`).
 
 ### A bead is flagged `human`
 
 Claude stopped because it cannot continue on its own: an unclear or contradicting
 requirement, or a gate or review that kept failing after the bead moved one tier up (label
-`escalated`) or at tier `max`. The coordinator names the bead; the details are in its notes:
+`escalated`) or at tier `max`. The coordinator asks you the bead's question, with the choices
+its notes name; under "Other" you can answer in your own words, for example "follow the SRS
+text, the note is outdated" or "split this into two beads". It writes your answer into the
+bead's notes, removes the flag and passes the answer to the bead's session, which carries on.
+The details are in the notes:
 
 ```bash
 bd show archicraft-xxxx
 ```
 
-Decide, and answer in the coordinator or in the bead's session, for example "follow the SRS
-text, the note is outdated" or "split this into two beads". Then remove the flag and let it
-continue:
+A bead that waits on someone outside (an upstream issue, a licence answer) is not asked; the
+report names it. If you answer in the bead's session yourself instead, remove the flag there
+and let it continue:
 
 ```bash
 bd update archicraft-xxxx --remove-label human
@@ -141,13 +151,23 @@ Pull requests of `loop` beads change the loop's own rules. Since your decision o
 they merge by themselves on green CI like any other, except one that changes the CI workflows
 (`.github/workflows/`) or the hook wiring (`.claude/settings.json`): those hold the checks
 Claude cannot get around, so that pull request waits for you. Its description names the
-files, and the coordinator tells you about it.
+files, and the coordinator asks you about it: its question names the pull request and the
+commit you review ("PR #241 at 3f9c2ab"), says what changes and why, lists those files and
+links the diff.
 
-1. Read the pull request on GitHub; its description says what changes and why.
-2. Merge it, or comment on it. Its status `User review` fails on purpose, so it cannot enter
-   the merge queue: tick "Merge without waiting for requirements to be met (bypass rules)" and
-   merge it directly. If its description asks you to run `scripts/loop/setup-github.sh` after
-   the merge, do that too.
+1. Read the diff on GitHub; the pull request's description says what changes and why.
+2. Answer:
+   - "Merge #241": the coordinator merges it right away, past its status `User review`, which
+     fails on purpose, and past the merge queue. Your answer allows exactly that one merge of
+     that commit, within an hour, once every other required check passed on it; the hooks
+     refuse it otherwise ([loop.md](loop.md), "The user's approval of a merge"). If the
+     pull request changed since, you are asked again.
+   - "Changes needed", with what to change: it goes to the bead's session, which fixes it.
+   - "Later": asked again after the next sweep.
+
+   You can still merge it on GitHub yourself: tick "Merge without waiting for requirements to
+   be met (bypass rules)". If its description asks you to run `scripts/loop/setup-github.sh`
+   after the merge, do that too; the coordinator reminds you.
 
 Claude Code reads the hook wiring, the skills and the reviewer from the main checkout (each
 session runs the hook scripts of its own worktree), so it has to follow `main` after a `loop`

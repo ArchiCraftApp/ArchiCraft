@@ -40,9 +40,9 @@ uncommitted work as a patch in the git dir all worktrees share (`loop_escalation
 detaches the worktree from the bead branch, so the orchestrator's next batch resumes the branch
 in a fresh session on the stronger tier, where `start-bead.sh` names the patch. The second
 time, or at tier `max` or `fable`, the bead gets the label `human` and the session pauses
-(`pause.sh`); the orchestrator reports the bead in its `Needs you:` line and carries on with
-other beads. A decision that belongs to the user skips the escalation: the bead gets the label
-`human` and the session pauses (`scripts/loop/pause.sh "<reason>"`).
+(`pause.sh`); the orchestrator asks the user about the bead (`AskUserQuestion`, Reports below)
+and carries on with other beads. A decision that belongs to the user skips the escalation: the
+bead gets the label `human` and the session pauses (`scripts/loop/pause.sh "<reason>"`).
 
 ## Several beads
 
@@ -70,8 +70,8 @@ every child a tier. The orchestrator passes the tier's model and effort to `star
 which takes only an effort at or below the caller's own and ignores a model above it, so the
 orchestrator must run on Opus 5.5 at effort `max`, or the higher tiers cannot start. It never
 starts a `fable` bead: it cannot raise the model, and `set_session_model` applies only from a
-session's next turn, while `/bead` runs in the first. The bead goes into the `Needs you:` line
-with the way to start it (`/bead <id>` in a new session with Claude Fable 5.1 picked). The
+session's next turn, while `/bead` runs in the first. It asks the user instead: start it by hand
+(`/bead <id>` in a new session with Claude Fable 5.1 picked), run it at `max`, or later. The
 reviewer runs at effort `xhigh` whatever the tier (`effort` in
 `.claude/agents/bead-reviewer.md`), because the gate and the review are what make a cheaper
 implementer safe. The field works: on Claude Code 2.1.299 (2026-10-21) a probe subagent with
@@ -91,14 +91,22 @@ beads or when an epic's tasks are all closed.
 `<id> ✅ PR #N (auto-merge|waits for you|blocked, <tier>): <what changed>`, where `auto-merge`
 means on its way through the merge queue (⏫ for an
 escalated bead, ⏸ for one labelled `human`), then `Needs you: -` or the one thing the user has
-to do. The orchestrator reports one line per bead and a `Needs you:` line only when something
-does, without restating the sessions' reports. Details only on request. A review finding
+to do; that line is for the orchestrator. The orchestrator reports one line per bead, without
+restating the sessions' reports, and asks the user whatever needs them with `AskUserQuestion` in
+its own session, never in a line of the report (user request of 2026-11-04). It asks after the
+turn's sessions are started, so no bead waits for the answer, at most four questions per call:
+a PR that waits for the user's review (`Merge #<n>`, `Changes needed`, `Later`; The user's
+approval of a merge, below), a bead labelled `human` that needs a decision (the answer goes
+verbatim with the date into the bead's notes, the label goes and the bead's session goes on),
+the demo checkpoint (`Accept`, `Findings`, `Later`) and a `fable` bead. What leaves nothing to
+choose, a `stale` main checkout, a `human` bead that waits on a third party, a bead above the
+orchestrator's effort, the report lists. Details only on request. A review finding
 becomes a loop bead (priority 3) only when it caused a real defect; anything less goes into
 `bd remember`.
 
 **Demo checkpoint.** An epic closes only after the user tried it: the orchestrator builds and
-launches the app from `main`, lists what the epic delivered, and closes the epic on the user's
-OK or files the findings as beads under it.
+launches the app from `main`, lists what the epic delivered, asks, and closes the epic on the
+user's `Accept` or files the findings as beads under it.
 
 ## Enforcement
 
@@ -106,9 +114,10 @@ Instructions are soft; these are not:
 
 | Where | Rule |
 |---|---|
-| Hook `guard-edit` (PreToolUse Edit/Write) | Code under `crates/`, `conformance/` and the workspace manifests is edited only on a bead branch whose bead is in progress; golden files are never edited by hand; the reviewer never edits; a feature bead never edits the loop's own files |
+| Hook `guard-edit` (PreToolUse Edit/Write) | Code under `crates/`, `conformance/` and the workspace manifests is edited only on a bead branch whose bead is in progress; golden files are never edited by hand; the reviewer never edits; a feature bead never edits the loop's own files; nothing writes into the state dir (the stamps) |
 | Hook `format-rust` (PostToolUse) | rustfmt on every edited `.rs` file; syntax errors reported back |
-| Hook `guard-bash` (PreToolUse Bash) | No force push, no push to `main`, no PR merge without `--auto`, no `--admin`, no auto-merge for a PR that changes `.github/workflows/` or `.claude/settings.json`; code commits only on a bead branch with a gate on the exact tree and a review that covers it; stamps cannot be written by hand; the reviewer runs read-only commands |
+| Hook `guard-bash` (PreToolUse Bash) | No force push, no push to `main`, no PR merge without `--auto`, no `--admin` but the one merge the user approved (below), no auto-merge for a PR that changes `.github/workflows/` or `.claude/settings.json`; code commits only on a bead branch with a gate on the exact tree and a review that covers it; stamps cannot be written by hand, nor the hooks that write them from their input run by hand; the reviewer runs read-only commands |
+| Hook `user-merge` (PreToolUse and PostToolUse AskUserQuestion) | The user's answer `Merge #<n>` to a question naming `PR #<n> at <sha>` writes the stamp `user-merge.<n>` that lets `guard-bash` through one admin merge of that commit; a call that brings its own answers is refused (The user's approval of a merge, below) |
 | Hook `review-verdict` (SubagentStop) | The reviewer's `VERDICT: PASS` stamps the tree, only when the gate passed on it; the verdict comes from the reviewer's last message or, when that has none, from the report it handed back through `SubagentHandback` in the same run (read from the agent transcript) |
 | Hook `stop-gate` (Stop) | A bead session does not end with uncommitted code that has not passed the gate and the review; it runs the gate, blocks at most three times per tree, and `escalate.sh` (the stop rules) and `pause.sh` are the explicit ways out |
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
@@ -207,21 +216,22 @@ puts the PR back in the queue. A PR in the queue shows as `queued` with its posi
 CI still runs as `waiting` (`CI pending, then the merge queue`), and the reports count both as on
 their way (`auto-merge`). A PR that nothing moves on, open without auto-merge, outside the queue
 and not waiting for the user, shows as `ATTENTION <id>: <url> is open without auto-merge and not
-in the merge queue` and goes into the orchestrator's `Needs you:` line.
+in the merge queue`, and the orchestrator's report lists it.
 
-The user merges a PR that waits for the review as before, as an admin past the failing status
-`User review` and past the queue ("Merge without waiting for requirements to be met (bypass
-rules)" on GitHub). Admins bypass the ruleset `main`, which also lets them repair `main` and push
-to it directly; the ruleset `main history` forbids deleting and force-pushing `main` for everyone,
-since a bypass covers every rule of its ruleset. `setup-github.sh` replaces the classic branch
-protection of `main` with these two rulesets: GitHub configures a merge queue only through
-rulesets, and the classic protection's list of required checks would apply to merge groups as
-well. GitHub offers the merge queue to public repositories owned by an organization, on every
-plan, which this one is (checked 2026-10-21); a private one needs GitHub Enterprise Cloud, and
-there `setup-github.sh` stops without changing anything. The fallback there would be
-`strict: true`, under which auto-merge waits until a PR is up to date with `main`, and the sweep
-would have to bring each stale PR up to date (`gh pr update-branch <pr>`) so that CI runs again
-on the combination.
+A PR that waits for the review merges as an admin, past the failing status `User review` and past
+the queue: the orchestrator merges it once the user approved it in its question (The user's
+approval of a merge, below), or the user merges it on GitHub as before ("Merge without waiting for
+requirements to be met (bypass rules)"). Admins bypass the ruleset `main`, which also lets them
+repair `main` and push to it directly; the ruleset `main history` forbids deleting and
+force-pushing `main` for everyone, since a bypass covers every rule of its ruleset.
+`setup-github.sh` replaces the classic branch protection of `main` with these two rulesets: GitHub
+configures a merge queue only through rulesets, and the classic protection's list of required
+checks would apply to merge groups as well. GitHub offers the merge queue to public repositories
+owned by an organization, on every plan, which this one is (checked 2026-10-21); a private one
+needs GitHub Enterprise Cloud, and there `setup-github.sh` stops without changing anything. The
+fallback there would be `strict: true`, under which auto-merge waits until a PR is up to date with
+`main`, and the sweep would have to bring each stale PR up to date (`gh pr update-branch <pr>`) so
+that CI runs again on the combination.
 
 The hooks are wired in `.claude/settings.json`. Claude Code reads that file, the skills and
 the agents from the main checkout and starts the hook commands there, also for a session in a
@@ -255,7 +265,8 @@ a redirection, `rm`, `mv`, `cp`, `touch`, `tee`, `truncate`, `ln`, `chmod`, `ins
 `rmdir`, `patch`, `dd of=`, `sed -i`, `perl -i` and `find -delete`, and for the reviewer also by
 the git subcommands that change the work tree or the index (`git apply`, `git merge-file`,
 `git checkout-index`, ...); calling the loop's own `loop_stamp_write` is refused whatever its
-arguments.
+arguments, and so is running the hooks that write stamps from their input, `review-verdict` and
+`user-merge`, by hand (directly, by a shell or through `dispatch.sh`).
 
 What command-line matching cannot see: code that a program runs from its own arguments or
 files. An interpreter's script (`python3 -c`, `node -e`, `ruby -e`, `perl -e` without `-i`), a
@@ -285,15 +296,69 @@ takes the workflow and its script `scripts/loop/ci-user-review.sh` from `main`; 
 `main`, reads the PR's commits as data and posts the commit status `User review` on the PR's
 head, failing when the PR changes a file of `main`'s `LOOP_USER_REVIEW_PATHS` or the pattern
 itself. The ruleset `main` requires that status, so auto-merge does not merge such a PR even
-when a branch whose scripts skip the rule turned it on; the user merges it after the review as
+when a branch whose scripts skip the rule turned it on; after the user's review it merges as
 an admin, past the failing status and the merge queue ("Merge without waiting for requirements
-to be met (bypass rules)", or `gh pr merge --admin`, which the hooks refuse to agents). The
+to be met (bypass rules)", or `gh pr merge --admin`, which the hooks refuse to agents but for
+the one merge the user approved in their answer, below). The
 ruleset ties every required check to GitHub Actions (`integration_id` 15368 in
 `setup-github.sh`), so a status of the same name posted through `gh api` with a personal token
 does not count; one that the PR's own workflow posts with its `GITHUB_TOKEN` still could
 overwrite it, and closing that is archicraft-t9zs.
 A CODEOWNERS review cannot enforce this while Claude works under the user's GitHub account,
 because GitHub does not let an account approve its own PR.
+
+**The user's approval of a merge.** Until 2026-11-04 the orchestrator named a PR that waits for
+the review in its `Needs you:` line, and the user opened it on GitHub and merged it there. Since
+the user's request of that day the orchestrator asks with `AskUserQuestion` (`/bead-loop`,
+"Asking the user") and merges the PR itself on the answer `Merge #<n>` (archicraft-xz65s). The
+rule that an agent never merges its own change to CI or the hooks stands: only the user's own
+answer opens that one merge, and the hooks hold it to the commit the user was shown.
+
+- The question names `PR #<n> at <short head sha>` and offers `Merge #<n>`, `Changes needed` and
+  `Later`. The hook `user-merge` (PostToolUse on AskUserQuestion) writes the stamp
+  `user-merge.<n>` into the state dir, holding that sha and the UTC time, only when the user's
+  one choice was `Merge #<n>` in a question that offers it and names exactly one such marker with
+  the same number, and only when the user sent that answer: `Changes needed`, `Later`, text under
+  Other, a question without the marker and the selections of a card the user did not send write
+  nothing (below).
+- `guard-bash` lets `gh pr merge <n> --admin --squash --match-head-commit <sha>` through, the sha
+  written out in full, only while the stamp names its start, is at most 60 minutes old, the PR's
+  head (`gh pr view --json headRefOid`) is still that sha, and every check the ruleset `main`
+  requires (`gh api repos/{owner}/{repo}/rules/branches/main`) except `User review` passed on it
+  (`gh pr checks`). Letting it through deletes the stamp, so one answer merges once, and a merge
+  that fails after that needs a new answer; `--match-head-commit` makes GitHub refuse the merge
+  as well if the head moves in between. Each of the three `gh` calls gets 8 seconds
+  (`LOOP_GH_SECONDS`), and one that takes longer refuses the merge: the guard's hook has 30
+  seconds, and Claude Code runs a command whose hook timed out as if the hook had allowed it.
+  Every other `--admin` merge is refused as before. The orchestrator asks only once those checks
+  passed, so the answer finds them passed within its 60 minutes.
+- No command line writes the stamp: `guard-bash` refuses a write that names the state dir or
+  `user-merge.<n>` and running the hook by hand with a made-up input, and `guard-edit` refuses
+  every Edit and Write into the state dir (`.git/loop`, `.git/worktrees/<name>/loop`). The
+  answer comes from the user's question card: the hook refuses (PreToolUse) an AskUserQuestion
+  call that brings its own `answers`. What command-line matching cannot see (above), a script
+  file or an interpreter's program, could still write it, as it could the other stamps; unlike
+  theirs, this stamp names no tree that CI checks again, so here the rule rests on the agent not
+  working around the guard, like the admin rights of the account it works under.
+- What the hook reads was checked with a headless probe of Claude Code 2.1.309, the version the
+  desktop app ran on 2026-11-04, started the way the app starts it (`--input-format stream-json
+  --permission-prompt-tool stdio`) with a stub in place of the question card. The PostToolUse
+  input carries the questions and the answers, keyed by the question text, in `tool_response`
+  and in `tool_input`: `{"questions": [...], "answers": {"PR #5 at abc1234 …": "Merge #5"}}`. A
+  call whose model set `answers` itself reached the card without them, and the tool result
+  said "The user did not answer the questions"; the PreToolUse refusal covers a version that
+  would keep them. The tool's result schema in that version (read from the binary) has three
+  more fields whose answers the user did not send, and the hook writes nothing when one is set:
+  `afkTimeoutMs` (the card resolved itself after the user was idle that long, with the
+  selections made so far), `followUp` (the user asked for more questions instead) and
+  `response` (the user typed a reply instead of choosing).
+- The stamp lies in the state dir of the checkout the orchestrator works in, where both hooks
+  run, so the merge runs in the session that asked. Like every rule here it reads command lines:
+  a merge through `gh api` is not a `gh pr merge`, and the guard does not see it.
+
+The wiring of the hook (`.claude/settings.json`) applies once the main checkout has it, so the
+PR that brought it was the last one the user merged by hand; the sweep pulls it into the main
+checkout, and sessions started after that run the hook.
 
 ## Setup
 

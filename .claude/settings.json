@@ -36,6 +36,16 @@
             "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/dispatch.sh\" ] && exec bash \"$d/scripts/loop/hooks/dispatch.sh\" guard-bash; exit 0"
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 30,
+            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/dispatch.sh\" ] && exec bash \"$d/scripts/loop/hooks/dispatch.sh\" user-merge; exit 0"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -46,6 +56,16 @@
             "type": "command",
             "timeout": 60,
             "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/dispatch.sh\" ] && exec bash \"$d/scripts/loop/hooks/dispatch.sh\" format-rust; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 30,
+            "command": "d=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$d/scripts/loop/hooks/dispatch.sh\" ] && exec bash \"$d/scripts/loop/hooks/dispatch.sh\" user-merge; exit 0"
           }
         ]
       }
