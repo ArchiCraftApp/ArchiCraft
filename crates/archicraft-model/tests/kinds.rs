@@ -177,3 +177,47 @@ fn template_defaults_follow_the_descriptors() {
     let slots: Vec<KindTag> = p.tool_defaults.iter().map(|(kind, _)| kind).collect();
     assert_eq!(slots, with_defaults);
 }
+
+/// SLB-003 ("any number of holes"), archicraft-ysf8.3: a 10 m × 8 m slab
+/// with two holes, its outline drawn clockwise and its holes counter-
+/// clockwise, validates when added: the stored outline is counter-clockwise
+/// and both holes clockwise with their points kept, the area is the outline
+/// minus both holes (80 − 2 − 2.25 m²), and a point in either hole is
+/// outside the slab.
+#[test]
+fn a_slab_with_two_holes_validates_and_deducts_both() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let rect = |x0: f64, y0: f64, x1: f64, y1: f64| {
+        vec![
+            DVec2::new(x0, y0),
+            DVec2::new(x1, y0),
+            DVec2::new(x1, y1),
+            DVec2::new(x0, y1),
+        ]
+    };
+    let mut outline = rect(0.0, 0.0, 10.0, 8.0);
+    outline.reverse();
+    let holes = vec![rect(1.0, 1.0, 3.0, 2.0), rect(6.0, 4.0, 7.5, 5.5)];
+    let slab = p.new_slab(ground(&p), outline.clone(), holes.clone(), 0);
+    let id = slab.id;
+    h.execute(&mut p, Command::AddElements(vec![slab])).unwrap();
+
+    let stored = &p.element(id).unwrap().as_slab().unwrap().outline;
+    assert!(stored.outer().signed_area() > 0.0, "outline counter-clockwise");
+    assert_eq!(stored.holes().len(), 2);
+    assert!(stored.holes().iter().all(|h| h.signed_area() < 0.0), "holes clockwise");
+    let sorted = |ring: Vec<DVec2>| {
+        let mut points = ring;
+        points.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+        points
+    };
+    assert_eq!(sorted(stored.outer().points().collect()), sorted(outline));
+    for (stored, given) in stored.holes().iter().zip(holes) {
+        assert_eq!(sorted(stored.points().collect()), sorted(given));
+    }
+    assert!((stored.area() - (80.0 - 2.0 - 2.25)).abs() < 1e-9, "{}", stored.area());
+    assert!(stored.contains(DVec2::new(5.0, 3.0)));
+    assert!(!stored.contains(DVec2::new(2.0, 1.5)), "inside the first hole");
+    assert!(!stored.contains(DVec2::new(6.75, 4.75)), "inside the second hole");
+}

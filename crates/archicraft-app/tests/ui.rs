@@ -22,7 +22,7 @@ use archicraft_app::workspace::{Consumer, Pane};
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
 use archicraft_model::project::Projection;
-use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_length};
+use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_area, format_length};
 use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{
     Command, ElementId, ElementKind, IfcClass, KindTag, Material, PredefinedType, ProjectSettings, ReferenceLine,
@@ -1979,6 +1979,35 @@ fn choose_in_combo(harness: &mut Harness<'static, ArchiCraftApp>, current: &str,
     harness.get_by_label(option).click();
     harness.run_steps(2);
     commands_since(harness, applied)
+}
+
+/// SLB-003 ("any number of holes"), MEA-003, archicraft-ysf8.3: a selected
+/// 10 m × 8 m slab with a 2 m × 1 m and a 1.5 m × 1.5 m hole shows the
+/// outline's area minus both holes, 75.75 m², in the properties strip.
+#[test]
+fn a_slab_with_two_holes_shows_its_area_net_of_both() {
+    let mut harness = harness("two-holes-area");
+    let (id, shown) = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let rect = |x0: f64, y0: f64, x1: f64, y1: f64| {
+            vec![
+                DVec2::new(x0, y0),
+                DVec2::new(x1, y0),
+                DVec2::new(x1, y1),
+                DVec2::new(x0, y1),
+            ]
+        };
+        let holes = vec![rect(1.0, 1.0, 3.0, 2.0), rect(6.0, 4.0, 7.5, 5.5)];
+        let slab = ws.doc.project.new_slab(storey, rect(0.0, 0.0, 10.0, 8.0), holes, 0);
+        let id = slab.id;
+        assert!(ws.execute(Command::AddElements(vec![slab])));
+        let units = ws.doc.project.settings.units.clone();
+        (id, format_area(75.75, &units, &ws.prefs.number_format()))
+    };
+    select_only(&mut harness, id);
+    harness.get_by_label("Area");
+    assert_present(&harness, &shown);
 }
 
 /// IFX-024: a selected slab shows a "Predefined type" choice offering none
