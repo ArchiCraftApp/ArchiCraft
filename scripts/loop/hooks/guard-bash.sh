@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # PreToolUse (Bash): the git and GitHub rules of the bead loop.
-# - stamps are written only by gate.sh, the review hook and pause.sh;
+# - stamps are written only by gate.sh, the review hook and pause.sh, the user's merge approval
+#   only by the user-merge hook;
 # - the reviewer runs read-only commands;
 # - no force pushes, no pushes to main, no PR merges without --auto: auto-merge puts a PR into the
 #   merge queue on green CI, which merges it once CI passes on main with the PRs ahead of it too;
+# - no --admin merge but the one the user approved in their answer to a question (user_merge);
 # - a code commit happens only on a bead branch whose tree passed the gate and is covered by a
 #   passing review (loop_review_valid);
 # - no auto-merge for a PR that changes the CI workflows or the hook wiring: it waits for the user.
@@ -29,11 +31,21 @@ writes="$(grep -E -- "$write_re" <<<"$cmds")"
 # A line that writes and runs any command naming the state dir: the write itself, a cd into it, or
 # a variable or pipe that carries the path to the write. A heredoc body that is data never counts;
 # a quoted mention (a bd note, a commit message) counts only on a line that writes.
-state_re='\.git/([^[:space:]]*/)?loop|git-path[[:space:]]+loop|(gate|review)\.(ok|fail)|stop-blocks'
+# The user's merge approval by its name too (user-merge.<n>), not the hook's script user-merge.sh.
+state_re='\.git/([^[:space:]]*/)?loop|git-path[[:space:]]+loop|(gate|review)\.(ok|fail)|stop-blocks|user-merge\.([0-9]|\$|\*)'
 
 # The loop's own writer (lib.sh) run from the command line writes a stamp whatever its arguments.
-if runs "^loop_stamp_write($t|\$)" || { [ -n "$writes" ] && grep -Eq -- "$state_re" <<<"$cmds"; }; then
-    hook_deny "The loop's stamps are written only by scripts/loop/gate.sh, the review hook and scripts/loop/pause.sh. Reading the gate logs is fine."
+# Names in any case: macOS's disk ignores it.
+if runs "^loop_stamp_write($t|\$)" || { [ -n "$writes" ] && grep -Eiq -- "$state_re" <<<"$cmds"; }; then
+    hook_deny "The loop's stamps are written only by scripts/loop/gate.sh, the review hook and scripts/loop/pause.sh, the user's merge approval only by the user's answer to a question (hooks/user-merge.sh). Reading the gate logs is fine."
+fi
+# The hooks that write stamps from their input run from Claude Code alone: run by hand with a
+# made-up input, review-verdict would stamp a review and user-merge an approval of a merge. Run
+# directly, by a shell, or through the dispatcher.
+writers='(user-merge|review-verdict)'
+if runs "^$writers\.sh($t|\$)" || runs "^((ba|da|k|z)?sh|source|\.)($t[^$t]*)*$t([^$t]*/)?$writers\.sh($t|\$)" ||
+    runs "(^|$t)([^$t]*/)?dispatch\.sh$t$writers($t|\$)"; then
+    hook_deny "The hooks user-merge and review-verdict run only from Claude Code, on the user's own answer and the reviewer's own verdict: run by hand, they would write a stamp. scripts/loop/selftest.sh tests them."
 fi
 
 if [ "$HOOK_AGENT" = bead-reviewer ]; then
@@ -103,13 +115,77 @@ done < <(grep -E -- "^git($t|\$)" <<<"$cmds")
 
 hook_enter_repo "$HOOK_CWD" || exit 0
 
+admin_message="PRs never merge with --admin, which skips the merge queue and the required CI checks; they merge through the queue when the checks pass."
+# A gh call that ends within LOOP_GH_SECONDS (default 8), or fails: the three calls of user_merge
+# stay inside this hook's timeout of 30 seconds, since Claude Code runs a command whose hook
+# timed out as if it had allowed it. perl's alarm survives the exec (no timeout(1) on macOS).
+bounded() { perl -e 'alarm shift; exec @ARGV or exit 127' "${LOOP_GH_SECONDS:-8}" "$@"; }
+# The one admin merge the user approved (docs/loop.md, "The user's approval of a merge"):
+# gh pr merge <n> --admin --squash --match-head-commit <sha>, its words in any order and <sha> in
+# full, while the stamp user-merge.<n> that the user's answer wrote (hooks/user-merge.sh) names the
+# start of <sha> and is at most 60 minutes old, <sha> is still the PR's head and every check the
+# ruleset of main requires but User review passed on it. Letting it through uses up the stamp.
+# Every other --admin merge is refused with the message it always had; one of this form whose
+# approval does not hold, with the reason too.
+user_merge() {
+    local a n="" sha="" squash="" want="" approved age head required checks missing why=""
+    for a in "$@"; do
+        if [ -n "$want" ]; then
+            sha="$a" want=""
+            continue
+        fi
+        case "$a" in
+        --admin) ;;
+        --squash) squash=on ;;
+        --match-head-commit) want=sha ;;
+        --match-head-commit=*) sha="${a#*=}" ;;
+        *)
+            [[ "$a" =~ ^[0-9]+$ ]] && [ -z "$n" ] || hook_deny "$admin_message"
+            n="$a"
+            ;;
+        esac
+    done
+    [ -n "$n" ] && [ -n "$squash" ] && [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || hook_deny "$admin_message"
+    approved="$(loop_stamp_tree "user-merge.$n" 2>/dev/null)"
+    age="$(loop_stamp_age "user-merge.$n")"
+    if [ -z "$approved" ]; then
+        why="there is no approval of it from the user. Ask with AskUserQuestion, naming 'PR #$n at ${sha:0:7}' and offering the option 'Merge #$n' (.claude/skills/bead-loop/SKILL.md)."
+    elif ! [[ "$approved" =~ ^[0-9a-f]{7,40}$ ]] || [[ "$sha" != "$approved"* ]]; then
+        why="the user approved it at $approved, not at ${sha:0:7}. Ask again, naming the commit to merge."
+    elif [ -z "$age" ] || [ "$age" -lt 0 ] || [ "$age" -gt 3600 ]; then
+        why="the user's approval is not from the last 60 minutes. Ask again."
+    else
+        head="$(bounded gh pr view "$n" --json headRefOid --jq .headRefOid 2>/dev/null)"
+        if [ "$head" != "$sha" ]; then
+            why="its head is ${head:-unknown} now, not the approved ${sha:0:7}. Ask again, so that the user reviews what changed."
+        else
+            # gh pr checks exits 8 while a check is pending; its JSON decides.
+            required="$(bounded gh api 'repos/{owner}/{repo}/rules/branches/main' --jq \
+                '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context]' 2>/dev/null)"
+            checks="$(bounded gh pr checks "$n" --json name,bucket 2>/dev/null)"
+            missing="$(jq -nr --argjson req "${required:-null}" --argjson checks "${checks:-null}" '
+                ($req - ["User review"]) as $need
+                | if ($need | length) == 0 then error("no required checks") else . end
+                | [$need[] as $c | select([$checks[] | select(.name == $c) | .bucket] | . == [] or any(. != "pass")) | $c]
+                | join(", ")' 2>/dev/null)" || missing="?"
+            if [ "$missing" = "?" ]; then
+                why="its checks or the checks the ruleset of main requires could not be read (gh pr checks, gh api). Try again."
+            elif [ -n "$missing" ]; then
+                why="not every required check passed on ${sha:0:7} ($missing). Merge once they passed, within 60 minutes of the approval, or ask again."
+            fi
+        fi
+    fi
+    [ -z "$why" ] || hook_deny "$admin_message The user's approval does not cover this merge of PR #$n: $why"
+    rm -f "$(loop_dir)/user-merge.$n"
+}
+
 # gh pr merge, judged by its own words. Its PR is the first word after merge that is not a flag
 # or a flag's value (gh's flags that take one: -R/--repo, -b/--body, -F/--body-file, -t/--subject,
 # -A/--author-email, --match-head-commit; a short cluster like -sR takes it from its rest or the
 # next word); -R names the repository it is in.
 while IFS= read -r rec; do
     IFS="$t" read -r -a w <<<"$rec"
-    auto="" pr="" repo="" want="" flags=on
+    admin="" auto="" pr="" repo="" want="" flags=on
     for a in "${w[@]:3}"; do
         if [ -n "$want" ]; then
             [ "$want" = value ] || repo="$a"
@@ -122,7 +198,7 @@ while IFS= read -r rec; do
         fi
         case "$a" in
         --) flags="" ;;
-        --admin) hook_deny "PRs never merge with --admin, which skips the merge queue and the required CI checks; they merge through the queue when the checks pass." ;;
+        --admin | --admin=*) admin=on ;;
         --auto | --auto=*) auto=on ;;
         --disable-auto) [ -n "$auto" ] || auto=off ;;
         --repo) want=repo ;;
@@ -141,6 +217,10 @@ while IFS= read -r rec; do
             ;;
         esac
     done
+    if [ -n "$admin" ]; then
+        user_merge "${w[@]:3}"
+        continue
+    fi
     [ -n "$auto" ] ||
         hook_deny "PRs merge only through auto-merge, which puts them into the merge queue on green CI: gh pr merge <pr> --auto --squash (scripts/loop/land.sh does this)."
     # Auto-merge stays off for a PR that changes the CI gate or the hook wiring, whoever turns it

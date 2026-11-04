@@ -59,15 +59,17 @@ EOF
 cat >"$work/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 # Stub: every call goes to FAKE_GH_LOG. pr view answers the open PR's url from FAKE_GH_URL
-# (--json url,state), whether auto-merge is on from FAKE_GH_AUTO (--json autoMergeRequest) and
-# the state from FAKE_GH_STATE otherwise; pr create prints a url; pr diff answers only for the PR
-# in FAKE_GH_PR (as named, HEAD for the branch's PR, "<repo>#<pr>" with -R) and prints a diff of the
-# files in FAKE_GH_FILES ("<old>=><new>" is a move; --name-only lists only the new paths, like gh),
-# each changing line x into FAKE_GH_LINE (default y), or fails when FAKE_GH_FAIL is set; pr view --json labels prints FAKE_GH_LABELS, or fails when
-# FAKE_GH_FAIL is set. pr create and pr edit copy the PR body (--body-file) to FAKE_GH_BODY when
-# it is set. run list prints the JSON in FAKE_GH_CI_RUNS for ci.yml, in FAKE_GH_RUNS otherwise.
-# api graphql answers pr-state.sh's query: the PR its url= names in the JSON object FAKE_GH_PRS
-# (url -> the PullRequest fields), else a PR in FAKE_GH_STATE (default OPEN) without queue events.
+# (--json url,state), whether auto-merge is on from FAKE_GH_AUTO (--json autoMergeRequest), its
+# head commit from FAKE_GH_HEAD (--json headRefOid) and the state from FAKE_GH_STATE otherwise;
+# pr create prints a url; pr diff answers only for the PR in FAKE_GH_PR (as named, HEAD for the
+# branch's PR, "<repo>#<pr>" with -R) and prints a diff of the files in FAKE_GH_FILES
+# ("<old>=><new>" is a move; --name-only lists only the new paths, like gh), each changing line x
+# into FAKE_GH_LINE (default y), or fails when FAKE_GH_FAIL is set; pr view --json labels prints
+# FAKE_GH_LABELS, or fails when FAKE_GH_FAIL is set. pr create and pr edit copy the PR body
+# (--body-file) to FAKE_GH_BODY when it is set. run list prints the JSON in FAKE_GH_CI_RUNS for
+# ci.yml, in FAKE_GH_RUNS otherwise. api graphql answers pr-state.sh's query: the PR its url=
+# names in the JSON object FAKE_GH_PRS (url -> the PullRequest fields), else a PR in FAKE_GH_STATE
+# (default OPEN) without queue events.
 [ -n "${FAKE_GH_LOG:-}" ] && echo "$*" >>"$FAKE_GH_LOG"
 if [ -n "${FAKE_GH_BODY:-}" ]; then
     prev=""
@@ -79,9 +81,19 @@ case "$1 $2" in
             *url,state*) echo "${FAKE_GH_URL:-}" ;;
             *"--json labels"*) [ -z "${FAKE_GH_FAIL:-}" ] || exit 1; echo "${FAKE_GH_LABELS:-}" ;;
             *autoMergeRequest*) echo "${FAKE_GH_AUTO:-false}" ;;
+            *headRefOid*) echo "${FAKE_GH_HEAD:-}" ;;
             *) echo "${FAKE_GH_STATE:-}" ;;
         esac
         ;;
+    # guard-bash's admin merge: the PR's checks from FAKE_GH_CHECKS (gh pr checks --json
+    # name,bucket, exit 8 while one is pending like gh), after FAKE_GH_SLOW seconds when it is
+    # set; the ruleset's required checks from FAKE_GH_REQUIRED.
+    "pr checks")
+        [ -z "${FAKE_GH_SLOW:-}" ] || sleep "$FAKE_GH_SLOW"
+        echo "${FAKE_GH_CHECKS:-[]}"
+        jq -e 'all(.[]; .bucket != "pending")' <<<"${FAKE_GH_CHECKS:-[]}" >/dev/null || exit 8
+        ;;
+    "api repos/"*/rules/branches/main) echo "${FAKE_GH_REQUIRED:-[]}" ;;
     "pr create") echo "https://github.com/o/r/pull/9" ;;
     # setup-github.sh: the repository's kind from FAKE_GH_REPO_KIND ("<in an org> <visibility>"),
     # the id of an existing ruleset from FAKE_GH_RULESET_ID, a classic protection unless
@@ -211,6 +223,10 @@ if [ -f "$settings" ]; then
         expect "settings.json runs a dispatched hook: $line" true \
             "$([ -n "$name" ] && [ -f "$src/hooks/$name.sh" ] && echo true || echo false)"
     done <<<"$wiring"
+    # The user's answer approves a merge only while user-merge runs around AskUserQuestion.
+    expect "settings.json runs user-merge before and after AskUserQuestion" "PostToolUse PreToolUse" \
+        "$(jq -r '.hooks | to_entries[] | select(any(.value[]; .matcher == "AskUserQuestion"
+            and any(.hooks[]; .command | test("dispatch\\.sh\" user-merge;")))) | .key' "$settings" | sort | paste -sd ' ' -)"
 fi
 
 # --- guard-edit --------------------------------------------------------------------------------
@@ -228,6 +244,21 @@ check "golden edit on a bead" deny "$(hook guard-edit "$(edit_input crates/demo/
 check "loop edit in a feature bead" deny "$(hook guard-edit "$(edit_input .claude/settings.json)")"
 check "loop edit in a loop bead" allow "$(FAKE_BD_LABELS=loop hook guard-edit "$(edit_input scripts/loop/gate.sh)")"
 check "relative path edit" deny "$(hook guard-edit "$(jq -nc --arg cwd "$repo" '{cwd: $cwd, tool_input: {file_path: "crates/demo/tests/golden/a.ifcx"}}')")"
+# The state dir is the loop's: no stamp is written with Edit or Write (archicraft-xz65s), in the
+# main checkout's git dir or a worktree's.
+check "writing the user's merge approval with Write" deny "$(hook guard-edit "$(edit_input .git/loop/user-merge.12)")"
+check "writing a review stamp with Write" deny "$(hook guard-edit "$(edit_input .git/loop/review.ok)")"
+check "writing a stamp of a worktree with Write" deny \
+    "$(hook guard-edit "$(jq -nc --arg cwd "$repo" --arg f "$repo/.git/worktrees/wt/loop/gate.ok" '{cwd: $cwd, tool_input: {file_path: $f}}')")"
+check "a relative path into the state dir" deny \
+    "$(hook guard-edit "$(jq -nc --arg cwd "$repo/docs" '{cwd: $cwd, tool_input: {file_path: "../.git/loop/user-merge.12"}}')")"
+for f in .git//loop/user-merge.12 .git/./loop/user-merge.12 .git/worktrees/wt//loop/gate.ok docs/x/../../.git/loop/review.ok \
+    .GIT/Loop/user-merge.12; do
+    check "a path into the state dir written as $f" deny "$(hook guard-edit "$(edit_input "$f")")"
+done
+check "a file named loop outside the git dir" allow "$(hook guard-edit "$(edit_input docs/.git-loop/x.md)")"
+check "editing the user-merge hook in a loop bead" allow \
+    "$(FAKE_BD_LABELS=loop hook guard-edit "$(edit_input scripts/loop/hooks/user-merge.sh)")"
 
 # --- guard-bash --------------------------------------------------------------------------------
 check "force push" deny "$(hook guard-bash "$(bash_input 'git push --force origin bead/x')")"
@@ -397,6 +428,24 @@ check "writing a stamp with dd" deny \
     "$(hook guard-bash "$(bash_input 'echo x | dd of="$(git rev-parse --git-path loop)/review.ok" 2>/dev/null')")"
 check "writing a stamp with install" deny "$(hook guard-bash "$(bash_input "install /tmp/x $(loop_dir)/gate.ok")")"
 check "writing a stamp with perl -i" deny "$(hook guard-bash "$(bash_input "perl -pi -e 's/^/x/' $(loop_dir)/gate.ok")")"
+# The user's merge approval is the user-merge hook's alone (archicraft-xz65s), also by its bare name
+# after an earlier cd into the state dir; the hook's own file is not a stamp.
+check "writing the user's merge approval" deny "$(hook guard-bash "$(bash_input "echo abc1234 > $(loop_dir)/user-merge.12")")"
+check "writing the user's merge approval by its bare name" deny "$(main_bash 'touch user-merge.12')"
+check "writing the user's merge approval in capitals" deny "$(main_bash 'touch .GIT/LOOP/USER-MERGE.12')"
+check "writing the user's merge approval named by a variable" deny "$(main_bash 'printf x > "user-merge.$n"')"
+check "removing the user's merge approval" deny "$(main_bash 'rm -f user-merge.*')"
+check "copying the user-merge hook" allow "$(main_bash 'cp scripts/loop/hooks/user-merge.sh /tmp/x.sh')"
+# The hooks that write stamps from their input are Claude Code's to run, not a command line's.
+check "running the user-merge hook by hand" deny "$(main_bash "echo '{}' | bash scripts/loop/hooks/user-merge.sh")"
+check "running the user-merge hook directly" deny "$(main_bash 'scripts/loop/hooks/user-merge.sh < /tmp/answer.json')"
+check "running the user-merge hook through the dispatcher" deny \
+    "$(main_bash '/bin/bash scripts/loop/hooks/dispatch.sh user-merge < /tmp/answer.json')"
+check "running the review-verdict hook through sh -c" deny "$(main_bash "sh -c 'bash scripts/loop/hooks/review-verdict.sh < /tmp/v.json'")"
+check "sourcing the review-verdict hook" deny "$(main_bash '. ./review-verdict.sh')"
+check "reading the user-merge hook" allow "$(main_bash 'cat scripts/loop/hooks/user-merge.sh | head -n 5')"
+check "checking the review-verdict hook" allow "$(main_bash 'shellcheck scripts/loop/hooks/review-verdict.sh')"
+check "running guard-bash through the dispatcher" allow "$(main_bash 'bash scripts/loop/hooks/dispatch.sh guard-bash < /tmp/b.json')"
 commands() { printf '%s\n' "$1" | awk -f scripts/loop/hooks/shell-commands.awk | cut -f1 | LC_ALL=C sort | paste -sd ' ' -; }
 expect "a commit message in a heredoc is data" "cat git" \
     "$(commands $'git commit -m "$(cat <<\'EOF\'\nSay "hi" > there; rm -rf x\nEOF\n)"')"
@@ -465,6 +514,117 @@ check "push while on main" deny "$(hook guard-bash "$(bash_input 'git push')")"
 reset_state
 echo 'more' >>docs/a.md
 check "doc commit on main" allow "$(hook guard-bash "$(bash_input 'git commit -am docs')")"
+reset_state
+
+# --- user-merge: the user's answer approves one admin merge (archicraft-xz65s) ------------------
+# The hook input as Claude Code 2.1.309 sends it (headless probe of 2026-11-04, docs/loop.md): the
+# questions, and the user's answers keyed by the question text, in tool_input and tool_response.
+# answer <question> <answer> [options, comma-separated] [multiSelect] [more result fields, JSON]
+answer() {
+    local more="${5:-}"
+    [ -n "$more" ] || more='{}'
+    jq -nc --arg cwd "$repo" --arg q "$1" --arg a "$2" --arg o "${3:-Merge #12,Changes needed,Later}" \
+        --argjson m "${4:-false}" --argjson more "$more" '
+        [{question: $q, header: "PR", options: ($o | split(",") | map({label: ., description: "-"})), multiSelect: $m}] as $qs
+        | {cwd: $cwd, hook_event_name: "PostToolUse", tool_name: "AskUserQuestion",
+           tool_input: ({questions: $qs, answers: {($q): $a}} + $more),
+           tool_response: ({questions: $qs, answers: {($q): $a}} + $more)}'
+}
+approval() { cut -d' ' -f"${2:-1}" "$(loop_dir)/user-merge.${1:-12}" 2>/dev/null; }
+q12='PR #12 at abc1234 (archicraft-ab12): runs the self-test in CI. Changes .github/workflows/ci.yml. Merge it?'
+for a in 'Changes needed' 'Later' 'Merge it once #13 is in'; do
+    hook user-merge "$(answer "$q12" "$a")" >/dev/null
+    expect "no approval from the answer '$a'" "" "$(approval)"
+done
+hook user-merge "$(answer 'Merge the CI change at abc1234?' 'Merge #12')" >/dev/null
+expect "no approval from a question without the PR marker" "" "$(approval)"
+hook user-merge "$(answer "$q12" 'Merge #12' 'Changes needed,Later')" >/dev/null
+expect "no approval from an answer the question did not offer" "" "$(approval)"
+hook user-merge "$(answer 'PR #12 at abc1234 needs PR #13 at def5678. Merge?' 'Merge #12')" >/dev/null
+expect "no approval from a question that names two PRs" "" "$(approval)"
+hook user-merge "$(answer "$q12" 'Merge #12' 'Merge #12,Later' true)" >/dev/null
+expect "no approval from a multiple choice" "" "$(approval)"
+hook user-merge "$(answer 'PR #13 at abc1234: merge it?' 'Merge #12')" >/dev/null
+expect "no approval from the option of another PR" "" "$(approval 12)$(approval 13)"
+# Selections the user never sent (Claude Code 2.1.309): the card resolved itself while the user
+# was idle (afkTimeoutMs), the user asked for more questions (followUp) or typed a reply instead
+# (response).
+for more in '{"afkTimeoutMs": 300000}' '{"followUp": true}' '{"response": "Wait, what does it change?"}'; do
+    hook user-merge "$(answer "$q12" 'Merge #12' '' false "$more")" >/dev/null
+    expect "no approval from a Merge #12 that was not sent: $more" "" "$(approval)"
+done
+hook user-merge "$(answer "$q12" 'Merge #12' '' false '{"response": " ", "followUp": false}')" >/dev/null
+expect "an approval despite an empty reply and no follow-up" abc1234 "$(approval)"
+rm -f "$(loop_dir)/user-merge.12"
+out="$(hook user-merge "$(answer "$q12" 'Merge #12')")"
+expect "the approving answer stamps the sha it names" abc1234 "$(approval)"
+expect "the approval holds the UTC time" true \
+    "$([[ "$(approval 12 3)" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] && echo true || echo false)"
+expect "the approval tells the session the merge command" 1 \
+    "$(jq -r '.hookSpecificOutput.additionalContext' <<<"$out" | grep -c 'gh pr merge 12 --admin --squash --match-head-commit')"
+# A model that fills in the answers itself does not reach the user's card: Claude Code 2.1.309 drops
+# them (the probe), and the hook refuses such a call before that.
+pre() { jq -nc --arg cwd "$repo" --argjson in "$1" '{cwd: $cwd, hook_event_name: "PreToolUse", tool_name: "AskUserQuestion", tool_input: $in}'; }
+check "a question for the user" allow "$(hook user-merge "$(pre '{"questions": [{"question": "PR #12 at abc1234?"}]}')")"
+check "a question that brings its own answers" deny \
+    "$(hook user-merge "$(pre '{"questions": [{"question": "PR #12 at abc1234?"}], "answers": {"PR #12 at abc1234?": "Merge #12"}}')")"
+
+# guard-bash allows exactly gh pr merge <n> --admin --squash --match-head-commit <sha> while the
+# approval names <sha>, is at most 60 minutes old, <sha> is still the PR's head and every required
+# check but User review passed on it; the merge uses the approval up.
+full=abc12340123456789abcdef0123456789abcdef0
+other=def56780123456789abcdef0123456789abcdef0
+merge12="gh pr merge 12 --admin --squash --match-head-commit $full"
+required='["Test","Loop policy","User review"]'
+green='[{"name":"Test","bucket":"pass"},{"name":"Loop policy","bucket":"pass"},{"name":"User review","bucket":"fail"}]'
+admin_merge() { # admin_merge <command> [checks] [head]: guard-bash's answer
+    FAKE_GH_REQUIRED="${REQUIRED-$required}" FAKE_GH_CHECKS="${2:-$green}" FAKE_GH_HEAD="${3:-$full}" \
+        hook guard-bash "$(bash_input "$1")"
+}
+admin_message="PRs never merge with --admin, which skips the merge queue and the required CI checks; they merge through the queue when the checks pass."
+refused() { # refused <description> <the reason it names, a fixed string> <guard-bash's answer>
+    check "$1" deny "$3"
+    expect "$1 names the reason" 1 \
+        "$(jq -r '.hookSpecificOutput.permissionDecisionReason // empty' <<<"$3" | grep -cF -- "$2")"
+}
+refused "admin merge after the moved head" "its head is $other now" "$(admin_merge "$merge12" "$green" "$other")"
+refused "admin merge with a failing check" "check passed on abc1234 (Loop policy)" \
+    "$(admin_merge "$merge12" '[{"name":"Test","bucket":"pass"},{"name":"Loop policy","bucket":"fail"},{"name":"User review","bucket":"fail"}]')"
+refused "admin merge with a pending check" "check passed on abc1234 (Test)" \
+    "$(admin_merge "$merge12" '[{"name":"Test","bucket":"pending"},{"name":"Loop policy","bucket":"pass"},{"name":"User review","bucket":"fail"}]')"
+refused "admin merge with a required check that did not report" "check passed on abc1234 (Test)" \
+    "$(admin_merge "$merge12" '[{"name":"Loop policy","bucket":"pass"},{"name":"User review","bucket":"fail"}]')"
+refused "admin merge when the required checks cannot be read" "could not be read" "$(REQUIRED='' admin_merge "$merge12")"
+# Each gh call has LOOP_GH_SECONDS, so the guard decides within its hook timeout (a hook that times
+# out does not block the command).
+refused "admin merge when gh does not answer in time" "could not be read" \
+    "$(LOOP_GH_SECONDS=1 FAKE_GH_SLOW=3 admin_merge "$merge12")"
+refused "admin merge of another sha than the approved one" "approved it at abc1234, not at def5678" \
+    "$(admin_merge "gh pr merge 12 --admin --squash --match-head-commit $other" "$green" "$other")"
+refused "admin merge of another PR" "no approval of it from the user" \
+    "$(admin_merge "gh pr merge 13 --admin --squash --match-head-commit $full")"
+for cmd in "gh pr merge 12 --admin --squash --match-head-commit abc1234" "gh pr merge 12 --admin --match-head-commit $full" \
+    "$merge12 --auto" "$merge12 --delete-branch" "gh pr merge -R o/r 12 --admin --squash --match-head-commit $full" \
+    "gh pr merge https://github.com/o/r/pull/12 --admin --squash --match-head-commit $full" "gh pr merge 12 --admin --rebase" \
+    "gh pr merge 12 --admin=true --squash --match-head-commit $full"; do
+    expect "the approval does not cover: $cmd" 1 "$(admin_merge "$cmd" | jq -r '.hookSpecificOutput.permissionDecisionReason' |
+        grep -cxF "$admin_message")"
+done
+expect "a refused admin merge leaves the approval" abc1234 "$(approval)"
+check "the approved admin merge" allow "$(admin_merge "$merge12")"
+expect "the merge uses up the approval" "" "$(approval)"
+check "the approved admin merge a second time" deny "$(admin_merge "$merge12")"
+expect "a merge without an approval says why" 1 "$(admin_merge "$merge12" | jq -r '.hookSpecificOutput.permissionDecisionReason' |
+    grep -c "^$admin_message .*no approval")"
+hook user-merge "$(answer "$q12" 'Merge #12')" >/dev/null
+check "the approved admin merge with its flags in another order" allow \
+    "$(admin_merge "gh pr merge --match-head-commit=$full --squash --admin 12")"
+printf 'abc1234 - %s\n' 2026-01-01T00:00:00Z >"$(loop_dir)/user-merge.12"
+refused "admin merge with an approval older than 60 minutes" "not from the last 60 minutes" "$(admin_merge "$merge12")"
+printf 'abc1234 - %s\n' 2099-01-01T00:00:00Z >"$(loop_dir)/user-merge.12"
+refused "admin merge with an approval from the future" "not from the last 60 minutes" "$(admin_merge "$merge12")"
+printf 'def5678 - %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$(loop_dir)/user-merge.12"
+refused "admin merge with an approval of another sha" "approved it at def5678, not at abc1234" "$(admin_merge "$merge12")"
 reset_state
 
 # --- stop-gate ---------------------------------------------------------------------------------

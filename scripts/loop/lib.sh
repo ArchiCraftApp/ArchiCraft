@@ -207,6 +207,14 @@ loop_code_dirty() {
 # Stamp files hold "<tree> <bead> <utc time>"; a stamp is valid while its tree is the current one.
 loop_stamp_write() { printf '%s %s %s\n' "$2" "${3:--}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$(loop_dir)/$1"; }
 loop_stamp_tree() { [ -f "$(loop_dir)/$1" ] && cut -d' ' -f1 "$(loop_dir)/$1"; }
+# Seconds since a stamp was written (its UTC time), negative for one from the future; fails without
+# the stamp or a time GNU or BSD date can read.
+loop_stamp_age() {
+    local at written
+    at="$(cut -d' ' -f3 "$(loop_dir)/$1" 2>/dev/null)" && [ -n "$at" ] || return 1
+    written="$(date -u -d "$at" +%s 2>/dev/null || date -u -j -f %Y-%m-%dT%H:%M:%SZ "$at" +%s 2>/dev/null)" || return 1
+    echo $(($(date -u +%s) - written))
+}
 loop_stamp_valid() {
     local want="${2:-$(loop_tree_hash)}"
     [ -n "$want" ] && [ "$(loop_stamp_tree "$1" 2>/dev/null)" = "$want" ]
