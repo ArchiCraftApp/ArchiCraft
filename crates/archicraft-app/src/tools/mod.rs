@@ -4,8 +4,11 @@
 //! A tool collects points in plan; snapping, the constraint modifier and
 //! typed distances (`crate::input::PointInput`) are applied before a point
 //! reaches the tool. When a tool has enough points, it produces a command.
-//! Tools are point-input consumers (`InputConsumer`, INP-001).
+//! Tools are point-input consumers (`InputConsumer`, INP-001). With contour
+//! detection on, the wall and slab tools create their elements from a picked
+//! contour instead (INP-018).
 
+mod contour;
 mod measure;
 mod slab;
 mod user_origin;
@@ -16,7 +19,9 @@ use archicraft_model::tolerance::coincident;
 use archicraft_model::{Command, Element, ElementKind, KindTag, Project, StoreyId};
 
 use crate::input::{Expect, InputConsumer, KeyHint, Outcome, Preview, Resolved, StepSpec};
+use crate::tr;
 
+pub use contour::{Accepts, Contour, ContourDetection};
 pub use measure::{MeasureMode, MeasureTool, Measurement};
 pub use slab::SlabMode;
 pub use user_origin::UserOriginTool;
@@ -57,6 +62,8 @@ pub struct ToolState {
     /// The storey the input started on.
     pub storey: Option<StoreyId>,
     pub measure: MeasureTool,
+    /// Contour detection of the wall and slab tools (INP-018).
+    pub detection: ContourDetection,
 }
 
 impl Default for ToolState {
@@ -68,6 +75,7 @@ impl Default for ToolState {
             points: Vec::new(),
             storey: None,
             measure: MeasureTool::default(),
+            detection: ContourDetection::default(),
         }
     }
 }
@@ -83,6 +91,83 @@ fn rotated_rectangle(a: DVec2, b: DVec2, c: DVec2) -> Vec<DVec2> {
     let normal = dir.perp();
     let width = (c - a).dot(normal);
     counter_clockwise(vec![a, b, b + normal * width, a + normal * width])
+}
+
+/// The walls along `points`, closed back to the first point if `closed`;
+/// consecutive walls share their ends (WAL-001).
+fn walls_along(project: &Project, storey: StoreyId, points: &[DVec2], closed: bool) -> Vec<Element> {
+    let n = points.len();
+    let ends = if closed { n } else { n.saturating_sub(1) };
+    (0..ends)
+        .map(|i| project.new_wall(storey, points[i], points[(i + 1) % n], i as u32))
+        .collect()
+}
+
+/// The outline of every wall along `line`, closed back to the first point
+/// if `closed`, from the tool defaults' thickness and reference-line
+/// location (WAL-007).
+fn wall_faces(project: &Project, line: &[DVec2], closed: bool) -> Vec<(Vec<DVec2>, bool)> {
+    let (exterior, interior) = project
+        .tool_defaults
+        .get(KindTag::Wall)
+        .and_then(|slot| match &slot.kind {
+            ElementKind::Wall(w) => Some(w),
+            _ => None,
+        })
+        .map_or((0.0, 0.0), |w| w.reference_line.face_offsets(w.thickness));
+    let n = line.len();
+    let ends = if closed { n } else { n.saturating_sub(1) };
+    (0..ends)
+        .filter_map(|i| {
+            let (a, b) = (line[i], line[(i + 1) % n]);
+            let normal = (b - a).try_normalize()?.perp();
+            Some((
+                vec![
+                    a + normal * exterior,
+                    b + normal * exterior,
+                    b + normal * interior,
+                    a + normal * interior,
+                ],
+                true,
+            ))
+        })
+        .collect()
+}
+
+/// What the wall or slab tool traces from a picked contour (INP-018): the
+/// preview draws it and the click creates its elements, so the two agree.
+#[derive(Clone, Debug, PartialEq)]
+enum Trace {
+    /// A slab on the outer ring with the holes (SLB-001, SLB-003).
+    Slab { outer: Vec<DVec2>, holes: Vec<Vec<DVec2>> },
+    /// Joined walls along the line, closed back to its first point if
+    /// `closed` (WAL-001).
+    Walls { line: Vec<DVec2>, closed: bool },
+}
+
+impl Trace {
+    /// The elements on `storey`. The walls' reference lines run on the
+    /// line, counter-clockwise around a closed contour.
+    fn elements(self, project: &Project, storey: StoreyId) -> Vec<Element> {
+        match self {
+            Trace::Slab { outer, holes } => vec![project.new_slab(storey, outer, holes, 0)],
+            Trace::Walls { line, closed } => walls_along(project, storey, &line, closed),
+        }
+    }
+
+    /// The preview: a slab's rings, or the walls' reference line with the
+    /// outline of every wall, as the wall chain previews them.
+    fn outlines(&self, project: &Project) -> Vec<(Vec<DVec2>, bool)> {
+        match self {
+            Trace::Slab { outer, holes } => std::iter::once(outer)
+                .chain(holes)
+                .map(|ring| (ring.clone(), true))
+                .collect(),
+            Trace::Walls { line, closed } => std::iter::once((line.clone(), *closed))
+                .chain(wall_faces(project, line, *closed))
+                .collect(),
+        }
+    }
 }
 
 fn counter_clockwise(mut ring: Vec<DVec2>) -> Vec<DVec2> {
@@ -136,6 +221,51 @@ impl ToolState {
         }
     }
 
+    /// Whether a click picks a contour (INP-018): detection is on, the wall
+    /// or slab tool is active and no points are pending.
+    pub fn detecting(&self) -> bool {
+        matches!(self.kind, ToolKind::Wall | ToolKind::Slab) && self.detection.is_on() && self.points.is_empty()
+    }
+
+    /// The contours the tool creates its elements from (INP-018): walls run
+    /// along any, a slab needs a closed outline. The preview and the click
+    /// both pick with it, so they agree.
+    fn accepts(&self) -> Accepts {
+        match self.kind {
+            ToolKind::Slab => Accepts::Closed,
+            _ => Accepts::All,
+        }
+    }
+
+    /// What the tool traces from a contour it [accepts] (INP-018,
+    /// SLB-001): the slab tool a slab on a region, its islands as holes, or
+    /// on a closed chain; the wall tool joined walls along a chain, closed
+    /// around a closed one, or around a region's boundary without its
+    /// islands.
+    ///
+    /// [accepts]: ToolState::accepts
+    fn trace(&self, contour: Contour) -> Option<Trace> {
+        match (self.kind, contour) {
+            (ToolKind::Slab, Contour::Region(region)) => Some(Trace::Slab {
+                outer: region.outer,
+                holes: region.islands,
+            }),
+            (ToolKind::Slab, Contour::Chain(chain)) if chain.closed => Some(Trace::Slab {
+                outer: chain.points,
+                holes: Vec::new(),
+            }),
+            (ToolKind::Wall, Contour::Region(region)) => Some(Trace::Walls {
+                line: region.outer,
+                closed: true,
+            }),
+            (ToolKind::Wall, Contour::Chain(chain)) => Some(Trace::Walls {
+                line: chain.points,
+                closed: chain.closed,
+            }),
+            _ => None,
+        }
+    }
+
     fn is_chain(&self) -> bool {
         self.kind == ToolKind::Wall && self.wall_mode == WallMode::Chain
     }
@@ -156,20 +286,7 @@ impl ToolState {
     /// point if `closed`; consecutive walls share their ends (WAL-001).
     fn chain_walls(&self, project: &Project, closed: bool) -> Option<Vec<Element>> {
         let storey = self.storey?;
-        let p = &self.points;
-        if p.len() < 2 {
-            return None;
-        }
-        let mut ends: Vec<(DVec2, DVec2)> = p.windows(2).map(|w| (w[0], w[1])).collect();
-        if closed {
-            ends.push((p[p.len() - 1], p[0]));
-        }
-        Some(
-            ends.into_iter()
-                .enumerate()
-                .map(|(i, (a, b))| project.new_wall(storey, a, b, i as u32))
-                .collect(),
-        )
+        (self.points.len() >= 2).then(|| walls_along(project, storey, &self.points, closed))
     }
 
     /// Adds a point. Returns the command to run once an operation completes.
@@ -229,11 +346,7 @@ impl ToolState {
 
     fn complete(&self, project: &Project, storey: StoreyId) -> Outcome {
         let p = &self.points;
-        let walls_around = |ring: Vec<DVec2>| -> Vec<Element> {
-            (0..ring.len())
-                .map(|i| project.new_wall(storey, ring[i], ring[(i + 1) % ring.len()], i as u32))
-                .collect()
-        };
+        let walls_around = |ring: Vec<DVec2>| walls_along(project, storey, &ring, true);
         let elements = match (self.kind, self.wall_mode, self.slab_mode) {
             (ToolKind::Wall, WallMode::Single, _) => vec![project.new_wall(storey, p[0], p[1], 0)],
             (ToolKind::Wall, WallMode::Rectangle, _) => walls_around(rectangle(p[0], p[1])),
@@ -292,27 +405,7 @@ impl ToolState {
             (ToolKind::Wall, WallMode::Chain, _, _) => {
                 let mut line = p.clone();
                 line.push(cursor);
-                let (exterior, interior) = project
-                    .tool_defaults
-                    .get(KindTag::Wall)
-                    .and_then(|slot| match &slot.kind {
-                        ElementKind::Wall(w) => Some(w),
-                        _ => None,
-                    })
-                    .map_or((0.0, 0.0), |w| w.reference_line.face_offsets(w.thickness));
-                let faces = line.windows(2).filter_map(|w| {
-                    let normal = (w[1] - w[0]).try_normalize()?.perp();
-                    Some((
-                        vec![
-                            w[0] + normal * exterior,
-                            w[1] + normal * exterior,
-                            w[1] + normal * interior,
-                            w[0] + normal * interior,
-                        ],
-                        true,
-                    ))
-                });
-                let faces: Vec<_> = faces.collect();
+                let faces = wall_faces(project, &line, false);
                 std::iter::once((line, false)).chain(faces).collect()
             }
             (ToolKind::Wall, WallMode::Rectangle, _, _) | (ToolKind::Slab, _, SlabMode::Rectangle, _) => {
@@ -339,6 +432,13 @@ impl ToolState {
 impl InputConsumer for ToolState {
     fn step(&self) -> Option<StepSpec> {
         let n = self.points.len();
+        if self.detecting() {
+            let prompt = match self.kind {
+                ToolKind::Slab => tr!("prompt-contour-slab"),
+                _ => tr!("prompt-contour-wall"),
+            };
+            return Some(self.detection.step(prompt, self.accepts()));
+        }
         let (prompt, repeat) = match self.kind {
             ToolKind::Select => return None,
             ToolKind::Measure => return self.measure.step(),
@@ -377,6 +477,8 @@ impl InputConsumer for ToolState {
                 // INP-003, INP-004: the first point can be typed as X and Y.
                 hints.push(KeyHint::new("0–9", "types the coordinates"));
                 hints.push(KeyHint::new("P", "switches polar and Cartesian"));
+                // INP-018: the provisional key held for contour detection.
+                hints.push(KeyHint::new("Space", tr!("prompt-contour-key-hold")));
                 Expect::Point
             }
             Some(&from) => {
@@ -418,6 +520,14 @@ impl InputConsumer for ToolState {
     fn preview(&self, project: &Project, resolved: &Resolved) -> Preview {
         match self.kind {
             ToolKind::Measure => self.measure.preview(project, resolved),
+            _ if self.detecting() => Preview {
+                outlines: self
+                    .detection
+                    .hovered(resolved.point, self.accepts())
+                    .and_then(|contour| self.trace(contour))
+                    .map_or_else(Vec::new, |trace| trace.outlines(project)),
+                ..Preview::default()
+            },
             _ => Preview {
                 outlines: self.outlines(project, resolved.point),
                 ..Preview::default()
@@ -428,15 +538,24 @@ impl InputConsumer for ToolState {
     fn commit(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
         match self.kind {
             ToolKind::Measure => self.measure.commit(project, storey, point),
+            _ if self.detecting() => self
+                .detection
+                .pick(storey, point, self.accepts())
+                .and_then(|contour| self.trace(contour))
+                .map_or(Outcome::Continue, |trace| {
+                    Outcome::Execute(Command::AddElements(trace.elements(project, storey)))
+                }),
             _ => self.add_point(project, storey, point),
         }
     }
 
     /// Every operation, a wall chain too, returns to its previous point
-    /// (INP-003); Esc clears a measurement (MEA-001).
+    /// (INP-003); Esc clears a measurement (MEA-001) and turns contour
+    /// detection off (INP-018).
     fn cancel_step(&mut self) -> bool {
         match self.kind {
             ToolKind::Measure => self.measure.cancel_step(),
+            _ if self.detecting() => self.detection.cancel(),
             _ => self.pop_point(),
         }
     }
@@ -459,9 +578,10 @@ impl InputConsumer for ToolState {
 #[cfg(test)]
 mod tests {
     use archicraft_model::template::default_metric_project;
-    use archicraft_model::{ElementKind, History};
+    use archicraft_model::{ElementKind, History, MODEL_TOLERANCE, samples};
 
     use super::*;
+    use crate::document::Document;
 
     fn run(project: &mut Project, outcome: Outcome) {
         if let Outcome::Execute(command) = outcome {
@@ -711,5 +831,308 @@ mod tests {
         let slab = project.elements.values().next().unwrap();
         let ElementKind::Slab(s) = &slab.kind else { panic!() };
         assert_eq!(s.outline.outer().len(), 3);
+    }
+
+    /// The tool on the storey at `index` of two_storey_shell_with_shaft with
+    /// contour detection on, picking from the cached graph of its plan with
+    /// a 0.15 m radius (INP-018).
+    fn detecting_on_the_shaft_sample(kind: ToolKind, index: usize) -> (Document, StoreyId, ToolState) {
+        let mut doc = Document::new(samples::two_storey_shell_with_shaft(), 100);
+        let storey = doc.project.storeys.as_slice()[index].id;
+        let mut tool = ToolState::default();
+        tool.select(kind);
+        tool.detection.toggle();
+        assert!(tool.detecting());
+        let graph = doc.contour_graph(storey);
+        tool.detection.set_source(storey, graph, 0.15);
+        (doc, storey, tool)
+    }
+
+    /// The preview outlines of the tool with the cursor at `p`.
+    fn preview_at(tool: &ToolState, project: &Project, p: DVec2) -> Vec<(Vec<DVec2>, bool)> {
+        let resolved = Resolved {
+            point: p,
+            snap: crate::input::Snap {
+                point: p,
+                kind: crate::input::SnapKind::Free,
+            },
+            candidates: Vec::new(),
+            guides: Vec::new(),
+            hovered: None,
+        };
+        tool.preview(project, &resolved).outlines
+    }
+
+    /// INP-018, SLB-001: on the ground storey of the shell with a shaft, the
+    /// slab tool with detection on previews the region around (2, 3) and a
+    /// click there creates a slab with that ring as its outline, 97.08875
+    /// m² inside it, as one undo step; the tool stays in detection.
+    #[test]
+    fn a_click_in_a_region_creates_a_slab_of_its_outline() {
+        let (mut doc, storey, mut tool) = detecting_on_the_shaft_sample(ToolKind::Slab, 0);
+        let p = DVec2::new(2.0, 3.0);
+        let preview = preview_at(&tool, &doc.project, p);
+        assert_eq!(preview.len(), 1, "the ring alone: {preview:?}");
+        let (ring, closed) = &preview[0];
+        assert!(closed);
+        let step = tool.step().unwrap();
+        assert_eq!(step.expects, Expect::Pick);
+        assert!(step.prompt.starts_with("Slab from a contour"), "{}", step.prompt);
+
+        let Outcome::Execute(command) = tool.commit(&doc.project, storey, p) else {
+            panic!("the click creates the slab")
+        };
+        doc.execute(command).unwrap();
+        assert_eq!(doc.history.undo_len(), 1);
+        let slab = doc.project.elements.values().last().unwrap().as_slab().unwrap();
+        let (outer, holes) = slab.outline.to_points();
+        assert_eq!(&outer, ring, "the slab has the previewed ring");
+        let area = slab.outline.outer().signed_area();
+        assert!((area - 97.08875).abs() < 1e-6, "{outer:?}");
+        assert!(holes.is_empty());
+        assert!(tool.detecting(), "detection stays on for the next pick");
+    }
+
+    /// INP-018, SLB-001, SLB-003: on the upper storey the region around
+    /// (2, 3) has two islands, the stair hole and the shaft walls; the slab
+    /// created from it has them as its two holes and passes validation.
+    #[test]
+    fn the_islands_of_a_picked_region_become_holes_of_the_slab() {
+        let (mut doc, storey, mut tool) = detecting_on_the_shaft_sample(ToolKind::Slab, 1);
+        let p = DVec2::new(2.0, 3.0);
+        assert_eq!(preview_at(&tool, &doc.project, p).len(), 3, "the ring and two islands");
+        let Outcome::Execute(command) = tool.commit(&doc.project, storey, p) else {
+            panic!("the click creates the slab")
+        };
+        doc.execute(command).expect("the slab with holes is valid");
+        let slab = doc.project.elements.values().last().unwrap().as_slab().unwrap();
+        assert_eq!(slab.outline.holes().len(), 2);
+        let area = 11.5 * 8.5 - 0.115 * 5.75 - 3.0 * 1.2 - 2.115 * 1.615;
+        // Signed: the outer ring counter-clockwise, the holes clockwise.
+        let net: f64 = slab.outline.indexed_rings().map(|(_, ring)| ring.signed_area()).sum();
+        assert!((net - area).abs() < 1e-6, "{net}");
+    }
+
+    /// INP-018, WAL-001: on the upper storey, the wall tool with detection on
+    /// turns a click on the projected stair-hole outline into four walls
+    /// around the hole, each starting where the one before ends, as one
+    /// undo step that one undo removes.
+    #[test]
+    fn a_click_on_the_stair_hole_outline_creates_four_joined_walls() {
+        let (mut doc, storey, mut tool) = detecting_on_the_shaft_sample(ToolKind::Wall, 1);
+        let p = DVec2::new(7.5, 1.02);
+        let preview = preview_at(&tool, &doc.project, p);
+        let hole = [(6.0, 1.0), (9.0, 1.0), (9.0, 2.2), (6.0, 2.2)].map(|(x, y)| DVec2::new(x, y));
+        assert_eq!(preview.len(), 5, "the chain and the outlines of its four walls");
+        assert!(preview[0].1, "the chain is closed");
+        assert_eq!(preview[0].0.len(), 4);
+
+        let Outcome::Execute(command) = tool.commit(&doc.project, storey, p) else {
+            panic!("the click creates the walls")
+        };
+        doc.execute(command).unwrap();
+        let created = doc.project.elements.values().skip(doc.project.elements.len() - 4);
+        let walls: Vec<(DVec2, DVec2)> = created
+            .map(|e| e.as_wall().map(|w| (w.start, w.end)).unwrap())
+            .collect();
+        for (i, (start, end)) in walls.iter().enumerate() {
+            assert_eq!(*end, walls[(i + 1) % 4].0, "wall {i} ends where the next starts");
+            assert_eq!(*start, preview[0].0[i]);
+            assert!(
+                hole.iter().any(|q| q.distance(*start) < MODEL_TOLERANCE),
+                "{start} is a hole corner"
+            );
+        }
+        assert_eq!(doc.history.undo_len(), 1, "one undo step");
+        let before = doc.project.elements.len();
+        doc.undo();
+        assert_eq!(
+            doc.project.elements.len(),
+            before - 4,
+            "one undo removes the four walls"
+        );
+    }
+
+    /// INP-018: with Alt held, the wall tool previews and creates exactly
+    /// one wall along the clicked edge, the room's south face up to the T
+    /// wall.
+    #[test]
+    fn an_alt_click_creates_one_wall_along_the_clicked_edge() {
+        let (mut doc, storey, mut tool) = detecting_on_the_shaft_sample(ToolKind::Wall, 0);
+        tool.detection.edge_only = true;
+        let p = DVec2::new(2.0, 0.25);
+        let edge = vec![DVec2::new(0.25, 0.25), DVec2::new(4.9425, 0.25)];
+        let preview = preview_at(&tool, &doc.project, p);
+        assert_eq!(preview.len(), 2, "the edge and its wall's outline");
+        assert!(!preview[0].1);
+        for (q, e) in preview[0].0.iter().zip(&edge) {
+            assert!(q.distance(*e) < MODEL_TOLERANCE, "{preview:?}");
+        }
+        assert_eq!(preview[0].0.len(), 2, "the edge only");
+
+        let before = doc.project.elements.len();
+        let Outcome::Execute(command) = tool.commit(&doc.project, storey, p) else {
+            panic!("the click creates the wall")
+        };
+        doc.execute(command).unwrap();
+        assert_eq!(doc.project.elements.len(), before + 1, "exactly one wall");
+        let wall = doc.project.elements.values().last().unwrap().as_wall().unwrap();
+        assert_eq!([wall.start, wall.end].to_vec(), preview[0].0);
+    }
+
+    /// The trace the elements a click created follow: a slab's rings, or
+    /// the line of joined walls.
+    fn trace_of(elements: &[Element]) -> Trace {
+        if let [element] = elements
+            && let Some(slab) = element.as_slab()
+        {
+            let (outer, holes) = slab.outline.to_points();
+            return Trace::Slab { outer, holes };
+        }
+        let walls: Vec<_> = elements.iter().map(|e| e.as_wall().unwrap()).collect();
+        let (first, last) = (walls[0], walls[walls.len() - 1]);
+        let closed = walls.len() > 1 && last.end == first.start;
+        let mut line: Vec<DVec2> = walls.iter().map(|w| w.start).collect();
+        if !closed {
+            line.push(last.end);
+        }
+        Trace::Walls { line, closed }
+    }
+
+    /// INP-018: for the wall and slab tools, with and without Alt, the
+    /// preview shows exactly what a click at the same point creates. The
+    /// slab tool needs a closed outline: at an antenna inside a square it
+    /// previews and creates the square, at a free line outside it nothing,
+    /// never the open chain or the clicked edge, and in a room with an
+    /// island a slab with a hole. The wall tool takes the antenna and the
+    /// line, and walls around the room without its island, previewed with
+    /// their outlines and no island ring; with Alt it takes edges only, so
+    /// nothing in the room. Only the wall tool's prompt offers Alt.
+    #[test]
+    fn the_preview_shows_what_the_click_creates() {
+        use std::sync::Arc;
+
+        use archicraft_geometry::contour::{ContourGraph, ContourOptions, Segment};
+
+        let v = DVec2::new;
+        let ring_segments = |ring: &[DVec2]| -> Vec<Segment> {
+            (0..ring.len())
+                .map(|i| Segment::new(ring[i], ring[(i + 1) % ring.len()]))
+                .collect()
+        };
+        let square = [v(0.0, 0.0), v(4.0, 0.0), v(4.0, 4.0), v(0.0, 4.0)];
+        let room = [v(10.0, 0.0), v(14.0, 0.0), v(14.0, 4.0), v(10.0, 4.0)];
+        let island = [v(11.0, 1.0), v(12.0, 1.0), v(12.0, 2.0), v(11.0, 2.0)];
+        let mut segments = ring_segments(&square);
+        segments.extend(ring_segments(&room));
+        segments.extend(ring_segments(&island));
+        segments.push(Segment::new(v(2.0, 0.0), v(2.0, 2.0)));
+        segments.push(Segment::new(v(6.0, 0.0), v(8.0, 0.0)));
+        let graph = Arc::new(ContourGraph::build(segments.as_slice(), &ContourOptions::default()));
+        let project = default_metric_project();
+        let storey = project.storeys.ground();
+        let (antenna, line, outside, in_room) = (v(2.05, 1.5), v(7.0, 0.05), v(6.0, 6.0), v(13.0, 3.0));
+
+        let mut traces = Vec::new();
+        for kind in [ToolKind::Slab, ToolKind::Wall] {
+            for alt in [false, true] {
+                for p in [antenna, line, outside, in_room] {
+                    let mut tool = ToolState::default();
+                    tool.select(kind);
+                    tool.detection.toggle();
+                    tool.detection.set_source(storey, graph.clone(), 0.15);
+                    tool.detection.edge_only = alt;
+                    let preview = preview_at(&tool, &project, p);
+                    let trace = match tool.commit(&project, storey, p) {
+                        Outcome::Execute(Command::AddElements(elements)) => Some(trace_of(&elements)),
+                        Outcome::Continue => None,
+                        other => panic!("{other:?}"),
+                    };
+                    let created = trace.as_ref().map_or_else(Vec::new, |t| t.outlines(&project));
+                    assert_eq!(preview, created, "{kind:?} alt {alt} at {p}");
+                    if kind == ToolKind::Wall {
+                        let island_ring = |ring: &Vec<DVec2>| island.iter().all(|q| ring.contains(q));
+                        assert!(
+                            !preview.iter().any(|(ring, _)| island_ring(ring)),
+                            "{kind:?} alt {alt} at {p}: no island ring"
+                        );
+                    }
+                    traces.push(trace);
+                }
+            }
+        }
+        // The rings counter-clockwise without the antenna's foot, the island
+        // as a hole clockwise, as the graph gives them.
+        let square_ring = vec![square[3], square[0], square[1], square[2]];
+        let room_ring = vec![room[3], room[0], room[1], room[2]];
+        let hole = vec![island[0], island[3], island[2], island[1]];
+        let slab = [
+            Some(Trace::Slab {
+                outer: square_ring,
+                holes: Vec::new(),
+            }),
+            None,
+            None,
+            Some(Trace::Slab {
+                outer: room_ring.clone(),
+                holes: vec![hole],
+            }),
+        ];
+        let walls = |line: Vec<DVec2>, closed| Some(Trace::Walls { line, closed });
+        let wall = [
+            walls(vec![v(2.0, 0.0), v(2.0, 2.0)], false),
+            walls(vec![v(6.0, 0.0), v(8.0, 0.0)], false),
+            None,
+            walls(room_ring, true),
+        ];
+        // With Alt the wall tool picks an edge only: none in the room.
+        let mut wall_alt = wall.clone();
+        wall_alt[3] = None;
+        let expected: Vec<_> = [&slab, &slab, &wall, &wall_alt]
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
+        assert_eq!(traces, expected);
+
+        let hints = |kind| {
+            let mut tool = ToolState::default();
+            tool.select(kind);
+            tool.detection.toggle();
+            tool.step()
+                .unwrap()
+                .hints
+                .into_iter()
+                .map(|h| h.key)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(hints(ToolKind::Slab), ["Esc"]);
+        assert_eq!(hints(ToolKind::Wall), ["Alt", "Esc"]);
+    }
+
+    /// INP-018, INP-003: Esc turns detection off and returns to the tool's
+    /// first point without touching the project; a click on another storey
+    /// than the graph's picks nothing.
+    #[test]
+    fn esc_returns_from_detection_without_side_effects() {
+        let (doc, storey, mut tool) = detecting_on_the_shaft_sample(ToolKind::Slab, 0);
+        let other = doc.project.storeys.as_slice()[1].id;
+        assert_eq!(
+            tool.commit(&doc.project, other, DVec2::new(2.0, 3.0)),
+            Outcome::Continue
+        );
+        let revision = doc.project.revision;
+        assert!(tool.cancel_step());
+        assert!(!tool.detection.is_on() && !tool.detecting());
+        assert_eq!(tool.step().unwrap().expects, Expect::Point);
+        assert!(!tool.is_drawing());
+        assert_eq!(doc.project.revision, revision);
+        assert!(!tool.cancel_step(), "nothing left to cancel");
+        // A click now takes the first corner.
+        assert_eq!(
+            tool.commit(&doc.project, storey, DVec2::new(2.0, 3.0)),
+            Outcome::Continue
+        );
+        assert_eq!(tool.points, [DVec2::new(2.0, 3.0)]);
     }
 }

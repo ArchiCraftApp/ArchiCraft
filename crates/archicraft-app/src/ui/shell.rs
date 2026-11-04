@@ -227,7 +227,8 @@ fn problems_label(ws: &Workspace, count: usize) -> String {
 
 /// The status line (UI-001): the prompt for the next input step, the
 /// measurement of the measure tool, the last message, the problem count,
-/// the indicator of suspended groups (ELM-015) and, in a plan, the cursor's
+/// the indicators of suspended groups (ELM-015) and of contour detection
+/// while it takes the clicks (INP-018) and, in a plan, the cursor's
 /// coordinates and the storey.
 pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: usize) -> Option<CommandId> {
     let mut chosen = None;
@@ -282,6 +283,14 @@ pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: u
             if cx.groups_suspended {
                 if bar_button(ui, cx, spec(edit::SUSPEND_GROUPS), &tr!("status-groups-suspended")) {
                     chosen = Some(edit::SUSPEND_GROUPS);
+                }
+                ui.separator();
+            }
+            // INP-018: while contour detection takes the tool's clicks; a
+            // click switches it off.
+            if ws.active_consumer == Consumer::Tool && ws.tool.detecting() {
+                if bar_button(ui, cx, spec(tools::CONTOUR_DETECTION), &tr!("status-contour-detection")) {
+                    chosen = Some(tools::CONTOUR_DETECTION);
                 }
                 ui.separator();
             }

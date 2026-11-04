@@ -44,6 +44,9 @@ table (`commands/d8.rs`) and the OS-reserved tables (`commands/os_reserved.rs`);
   events (`Event::Cut`, `Event::Copy`, `Event::Paste`) and sends no key event, so the shortcut loop
   never sees them: `selection-transforms` has to run the commands from the clipboard events.
 - **Hide, isolate and show all are H, Shift+H and Alt+H**, as in common 3D modellers.
+- **Space held is contour detection, provisionally** (INP-018; D.8 names no key). Alt picks the
+  clicked edge only, but Alt with Space held is Alt+Space, the window menu on Windows and Linux:
+  there, switch detection on with Design ▸ Contour detection and Alt-click without Space.
 - Opening, stair and free-form solid share a letter with a related tool and take Shift: door D and
   opening Shift+D, slab S and stair Shift+S, measure M and free-form solid Shift+M.
 
@@ -116,6 +119,7 @@ table (`commands/d8.rs`) and the OS-reserved tables (`commands/os_reserved.rs`);
 | Remove last point | `Backspace` | `Backspace` | only while drawing, matched by the plan view | `input.remove-last` |
 | Finish input | `Enter` | `Enter` | not while typing, matched by the plan view | `input.finish` |
 | Cancel step | `Escape` | `Escape` | not while typing, matched by the plan view | `input.cancel-step` |
+| Hold contour detection | `Space` | `Space` | not while typing, matched by the plan view | `input.hold-contour-detection` |
 
 ## Reserved by the operating system
 

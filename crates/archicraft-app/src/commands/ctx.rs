@@ -43,6 +43,8 @@ pub struct CommandCtx {
     pub tool: ToolKind,
     pub wall_mode: WallMode,
     pub slab_mode: SlabMode,
+    /// Contour detection is on, toggled or held (INP-018).
+    pub contour_detection: bool,
     /// The state of the active 3D view, if a 3D view is active.
     pub view3d: Option<View3dCtx>,
     /// The Materials dialog is open with a material selected (MAT-001).
@@ -84,6 +86,7 @@ impl CommandCtx {
             tool: ws.tool.kind,
             wall_mode: ws.tool.wall_mode,
             slab_mode: ws.tool.slab_mode,
+            contour_detection: ws.tool.detection.is_on(),
             view3d,
             material_selected: dialogs.materials
                 && dialogs

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use archicraft_geometry::ModelGeometry;
+use archicraft_geometry::contour::{ContourGraph, ContourOptions};
 use archicraft_geometry::plan::{PlanDrawing, ViewRange, plan_drawing};
 use archicraft_ifcx::{Problem, WriteOptions};
 use archicraft_model::{Command, CommandError, History, Message, Project, StoreyId};
@@ -28,6 +29,11 @@ pub struct Document {
     autosaved_state: u64,
     geometry: Arc<ModelGeometry>,
     plans: HashMap<StoreyId, (u64, Arc<PlanDrawing>)>,
+    /// The contour graph of each storey's plan with the revision it was
+    /// built for (INP-018).
+    contours: HashMap<StoreyId, (u64, Arc<ContourGraph>)>,
+    /// How many contour graphs were built, for tests of the cache.
+    contour_builds: usize,
 }
 
 impl Document {
@@ -42,6 +48,8 @@ impl Document {
             autosaved_state: 0,
             geometry,
             plans: HashMap::new(),
+            contours: HashMap::new(),
+            contour_builds: 0,
         }
     }
 
@@ -98,6 +106,7 @@ impl Document {
         if self.geometry.revision != self.project.revision {
             self.geometry = Arc::new(ModelGeometry::evaluate(&self.project));
             self.plans.clear();
+            self.contours.clear();
         }
         self.geometry.clone()
     }
@@ -118,6 +127,28 @@ impl Document {
         }));
         self.plans.insert(storey, (revision, plan.clone()));
         plan
+    }
+
+    /// The contour graph of a storey's plan (INP-018), built from its
+    /// [`PlanDrawing`] on first use and kept until the plan's revision
+    /// changes, so hovering never builds it per frame.
+    pub fn contour_graph(&mut self, storey: StoreyId) -> Arc<ContourGraph> {
+        let plan = self.plan(storey);
+        let revision = self.project.revision;
+        if let Some((rev, graph)) = self.contours.get(&storey)
+            && *rev == revision
+        {
+            return graph.clone();
+        }
+        let graph = Arc::new(ContourGraph::build(plan.as_ref(), &ContourOptions::default()));
+        self.contour_builds += 1;
+        self.contours.insert(storey, (revision, graph.clone()));
+        graph
+    }
+
+    /// How many contour graphs [`Document::contour_graph`] has built.
+    pub fn contour_builds(&self) -> usize {
+        self.contour_builds
     }
 
     /// True if the geometry, and the plan of `storey` if given, are

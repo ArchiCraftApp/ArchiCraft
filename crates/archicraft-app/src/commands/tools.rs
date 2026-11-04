@@ -1,5 +1,5 @@
-//! The tools of the Design menu and their geometry methods (UI-001, UI-017,
-//! WAL-001, SLB-001, MEA-001).
+//! The tools of the Design menu, their geometry methods and contour
+//! detection (UI-001, UI-017, WAL-001, SLB-001, MEA-001, INP-018, EDT-020).
 
 use egui::Key;
 
@@ -13,6 +13,10 @@ pub const WALL: CommandId = CommandId::new("tool.wall");
 pub const SLAB: CommandId = CommandId::new("tool.slab");
 /// The measure tool (MEA-001), also a toolbar button (UI-011).
 pub const MEASURE: CommandId = CommandId::new("tool.measure");
+
+/// Switches contour detection of the wall and slab tools on or off: the
+/// explicit command of the key held for it (INP-018, EDT-020).
+pub const CONTOUR_DETECTION: CommandId = CommandId::new("tool.contour-detection");
 
 /// The family of the wall tool's geometry methods, one command per
 /// [`WallMode`]: `tool.wall.mode.<code>`.
@@ -105,6 +109,13 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         .menu("design/slab-mode", 1, order)
         .checked_when(move |cx| cx.slab_mode == mode)
     }));
+    specs.push(
+        CommandSpec::with(CONTOUR_DETECTION, Category::Design, |app, _, _| {
+            app.ws.tool.detection.toggle()
+        })
+        .menu("design", 2, 0)
+        .checked_when(|cx| cx.contour_detection),
+    );
     specs
 }
 

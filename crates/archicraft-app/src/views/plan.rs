@@ -800,6 +800,21 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     if active && !ui.ctx().text_edit_focused() {
         handle_keys(ui, ws, &mut state, input.as_ref(), cursor_world);
     }
+    // Contour detection (INP-018) ends with the release of its key and picks
+    // from the cached graph of the plan under the cursor.
+    let hold_keys = ws.keymap.effective_bindings(view_keys::HOLD_CONTOUR_DETECTION);
+    if ws.tool.detection.held && !hold_keys.iter().any(|b| ui.input(|i| i.key_down(b.key))) {
+        ws.tool.detection.held = false;
+    }
+    if ws.active_consumer == Consumer::Tool
+        && ws.tool.detecting()
+        && cursor_world.is_some()
+        && let Some(input) = &input
+    {
+        let graph = ws.doc.contour_graph(storey);
+        ws.tool.detection.set_source(storey, graph, input.radius);
+        ws.tool.detection.edge_only = mods.alt;
+    }
 
     // Clicks of the selection tool.
     if response.clicked_by(PointerButton::Primary)
@@ -823,6 +838,11 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     if !selecting && let Some(input) = &input {
         let at = |p: Option<Pos2>| p.and_then(|p| surface.to_plane(screen(p)));
         let (press_origin, latest) = ui.input(|i| (i.pointer.press_origin(), i.pointer.latest_pos()));
+        // The second click of a double-click is a click too; a pick
+        // (INP-018) takes only the first, a point step ignores the repeated
+        // point itself.
+        let picking = ws.consumer().step().is_some_and(|s| s.expects == Expect::Pick);
+        let repeated = picking && response.double_clicked_by(PointerButton::Primary);
         let events = [
             (
                 response.drag_started_by(PointerButton::Primary),
@@ -830,7 +850,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
                 at(press_origin),
             ),
             (
-                response.clicked_by(PointerButton::Primary),
+                response.clicked_by(PointerButton::Primary) && !repeated,
                 PointerEvent::Clicked,
                 cursor_world,
             ),
@@ -1085,10 +1105,15 @@ fn handle_keys(
             Event::Key {
                 key,
                 pressed: true,
+                repeat,
                 modifiers,
                 ..
             } => {
-                if let Some(id) = ws.keymap.matching(&local_commands(ws), key, modifiers) {
+                // A held key repeats; detection switched off with Esc stays
+                // off until the key is pressed again.
+                if let Some(id) = ws.keymap.matching(&local_commands(ws), key, modifiers)
+                    && !(repeat && id == view_keys::HOLD_CONTOUR_DETECTION)
+                {
                     local_command(ws, state, input, cursor_world, id);
                 }
                 continue;
@@ -1103,11 +1128,17 @@ fn handle_keys(
 /// (HW-003): the wall reference line while the wall tool waits for points
 /// and nothing is typed (WAL-007); Tab for point input while it takes the
 /// keys or cycles snap candidates, otherwise for the overlapping candidates
-/// under the cursor (SEL-001); Backspace, Enter and Esc for point input.
+/// under the cursor (SEL-001); Backspace, Enter and Esc for point input;
+/// the key held for contour detection while the wall or slab tool is active
+/// and nothing is typed (INP-018).
 fn local_commands(ws: &Workspace) -> Vec<CommandId> {
     let mut ids = Vec::new();
-    if ws.active_consumer == Consumer::Tool && ws.tool.kind == ToolKind::Wall && ws.input.typed.is_empty() {
+    let tool = ws.active_consumer == Consumer::Tool && ws.input.typed.is_empty();
+    if tool && ws.tool.kind == ToolKind::Wall {
         ids.push(view_keys::CYCLE_REFERENCE_LINE);
+    }
+    if tool && matches!(ws.tool.kind, ToolKind::Wall | ToolKind::Slab) {
+        ids.push(view_keys::HOLD_CONTOUR_DETECTION);
     }
     if ws.input.captures_keys(ws.consumer()) || (ws.takes_points() && ws.input.cycles()) {
         ids.push(view_keys::NEXT_FIELD);
@@ -1128,6 +1159,10 @@ fn local_command(
 ) {
     let key = match id {
         view_keys::CYCLE_REFERENCE_LINE => return ws.cycle_wall_reference_line(),
+        view_keys::HOLD_CONTOUR_DETECTION => {
+            ws.tool.detection.held = true;
+            return;
+        }
         view_keys::CYCLE_CANDIDATES => {
             // The next click selects the highlighted candidate (SEL-001).
             if let Some(world) = cursor_world {

@@ -165,6 +165,7 @@ fn command_ids_are_pinned() {
             "tool.slab.mode.polygon",
             "tool.slab.mode.rectangle",
             "tool.slab.mode.rotated-rectangle",
+            "tool.contour-detection",
             "project.storeys",
             "project.layers",
             "project.materials",
@@ -182,6 +183,7 @@ fn command_ids_are_pinned() {
             "input.remove-last",
             "input.finish",
             "input.cancel-step",
+            "input.hold-contour-detection",
         ]
     );
 }
@@ -316,7 +318,8 @@ fn shortcuts_are_unique() {
 /// drawing (Global), Tab cycles the elements under the cursor (Canvas) or
 /// moves to the next typed field (PointInput), Backspace removes the last
 /// point (PointInput), Enter and Esc work before and while drawing and
-/// cannot be rebound. No other command is local.
+/// cannot be rebound, and Space held switches to contour detection before
+/// and between operations (Global, INP-018). No other command is local.
 #[test]
 fn view_keys_are_local_commands() {
     use Scope::*;
@@ -327,6 +330,7 @@ fn view_keys_are_local_commands() {
         (view_keys::REMOVE_LAST, Key::Backspace, PointInput, false),
         (view_keys::FINISH, Key::Enter, Global, true),
         (view_keys::CANCEL_STEP, Key::Escape, Global, true),
+        (view_keys::HOLD_CONTOUR_DETECTION, Key::Space, Global, false),
     ];
     assert_eq!(expected.map(|(id, ..)| id), view_keys::ALL);
     for (id, key, scope, fixed) in expected {
@@ -653,7 +657,7 @@ fn menus_follow_group_and_order() {
         menu("design"),
         "tool.select tool.wall tool.slab tool.measure | design/wall-mode/ tool.wall.mode.single tool.wall.mode.chain \
          tool.wall.mode.rectangle tool.wall.mode.rotated-rectangle design/slab-mode/ tool.slab.mode.polygon \
-         tool.slab.mode.rectangle tool.slab.mode.rotated-rectangle"
+         tool.slab.mode.rectangle tool.slab.mode.rotated-rectangle | tool.contour-detection"
     );
     assert_eq!(
         menu("project"),

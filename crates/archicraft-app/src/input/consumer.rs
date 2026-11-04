@@ -41,6 +41,9 @@ pub enum Expect {
     Angle { centre: DVec2 },
     /// A point at a distance from `from`; typed values are polar from `from`.
     Distance { from: DVec2 },
+    /// A pick of what lies under the cursor, such as a contour (INP-018):
+    /// the cursor itself, without snapping or typed values.
+    Pick,
 }
 
 impl Expect {
@@ -48,6 +51,7 @@ impl Expect {
     pub fn origin(self, reference: Option<DVec2>) -> Option<DVec2> {
         match self {
             Expect::Point => reference,
+            Expect::Pick => None,
             Expect::Direction { from } | Expect::Distance { from } => Some(from),
             Expect::Angle { centre } => Some(centre),
         }

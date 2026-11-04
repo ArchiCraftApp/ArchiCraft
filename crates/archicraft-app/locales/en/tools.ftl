@@ -63,3 +63,13 @@ tool-division-distance-positive = The division distance must be greater than zer
 tool-division-scope-nodes = Between nodes
 tool-division-scope-intersections = Between intersections
 tool-division-scope-element = Whole element
+
+## Contour detection of the wall and slab tools (INP-018): the prompts of its
+## pick step as prompt-contour-*, its key hints and the hint of the held key
+## on the tools' first point as prompt-contour-key-*.
+
+prompt-contour-slab = Slab from a contour: click inside a region or on a closed chain of edges
+prompt-contour-wall = Walls from a contour: click on an edge or a chain of edges, or inside a region
+prompt-contour-key-hold = held traces a contour
+prompt-contour-key-edge = picks the clicked edge only
+prompt-contour-key-cancel = turns contour detection off

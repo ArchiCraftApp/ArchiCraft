@@ -165,7 +165,7 @@ fn status_line_shows_the_step_prompt_and_its_keys() {
     assert_present(
         &harness,
         "Wall: click the start point of the reference line · R cycles the reference line · 0–9 types the coordinates \
-         · P switches polar and Cartesian",
+         · P switches polar and Cartesian · Space held traces a contour",
     );
     let pos = {
         let ws = harness.state_mut().workspace();
@@ -510,9 +510,10 @@ fn the_shortcuts_window_lists_every_binding() {
         .filter(|s| !s.default_bindings.is_empty())
         .count();
     // The 23 former actions, Preferences, Group and Ungroup (ELM-015), the
-    // Measure tool, Zoom in and out (UI-001) and the 6 local commands of
-    // the plan view.
-    assert_eq!(rows, 35);
+    // Measure tool, Zoom in and out (UI-001) and the 7 local commands of
+    // the plan view, the key held for contour detection among them
+    // (INP-018).
+    assert_eq!(rows, 36);
     for spec in Registry::get().specs() {
         if !spec.default_bindings.is_empty() {
             assert_present(&harness, &keys(&spec.default_bindings));
@@ -2920,7 +2921,7 @@ fn preferences_offer_the_input_mode_in_the_input_group() {
     assert_present(
         &harness,
         "Wall: click the start point of the reference line · R cycles the reference line \
-         · 0–9 types the coordinates · P switches polar and Cartesian \
+         · 0–9 types the coordinates · P switches polar and Cartesian · Space held traces a contour \
          · Press-drag-release: press at a point, drag and release at the next",
     );
 }
