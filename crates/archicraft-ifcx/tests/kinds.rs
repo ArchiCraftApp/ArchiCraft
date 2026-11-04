@@ -1,108 +1,183 @@
-//! Element kinds this format version cannot store (SRS 3.2, ELM-019,
-//! IFX-060), with the test kind that the dev-dependency on archicraft-model
-//! with `test-kinds` provides: the writer saves such an element without its
-//! kind and parameters and warns, the name counter of a kind without a tool
-//! is written only when it is non-zero, and the reader skips elements of a
-//! kind it cannot read.
+//! The test kind's codec (SRS 3.2, IFX-060, ELM-001, ELM-019), which the
+//! dev-dependency on this crate with `test-kinds` provides: a dummy element
+//! round-trips through `archicraft::dummy` like a wall through
+//! `archicraft::wall`, its name counter follows the rule of a kind without a
+//! tool, and its tool-defaults slot is written through the codec although
+//! no template has one, so the reader treats it as a tool it does not know.
 
 #![allow(clippy::unwrap_used)]
 
 mod common;
 
-use archicraft_geometry::ModelGeometry;
 use archicraft_ifcx::validate::{self, Severity};
 use archicraft_model::glam::DVec2;
-use archicraft_model::kinds::Dummy;
+use archicraft_model::kinds::{Dummy, VerticalLink};
 use archicraft_model::project::DefaultsSlot;
-use archicraft_model::{Command, History, KindTag, Position, Project, samples};
+use archicraft_model::{Command, ElementId, History, KindTag, Position, Project, StoreyId, TopLink, samples};
 use serde_json::Value;
 
-use common::{edit, node_index, options, save};
+use common::{edit, node_index, save};
 
-/// The sample with one test-kind element added.
-fn with_test_element() -> Project {
-    let mut p = samples::storey_with_walls_and_slab();
-    let g = p.storeys.ground();
-    let d = Dummy::new(DVec2::new(1.0, 1.0), DVec2::ONE, p.materials[0].id).into_element(&p, g, 0);
+/// The two-storey shell with one dummy per top link (fixed, storey,
+/// relative, each with a non-zero offset) added on the ground floor, and the
+/// ids of the added elements.
+fn shell_with_a_dummy_per_top_link() -> (Project, Vec<ElementId>, StoreyId) {
+    let mut p = samples::two_storey_shell();
+    let ground = p.storeys.ground();
+    let upper = p.storeys.relative(ground, 1).unwrap().id;
+    let tops = [
+        TopLink::Fixed { height: 2.8 },
+        TopLink::Storey {
+            storey: upper,
+            offset: 0.35,
+        },
+        TopLink::Relative {
+            storeys: 1,
+            offset: -0.15,
+        },
+    ];
+    let elements: Vec<_> = tops
+        .iter()
+        .enumerate()
+        .map(|(i, top)| {
+            let mut d = Dummy::new(
+                DVec2::new(20.0 + 3.0 * i as f64, 1.0),
+                DVec2::new(2.0, 1.5),
+                p.materials[0].id,
+            );
+            d.link = VerticalLink {
+                base_offset: 0.05 * (i + 1) as f64,
+                top: *top,
+            };
+            d.into_element(&p, ground, i as u32)
+        })
+        .collect();
+    let ids = elements.iter().map(|e| e.id).collect();
     History::default()
-        .execute(&mut p, Command::AddElements(vec![d]))
+        .execute(&mut p, Command::AddElements(elements))
         .unwrap();
-    p
+    (p, ids, upper)
 }
 
-fn counters(file: &Value) -> &serde_json::Map<String, Value> {
-    file["data"][0]["attributes"]["archicraft::project"]["counters"]
+fn project_attribute(file: &Value) -> &serde_json::Map<String, Value> {
+    file["data"][0]["attributes"]["archicraft::project"]
         .as_object()
         .unwrap()
 }
 
-#[test]
-fn an_element_of_an_unstorable_kind_is_saved_without_its_kind_and_warned_about() {
-    let p = with_test_element();
-    let geometry = ModelGeometry::evaluate(&p);
-    let (bytes, warnings) = archicraft_ifcx::save(&p, &geometry, &options(), false);
-    let d = p.elements.values().find(|e| e.tag() == KindTag::Dummy).unwrap();
-    let about: Vec<String> = warnings
-        .iter()
-        .filter(|w| w.path.as_deref() == Some(d.id.to_string().as_str()))
-        .map(|w| w.message.to_string())
-        .collect();
-    assert!(
-        about
-            .iter()
-            .any(|m| m.starts_with(r#"ifcx-kind-not-storable(name="X-001", kind=dummy)"#)),
-        "{warnings:#?}"
-    );
-    assert!(
-        warnings.iter().all(|w| w.severity == Severity::Warning),
-        "{warnings:#?}"
-    );
+/// The declared members of `declaration`, an object value description.
+fn members(declaration: &Value) -> &serde_json::Map<String, Value> {
+    declaration["objectRestrictions"]["values"].as_object().unwrap()
+}
 
+fn project_declaration(file: &Value) -> &Value {
+    &file["schemas"]["archicraft::project"]["value"]
+}
+
+/// IFX-060, IFX-064: dummies with each top link (fixed, storey, relative,
+/// each with a non-zero offset) round-trip through save and load equal and
+/// without problems, through the codec that the `test-kinds` feature adds.
+#[test]
+fn a_dummy_element_with_each_top_link_round_trips() {
+    let (project, ids, _) = shell_with_a_dummy_per_top_link();
+    let loaded = archicraft_ifcx::load(&save(&project)).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert_eq!(ids.len(), 3);
+    for id in ids {
+        let original = project.element(id).unwrap();
+        let read = loaded.project.element(id).unwrap();
+        assert_eq!(read, original, "{} survives bit for bit", original.name);
+    }
+}
+
+/// IFX-060, IFX-061, ELM-019: a dummy element's node carries
+/// `archicraft::element` and `archicraft::dummy` with the codec's members
+/// (the rectangle, the vertical link, the flags, the material); the file
+/// declares the attribute, lists the kind in the kind enumeration and
+/// declares the counter of this kind without a tool as optional, which the
+/// writer writes once it is non-zero.
+#[test]
+fn a_dummy_element_is_written_through_its_codec_and_declared() {
+    let (project, ids, upper) = shell_with_a_dummy_per_top_link();
+    let bytes = save(&project);
     let file: Value = serde_json::from_slice(&bytes).unwrap();
-    let node = &file["data"][node_index(&file, "X-001")];
+    let linked = ids
+        .iter()
+        .map(|id| project.element(*id).unwrap())
+        .find(|e| matches!(e.as_dummy().unwrap().link.top, TopLink::Storey { .. }))
+        .unwrap();
+    let node = &file["data"][node_index(&file, &linked.name)];
     let attributes = node["attributes"].as_object().unwrap();
+    let own: Vec<&String> = attributes.keys().filter(|k| k.starts_with("archicraft::")).collect();
+    assert_eq!(own, ["archicraft::element", "archicraft::dummy"]);
+    assert_eq!(attributes["archicraft::element"]["kind"], "dummy");
     assert_eq!(attributes["bsi::ifc::class"]["code"], "IfcBuildingElementProxy");
-    assert!(
-        attributes.keys().all(|k| !k.starts_with("archicraft::")),
-        "no kind and no parameters: {attributes:#?}"
+    let written: Vec<&String> = attributes["archicraft::dummy"].as_object().unwrap().keys().collect();
+    assert_eq!(
+        written,
+        [
+            "origin",
+            "size",
+            "baseOffset",
+            "top",
+            "parts",
+            "panicOnEvaluate",
+            "siteLevel",
+            "material"
+        ]
     );
-    // ELM-019: the counter of a kind without a tool is written once it is
-    // non-zero, besides those of every kind with a tool.
-    let written = counters(&file);
-    assert_eq!(written.get("dummy"), Some(&Value::from(1)), "{written:?}");
-    assert_eq!(written.len(), 3, "{written:?}");
+    let dummy = &attributes["archicraft::dummy"];
+    assert_eq!(dummy["top"]["link"], "storey");
+    assert_eq!(dummy["top"]["storey"], upper.to_string());
+    assert_eq!(dummy["parts"], false);
+
+    let declared = file["schemas"].as_object().unwrap();
+    assert!(declared.contains_key("archicraft::dummy"), "{:?}", declared.keys());
+    assert_eq!(
+        members(&declared["archicraft::dummy"]["value"])
+            .keys()
+            .collect::<Vec<_>>(),
+        written
+    );
+    let kinds = &members(&declared["archicraft::element"]["value"])["kind"]["enumRestrictions"]["options"];
+    assert_eq!(kinds, &serde_json::json!(["wall", "slab", "dummy"]));
+    let counters = &members(project_declaration(&file))["counters"];
+    assert_eq!(
+        members(counters)["dummy"],
+        serde_json::json!({"dataType": "Integer", "optional": true})
+    );
+    assert_eq!(members(counters)["wall"], serde_json::json!({"dataType": "Integer"}));
+    assert_eq!(project_attribute(&file)["counters"]["dummy"], Value::from(3));
+
     let parsed = validate::parse(&bytes).unwrap();
     assert!(
         validate::validate(&parsed).is_empty(),
-        "the undeclared counter is valid"
+        "{:#?}",
+        validate::validate(&parsed)
     );
-
-    // The node reads back as unsupported data, not as an element, and the
-    // counter is kept so automatic names do not repeat.
-    let loaded = archicraft_ifcx::load(&bytes).unwrap();
-    assert_eq!(loaded.project.elements.len(), p.elements.len() - 1);
-    assert!(loaded.project.element(d.id).is_none());
-    assert_eq!(loaded.project.counters, p.counters);
 }
 
-/// ELM-019: a kind without a tool and without elements has no counter in the
-/// file, and reading one without it is not a problem.
+/// ELM-019, IFX-061: a kind without a tool and without elements has no
+/// counter in the file and none declared, and reading the file is not a
+/// problem.
 #[test]
 fn a_missing_counter_of_a_kind_without_a_tool_reads_as_zero() {
     let p = samples::storey_with_walls_and_slab();
     let file: Value = serde_json::from_slice(&save(&p)).unwrap();
-    let written = counters(&file);
+    let written = project_attribute(&file)["counters"].as_object().unwrap();
     assert!(!written.contains_key("dummy"), "{written:?}");
+    let declared = members(&members(project_declaration(&file))["counters"]);
+    assert_eq!(declared.keys().collect::<Vec<_>>(), ["wall", "slab", "group"]);
     let loaded = archicraft_ifcx::load(&save(&p)).unwrap();
     assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
     assert_eq!(loaded.project.counters.get(KindTag::Dummy), 0);
     assert_eq!(loaded.project.counters, p.counters);
 }
 
-/// An element whose kind this build knows but this format version cannot
-/// read is skipped and reported.
+/// IFX-083: an element whose kind names a codec but whose node lacks the
+/// codec's attribute is skipped and reported.
 #[test]
-fn an_element_of_an_unreadable_kind_is_skipped_and_reported() {
+fn an_element_without_its_kinds_attribute_is_skipped_and_reported() {
     let p = samples::storey_with_walls_and_slab();
     let bytes = edit(&p, |v| {
         let i = node_index(v, "W-002");
@@ -113,53 +188,97 @@ fn an_element_of_an_unreadable_kind_is_skipped_and_reported() {
     assert!(
         loaded.problems.iter().any(|p| p.severity == Severity::Error
             && p.message.to_string().contains("W-002")
-            && p.message.to_string().contains("ifcx-kind-unreadable(kind=dummy)")),
+            && p.message.to_string().contains("ifcx-parameters-missing(kind=dummy)")),
         "{:#?}",
         loaded.problems
     );
 }
 
-/// ELM-001: tool defaults of a kind this format has no defaults shape for
-/// are left out with a warning; `toolDefaults` stays `{wall, slab}` and
-/// reads back to the other slots.
+/// ELM-001, IFX-061: the defaults slot of a kind without template defaults
+/// is written through its codec (the slot's members, the flags among them,
+/// then the common members), declared, and valid; the reader, whose slots
+/// come from the template, reads it back as a tool it does not know, as any
+/// unknown member, and keeps the other slots.
 #[test]
-fn tool_defaults_of_an_unstorable_kind_are_left_out_and_warned_about() {
+fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_as_unknown() {
     let mut p = samples::storey_with_walls_and_slab();
     let mut defaults = p.tool_defaults.clone();
+    let mut dummy = Dummy::new(DVec2::ZERO, DVec2::ONE, p.materials[0].id);
+    dummy.parts = true;
+    dummy.site_level = true;
     defaults.insert(DefaultsSlot {
         layer: p.layers[0].id,
         position: Position::Undefined,
         ifc_class: KindTag::Dummy.descriptor().default_class,
         predefined_type: None,
-        kind: Dummy::new(DVec2::ZERO, DVec2::ONE, p.materials[0].id).into(),
+        kind: dummy.into(),
     });
     History::default()
         .execute(&mut p, Command::SetToolDefaults(defaults))
         .unwrap();
-    let geometry = ModelGeometry::evaluate(&p);
-    let (bytes, warnings) = archicraft_ifcx::save(&p, &geometry, &options(), false);
-    assert!(
-        warnings.iter().any(|w| w.severity == Severity::Warning
-            && w.message
-                .to_string()
-                .contains("ifcx-tool-defaults-not-saved(kind=dummy)")),
-        "{warnings:#?}"
-    );
+    let bytes = save(&p);
     let file: Value = serde_json::from_slice(&bytes).unwrap();
-    let written: Vec<&String> = file["data"][0]["attributes"]["archicraft::project"]["toolDefaults"]
-        .as_object()
-        .unwrap()
-        .keys()
-        .collect();
-    assert_eq!(written, ["wall", "slab"]);
-    let loaded = archicraft_ifcx::load(&bytes).unwrap().project;
-    assert!(loaded.tool_defaults.get(KindTag::Dummy).is_none());
+    let slots = project_attribute(&file)["toolDefaults"].as_object().unwrap();
+    assert_eq!(slots.keys().collect::<Vec<_>>(), ["wall", "slab", "dummy"]);
+    let slot = slots["dummy"].as_object().unwrap();
     assert_eq!(
-        loaded.tool_defaults.get(KindTag::Wall),
+        slot.keys().collect::<Vec<_>>(),
+        [
+            "baseOffset",
+            "top",
+            "parts",
+            "panicOnEvaluate",
+            "siteLevel",
+            "material",
+            "layer",
+            "position",
+            "ifcClass"
+        ]
+    );
+    assert_eq!(slot["parts"], true);
+    assert_eq!(slot["panicOnEvaluate"], false);
+    assert_eq!(slot["siteLevel"], true);
+    let declared = members(&members(project_declaration(&file))["toolDefaults"]);
+    assert_eq!(declared.keys().collect::<Vec<_>>(), ["wall", "slab", "dummy"]);
+    assert_eq!(
+        members(&declared["dummy"]).keys().collect::<Vec<_>>(),
+        slot.keys()
+            .chain(std::iter::once(&"predefinedType".to_owned()))
+            .collect::<Vec<_>>()
+    );
+    // The slot makes the kind present: its counter is declared, optional,
+    // and not written while it is zero.
+    let counters = members(&members(project_declaration(&file))["counters"]);
+    assert_eq!(counters.keys().collect::<Vec<_>>(), ["wall", "slab", "dummy", "group"]);
+    assert!(
+        !project_attribute(&file)["counters"]
+            .as_object()
+            .unwrap()
+            .contains_key("dummy")
+    );
+    let parsed = validate::parse(&bytes).unwrap();
+    assert!(
+        validate::validate(&parsed).is_empty(),
+        "{:#?}",
+        validate::validate(&parsed)
+    );
+
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let unknown: Vec<&archicraft_ifcx::Problem> = loaded
+        .problems
+        .iter()
+        .filter(|p| p.message.to_string().contains(r#"ifcx-tool-unknown(key="dummy")"#))
+        .collect();
+    assert_eq!(unknown.len(), 1, "{:#?}", loaded.problems);
+    assert_eq!(unknown[0].severity, Severity::Warning);
+    assert_eq!(loaded.problems.len(), 1, "{:#?}", loaded.problems);
+    assert!(loaded.project.tool_defaults.get(KindTag::Dummy).is_none());
+    assert_eq!(
+        loaded.project.tool_defaults.get(KindTag::Wall),
         p.tool_defaults.get(KindTag::Wall)
     );
     assert_eq!(
-        loaded.tool_defaults.get(KindTag::Slab),
+        loaded.project.tool_defaults.get(KindTag::Slab),
         p.tool_defaults.get(KindTag::Slab)
     );
 }

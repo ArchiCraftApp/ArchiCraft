@@ -21,7 +21,7 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
-use super::kinds::CODECS;
+use super::kinds::{self, CODECS};
 use super::schema::{self, FORMAT_VERSION};
 use crate::container::{Header, IfcxFile, Import, Node};
 use crate::json::{self, round_coordinate};
@@ -303,7 +303,7 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
     let file = IfcxFile {
         header: header(project, options),
         imports: imports(),
-        schemas: schema::declarations(),
+        schemas: schema::declarations(&kinds::present(project)),
         data,
     };
     WriteOutcome { file, warnings }
@@ -324,7 +324,8 @@ pub fn save(
     pretty: bool,
 ) -> (Vec<u8>, Vec<Problem>) {
     let mut warnings = Vec::new();
-    let mut document = DocumentWriter::new(&header(project, options), &imports(), &schema::declarations(), pretty);
+    let declarations = schema::declarations(&kinds::present(project));
+    let mut document = DocumentWriter::new(&header(project, options), &imports(), &declarations, pretty);
     nodes(project, geometry, &mut warnings, &mut |node| document.node(&node));
     (document.finish(), warnings)
 }

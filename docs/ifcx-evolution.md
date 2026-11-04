@@ -85,7 +85,8 @@ optional and not done yet; the code is ready for it:
 
 - `alpha::schema::document(timestamp)` (`crates/archicraft-ifcx/src/alpha/schema.rs`) is a
   standalone, schema-only IFCX document in the shape of the bundled standard schemas: the
-  declarations of `schema::declarations()`, no imports, no data, `header.id` `archicraft` and
+  declarations of `schema::declarations(…)` for every kind a release stores (`kinds::published`;
+  the test kind of test builds is left out), no imports, no data, `header.id` `archicraft` and
   `header.dataVersion` the `FORMAT_VERSION` it describes.
 - The example `archicraft_schema` writes it, indented:
   `cargo run -p archicraft-ifcx --example archicraft_schema -- archicraft@v1.ifcx <timestamp>`.
@@ -111,8 +112,9 @@ declarations.
 2. **Licence of the schema text.** The licence of the published file is decided by the user
    together with the distribution model (SRS O-5). The repository's licence today is in
    `Cargo.toml` (`license` of the workspace). Choose a licence that lets other tools copy the
-   declarations into their files (the in-file declarations of every saved file are copies of it),
-   and state it in the publication request and in `crates/archicraft-ifcx/schemas/README.md`.
+   declarations into their files (the in-file declarations of a saved file are copies of its
+   entries for the kinds the file stores), and state it in the publication request and in
+   `crates/archicraft-ifcx/schemas/README.md`.
 3. **Generate.** Run the example for the current `FORMAT_VERSION` with a fixed timestamp, and
    keep the command line with the timestamp in the publication request.
 4. **Check.** Set the URI in `tests/schema_publication.rs` to the chosen one and run

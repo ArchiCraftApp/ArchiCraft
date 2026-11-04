@@ -7,33 +7,188 @@
 
 mod common;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
-use archicraft_ifcx::alpha::kinds::registered;
-use archicraft_ifcx::validate::Severity;
+use archicraft_ifcx::alpha::kinds::{PROJECT_FIELDS, Stored, fields, registered};
+use archicraft_ifcx::alpha::schema;
+use archicraft_ifcx::validate::{self, Severity};
 use archicraft_model::glam::DVec2;
-use archicraft_model::{Command, Element, History, KindTag, ReferenceLine, StoreyId, TopLink, samples};
+use archicraft_model::kinds::Dummy;
+use archicraft_model::{Command, Element, ElementKind, History, KindTag, ReferenceLine, StoreyId, TopLink, samples};
 use serde_json::Value;
 
 use common::{edit, node_index, save};
 
-/// IFX-060, IFX-061: the registered codecs name distinct kinds and distinct
-/// attribute ids in the `archicraft::` namespace, one per kind code. Walls
-/// and slabs are among them.
+/// IFX-060, IFX-061: the codec table covers every kind of this build, no
+/// codec lacks a kind, and the attribute ids are distinct, one per kind code
+/// in the `archicraft::` namespace.
 #[test]
 fn every_kind_has_a_codec() {
     let codecs = registered();
     let tags: BTreeSet<KindTag> = codecs.iter().map(|(tag, _)| *tag).collect();
     assert_eq!(tags.len(), codecs.len(), "no two codecs share a kind: {codecs:?}");
+    assert_eq!(
+        tags,
+        KindTag::ALL.iter().copied().collect(),
+        "every kind of this build has a codec and every codec a kind: {codecs:?}"
+    );
     let ids: BTreeSet<&str> = codecs.iter().map(|(_, attribute)| *attribute).collect();
     assert_eq!(ids.len(), codecs.len(), "attribute ids are unique: {codecs:?}");
     for (tag, attribute) in &codecs {
         assert_eq!(*attribute, format!("archicraft::{}", tag.code()));
     }
-    for kind in [KindTag::Wall, KindTag::Slab] {
-        assert!(tags.contains(&kind), "{kind:?} has a codec: {codecs:?}");
+}
+
+/// The declared members of `declaration`, an object value description.
+fn members(declaration: &Value) -> BTreeSet<&str> {
+    declaration["value"]["objectRestrictions"]["values"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect()
+}
+
+/// IFX-060: every top-level field of the project's serde form (without the
+/// `#[serde(skip)]` fields) and of every kind's payload is mapped to the
+/// `archicraft::` member or node that stores it, by the tables reachable
+/// from `alpha/kinds/mod.rs`, and every member the tables name is declared.
+/// A field added without a mapping, or a kind without a sample payload
+/// here, fails the test.
+#[test]
+fn every_project_field_is_persisted() {
+    let project = samples::storey_with_walls_and_slab();
+    let serialized = serde_json::to_value(&project).unwrap();
+    let fields_of_project: BTreeSet<&str> = serialized.as_object().unwrap().keys().map(String::as_str).collect();
+    assert!(!fields_of_project.contains("revision"), "not saved, not mapped");
+    let mapped: BTreeSet<&str> = PROJECT_FIELDS.iter().map(|(field, _)| *field).collect();
+    assert_eq!(fields_of_project, mapped, "Project's fields and PROJECT_FIELDS");
+    assert_eq!(PROJECT_FIELDS.len(), mapped.len(), "each field once");
+    let declared = schema::declarations(KindTag::ALL);
+    let project_members = members(&declared["archicraft::project"]);
+    for (field, stored) in PROJECT_FIELDS {
+        assert!(!stored.is_empty(), "{field} is stored somewhere");
+        for place in *stored {
+            if let Stored::Member(path) = place {
+                let member = path.split('.').next().unwrap();
+                assert!(project_members.contains(member), "{field}: {member} is declared");
+            }
+        }
+    }
+
+    let mut payloads: BTreeMap<KindTag, Value> = BTreeMap::new();
+    for element in project.elements.values() {
+        payloads
+            .entry(element.tag())
+            .or_insert_with(|| serde_json::to_value(&element.kind).unwrap());
+    }
+    let dummy: ElementKind = Dummy::new(DVec2::ZERO, DVec2::ONE, project.materials[0].id).into();
+    payloads.insert(KindTag::Dummy, serde_json::to_value(&dummy).unwrap());
+    assert_eq!(
+        payloads.keys().copied().collect::<BTreeSet<_>>(),
+        KindTag::ALL.iter().copied().collect(),
+        "a sample payload of every kind"
+    );
+    let tables = fields();
+    assert_eq!(tables.len(), KindTag::ALL.len());
+    for (tag, table) in tables {
+        // Externally tagged: `{"Wall": {…}}`.
+        let payload = payloads[&tag].as_object().unwrap().values().next().unwrap();
+        let fields_of_payload: BTreeSet<&str> = payload.as_object().unwrap().keys().map(String::as_str).collect();
+        let mapped: BTreeSet<&str> = table.iter().map(|(field, _)| *field).collect();
+        assert_eq!(fields_of_payload, mapped, "{tag:?}: the payload's fields and FIELDS");
+        assert_eq!(table.len(), mapped.len(), "{tag:?}: each field once");
+        let declared = members(&declared[attribute_of(tag)]);
+        for (field, stored) in table {
+            assert!(!stored.is_empty(), "{tag:?}.{field} names a member");
+            for member in *stored {
+                assert!(declared.contains(member), "{tag:?}.{field}: {member} is declared");
+            }
+        }
+    }
+}
+
+/// IFX-061: the declarations cover the kinds the project stores (an
+/// element, a defaults slot or a non-zero counter) and nothing else, so a
+/// test build writes a project without the test kind exactly as a release
+/// build does: a project with walls only declares `archicraft::wall` but not
+/// `archicraft::slab`, its kind enumeration is `["wall"]`, its `toolDefaults`
+/// and `counters` know only the wall, and it validates without problems.
+#[test]
+fn declarations_cover_only_the_kinds_the_project_stores() {
+    let mut b = samples::FixtureBuilder::new("walls-only");
+    let ground = b.storey(0);
+    b.wall(ground, DVec2::ZERO, DVec2::new(5.0, 0.0));
+    b.wall(ground, DVec2::new(5.0, 0.0), DVec2::new(5.0, 4.0));
+    let mut project = b.finish();
+    project.tool_defaults = project
+        .tool_defaults
+        .iter()
+        .filter(|(kind, _)| *kind == KindTag::Wall)
+        .map(|(_, slot)| slot.clone())
+        .collect();
+    assert_eq!(project.counters.get(KindTag::Slab), 0);
+
+    let bytes = save(&project);
+    let parsed = validate::parse(&bytes).unwrap();
+    assert!(
+        validate::validate(&parsed).is_empty(),
+        "{:#?}",
+        validate::validate(&parsed)
+    );
+    let file: Value = serde_json::from_slice(&bytes).unwrap();
+    let schemas = file["schemas"].as_object().unwrap();
+    let own: Vec<&String> = schemas.keys().filter(|k| k.starts_with("archicraft::")).collect();
+    assert_eq!(
+        own,
+        [
+            "archicraft::project",
+            "archicraft::storey",
+            "archicraft::element",
+            "archicraft::wall"
+        ]
+    );
+    let element = &schemas["archicraft::element"]["value"]["objectRestrictions"]["values"];
+    assert_eq!(
+        element["kind"]["enumRestrictions"]["options"],
+        serde_json::json!(["wall"])
+    );
+    let project_members = &schemas["archicraft::project"]["value"]["objectRestrictions"]["values"];
+    let slots: Vec<&String> = project_members["toolDefaults"]["objectRestrictions"]["values"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect();
+    assert_eq!(slots, ["wall"]);
+    let counters: Vec<&String> = project_members["counters"]["objectRestrictions"]["values"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect();
+    assert_eq!(counters, ["wall", "group"]);
+
+    // The samples store walls and slabs, so the goldens declare both and
+    // stay as they were (golden_files_are_reproduced).
+    for sample in common::samples() {
+        let file: Value = serde_json::from_slice(&save(&sample)).unwrap();
+        let own: Vec<&String> = file["schemas"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|k| k.starts_with("archicraft::"))
+            .collect();
+        assert_eq!(
+            own,
+            [
+                "archicraft::project",
+                "archicraft::storey",
+                "archicraft::element",
+                "archicraft::wall",
+                "archicraft::slab"
+            ]
+        );
     }
 }
 
@@ -190,7 +345,13 @@ fn a_wall_without_thickness_loads_with_a_quarter_metre_and_one_warning() {
 #[test]
 fn format_code_has_no_per_kind_arm() {
     let alpha = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/alpha");
-    for file in ["kinds/mod.rs", "kinds/common.rs", "kinds/wall.rs", "kinds/slab.rs"] {
+    for file in [
+        "kinds/mod.rs",
+        "kinds/common.rs",
+        "kinds/wall.rs",
+        "kinds/slab.rs",
+        "kinds/dummy.rs",
+    ] {
         assert!(alpha.join(file).is_file(), "src/alpha/{file} exists");
     }
     let patterns = [

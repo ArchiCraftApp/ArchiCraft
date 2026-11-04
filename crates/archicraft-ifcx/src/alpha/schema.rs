@@ -2,9 +2,14 @@
 //!
 //! Every attribute ArchiCraft writes in its own namespace is declared in the
 //! file's `schemas` section, so the file validates on its own. The
+//! declarations follow from the kinds the project stores
+//! ([`kinds::present`]): a kind's attribute, its option in the kind
+//! enumeration, its defaults slot and its counter are declared only when the
+//! project has that kind, so a test build, which has the test kind's codec,
+//! writes a project without it exactly as a release build does. The
 //! `formatVersion` in `archicraft::project` versions this schema (IFX-062).
-//! [`document`] puts the same declarations into a standalone schema document
-//! that could be published on ifcx.dev (IFX-092).
+//! [`document`] puts the declarations of every kind a release stores into a
+//! standalone schema document that could be published on ifcx.dev (IFX-092).
 
 use indexmap::IndexMap;
 use serde_json::{Value, json};
@@ -13,7 +18,7 @@ use archicraft_model::material::{FillPattern, MaterialCategory};
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, VolumeUnit};
 use archicraft_model::{KindTag, Position, PredefinedType};
 
-use super::kinds::{CODECS, Codec};
+use super::kinds::{self, Codec};
 use super::writer::IFCX_VERSION;
 use crate::container::{Header, IfcxFile};
 
@@ -47,7 +52,7 @@ fn string() -> Value {
     json!({"dataType": "String"})
 }
 
-fn boolean() -> Value {
+pub(crate) fn boolean() -> Value {
     json!({"dataType": "Boolean"})
 }
 
@@ -76,15 +81,22 @@ pub(crate) fn optional(mut value: Value) -> Value {
     value
 }
 
-/// The name counters (ELM-019): one integer per kind that has a tool, keyed
-/// by kind code. Counters of other kinds are written only when non-zero and
-/// are not declared. The group counter (ELM-015) is optional: written only
-/// when non-zero.
-fn counters() -> Value {
-    let mut fields: Vec<(&str, Value)> = KindTag::ALL
+/// The name counters (ELM-019): one integer per present kind, keyed by kind
+/// code. The counter of a kind without a tool is optional, because the
+/// writer writes it only once it is non-zero, like the group counter
+/// (ELM-015).
+fn counters(present: &[&dyn Codec]) -> Value {
+    let mut fields: Vec<(&str, Value)> = present
         .iter()
-        .filter(|kind| kind.descriptor().has_tool)
-        .map(|kind| (kind.code(), integer()))
+        .map(|codec| {
+            let kind = codec.tag();
+            let counter = if kind.descriptor().has_tool {
+                integer()
+            } else {
+                optional(integer())
+            };
+            (kind.code(), counter)
+        })
         .collect();
     fields.push((GROUP_COUNTER, optional(integer())));
     object(&fields)
@@ -141,9 +153,22 @@ fn defaults_slot(codec: &dyn Codec) -> Value {
     object(&fields)
 }
 
-/// The tool defaults, one slot per kind with a codec, keyed by kind code.
-fn tool_defaults() -> Value {
-    let slots: Vec<(&str, Value)> = CODECS.iter().map(|c| (c.tag().code(), defaults_slot(*c))).collect();
+/// The tool defaults, one slot per present kind, keyed by kind code. The
+/// slot of a kind without template defaults is optional: every project has
+/// the template's slots, a slot of another kind only when it was given one.
+fn tool_defaults(present: &[&dyn Codec]) -> Value {
+    let slots: Vec<(&str, Value)> = present
+        .iter()
+        .map(|c| {
+            let slot = defaults_slot(*c);
+            let slot = if c.tag().descriptor().template_defaults.is_some() {
+                slot
+            } else {
+                optional(slot)
+            };
+            (c.tag().code(), slot)
+        })
+        .collect();
     object(&slots)
 }
 
@@ -161,7 +186,7 @@ fn plan_grid() -> Value {
     ])
 }
 
-fn project() -> Value {
+fn project(present: &[&dyn Codec]) -> Value {
     object(&[
         ("formatVersion", string()),
         (
@@ -232,7 +257,7 @@ fn project() -> Value {
                 ),
             ])),
         ),
-        ("toolDefaults", tool_defaults()),
+        ("toolDefaults", tool_defaults(present)),
         (
             "views",
             array(object(&[
@@ -241,16 +266,20 @@ fn project() -> Value {
                 ("projection", enumeration(["perspective", "parallel"])),
             ])),
         ),
-        ("counters", counters()),
+        ("counters", counters(present)),
         ("groups", groups()),
     ])
 }
 
-/// The `schemas` section written to every file (IFX-061): the project, the
-/// storey, the common element data and every kind's attribute (IFX-060).
-pub fn declarations() -> IndexMap<String, Value> {
+/// The `schemas` section of a file that stores the kinds `present`, in
+/// registry order (IFX-061): the project, the storey, the common element
+/// data and the attribute of each present kind that has a codec (IFX-060).
+/// The writer passes [`kinds::present`] of the project; [`document`] passes
+/// [`kinds::published`].
+pub fn declarations(present: &[KindTag]) -> IndexMap<String, Value> {
+    let present: Vec<&dyn Codec> = present.iter().filter_map(|&kind| kinds::codec(kind)).collect();
     let mut schemas = IndexMap::new();
-    schemas.insert(PROJECT.to_owned(), json!({"value": project()}));
+    schemas.insert(PROJECT.to_owned(), json!({"value": project(&present)}));
     schemas.insert(
         STOREY.to_owned(),
         json!({"value": object(&[
@@ -262,7 +291,7 @@ pub fn declarations() -> IndexMap<String, Value> {
     schemas.insert(
         ELEMENT.to_owned(),
         json!({"value": object(&[
-            ("kind", enumeration(CODECS.iter().map(|c| c.tag().code()))),
+            ("kind", enumeration(present.iter().map(|c| c.tag().code()))),
             ("layer", string()),
             ("locked", boolean()),
             ("position", positions()),
@@ -271,18 +300,19 @@ pub fn declarations() -> IndexMap<String, Value> {
             ("group", optional(string())),
         ])}),
     );
-    for codec in CODECS {
+    for codec in present {
         schemas.insert(codec.attribute().to_owned(), json!({"value": codec.schema()}));
     }
     schemas
 }
 
 /// The `archicraft::` schema as a standalone, schema-only IFCX document, in
-/// the shape of the bundled standard schemas: no imports, no data and
-/// [`declarations`] as its `schemas`. `header.dataVersion` is the
-/// [`FORMAT_VERSION`] it describes. This is what would be published on
-/// ifcx.dev under ArchiCraft's own namespace (IFX-092); the writer keeps
-/// declaring the schema in-file (IFX-005, IFX-061).
+/// the shape of the bundled standard schemas: no imports, no data and the
+/// [`declarations`] of every kind a release stores ([`kinds::published`]) as
+/// its `schemas`, the same whether a test build or a release writes it.
+/// `header.dataVersion` is the [`FORMAT_VERSION`] it describes. This is what
+/// would be published on ifcx.dev under ArchiCraft's own namespace (IFX-092);
+/// the writer keeps declaring the schema in-file (IFX-005, IFX-061).
 pub fn document(timestamp: &str) -> IfcxFile {
     IfcxFile {
         header: Header {
@@ -293,7 +323,7 @@ pub fn document(timestamp: &str) -> IfcxFile {
             timestamp: timestamp.to_owned(),
         },
         imports: Vec::new(),
-        schemas: declarations(),
+        schemas: declarations(&kinds::published()),
         data: Vec::new(),
     }
 }

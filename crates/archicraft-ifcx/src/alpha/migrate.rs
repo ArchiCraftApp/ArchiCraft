@@ -20,6 +20,9 @@
 //! first step: a migrated file is held as a tree of the whole file, with the
 //! memory that takes (NFR-SEC-003), until it has been read.
 
+use std::collections::HashSet;
+
+use archicraft_model::KindTag;
 use serde_json::Value;
 
 use super::schema;
@@ -120,8 +123,36 @@ pub(crate) fn upgrade<A: AttributeValue>(
         }
     }
     file.schemas.retain(|id, _| !id.starts_with("archicraft::"));
-    file.schemas.extend(schema::declarations());
+    file.schemas.extend(schema::declarations(&present(&file)));
     Some((file, from))
+}
+
+/// The kinds the migrated file stores, as [`super::kinds::present`] finds
+/// them in a project: a defaults slot, a non-zero counter or an element of
+/// the kind, in registry order. The migrated file declares these, like a
+/// file the writer writes (IFX-061).
+fn present(file: &IfcxFile) -> Vec<KindTag> {
+    let mut codes: HashSet<&str> = HashSet::new();
+    for node in &file.data {
+        if let Some(project) = node.attributes.get(schema::PROJECT) {
+            let slots = project["toolDefaults"].as_object().into_iter().flatten();
+            codes.extend(slots.map(|(code, _)| code.as_str()));
+            let counters = project["counters"].as_object().into_iter().flatten();
+            codes.extend(
+                counters
+                    .filter(|(_, n)| n.as_i64().is_some_and(|n| n != 0))
+                    .map(|(code, _)| code.as_str()),
+            );
+        }
+        if let Some(kind) = node.attributes.get(schema::ELEMENT).and_then(|e| e["kind"].as_str()) {
+            codes.insert(kind);
+        }
+    }
+    KindTag::ALL
+        .iter()
+        .copied()
+        .filter(|kind| codes.contains(kind.code()))
+        .collect()
 }
 
 #[cfg(test)]
@@ -278,7 +309,53 @@ mod tests {
         let (file, _) = upgrade(&old, TEST_MIGRATIONS, 2, &mut Vec::new()).unwrap();
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
         assert!(!file.schemas.contains_key("archicraft::retired"));
-        assert_eq!(file.schemas.get(slab), schema::declarations().get(slab));
+        assert_eq!(file.schemas.get(slab), schema::declarations(KindTag::ALL).get(slab));
+        // The file's kinds and no others, however many codecs this build has.
+        let declared: Vec<&String> = file
+            .schemas
+            .keys()
+            .filter(|id| id.starts_with("archicraft::"))
+            .collect();
+        assert_eq!(
+            declared,
+            [
+                "archicraft::project",
+                "archicraft::storey",
+                "archicraft::element",
+                "archicraft::wall",
+                slab
+            ]
+        );
+    }
+
+    /// A migrated file declares the kinds it stores, however the kind got
+    /// there: a non-zero counter of the test kind, which no sample has,
+    /// declares its attribute, its kind option and its optional counter, and
+    /// the file validates.
+    #[cfg(feature = "test-kinds")]
+    #[test]
+    fn a_migrated_file_declares_a_kind_its_counters_name() {
+        let mut old = format_1();
+        let project = old
+            .data
+            .iter_mut()
+            .find_map(|node| node.attributes.get_mut(schema::PROJECT))
+            .unwrap();
+        project["counters"]["dummy"] = 2.into();
+        let (file, _) = upgrade(&old, TEST_MIGRATIONS, 2, &mut Vec::new()).unwrap();
+        assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
+        let declared = &file.schemas["archicraft::dummy"]["value"]["objectRestrictions"]["values"];
+        assert!(declared["origin"].is_object(), "{declared}");
+        let project = &file.schemas[schema::PROJECT]["value"]["objectRestrictions"]["values"];
+        assert_eq!(
+            project["counters"]["objectRestrictions"]["values"]["dummy"],
+            serde_json::json!({"dataType": "Integer", "optional": true})
+        );
+        let element = &file.schemas[schema::ELEMENT]["value"]["objectRestrictions"]["values"];
+        assert_eq!(
+            element["kind"]["enumRestrictions"]["options"],
+            serde_json::json!(["wall", "slab", "dummy"])
+        );
     }
 
     /// A file at the current format is read without copying or reporting,
