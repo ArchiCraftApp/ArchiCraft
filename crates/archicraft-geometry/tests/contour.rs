@@ -1,9 +1,10 @@
 //! Contour detection (INP-018), geometry half: the planar graph of a plan's
-//! lines and the smallest closed region around a point.
+//! lines, the smallest closed region around a point, and the clicked edge or
+//! chain of connected edges.
 
 #![allow(clippy::unwrap_used)]
 
-use archicraft_geometry::contour::{ContourGraph, ContourOptions, PlanSegmentSource, Region, Segment};
+use archicraft_geometry::contour::{Chain, ContourGraph, ContourOptions, PlanSegmentSource, Region, Segment};
 use archicraft_geometry::{ModelGeometry, PlanDrawing, ViewRange, plan_drawing};
 use archicraft_model::glam::DVec2;
 use archicraft_model::samples::{FixtureBuilder, two_storey_shell, two_storey_shell_with_shaft};
@@ -67,6 +68,19 @@ fn assert_ring(found: &[DVec2], expected: &[DVec2]) {
             f.distance(*e) < MODEL_TOLERANCE,
             "point {k}: {f} is not {e} in {found:?}"
         );
+    }
+}
+
+/// A pick radius around a clicked point.
+const PICK_RADIUS: f64 = 0.15;
+
+/// Asserts that `chain` runs through `expected` in this order, within the
+/// model tolerance, and is closed or open as `closed` says.
+fn assert_chain(chain: &Chain, expected: &[DVec2], closed: bool) {
+    assert_eq!(chain.closed, closed, "{chain:?}");
+    assert_eq!(chain.points.len(), expected.len(), "{chain:?} is not {expected:?}");
+    for (found, e) in chain.points.iter().zip(expected) {
+        assert!(found.distance(*e) < MODEL_TOLERANCE, "{found} is not {e} in {chain:?}");
     }
 }
 
@@ -333,6 +347,136 @@ fn slab_outlines_on_wall_faces_create_no_zero_area_faces() {
     assert!((areas[1] - 41.25).abs() < 1e-6, "{areas:?}");
 }
 
+/// INP-018: on the ground storey of the two-storey shell, the clicked edge
+/// on the interior face of the south wall runs from the room's corner to the
+/// face of the interior T wall; the chain through it is the room's closed
+/// boundary of eight corners, the same from whichever of its edges it is
+/// picked.
+#[test]
+fn the_clicked_edge_and_its_chain_on_the_ground_storey() {
+    let plan = plan_of(&two_storey_shell(), 0);
+    let graph = ContourGraph::build(&plan, &ContourOptions::default());
+
+    let edge = graph.edge_at(v(2.0, 0.25), PICK_RADIUS).unwrap();
+    assert_chain(&edge, &[v(0.25, 0.25), v(4.9425, 0.25)], false);
+
+    let chain = graph.chain_at(v(2.0, 0.25), PICK_RADIUS).unwrap();
+    assert_chain(&chain, &ground_room(), true);
+
+    // The west face of the T wall, picked from a point beside it.
+    let edge = graph.edge_at(v(4.93, 3.0), PICK_RADIUS).unwrap();
+    assert_chain(&edge, &[v(4.9425, 0.25), v(4.9425, 6.0)], false);
+    assert_eq!(graph.chain_at(v(4.93, 3.0), PICK_RADIUS), Some(chain));
+}
+
+/// INP-018: on the upper storey, the clicked edge on the projected stair-hole
+/// loop is one side of it and the chain through it the closed loop of four
+/// corners; on the free-standing shaft walls, the chains are their inner and
+/// outer faces.
+#[test]
+fn the_clicked_edge_and_its_chain_on_the_upper_storey() {
+    let plan = plan_of(&two_storey_shell(), 1);
+    let graph = ContourGraph::build(&plan, &ContourOptions::default());
+    let stair_hole = rectangle(v(6.0, 1.0), v(9.0, 2.2));
+    let edge = graph.edge_at(v(7.5, 1.02), PICK_RADIUS).unwrap();
+    assert_chain(&edge, &[v(6.0, 1.0), v(9.0, 1.0)], false);
+    let edge = graph.edge_at(v(9.0, 1.6), PICK_RADIUS).unwrap();
+    assert_chain(&edge, &[v(9.0, 1.0), v(9.0, 2.2)], false);
+    let chain = graph.chain_at(v(7.5, 1.02), PICK_RADIUS).unwrap();
+    assert_chain(&chain, &stair_hole, true);
+
+    let plan = plan_of(&two_storey_shell_with_shaft(), 1);
+    let graph = ContourGraph::build(&plan, &ContourOptions::default());
+    let inner = rectangle(v(1.0575, 6.5575), v(2.9425, 7.9425));
+    let outer = rectangle(v(0.9425, 6.4425), v(3.0575, 8.0575));
+    assert_chain(&graph.chain_at(v(1.07, 7.0), PICK_RADIUS).unwrap(), &inner, true);
+    assert_chain(&graph.chain_at(v(0.93, 7.0), PICK_RADIUS).unwrap(), &outer, true);
+    let edge = graph.edge_at(v(2.0, 7.95), PICK_RADIUS).unwrap();
+    assert_chain(&edge, &[v(1.0575, 7.9425), v(2.9425, 7.9425)], false);
+    assert_chain(&graph.chain_at(v(7.5, 1.02), PICK_RADIUS).unwrap(), &stair_hole, true);
+}
+
+/// INP-018: a chain runs on through every vertex where two edges meet,
+/// merging collinear edges, and ends at a free end or where more than two
+/// edges meet; the clicked edge ends at the first corner as well. An open
+/// chain runs from its lexically first end.
+#[test]
+fn chains_run_through_vertices_of_degree_two_and_edges_end_at_corners() {
+    let graph = graph_of(&[
+        // Drawn in pieces and in both directions.
+        [v(0.0, 0.0), v(1.0, 0.0)],
+        [v(2.0, 0.0), v(1.0, 0.0)],
+        [v(2.0, 0.0), v(2.0, 1.0)],
+        [v(2.0, 2.0), v(2.0, 1.0)],
+        [v(3.0, 3.0), v(2.0, 2.0)],
+        // A junction at (3, 3).
+        [v(3.0, 3.0), v(5.0, 3.0)],
+        [v(3.0, 3.0), v(3.0, 5.0)],
+    ]);
+    let path = [v(0.0, 0.0), v(2.0, 0.0), v(2.0, 2.0), v(3.0, 3.0)];
+    for p in [v(0.5, 0.0), v(1.5, 0.1), v(2.0, 1.5), v(2.6, 2.5)] {
+        assert_chain(&graph.chain_at(p, PICK_RADIUS).unwrap(), &path, false);
+    }
+    assert_chain(&graph.edge_at(v(0.5, 0.0), PICK_RADIUS).unwrap(), &path[..2], false);
+    assert_chain(&graph.edge_at(v(1.5, 0.1), PICK_RADIUS).unwrap(), &path[..2], false);
+    assert_chain(&graph.edge_at(v(2.0, 0.5), PICK_RADIUS).unwrap(), &path[1..3], false);
+    assert_chain(&graph.edge_at(v(2.6, 2.5), PICK_RADIUS).unwrap(), &path[2..], false);
+
+    let beyond = graph.chain_at(v(4.0, 3.1), PICK_RADIUS).unwrap();
+    assert_chain(&beyond, &[v(3.0, 3.0), v(5.0, 3.0)], false);
+    assert_eq!(graph.edge_at(v(4.0, 3.1), PICK_RADIUS), Some(beyond));
+}
+
+/// INP-018: a closed chain runs counter-clockwise from its lexically first
+/// corner, however its segments were drawn and whichever of its edges is
+/// picked, also when it returns to its start at a junction; a sliver keeps
+/// its corners.
+#[test]
+fn closed_chains_run_counter_clockwise_from_their_first_corner() {
+    // Clockwise, with a straight vertex on the east side and an antenna at
+    // the north-east corner.
+    let clockwise = [v(0.0, 0.0), v(0.0, 4.0), v(4.0, 4.0), v(4.0, 2.0), v(4.0, 0.0)];
+    let mut segments = ring_segments(&clockwise);
+    segments.push([v(4.0, 4.0), v(6.0, 6.0)]);
+    let mut reversed = segments.clone();
+    reversed.reverse();
+    let square = rectangle(v(0.0, 0.0), v(4.0, 4.0));
+    for graph in [graph_of(&segments), graph_of(&reversed)] {
+        for p in [v(2.0, 0.0), v(4.1, 1.0), v(4.0, 3.0), v(2.0, 3.9), v(0.0, 2.0)] {
+            assert_chain(&graph.chain_at(p, PICK_RADIUS).unwrap(), &square, true);
+        }
+        let east = graph.edge_at(v(4.1, 1.0), PICK_RADIUS).unwrap();
+        assert_chain(&east, &[v(4.0, 0.0), v(4.0, 4.0)], false);
+        let antenna = graph.chain_at(v(5.0, 5.0), PICK_RADIUS).unwrap();
+        assert_chain(&antenna, &[v(4.0, 4.0), v(6.0, 6.0)], false);
+    }
+
+    // 10 m long and 20 µm high: its apex turns by less than the angle
+    // tolerance, but lies off the line between its neighbours.
+    let sliver = [v(0.0, 0.0), v(10.0, 0.0), v(5.0, 20.0 * MICROMETRE)];
+    let chain = graph_of(&ring_segments(&sliver)).chain_at(v(5.0, -0.01), PICK_RADIUS);
+    assert_chain(&chain.unwrap(), &sliver, true);
+}
+
+/// INP-018: a pick takes the edge nearest to the clicked point within the
+/// radius, and nothing beyond it.
+#[test]
+fn the_nearest_edge_within_the_radius_is_picked() {
+    let south = [v(0.0, 0.0), v(4.0, 0.0)];
+    let north = [v(0.0, 1.0), v(4.0, 1.0)];
+    let graph = graph_of(&[south, north]);
+    assert_chain(&graph.edge_at(v(2.0, 0.3), 0.5).unwrap(), &south, false);
+    assert_chain(&graph.chain_at(v(2.0, 0.6), 0.5).unwrap(), &north, false);
+    assert_eq!(graph.edge_at(v(2.0, 0.3), 0.2), None, "beyond the radius");
+    assert_eq!(graph.chain_at(v(2.0, 0.3), 0.2), None);
+    // Past the end of an edge, the distance is to its end.
+    assert_eq!(graph.edge_at(v(4.4, 0.0), 0.3), None);
+    assert!(graph.edge_at(v(4.2, 0.0), 0.3).is_some());
+    assert!(graph.edge_at(v(2.0, 0.0), 0.0).is_some(), "on the edge");
+    assert_eq!(graph.edge_at(v(2.0, 0.0), -1.0), None, "a negative radius");
+    assert_eq!(graph_of(&[]).edge_at(v(0.0, 0.0), 1.0), None, "no edges");
+}
+
 /// INP-018: the reference lines of walls are graph input only when the
 /// options ask for them.
 #[test]
@@ -349,7 +493,7 @@ fn wall_reference_lines_are_included_on_request() {
 /// INP-018: the graph does not depend on the order or the direction in which
 /// the segments arrive.
 #[test]
-fn segments_in_reversed_order_give_identical_regions() {
+fn segments_in_reversed_order_give_identical_regions_and_chains() {
     let plan = plan_of(&crossing_walls(), 0);
     let options = ContourOptions { reference_lines: true };
     let segments = plan.segments(&options);
@@ -365,9 +509,12 @@ fn segments_in_reversed_order_give_identical_regions() {
         assert_eq!(graph.regions(), graphs[0].regions());
         for p in probes {
             assert_eq!(graph.region_at(p), graphs[0].region_at(p), "at {p}");
+            assert_eq!(graph.edge_at(p, 1.0), graphs[0].edge_at(p, 1.0), "at {p}");
+            assert_eq!(graph.chain_at(p, 1.0), graphs[0].chain_at(p, 1.0), "at {p}");
         }
     }
     assert!(graphs[0].region_at(v(2.0, 2.0)).is_some());
+    assert!(graphs[0].chain_at(v(5.01, 4.02), 1.0).is_some());
 }
 
 /// A small linear congruential generator, so the random segments are the
@@ -429,6 +576,9 @@ fn ten_thousand_random_segments_build_without_panic() {
         let p = v(k as f64, (k * 37 % 100) as f64 + 0.5);
         if let Some(region) = graph.region_at(p) {
             assert!(region.area() > 0.0);
+        }
+        for chain in [graph.edge_at(p, 1.0), graph.chain_at(p, 1.0)].into_iter().flatten() {
+            assert!(chain.points.len() >= if chain.closed { 3 } else { 2 }, "{chain:?}");
         }
     }
 }
