@@ -1237,7 +1237,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Only the region half of the plan geometry exists: ContourGraph (crates/archicraft-geometry/src/contour.rs) nodes the segments of a PlanSegmentSource (a storey's PlanDrawing: the union of all cut regions, projected and overhead lines, optionally wall reference lines) within MODEL_TOLERANCE into a half-edge graph, and region_at finds the smallest closed region around a point with its islands, antennas removed (crates/archicraft-geometry/tests/contour.rs). Missing: the clicked edge and edge chain (edge_at, chain_at), the contour-detection key, preview and creation in the creation tools, 3D (a segment source for a working plane) and arcs (edges carry a CurveRef, but no source supplies curves).",
+      "gap": "Only the region half of the plan geometry exists: ContourGraph (crates/archicraft-geometry/src/contour.rs) nodes the segments of a PlanSegmentSource (a storey's PlanDrawing: the union of all cut regions, projected and overhead lines, optionally wall reference lines) within MODEL_TOLERANCE into a half-edge graph, and region_at finds the smallest closed region around a point with its islands, antennas removed (crates/archicraft-geometry/tests/contour.rs, among them the free-standing shaft walls of samples::two_storey_shell_with_shaft). Missing: the clicked edge and edge chain (edge_at, chain_at), the contour-detection key, preview and creation in the creation tools, 3D (a segment source for a working plane) and arcs (edges carry a CurveRef, but no source supplies curves).",
       "depends_on": []
     },
     {
