@@ -146,6 +146,7 @@ status-plan = Plan: { $storey }
 # The indicator while groups are suspended (ELM-015); a click turns the
 # suspension off.
 status-groups-suspended = Groups suspended
+status-contour-detection = Contour detection on
 
 ## View-control bar (UI-001): the controls of the active view; the tooltips
 ## are the commands' (commands.ftl)

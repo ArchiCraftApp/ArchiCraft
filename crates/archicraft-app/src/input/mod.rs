@@ -238,15 +238,21 @@ impl PointInput {
 
     /// Whether `text` starts typing a value in the consumer's current step
     /// (INP-003): a digit, a sign, an opening parenthesis (INP-022) or the
-    /// decimal separator, also for the first point. The Select tool has no step and never types.
+    /// decimal separator, also for the first point. The Select tool has no step and a pick
+    /// (INP-018) takes no values, so neither types.
     pub fn starts_typing(&self, consumer: &dyn InputConsumer, text: &str, nf: &NumberFormat) -> bool {
-        consumer.step().is_some() && text.chars().next().is_some_and(|c| starts_value(c, nf))
+        consumer.step().is_some_and(|s| s.expects != Expect::Pick)
+            && text.chars().next().is_some_and(|c| starts_value(c, nf))
     }
 
     /// The tracker text next to the cursor (INP-002): one line per field
     /// of the active field set with the value of `point`, or the typed text
     /// with the active field marked; a stretch measures from its fixed end.
+    /// A pick (INP-018) takes no values and has none.
     pub fn tracker(&self, point: DVec2, ctx: &InputContext) -> Option<String> {
+        if ctx.expects == Expect::Pick {
+            return None;
+        }
         let mut typed = self.typed.clone();
         ctx.follow(&mut typed);
         let base = match (&typed.set, ctx.tracker.stretch()) {
@@ -274,9 +280,25 @@ impl PointInput {
     /// resolved guides. Leaving the snap radius around the
     /// position where cycling started ends the cycle. In a stretch every
     /// point that is not typed is projected onto the stretch line (INP-002).
+    /// A pick takes the cursor as it is (INP-018).
     pub fn resolve(&mut self, cursor: DVec2, mods: Modifiers, ctx: &InputContext) -> Resolved {
         ctx.follow(&mut self.typed);
         self.cursor = Some((cursor, mods));
+        if ctx.expects == Expect::Pick {
+            let snap = Snap {
+                point: cursor,
+                kind: SnapKind::Free,
+            };
+            let resolved = Resolved {
+                point: cursor,
+                snap,
+                candidates: Vec::new(),
+                guides: Vec::new(),
+                hovered: None,
+            };
+            self.last = Some(resolved.clone());
+            return resolved;
+        }
         let typed = (!self.typed.is_empty())
             .then(|| self.apply_typed(cursor, ctx))
             .flatten()
@@ -434,7 +456,7 @@ impl PointInput {
         let origin = ctx.origin();
         let step = consumer.step().is_some();
         match key {
-            KeyInput::Text(text) if step => {
+            KeyInput::Text(text) if step && ctx.expects != Expect::Pick => {
                 if !self.typed.is_empty()
                     || origin.is_some()
                     || text.chars().next().is_some_and(|c| starts_value(c, ctx.number_format))
@@ -547,7 +569,9 @@ impl PointInput {
             }
             (_, PointerEvent::Clicked) => self.click(cursor, mods, consumer, ctx),
             (InputMode::DragRelease, PointerEvent::Pressed) => {
-                self.pressed = consumer.step().is_some().then_some(cursor);
+                // A pick (INP-018) is one click; only point steps take a
+                // second point on the release.
+                self.pressed = consumer.step().filter(|s| s.expects != Expect::Pick).map(|_| cursor);
                 self.click(cursor, mods, consumer, ctx)
             }
             (InputMode::DragRelease, PointerEvent::Released) => match self.pressed.take() {
@@ -1045,6 +1069,31 @@ mod tests {
                 assert_eq!(dragged.0.walls(), clicked.0.walls(), "{mode:?} {gesture:?}");
             }
         }
+    }
+
+    /// INP-020, INP-018: in press-drag-release mode a pick takes the press
+    /// alone, so a drag inside a region creates one slab, not a second one
+    /// on the release; a pick takes no typed values and shows no tracker.
+    #[test]
+    fn a_dragged_pick_commits_once() {
+        use PointerEvent::{Pressed, Released};
+        use archicraft_geometry::contour::{ContourGraph, ContourOptions, Segment};
+        let mut env = Env::new();
+        let square = [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)].map(|(x, y)| DVec2::new(x, y));
+        let segments: Vec<Segment> = (0..4).map(|i| Segment::new(square[i], square[(i + 1) % 4])).collect();
+        let graph = ContourGraph::build(segments.as_slice(), &ContourOptions::default());
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Slab);
+        tool.detection.toggle();
+        tool.detection.set_source(env.storey, std::sync::Arc::new(graph), 0.1);
+        let drag = InputMode::DragRelease;
+        let mut input = PointInput::default();
+        assert!(!input.starts_typing(&tool, "1", &env.nf));
+        assert_eq!(input.tracker(DVec2::new(1.0, 1.0), &env.ctx(&tool)), None);
+        env.pointer(&mut input, &mut tool, Pressed, drag, (1.0, 1.0));
+        env.pointer(&mut input, &mut tool, Released, drag, (2.0, 2.0));
+        let slabs = env.project.elements.values().filter(|e| e.as_slab().is_some()).count();
+        assert_eq!(slabs, 1, "the press picks, the release adds nothing");
     }
 
     /// INP-020: click-click stays the default and behaves as before: each

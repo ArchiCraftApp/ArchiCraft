@@ -1,6 +1,7 @@
 //! The keys the plan view handles itself (HW-003, NFR-A11Y-001, UI-009):
 //! cycling the wall reference line (WAL-007), the overlapping candidates
-//! (SEL-001) and the keys of point input (INP-003). They are commands, so
+//! (SEL-001), the keys of point input (INP-003) and the key held for contour
+//! detection (INP-018). They are commands, so
 //! they are listed with the other shortcuts and can be rebound, but they are
 //! [local](super::CommandSpec::local): the plan view matches their keys
 //! against the [`Keymap`](super::Keymap) and the state of its tool. Invoked
@@ -30,14 +31,22 @@ pub const FINISH: CommandId = CommandId::new("input.finish");
 /// tool (INP-003).
 pub const CANCEL_STEP: CommandId = CommandId::new("input.cancel-step");
 
+/// Contour detection while the key is held (INP-018; Space is provisional,
+/// Appendix D.8 names no key). Alt with Space held is Alt+Space, which
+/// Windows and Linux reserve for the window menu, so the edge-only Alt-click
+/// needs `tool.contour-detection` there (docs/keymap.md). Invoked another
+/// way, it switches detection on or off like `tool.contour-detection`.
+pub const HOLD_CONTOUR_DETECTION: CommandId = CommandId::new("input.hold-contour-detection");
+
 /// The local commands of the plan view.
-pub const ALL: [CommandId; 6] = [
+pub const ALL: [CommandId; 7] = [
     CYCLE_REFERENCE_LINE,
     CYCLE_CANDIDATES,
     NEXT_FIELD,
     REMOVE_LAST,
     FINISH,
     CANCEL_STEP,
+    HOLD_CONTOUR_DETECTION,
 ];
 
 pub(super) fn specs() -> Vec<CommandSpec> {
@@ -92,5 +101,13 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             |app, _, _| app.ws.view_commands.push(CANCEL_STEP),
         )
         .fixed(),
+        // Global: held before the first point and between operations.
+        local(
+            HOLD_CONTOUR_DETECTION,
+            Category::Design,
+            Key::Space,
+            Scope::Global,
+            |app, _, _| app.ws.tool.detection.toggle(),
+        ),
     ]
 }
