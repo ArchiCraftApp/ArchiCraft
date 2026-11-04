@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use archicraft_model::glam::DVec2;
-use archicraft_model::{AnchorPos, DrawingScale, TextAlign};
+use archicraft_model::{ANGLE_TOLERANCE, AnchorPos, DrawingScale, TextAlign};
 use egui::emath::{Rot2, TSTransform};
 use egui::epaint::TextShape;
 use egui::text::LayoutJob;
@@ -27,9 +27,6 @@ pub const MIN_TEXT_PT: f64 = 1.0;
 /// this size and scaled up, so that zooming far in never asks the font
 /// atlas for glyphs wider than it is.
 const MAX_RASTER_PT: f32 = 256.0;
-
-/// Angles this close to vertical count as vertical for the upright rule.
-const UPRIGHT_TOLERANCE: f64 = 1e-9;
 
 /// A block of annotation text in a plan (ANN-007).
 #[derive(Clone, Debug, PartialEq)]
@@ -61,7 +58,9 @@ pub struct LaidOutLine {
 /// A text laid out on screen for one frame.
 #[derive(Clone, Debug)]
 pub struct LaidOutText {
-    /// The text size on screen in points (the font size of every line).
+    /// The text size on screen in points. Every line's glyphs are this
+    /// size; above [`MAX_RASTER_PT`] the galleys are laid out at that font
+    /// size and scaled up to it.
     pub size: f32,
     pub lines: Vec<LaidOutLine>,
     /// The rotation on screen in radians clockwise, as epaint takes it.
@@ -83,14 +82,15 @@ impl LaidOutText {
 
 /// The reading direction of a text at `angle`, turned by pi when it would
 /// point into the screen's left half-plane, so that text never reads upside
-/// down; vertical text reads from bottom to top. The result lies in
-/// (-pi/2, pi/2].
+/// down; vertical text, and text within [`ANGLE_TOLERANCE`] of vertical,
+/// reads from bottom to top, so two texts a hair either side of -pi/2 read
+/// the same way. The result lies within that tolerance of (-pi/2, pi/2].
 pub fn upright(angle: f64) -> f64 {
     use std::f64::consts::{FRAC_PI_2, PI, TAU};
     let a = (angle + FRAC_PI_2).rem_euclid(TAU) - FRAC_PI_2;
-    if a > FRAC_PI_2 + UPRIGHT_TOLERANCE {
+    if a > FRAC_PI_2 + ANGLE_TOLERANCE {
         a - PI
-    } else if a <= -FRAC_PI_2 + UPRIGHT_TOLERANCE {
+    } else if a <= -FRAC_PI_2 + ANGLE_TOLERANCE {
         a + PI
     } else {
         a
@@ -106,6 +106,14 @@ pub fn upright(angle: f64) -> f64 {
 /// anchor position lies on the anchor's screen point however many lines it
 /// has, rotated about that point. Returns `None` for text smaller than
 /// [`MIN_TEXT_PT`] on screen.
+///
+/// Alignment and anchor position are independent: alignment places each
+/// line within the block's width (the widest line), the anchor position's
+/// column places the block on the anchor. So the lines' left edges, centres
+/// or right edges lie on the anchor's x only when the column matches the
+/// alignment (`Left` with a `*Left` position, `Center` with `*Center` or
+/// `Center`, `Right` with `*Right`); centred lines with a `BottomLeft`
+/// position are centred within a block whose left edge is on the anchor.
 pub fn layout_text(
     ctx: &Context,
     text: &TextBlock,
@@ -354,6 +362,10 @@ mod tests {
             };
             if let Some(line) = kept {
                 assert!(close(line.pos.y, first_one.y, 0.5), "{anchor_pos:?}");
+                // Left-aligned lines on a left-column anchor keep their x.
+                if anchor_pos.x_fraction() == 0.0 {
+                    assert!(close(line.pos.x, first_one.x, 0.5), "{anchor_pos:?}");
+                }
             }
         }
     }
@@ -399,6 +411,29 @@ mod tests {
         let [start, end, ..] = vertical.quad;
         assert!(close(start.x, end.x, 0.01));
         assert!(end.y < start.y, "reads bottom to top");
+    }
+
+    /// ANN-007: angles within ANGLE_TOLERANCE of -90 degrees, on either
+    /// side, read bottom to top like -90 degrees itself, as do angles that
+    /// close to 90 degrees.
+    #[test]
+    fn near_vertical_text_reads_bottom_to_top() {
+        let ctx = context();
+        let near = 0.5 * ANGLE_TOLERANCE;
+        for angle in [-FRAC_PI_2 + near, -FRAC_PI_2 - near, FRAC_PI_2 + near, FRAC_PI_2 - near] {
+            assert!((upright(angle) - FRAC_PI_2).abs() <= ANGLE_TOLERANCE, "{angle}");
+            let laid = lay_out(
+                &ctx,
+                &TextBlock {
+                    angle,
+                    ..block("Living")
+                },
+                100,
+                100.0,
+            );
+            let [start, end, ..] = laid.quad;
+            assert!(end.y < start.y, "{angle}: reads bottom to top");
+        }
     }
 
     /// ANN-007: hit() is true inside the rotated block and false outside.
