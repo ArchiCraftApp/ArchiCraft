@@ -227,7 +227,7 @@ fn samples_are_valid() {
         .unwrap()
         .as_slab()
         .unwrap();
-    assert_eq!(upper.holes.len(), 1);
+    assert_eq!(upper.outline.holes().len(), 1);
 }
 
 /// IFX-024: the two-storey shell's ground slab is a base slab and its upper

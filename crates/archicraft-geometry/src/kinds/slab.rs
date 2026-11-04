@@ -11,7 +11,8 @@ use crate::extrude::extrude;
 impl GeometryKind for Slab {
     fn evaluate(&self, ctx: &EvalContext<'_>) -> Result<ElementGeometry, GeometryError> {
         let (bottom, top) = self.local_extent(ctx)?;
-        let mesh = extrude(&self.outline, &self.holes, bottom, top)?;
+        let (outer, holes) = self.outline.to_points();
+        let mesh = extrude(&outer, &holes, bottom, top)?;
         Ok(ElementGeometry {
             parts: vec![BodyPart {
                 name: "Body".to_owned(),

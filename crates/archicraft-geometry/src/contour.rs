@@ -25,8 +25,8 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
+use archicraft_model::outline::Ring;
 use archicraft_model::tolerance::{Welder, is_parallel};
-use archicraft_model::validate::signed_area;
 use archicraft_model::{ElementId, MODEL_TOLERANCE};
 use geo::Polygon;
 use glam::DVec2;
@@ -140,6 +140,11 @@ pub struct Chain {
     pub points: Vec<DVec2>,
     /// True if the chain returns to its start.
     pub closed: bool,
+}
+
+/// The signed area of a ring of points, positive counter-clockwise.
+fn signed_area(ring: &[DVec2]) -> f64 {
+    Ring::<()>::from_points(ring.iter().copied()).signed_area()
 }
 
 /// A cycle of half-edges without its antennas.

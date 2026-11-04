@@ -11,6 +11,7 @@ use glam::DVec2;
 use crate::element::{Element, TopLink};
 use crate::kinds::{ReferenceLine, Slab, VerticalLink, Wall};
 use crate::message::Message;
+use crate::outline::{Outline, Ring};
 use crate::project::Project;
 
 /// Geometric coincidence tolerance: 0.01 mm (NFR-ACC-003), defined in
@@ -57,19 +58,6 @@ pub fn valid_grid_spacing(spacing: DVec2) -> bool {
 /// Whether a drafting grid origin lies within [`MAX_COORDINATE`] (INP-013).
 pub fn valid_grid_origin(origin: DVec2) -> bool {
     origin.is_finite() && origin.abs().cmple(DVec2::splat(MAX_COORDINATE)).all()
-}
-
-/// Signed area of a ring (positive for counter-clockwise).
-pub fn signed_area(ring: &[DVec2]) -> f64 {
-    let n = ring.len();
-    (0..n)
-        .map(|i| {
-            let a = ring[i];
-            let b = ring[(i + 1) % n];
-            a.perp_dot(b)
-        })
-        .sum::<f64>()
-        / 2.0
 }
 
 /// Removes consecutive duplicates (closer than [`MIN_EDGE_LENGTH`]),
@@ -130,21 +118,6 @@ pub fn segments_touch(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> bool {
         || point_segment_distance(d, a, b) < MODEL_TOLERANCE && on_segment(a, b, d)
 }
 
-/// Point-in-polygon test (even-odd rule).
-pub fn point_in_ring(p: DVec2, ring: &[DVec2]) -> bool {
-    let mut inside = false;
-    let n = ring.len();
-    let mut j = n - 1;
-    for i in 0..n {
-        let (a, b) = (ring[i], ring[j]);
-        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
-}
-
 fn check_coordinates(points: &[DVec2]) -> Result<(), Message> {
     if points
         .iter()
@@ -173,7 +146,7 @@ fn prepare_ring(ring: &[DVec2]) -> Result<Vec<DVec2>, Message> {
     if ring.len() < 3 {
         return Err(Message::new("model-error-polygon-points"));
     }
-    let area = signed_area(&ring);
+    let area = Ring::<()>::from_points(ring.iter().copied()).signed_area();
     if area.abs() < MIN_EDGE_LENGTH * MIN_EDGE_LENGTH {
         return Err(Message::new("model-error-polygon-area"));
     }
@@ -306,14 +279,16 @@ pub fn check_vertical_link(link: &VerticalLink) -> Result<(), Message> {
     Ok(())
 }
 
-/// Range checks for a slab, returning the slab with a normalised polygon.
+/// Range checks for a slab, returning the slab with a normalised polygon:
+/// its outline's rings validated by [`validate_slab_polygon`], ring 0 as the
+/// outline and the others as holes.
 pub fn validate_slab(slab: &Slab) -> Result<Slab, Message> {
     check_thickness(slab.thickness)?;
     check_offset(slab.offset, "model-error-slab-offset-range")?;
-    let (outline, holes) = validate_slab_polygon(&slab.outline, &slab.holes)?;
+    let (outer, holes) = slab.outline.to_points();
+    let (outer, holes) = validate_slab_polygon(&outer, &holes)?;
     Ok(Slab {
-        outline,
-        holes,
+        outline: Outline::from_point_rings(std::iter::once(outer).chain(holes)),
         ..slab.clone()
     })
 }
@@ -376,6 +351,16 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
+
+    /// The signed area of a ring of points, positive counter-clockwise.
+    fn signed_area(ring: &[DVec2]) -> f64 {
+        Ring::<()>::from_points(ring.iter().copied()).signed_area()
+    }
+
+    /// Whether `p` lies inside the ring of points (even-odd rule).
+    fn point_in_ring(p: DVec2, ring: &[DVec2]) -> bool {
+        Ring::<()>::from_points(ring.iter().copied()).contains(p)
+    }
 
     fn square(size: f64) -> Vec<DVec2> {
         vec![
@@ -781,6 +766,7 @@ mod tests {
     /// sweep must agree with.
     mod pairwise {
         use super::super::*;
+        use super::{point_in_ring, signed_area};
 
         pub fn validate_ring(ring: &[DVec2]) -> Result<Vec<DVec2>, Message> {
             check_coordinates(ring)?;

@@ -659,7 +659,7 @@ mod tests {
         run(&mut project, outcome);
         assert!(!tool.is_drawing());
         let slab = project.elements.values().find_map(|e| e.as_slab()).unwrap();
-        assert_eq!(slab.outline.len(), 3);
+        assert_eq!(slab.outline.outer().len(), 3);
     }
 
     #[test]
@@ -689,7 +689,7 @@ mod tests {
         run(&mut project, outcome);
         let slab = project.elements.values().find_map(|e| e.as_slab()).unwrap();
         let area: f64 = (0..4)
-            .map(|i| slab.outline[i].perp_dot(slab.outline[(i + 1) % 4]))
+            .map(|i| slab.outline.outer().node(i).perp_dot(slab.outline.outer().node(i + 1)))
             .sum::<f64>()
             / 2.0;
         assert!((area - 3.0 * 2f64.sqrt() * 2f64.sqrt()).abs() < 1e-9, "{area}");
@@ -710,6 +710,6 @@ mod tests {
         run(&mut project, outcome);
         let slab = project.elements.values().next().unwrap();
         let ElementKind::Slab(s) = &slab.kind else { panic!() };
-        assert_eq!(s.outline.len(), 3);
+        assert_eq!(s.outline.outer().len(), 3);
     }
 }

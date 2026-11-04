@@ -670,9 +670,9 @@ fn ifx_025_slab_holes_are_geometry_not_openings() {
     let upper_slab = project
         .elements
         .values()
-        .find(|e| e.as_slab().is_some_and(|s| !s.holes.is_empty()))
+        .find(|e| e.as_slab().is_some_and(|s| !s.outline.holes().is_empty()))
         .unwrap();
-    let hole = upper_slab.as_slab().unwrap().holes[0].clone();
+    let hole: Vec<_> = upper_slab.as_slab().unwrap().outline.holes()[0].points().collect();
     let nodes = nodes_of(&project);
     for (path, node) in &nodes {
         assert_ne!(class_code(node), Some("IfcOpeningElement"), "{path}");

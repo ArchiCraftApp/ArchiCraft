@@ -36,7 +36,8 @@ use std::collections::{HashMap, VecDeque};
 
 use glam::DVec2;
 
-use super::{point_in_ring, segments_touch};
+use super::segments_touch;
+use crate::outline::Ring;
 use crate::tolerance::MODEL_TOLERANCE;
 
 /// Up to this many points in all, [`nesting`] tests every pair of edges
@@ -152,10 +153,13 @@ pub(super) fn every_pair(rings: &Rings) -> Result<Vec<Option<usize>>, (usize, us
             rings.test(e, f)?;
         }
     }
+    let as_rings: Vec<Ring> = (0..rings.count())
+        .map(|r| Ring::from_points(rings.points_of(r).iter().copied()))
+        .collect();
     let around = |r: usize| -> Vec<usize> {
         let first = rings.points[rings.starts[r]];
         (0..rings.count())
-            .filter(|&s| s != r && point_in_ring(first, rings.points_of(s)))
+            .filter(|&s| s != r && as_rings[s].contains(first))
             .collect()
     };
     let around: Vec<Vec<usize>> = (0..rings.count()).map(around).collect();

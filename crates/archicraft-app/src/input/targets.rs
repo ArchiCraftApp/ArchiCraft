@@ -275,10 +275,11 @@ impl SnapSource for Element {
             sink.edge(SourceClass::ReferenceLine, [wall.start, wall.end]);
         }
         if let Some(slab) = self.as_slab() {
-            if let Some(centroid) = outline_centroid(&slab.outline, &slab.holes) {
+            let (outline, holes) = slab.outline.to_points();
+            if let Some(centroid) = outline_centroid(&outline, &holes) {
                 sink.centroid(SourceClass::Outline, centroid);
             }
-            for ring in std::iter::once(&slab.outline).chain(&slab.holes) {
+            for ring in std::iter::once(&outline).chain(&holes) {
                 sink.ring(SourceClass::Outline, ring);
             }
         }
@@ -824,9 +825,10 @@ pub(crate) mod tests {
                     edges.push([wall.start, wall.end]);
                 }
                 if let Some(slab) = element.as_slab() {
-                    nodes.extend(outline_centroid(&slab.outline, &slab.holes).map(centroid));
-                    for ring in std::iter::once(&slab.outline).chain(&slab.holes) {
-                        edges.extend((0..ring.len()).map(|i| [ring[i], ring[(i + 1) % ring.len()]]));
+                    let (outline, holes) = slab.outline.to_points();
+                    nodes.extend(outline_centroid(&outline, &holes).map(centroid));
+                    for ring in &slab.outline.rings {
+                        edges.extend(ring.segments().map(|s| [s.start, s.end]));
                     }
                 }
             }

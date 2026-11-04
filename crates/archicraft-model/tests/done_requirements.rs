@@ -13,6 +13,7 @@ mod common;
 
 use archicraft_model::command::{DEFAULT_UNDO_LIMIT, JournalEntry, StoreyElements, replay};
 use archicraft_model::glam::DVec2;
+use archicraft_model::outline::Outline;
 use archicraft_model::project::{Building, DefaultsSlot, Location, ProjectInfo, Site};
 use archicraft_model::template::default_metric_project;
 use archicraft_model::units::{LengthUnit, NumberFormat, format_angle, format_length, parse_length};
@@ -514,8 +515,7 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
         ifc_class: IfcClass::Covering,
         predefined_type: None,
         kind: Slab {
-            outline: rectangle(DVec2::ZERO, DVec2::ONE),
-            holes: Vec::new(),
+            outline: Outline::from_point_rings([rectangle(DVec2::ZERO, DVec2::ONE)]),
             thickness: 0.18,
             reference: SlabReference::Bottom,
             offset: 0.02,

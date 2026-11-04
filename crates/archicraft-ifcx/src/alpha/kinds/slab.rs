@@ -1,6 +1,7 @@
 //! `archicraft::slab`: the parameters of a slab (IFX-060; SLB-001…003): the
 //! rings, the defaults slot's members and the material.
 
+use archicraft_model::outline::Outline;
 use archicraft_model::{Slab, SlabReference};
 use serde_json::{Map, Value, json};
 
@@ -18,8 +19,8 @@ impl KindCodec for Slab {
     const ATTRIBUTE: &'static str = "archicraft::slab";
 
     const FIELDS: Fields = &[
-        ("outline", &["outline"]),
-        ("holes", &["holes"]),
+        // Ring 0 is the outline member, the other rings the holes member.
+        ("outline", &["outline", "holes"]),
         ("thickness", &["thickness"]),
         ("reference", &["reference"]),
         ("offset", &["offset"]),
@@ -38,8 +39,9 @@ impl KindCodec for Slab {
 
     fn write(&self) -> Map<String, Value> {
         let mut map = Map::new();
-        map.insert("outline".into(), ring_value(&self.outline));
-        map.insert("holes".into(), self.holes.iter().map(|h| ring_value(h)).collect());
+        let (outline, holes) = self.outline.to_points();
+        map.insert("outline".into(), ring_value(&outline));
+        map.insert("holes".into(), holes.iter().map(|h| ring_value(h)).collect());
         map.extend(self.write_slot());
         map.insert("material".into(), json!(self.material.to_string()));
         map
@@ -47,10 +49,11 @@ impl KindCodec for Slab {
 
     /// Without a valid outline there is no slab; invalid holes are left out
     /// and every other member is repaired with a report: 0.20 m thick, the
-    /// top at the storey elevation.
+    /// top at the storey elevation. The rings are kept as read; validation
+    /// orients them.
     fn read(attr: &Object, context: &ReadContext<'_>, report: &mut Report<'_>) -> Result<Self, Message> {
         let outline = reader::field(attr, "outline").and_then(reader::points)?;
-        let holes = match reader::array(attr, "holes").and_then(|h| h.iter().map(reader::points).collect()) {
+        let holes: Vec<_> = match reader::array(attr, "holes").and_then(|h| h.iter().map(reader::points).collect()) {
             Ok(h) => h,
             Err(e) => {
                 report.repaired(Message::new("ifcx-holes-left-out").nested("reason", e));
@@ -58,8 +61,7 @@ impl KindCodec for Slab {
             }
         };
         let fallback = Slab {
-            outline,
-            holes,
+            outline: Outline::from_point_rings(std::iter::once(outline).chain(holes)),
             thickness: 0.2,
             reference: SlabReference::Top,
             offset: 0.0,
