@@ -14,7 +14,7 @@ use archicraft_geometry::{ModelGeometry, ViewRange, plan_drawing};
 use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::Dummy;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Command, Element, History, KindTag, Message, Project};
+use archicraft_model::{Command, Element, History, KindTag, Message, Project, TopLink};
 
 /// Elements of `kind` on the ground storey: one of each shape the kind
 /// has, a simple and a compound test element for the test kind. A new kind
@@ -142,7 +142,7 @@ fn a_compound_test_element_has_closed_part_bodies_that_count() {
         assert!(child.axis.is_empty(), "{}", child.role);
         for part in &child.parts {
             assert_eq!(part.mesh.check_closed(), Ok(()), "{}", child.role);
-            assert_eq!(part.material, material);
+            assert_eq!(part.material, Some(material));
         }
     }
     // The body is 2 × 1 × 1 m; each part is 1 × 1 × 0.5 m on top of it.
@@ -182,4 +182,49 @@ fn a_panicking_generator_lists_its_element_and_keeps_the_others() {
     let plan = plan_drawing(&p, &geometry, g, ViewRange::for_storey(&p, g), |_| true);
     let drawn: Vec<_> = plan.elements.iter().map(|e| e.id).collect();
     assert_eq!(drawn, [wall_id]);
+}
+
+/// SPC-001, ANN-007 (preparation): a test element without a material, as a
+/// space will be, evaluates to a closed body whose part has no material,
+/// without a problem, and the plan cuts no region from it and draws nothing
+/// of it where the cut plane passes through it, but still its outline below
+/// the cut plane.
+#[test]
+fn a_material_less_test_element_evaluates_without_a_cut_region() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let g = p.storeys.ground();
+    let mut dummy = Dummy::without_material(DVec2::new(1.0, 1.0), DVec2::new(2.0, 1.0));
+    dummy.link.top = TopLink::Fixed { height: 3.0 };
+    let dummy = dummy.into_element(&p, g, 0);
+    let id = dummy.id;
+    h.execute(&mut p, Command::AddElements(vec![dummy])).unwrap();
+
+    let geometry = ModelGeometry::evaluate(&p);
+    assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+    let body = geometry.get(id).unwrap();
+    assert_eq!(body.parts.len(), 1);
+    assert_eq!(body.parts[0].material, None);
+    assert_eq!(body.parts[0].mesh.check_closed(), Ok(()));
+    assert!((body.volume() - 6.0).abs() < 1e-9, "{}", body.volume());
+
+    let range = ViewRange::for_storey(&p, g);
+    let (lo, hi) = body.bounds().unwrap();
+    assert!(lo.z < range.cut && hi.z > range.cut, "the cut plane passes through it");
+    let plan = plan_drawing(&p, &geometry, g, range, |_| true);
+    assert!(plan.cut_regions.is_empty(), "{:?}", plan.cut_regions);
+    let drawn = plan.elements.iter().find(|e| e.id == id).unwrap();
+    assert!(drawn.cut.is_empty() && drawn.projected.is_empty() && drawn.overhead.is_empty());
+
+    // Below the cut plane it is still drawn as an uncut outline.
+    h.undo(&mut p).unwrap();
+    let low = Dummy::without_material(DVec2::new(1.0, 1.0), DVec2::new(2.0, 1.0)).into_element(&p, g, 0);
+    let low_id = low.id;
+    h.execute(&mut p, Command::AddElements(vec![low])).unwrap();
+    let geometry = ModelGeometry::evaluate(&p);
+    let plan = plan_drawing(&p, &geometry, g, range, |_| true);
+    assert!(plan.cut_regions.is_empty(), "{:?}", plan.cut_regions);
+    let drawn = plan.elements.iter().find(|e| e.id == low_id).unwrap();
+    assert!(drawn.cut.is_empty());
+    assert!(!drawn.projected.is_empty());
 }

@@ -448,7 +448,7 @@ impl Project {
             if self.layer(e.layer).is_none() {
                 problems.push(problem("model-problem-layer-missing"));
             }
-            if self.material(e.kind.material()).is_none() {
+            if e.kind.material().is_some_and(|m| self.material(m).is_none()) {
                 problems.push(problem("model-problem-material-missing"));
             }
         }

@@ -28,7 +28,8 @@ pub struct Dummy {
     /// Extent of the plan rectangle along X and Y, both positive.
     pub size: DVec2,
     pub link: VerticalLink,
-    pub material: MaterialId,
+    /// `None` stands in for the kinds without a material (SPC-001, ANN-007).
+    pub material: Option<MaterialId>,
     /// Asks for compound parts: [`Kind::parts`] then declares `Part_1`, an
     /// IfcMember, and `Part_2`, an IfcPlate (IFX-016, Table 5-1), whose
     /// bodies the geometry crate's generator for this kind adds.
@@ -44,13 +45,22 @@ impl Dummy {
     /// A 1 m high box on its home storey's elevation, without flags.
     pub fn new(origin: DVec2, size: DVec2, material: MaterialId) -> Self {
         Self {
+            material: Some(material),
+            ..Self::without_material(origin, size)
+        }
+    }
+
+    /// Like [`Dummy::new`], but without a material, standing in for the
+    /// kinds that are not built of one (SPC-001, ANN-007).
+    pub fn without_material(origin: DVec2, size: DVec2) -> Self {
+        Self {
             origin,
             size,
             link: VerticalLink {
                 base_offset: 0.0,
                 top: TopLink::Fixed { height: 1.0 },
             },
-            material,
+            material: None,
             parts: false,
             panic_on_evaluate: false,
             site_level: false,
@@ -104,12 +114,15 @@ impl Kind for Dummy {
         template_defaults: None,
     };
 
-    fn material(&self) -> MaterialId {
+    fn material(&self) -> Option<MaterialId> {
         self.material
     }
 
+    /// Leaves a dummy without a material without one.
     fn set_material(&mut self, material: MaterialId) {
-        self.material = material;
+        if let Some(m) = &mut self.material {
+            *m = material;
+        }
     }
 
     /// The rectangle is checked as a polygon; a missing linked storey shows

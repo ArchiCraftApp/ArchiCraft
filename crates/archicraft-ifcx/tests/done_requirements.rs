@@ -1165,8 +1165,9 @@ fn ifx_043_every_body_references_a_named_material_node() {
                 let body = &nodes[node.children[&part.name].as_deref().unwrap()];
                 assert!(body.attributes.contains_key("usd::usdgeom::mesh"));
                 let material = &body.inherits["material"];
-                assert_eq!(*material, part.material.to_string(), "{} {}", element.name, part.name);
-                let expected = project.materials.iter().find(|m| m.id == part.material).unwrap();
+                let part_material = part.material.unwrap();
+                assert_eq!(*material, part_material.to_string(), "{} {}", element.name, part.name);
+                let expected = project.materials.iter().find(|m| m.id == part_material).unwrap();
                 assert!(!expected.name.is_empty());
                 assert_eq!(
                     name(&nodes[material.as_str()]),

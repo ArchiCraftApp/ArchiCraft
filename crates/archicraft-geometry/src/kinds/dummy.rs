@@ -16,7 +16,7 @@ use crate::extrude::extrude;
 
 /// A box over the plan rectangle from `lo` to `hi` between `bottom` and
 /// `top`.
-fn body(lo: DVec2, hi: DVec2, bottom: f64, top: f64, material: MaterialId) -> Result<BodyPart, GeometryError> {
+fn body(lo: DVec2, hi: DVec2, bottom: f64, top: f64, material: Option<MaterialId>) -> Result<BodyPart, GeometryError> {
     let ring = [lo, DVec2::new(hi.x, lo.y), hi, DVec2::new(lo.x, hi.y)];
     Ok(BodyPart {
         name: "Body".to_owned(),

@@ -677,10 +677,10 @@ fn deleting_resources_requires_a_replacement() {
     let template = p.tool_defaults.clone();
     let w = wall(&p, (0.0, 0.0), (5.0, 0.0));
     let id = w.id;
-    let brick = w.kind.material();
+    let brick = w.kind.material().unwrap();
     let concrete = p.materials[0].id;
-    assert_eq!(template.get(KindTag::Wall).unwrap().kind.material(), brick);
-    assert_ne!(template.get(KindTag::Slab).unwrap().kind.material(), brick);
+    assert_eq!(template.get(KindTag::Wall).unwrap().kind.material().unwrap(), brick);
+    assert_ne!(template.get(KindTag::Slab).unwrap().kind.material().unwrap(), brick);
     h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
     assert!(
         h.execute(
@@ -700,7 +700,7 @@ fn deleting_resources_requires_a_replacement() {
         },
     )
     .unwrap();
-    assert_eq!(p.element(id).unwrap().kind.material(), concrete);
+    assert_eq!(p.element(id).unwrap().kind.material().unwrap(), concrete);
     let mut expected = template.clone();
     expected.get_mut(KindTag::Wall).unwrap().kind.set_material(concrete);
     assert_eq!(p.tool_defaults, expected, "only the wall slot used the brick");
@@ -840,6 +840,85 @@ fn deleting_a_storey_keeps_the_tool_defaults_valid() {
     h.execute(&mut p, Command::SetToolDefaults(thicker)).unwrap();
     let w = p.new_wall(p.storeys.ground(), DVec2::ZERO, DVec2::X, 0);
     h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+}
+
+/// SPC-001, ANN-007 (preparation): a test element without a material
+/// validates and adds no 'material missing' problem; deleting a material
+/// with a replacement (DSP-003) changes the wall, the slab and the test
+/// element that used it and leaves a material-less test element and a
+/// material-less defaults slot untouched; undo restores the project.
+#[cfg(feature = "test-kinds")]
+#[test]
+fn deleting_a_material_leaves_material_less_elements_and_slots_untouched() {
+    use archicraft_model::kinds::Dummy;
+    use archicraft_model::validate::validate_element;
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let g = ground(&p);
+    let w = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    let brick = w.kind.material().unwrap();
+    let concrete = p.materials[0].id;
+    assert_ne!(brick, concrete);
+    let mut s = p.new_slab(
+        g,
+        vec![
+            DVec2::new(0.0, 1.0),
+            DVec2::new(4.0, 1.0),
+            DVec2::new(4.0, 4.0),
+            DVec2::new(0.0, 4.0),
+        ],
+        Vec::new(),
+        0,
+    );
+    s.kind.set_material(brick);
+    let with = Dummy::new(DVec2::new(6.0, 0.0), DVec2::ONE, brick).into_element(&p, g, 0);
+    let without = Dummy::without_material(DVec2::new(8.0, 0.0), DVec2::ONE).into_element(&p, g, 1);
+    assert_eq!(without.kind.material(), None);
+    assert!(validate_element(&p, &without).is_ok());
+    let ids = [w.id, s.id, with.id];
+    let without_id = without.id;
+    h.execute(&mut p, Command::AddElements(vec![w, s, with, without.clone()]))
+        .unwrap();
+    assert!(p.integrity_problems().is_empty(), "{:?}", p.integrity_problems());
+
+    let mut defaults = p.tool_defaults.clone();
+    defaults.insert(DefaultsSlot {
+        layer: p.layers[0].id,
+        position: archicraft_model::Position::Undefined,
+        ifc_class: KindTag::Dummy.descriptor().default_class,
+        predefined_type: None,
+        kind: Dummy::without_material(DVec2::ZERO, DVec2::ONE).into(),
+    });
+    h.execute(&mut p, Command::SetToolDefaults(defaults)).unwrap();
+    let before = p.clone();
+
+    h.execute(
+        &mut p,
+        Command::DeleteMaterial {
+            material: brick,
+            replacement: concrete,
+        },
+    )
+    .unwrap();
+    for id in ids {
+        assert_eq!(p.element(id).unwrap().kind.material(), Some(concrete));
+    }
+    assert_eq!(p.element(without_id), Some(&without));
+    assert_eq!(
+        p.tool_defaults.get(KindTag::Dummy),
+        before.tool_defaults.get(KindTag::Dummy)
+    );
+    assert_eq!(
+        p.tool_defaults.get(KindTag::Wall).unwrap().kind.material(),
+        Some(concrete)
+    );
+    assert!(p.integrity_problems().is_empty(), "{:?}", p.integrity_problems());
+
+    h.undo(&mut p).unwrap();
+    let mut expected = before;
+    expected.revision = p.revision;
+    assert_eq!(p, expected);
 }
 
 /// ELM-006, STR-004: deleting a storey rewrites every tool defaults slot

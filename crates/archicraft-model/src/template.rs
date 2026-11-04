@@ -435,7 +435,7 @@ mod tests {
         assert_eq!(p.storeys.as_slice()[1].elevation, 3.0);
         assert_eq!(p.views.len(), 2);
         let wall = p.tool_defaults.get(KindTag::Wall).unwrap();
-        assert!(p.material(wall.kind.material()).is_some());
+        assert!(p.material(wall.kind.material().unwrap()).is_some());
         assert!(p.layer(p.tool_defaults.get(KindTag::Slab).unwrap().layer).is_some());
     }
 

@@ -848,18 +848,16 @@ fn read_defaults_slot(
     report: &mut Report<'_>,
 ) -> DefaultsSlot {
     let kind = default.tag();
-    let material = {
-        let id = report.or(
-            uuid(map, "material").map(MaterialId::from_uuid),
-            default.kind.material(),
-        );
+    // A slot of a kind without a material has none to read or repair.
+    let material = default.kind.material().map(|fallback| {
+        let id = report.or(uuid(map, "material").map(MaterialId::from_uuid), fallback);
         if materials.iter().any(|m| m.id == id) {
             id
         } else {
             report.repaired(Message::new("ifcx-tool-material-missing"));
-            default.kind.material()
+            fallback
         }
-    };
+    });
     let layer = {
         let id = report.or(uuid(map, "layer").map(LayerId::from_uuid), default.layer);
         if layers.iter().any(|l| l.id == id) {
@@ -883,7 +881,9 @@ fn read_defaults_slot(
     let mut payload = kinds::codec(kind)
         .and_then(|codec| codec.read_slot(map, &default.kind, report))
         .unwrap_or_else(|| default.kind.clone());
-    payload.set_material(material);
+    if let Some(material) = material {
+        payload.set_material(material);
+    }
     DefaultsSlot {
         layer,
         position: report.or(code(map, "position", Position::from_code), default.position),
@@ -1314,4 +1314,66 @@ fn read_migrated<A: AttributeValue>(
         source_version: IFCX_VERSION,
         migrated_from,
     })
+}
+
+#[cfg(test)]
+#[cfg(feature = "test-kinds")]
+mod tests {
+    use archicraft_model::kinds::Dummy;
+    use archicraft_model::template::default_metric_project;
+    use serde_json::json;
+
+    use super::*;
+
+    /// The members the writer writes for `slot`: the codec's, then the
+    /// common ones, the material only when the slot has one.
+    fn written(slot: &DefaultsSlot) -> Object {
+        let mut map = kinds::codec(slot.tag()).unwrap().write_slot(&slot.kind).unwrap();
+        if let Some(material) = slot.kind.material() {
+            map.insert("material".into(), json!(material.to_string()));
+        }
+        map.insert("layer".into(), json!(slot.layer.to_string()));
+        map.insert("position".into(), json!(slot.position.code()));
+        map.insert("ifcClass".into(), json!(slot.ifc_class.code()));
+        map
+    }
+
+    fn read(map: &Object, default: &DefaultsSlot, p: &Project, problems: &mut Vec<Problem>) -> DefaultsSlot {
+        let mut report = Report::new(problems, "test", Message::new("ifcx-record-tool-defaults"));
+        read_defaults_slot(map, default, &p.materials, &p.layers, &mut report)
+    }
+
+    /// SPC-001, ANN-007 (preparation): a slot of a kind without a material
+    /// has no material member and reads back as written without a repair;
+    /// a slot of a kind with one still repairs a missing member (PRJ-008).
+    #[test]
+    fn a_slot_without_a_material_reads_back_without_a_repair() {
+        let p = default_metric_project();
+        let slot = DefaultsSlot {
+            layer: p.layers[1].id,
+            position: Position::Undefined,
+            ifc_class: KindTag::Dummy.descriptor().default_class,
+            predefined_type: None,
+            kind: Dummy::without_material(DVec2::ZERO, DVec2::ONE).into(),
+        };
+        let map = written(&slot);
+        assert!(!map.contains_key("material"));
+        let mut problems = Vec::new();
+        assert_eq!(read(&map, &slot, &p, &mut problems), slot);
+        assert!(problems.is_empty(), "{problems:#?}");
+
+        let (_, with) = p
+            .tool_defaults
+            .iter()
+            .find(|(_, s)| s.kind.material().is_some())
+            .unwrap();
+        let mut map = written(with);
+        assert!(map.remove("material").is_some());
+        assert_eq!(read(&map, with, &p, &mut problems), *with);
+        assert_eq!(problems.len(), 1, "{problems:#?}");
+        assert!(
+            problems[0].message.to_string().contains("ifcx-default-used"),
+            "{problems:#?}"
+        );
+    }
 }

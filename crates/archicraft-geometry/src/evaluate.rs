@@ -30,7 +30,10 @@ pub use crate::kinds::wall::wall_inputs;
 pub struct BodyPart {
     /// Child name in IFCX: `Body` for single-material bodies.
     pub name: String,
-    pub material: MaterialId,
+    /// `None` for a kind that is not built of a material, like a space
+    /// (SPC-001): the plan cuts no region from it and the 3D view draws it
+    /// in a neutral translucent appearance.
+    pub material: Option<MaterialId>,
     pub mesh: TriMesh,
 }
 

@@ -57,6 +57,11 @@ pub(crate) trait KindCodec: Sized {
     /// document is built with the test kinds like every test.
     const TEST_ONLY: bool = false;
 
+    /// True for a kind whose elements may have no material (SPC-001,
+    /// ANN-007): the material member of its defaults slot is then declared
+    /// optional and written only when the slot has one.
+    const OPTIONAL_MATERIAL: bool = false;
+
     /// The value description of [`Self::ATTRIBUTE`] (IFX-061).
     fn schema() -> Value;
 
@@ -88,6 +93,7 @@ pub(crate) trait Codec: Sync {
     fn attribute(&self) -> &'static str;
     fn fields(&self) -> Fields;
     fn test_only(&self) -> bool;
+    fn optional_material(&self) -> bool;
     fn schema(&self) -> Value;
     fn slot_schema(&self) -> Vec<(&'static str, Value)>;
     fn write(&self, kind: &ElementKind) -> Option<Map<String, Value>>;
@@ -119,6 +125,10 @@ impl<P: KindCodec + Into<ElementKind>> Codec for Erased<P> {
 
     fn test_only(&self) -> bool {
         P::TEST_ONLY
+    }
+
+    fn optional_material(&self) -> bool {
+        P::OPTIONAL_MATERIAL
     }
 
     fn schema(&self) -> Value {

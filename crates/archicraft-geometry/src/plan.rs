@@ -129,15 +129,20 @@ pub fn plan_drawing(
             reference_line: None,
         };
         // The parts of a compound element are classified like its own
-        // body, under the element id (IFX-016).
+        // body, under the element id (IFX-016). A cut part without a
+        // material is not drawn: its kind draws its own plan symbol, like
+        // the stamp of a space (SPC-001).
         for part in body.bodies() {
             let Some((lo, hi)) = part.mesh.bounds() else {
                 continue;
             };
             if lo.z < range.cut - MODEL_TOLERANCE && hi.z > range.cut + MODEL_TOLERANCE {
+                let Some(material) = part.material else {
+                    continue;
+                };
                 let polygons = loops_to_polygons(slice_loops(&part.mesh, range.cut));
                 by_material
-                    .entry(part.material)
+                    .entry(material)
                     .or_default()
                     .extend(polygons.iter().cloned());
                 plan.cut.extend(polygons);

@@ -431,14 +431,19 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
     );
 }
 
+/// The Material row, shown only when every selected element has a
+/// material: a kind without one, like a space (SPC-001), has none to pick.
 fn appearance_fields(ui: &mut Ui, f: &mut Fields<'_>) {
+    if !f.targets.iter().all(|e| e.kind.material().is_some()) {
+        return;
+    }
     let materials: Vec<(MaterialId, String)> = f.project.materials.iter().map(|m| (m.id, m.name.clone())).collect();
     f.choice(
         ui,
         "Material",
         "material",
         &materials,
-        |e| Some(e.kind.material()),
+        |e| e.kind.material(),
         |e, m| e.kind.set_material(*m),
     );
 }

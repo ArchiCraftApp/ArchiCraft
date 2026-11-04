@@ -727,14 +727,14 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 
 | ID | Pri | Status | Effort | Gap / evidence |
 |---|---|---|---|---|
-| SPC-001 | C | missing | L | Space element with name, number, boundary (drawn or detected), storey-linked height, plan stamp, IfcSpace export. |
+| SPC-001 | C | missing | L | Prepared: a kind and its body parts may have no material, drawn translucent in 3D and cut in no plan region (crates/archicraft-model/src/kinds/mod.rs). Missing: space element with name, number, boundary (drawn or detected), storey-linked height, plan stamp, IfcSpace export. |
 | SPC-002 | C | missing | M | Automatic update of detected boundaries when walls move. |
 
 ### 4.26 2D drafting and annotation
 
 | ID | Pri | Status | Effort | Gap / evidence |
 |---|---|---|---|---|
-| ANN-001 | M | missing | L | 2D construction lines (single, chained straight+arc), polylines, arcs and circles by centre/radius and three points, each with pen and line type; drawing them in plan. |
+| ANN-001 | M | missing | L | Prepared: a kind may have no material (crates/archicraft-model/src/kinds/mod.rs). Missing: 2D construction lines (single, chained straight+arc), polylines, arcs and circles by centre/radius and three points, each with pen and line type; drawing them in plan. |
 | ANN-011 | S | missing | L | Rectangles, rotated rectangles, splines, tangent arcs/circles with solution choice. |
 | ANN-013 | S | missing | M | Ellipses and elliptical arcs as 2D shapes by centre and both semi-axes at any rotation, with pen and line type. |
 | ANN-012 | C | missing | M | 2D construction geometry in section/elevation views. |
@@ -743,7 +743,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | ANN-004 | S | missing | L | Linear dimensions (horizontal, vertical, aligned, chained), associative points, stale-reference flagging. |
 | ANN-005 | S | missing | M | Level dimensions with selectable origin, associative to slab/roof/terrain top, bottom or core top. |
 | ANN-006 | C | missing | M | Angle dimensions between edges and for arcs. |
-| ANN-007 | C | missing | L | Text blocks with font, paper-unit size, styles, alignment, pen, line spacing, fixed anchor; text style editor and presets. |
+| ANN-007 | C | missing | L | Prepared: a kind may have no material (crates/archicraft-model/src/kinds/mod.rs). Missing: text blocks with font, paper-unit size, styles, alignment, pen, line spacing, fixed anchor; text style editor and presets. |
 | ANN-008 | C | missing | M | Element labels with dynamic fields (name, material, layer structure, elevation). |
 | ANN-009 | S | missing | M | Copy semantics of associative annotations (with element: refer to copy; alone: keep original). |
 | ANN-010 | C | missing | S | Write 2D construction geometry as IfcAnnotation curves; text/dimensions in the archicraft namespace. |
@@ -858,7 +858,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | IFX-040 | M | partial | S | bsi::ifc::material with code and uri is never written although every material has a category (MaterialCategory, crates/archicraft-model/src/material.rs:34-36 defers it to O-7) |
 | IFX-041 | S | partial | M | No URIs, no configurable mapping table delivered with the template (hard-coded enum), nothing written to the standard namespace |
 | IFX-042 | C | missing | M | Add roughness/metalness to Material (Section 4.27), declare gltf::material in-file, write and read it |
-| IFX-043 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:479-480 (Name on every material node), 553 (every body part inherits a material). Regression check: Test: `ifx_043_every_body_references_a_named_material_node` (ifcx) |
+| IFX-043 | M | done | none | Done: crates/archicraft-ifcx/src/alpha/writer.rs:424-425 (Name on every material node), 502-506 (every body part with a material inherits it). Regression check: Test: `ifx_043_every_body_references_a_named_material_node` (ifcx) |
 
 ### 5.2.6 Types
 
