@@ -26,6 +26,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -51,9 +52,9 @@ BEAD_BRANCH = re.compile(r"^bead/([a-z0-9]+-[a-z0-9]+(?:\.[0-9]+)*)(?:-|$)")
 BEAD_TITLE = re.compile(r"^([a-z0-9]+-[a-z0-9]+(?:\.[0-9]+)*):")
 
 
-def run(cmd, cwd=None, timeout=60):
+def run(cmd, cwd=None, timeout=60, env=None):
     """Runs a command and returns its stdout; raises with stderr on failure."""
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
     if p.returncode != 0:
         raise RuntimeError(f"{' '.join(cmd)}: {(p.stderr or p.stdout).strip()[:300]}")
     return p.stdout
@@ -85,12 +86,19 @@ STATE_DIR = GIT_COMMON / "loop-dashboard"
 
 # --- beads -------------------------------------------------------------------------------
 
+# Every bd process takes the embedded Dolt lock in turn, so with several bead sessions at work a
+# query mostly waits for theirs. A failed refresh keeps the last good beads, but the page shows
+# the timeout: give the queries room for a queue of that length.
+BD_TIMEOUT = 180
+
+
 def collect_beads():
     return {
-        "beads": run_json(["bd", "list", "--all", "--brief", "--flat", "--json", "-n", "0"], cwd=ROOT),
-        "ready": run_json(["bd", "ready", "--json", "-n", "0"], cwd=ROOT),
-        "blocked": run_json(["bd", "blocked", "--json"], cwd=ROOT),
-        "epics": run_json(["bd", "epic", "status", "--json"], cwd=ROOT),
+        "beads": run_json(["bd", "list", "--all", "--brief", "--flat", "--json", "-n", "0"],
+                          cwd=ROOT, timeout=BD_TIMEOUT),
+        "ready": run_json(["bd", "ready", "--json", "-n", "0"], cwd=ROOT, timeout=BD_TIMEOUT),
+        "blocked": run_json(["bd", "blocked", "--json"], cwd=ROOT, timeout=BD_TIMEOUT),
+        "epics": run_json(["bd", "epic", "status", "--json"], cwd=ROOT, timeout=BD_TIMEOUT),
     }
 
 
@@ -482,14 +490,27 @@ class Transcripts:
 
 TRANSCRIPTS = Transcripts()
 
+# A directory whose `bd` answers every call with an empty list, set by main(). status.sh asks bd
+# for the bead's status and PR, which the page takes from the bead list instead; on the PATH of
+# status.sh it saves two bd processes per bead worktree and refresh in the queue for the lock.
+NO_BD = None
+
+
+def stand_in_bd():
+    d = Path(tempfile.mkdtemp(prefix="loop-dashboard-"))
+    (d / "bd").write_text("#!/bin/sh\necho '[]'\n")
+    (d / "bd").chmod(0o755)
+    return d
+
 
 def loop_status(path):
     """scripts/loop/status.sh of the worktree's own branch, parsed into fields."""
     script = Path(path) / "scripts" / "loop" / "status.sh"
     if not script.exists():
         return None
+    env = dict(os.environ, PATH=f"{NO_BD}{os.pathsep}{os.environ.get('PATH', '')}") if NO_BD else None
     try:
-        out = run(["bash", str(script)], cwd=path, timeout=60)
+        out = run(["bash", str(script)], cwd=path, timeout=60, env=env)
     except (RuntimeError, subprocess.TimeoutExpired) as e:
         return {"error": str(e)}
     fields = {}
@@ -2726,14 +2747,14 @@ load(); setInterval(load, 20000);
 
 
 def main():
-    global SNAPSHOTS, PORT
+    global SNAPSHOTS, PORT, NO_BD
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--interval", type=int, default=20, help="seconds between data refreshes")
     ap.add_argument("--no-open", action="store_true", help="do not open a browser")
     args = ap.parse_args()
 
-    SNAPSHOTS, PORT = Snapshots(), args.port
+    SNAPSHOTS, PORT, NO_BD = Snapshots(), args.port, stand_in_bd()
     threading.Thread(target=refresher, args=(args.interval,), daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://127.0.0.1:{args.port}/"
@@ -2744,6 +2765,8 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        shutil.rmtree(NO_BD, ignore_errors=True)
 
 
 if __name__ == "__main__":
