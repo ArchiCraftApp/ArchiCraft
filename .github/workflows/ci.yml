@@ -38,14 +38,9 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v4
-      - name: Leave only 14 GB free, as on the smallest runners (measurement)
-        run: |
-          free="$(df -BM --output=avail / | tail -n 1 | tr -dc 0-9)"
-          sudo fallocate -l "$((free - 13 * 1024))M" /disk-fill
-          scripts/ci-disk-space.sh "as on a runner with 14 GB free"
       # Most runners have 80 GB free, some only the 14 GB GitHub guarantees. These preinstalled
-      # toolchains are unused here: removing them frees 14 GB in 20 s (the Android SDK would free
-      # 11 GB more, in 75 s).
+      # toolchains are unused here: removing them frees 14 GB in under 20 s (the Android SDK would
+      # free 11 GB more, in 75 s).
       - name: Free disk space (remove unused preinstalled toolchains)
         run: sudo rm -rf /usr/share/swift /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
       - name: Install the pinned Rust toolchain (rust-toolchain.toml)
