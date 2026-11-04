@@ -302,7 +302,9 @@ mod tests {
     }
 
     /// ANN-007: at angle 0, left, centred and right alignment put each line's
-    /// left edge, centre and right edge on the anchor's x.
+    /// left edge, centre and right edge on the anchor's x. Each alignment is
+    /// paired with the anchor position of the matching column (bottom left,
+    /// bottom centre, bottom right): only then do the lines meet the anchor.
     #[test]
     fn alignment_lines_up_each_line_on_the_anchor() {
         let ctx = context();
