@@ -17,6 +17,7 @@ bench = false
 archicraft-model.workspace = true
 geo.workspace = true
 glam.workspace = true
+rstar.workspace = true
 spade.workspace = true
 tracing.workspace = true
 

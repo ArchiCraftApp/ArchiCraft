@@ -1,0 +1,516 @@
+//! Contour detection (INP-018): the planar graph of the lines of a plan and
+//! the closed regions a click picks from it.
+//!
+//! A [`PlanSegmentSource`] supplies straight segments in the 2D coordinates
+//! of one plane: a storey's [`PlanDrawing`] for now; the 2D drafting curves
+//! and a working plane of the 3D views are later sources. [`ContourGraph`]
+//! nodes them within [`MODEL_TOLERANCE`] (NFR-ACC-003): endpoints closer than
+//! the tolerance are one vertex, crossing points snap to the vertices near
+//! them, a segment is split at every vertex that lies on it, and overlapping
+//! collinear pieces become one edge. The bounded faces of the resulting
+//! half-edge structure, without their antennas, are the regions
+//! ([`ContourGraph::region_at`]).
+//!
+//! The segments are put into a canonical order before noding, so the graph
+//! does not depend on the order or direction in which a source supplies
+//! them. Two segments parallel within
+//! [`ANGLE_TOLERANCE`](archicraft_model::ANGLE_TOLERANCE) that cross at so
+//! shallow an angle that neither has an endpoint on the other are not split
+//! at their crossing.
+
+use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+
+use archicraft_model::tolerance::{Welder, is_parallel};
+use archicraft_model::validate::signed_area;
+use archicraft_model::{ElementId, MODEL_TOLERANCE};
+use geo::Polygon;
+use glam::DVec2;
+use rstar::primitives::{GeomWithData, Rectangle};
+use rstar::{AABB, RTree};
+
+use crate::plan::{PlanDrawing, polygon_rings, ring_contains, segment_distance};
+
+/// The curve a segment approximates, so that a contour traced over its edges
+/// can be rebuilt with the exact curve (INP-018: contour detection preserves
+/// arcs). No source supplies curves yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CurveRef {
+    /// The element the curve belongs to.
+    pub element: ElementId,
+    /// The curve's number among the element's curves.
+    pub index: u32,
+}
+
+/// A straight segment of a source, and an edge of a [`ContourGraph`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Segment {
+    pub points: [DVec2; 2],
+    /// The curve the segment is a piece of; `None` for a straight line.
+    pub source: Option<CurveRef>,
+}
+
+impl Segment {
+    /// A straight segment from `a` to `b`.
+    pub fn new(a: DVec2, b: DVec2) -> Self {
+        Self {
+            points: [a, b],
+            source: None,
+        }
+    }
+}
+
+/// Which lines of a source bound regions.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ContourOptions {
+    /// Wall reference lines (WAL-007) as well as the drawn outlines.
+    pub reference_lines: bool,
+}
+
+/// Supplies the straight segments a [`ContourGraph`] is built from, in the
+/// 2D coordinates of one plane (INP-018).
+pub trait PlanSegmentSource {
+    fn segments(&self, options: &ContourOptions) -> Vec<Segment>;
+}
+
+impl PlanSegmentSource for [Segment] {
+    fn segments(&self, _options: &ContourOptions) -> Vec<Segment> {
+        self.to_vec()
+    }
+}
+
+/// The outlines of the union of all cut regions, so that joined walls of
+/// different materials have one boundary (the plan merges cut regions only
+/// per material), the projected and overhead lines and, if asked for, the
+/// wall reference lines.
+impl PlanSegmentSource for PlanDrawing {
+    fn segments(&self, options: &ContourOptions) -> Vec<Segment> {
+        let cut: Vec<Polygon<f64>> = self
+            .cut_regions
+            .iter()
+            .flat_map(|region| region.polygons.iter().cloned())
+            .collect();
+        let mut segments = Vec::new();
+        for polygon in &geo::unary_union(&cut) {
+            for ring in polygon_rings(polygon) {
+                segments.extend((0..ring.len()).map(|i| Segment::new(ring[i], ring[(i + 1) % ring.len()])));
+            }
+        }
+        for element in &self.elements {
+            let lines = element.projected.iter().chain(&element.overhead);
+            segments.extend(lines.map(|[a, b]| Segment::new(*a, *b)));
+            if options.reference_lines {
+                segments.extend(element.reference_line.map(|[a, b]| Segment::new(a, b)));
+            }
+        }
+        segments
+    }
+}
+
+/// A closed region of a contour graph: a bounded face without its antennas
+/// (edges that end inside it), with the components it encloses.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Region {
+    /// The boundary, counter-clockwise, without repeating the first point.
+    pub outer: Vec<DVec2>,
+    /// The outer boundaries of the enclosed components, clockwise, like the
+    /// holes of a slab.
+    pub islands: Vec<Vec<DVec2>>,
+}
+
+impl Region {
+    /// The area inside the boundary and outside the islands.
+    pub fn area(&self) -> f64 {
+        signed_area(&self.outer) + self.islands.iter().map(|island| signed_area(island)).sum::<f64>()
+    }
+}
+
+/// A cycle of half-edges without its antennas.
+#[derive(Clone, Debug)]
+struct Face {
+    ring: Vec<DVec2>,
+    /// Signed: positive for a bounded face, negative for the outer boundary
+    /// of a component.
+    area: f64,
+    component: usize,
+    /// For a bounded face, the boundaries it encloses directly.
+    islands: Vec<usize>,
+}
+
+/// An edge of the noded graph between two vertices.
+#[derive(Clone, Copy, Debug)]
+struct Edge {
+    ends: [usize; 2],
+    source: Option<CurveRef>,
+}
+
+/// Bounding boxes with the index of what they bound.
+type BoxIndex = RTree<GeomWithData<Rectangle<[f64; 2]>, usize>>;
+
+/// The planar graph of a source's segments (INP-018).
+#[derive(Clone, Debug)]
+pub struct ContourGraph {
+    vertices: Vec<DVec2>,
+    edges: Vec<Edge>,
+    faces: Vec<Face>,
+    /// The bounding boxes of the bounded faces.
+    bounded: BoxIndex,
+}
+
+impl ContourGraph {
+    /// Nodes the segments of `source` into a planar graph and finds its
+    /// faces.
+    pub fn build<S: PlanSegmentSource + ?Sized>(source: &S, options: &ContourOptions) -> Self {
+        let mut segments = source.segments(options);
+        segments.retain(|s| s.points.iter().all(|p| p.is_finite()));
+        for s in &mut segments {
+            if lexical(s.points[1], s.points[0]).is_lt() {
+                s.points.reverse();
+            }
+        }
+        segments.sort_by(|s, t| {
+            lexical(s.points[0], t.points[0])
+                .then(lexical(s.points[1], t.points[1]))
+                .then(s.source.cmp(&t.source))
+        });
+        let (vertices, edges) = node(&segments);
+        let faces = faces(&vertices, &edges);
+        let bounded = RTree::bulk_load(
+            faces
+                .iter()
+                .enumerate()
+                .filter(|(_, face)| face.area > 0.0)
+                .map(|(k, face)| GeomWithData::new(Rectangle::from_aabb(bounds(&face.ring)), k))
+                .collect(),
+        );
+        let mut graph = Self {
+            vertices,
+            edges,
+            faces,
+            bounded,
+        };
+        graph.assign_islands();
+        graph
+    }
+
+    /// The edges of the graph, each with the source of the first segment
+    /// that has one.
+    pub fn edges(&self) -> impl Iterator<Item = Segment> + '_ {
+        self.edges.iter().map(|edge| Segment {
+            points: edge.ends.map(|v| self.vertices[v]),
+            source: edge.source,
+        })
+    }
+
+    /// Every region of the graph.
+    pub fn regions(&self) -> Vec<Region> {
+        (0..self.faces.len())
+            .filter(|&k| self.faces[k].area > 0.0)
+            .map(|k| self.region(k))
+            .collect()
+    }
+
+    /// The smallest region that contains `p`, or `None` if no region does
+    /// (INP-018).
+    pub fn region_at(&self, p: DVec2) -> Option<Region> {
+        self.smallest_face_around(p, None).map(|k| self.region(k))
+    }
+
+    /// The bounded face of smallest area whose boundary contains `p`, other
+    /// than the faces of the component `other_than`.
+    fn smallest_face_around(&self, p: DVec2, other_than: Option<usize>) -> Option<usize> {
+        self.bounded
+            .locate_in_envelope_intersecting(&AABB::from_point(p.to_array()))
+            .map(|entry| entry.data)
+            .filter(|&k| Some(self.faces[k].component) != other_than && ring_contains(&self.faces[k].ring, p))
+            .min_by(|&j, &k| self.faces[j].area.total_cmp(&self.faces[k].area).then(j.cmp(&k)))
+    }
+
+    /// Gives every component boundary to the smallest face of another
+    /// component around it. Components do not touch, so any vertex of the
+    /// boundary decides.
+    fn assign_islands(&mut self) {
+        for k in 0..self.faces.len() {
+            let face = &self.faces[k];
+            if face.area < 0.0
+                && let Some(around) = self.smallest_face_around(face.ring[0], Some(face.component))
+            {
+                self.faces[around].islands.push(k);
+            }
+        }
+    }
+
+    fn region(&self, k: usize) -> Region {
+        let face = &self.faces[k];
+        Region {
+            outer: without_straight_vertices(face.ring.clone()),
+            islands: face
+                .islands
+                .iter()
+                .map(|&island| without_straight_vertices(self.faces[island].ring.clone()))
+                .collect(),
+        }
+    }
+}
+
+/// Orders points by x, then y.
+fn lexical(a: DVec2, b: DVec2) -> Ordering {
+    a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y))
+}
+
+fn bounds(ring: &[DVec2]) -> AABB<[f64; 2]> {
+    let (lo, hi) = ring.iter().fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(lo, hi), p| {
+        (lo.min(*p), hi.max(*p))
+    });
+    AABB::from_corners(lo.to_array(), hi.to_array())
+}
+
+/// The box around the segment `a b`, grown by `margin`.
+fn envelope(a: DVec2, b: DVec2, margin: f64) -> AABB<[f64; 2]> {
+    let margin = DVec2::splat(margin);
+    AABB::from_corners((a.min(b) - margin).to_array(), (a.max(b) + margin).to_array())
+}
+
+/// The point where the segments `a b` and `c d` cross, if they are not
+/// parallel.
+fn crossing(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> Option<DVec2> {
+    let (r, s) = (b - a, d - c);
+    if is_parallel(r, s) {
+        return None;
+    }
+    let q = c - a;
+    let denominator = r.perp_dot(s);
+    let t = q.perp_dot(s) / denominator;
+    let u = q.perp_dot(r) / denominator;
+    ((0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u)).then(|| a + r * t)
+}
+
+/// Nodes the canonically ordered segments: the welded vertices and the
+/// edges between them, without duplicates.
+fn node(segments: &[Segment]) -> (Vec<DVec2>, Vec<Edge>) {
+    // Endpoints first, so that crossing points snap to them.
+    let mut welder: Welder<DVec2> = Welder::new();
+    let mut welded: Vec<Edge> = Vec::new();
+    for s in segments {
+        let [a, b] = s.points.map(|p| welder.weld(p));
+        if a != b {
+            welded.push(Edge {
+                ends: [a, b],
+                source: s.source,
+            });
+        }
+    }
+    let position = |welder: &Welder<DVec2>, [a, b]: [usize; 2]| (welder.points()[a], welder.points()[b]);
+
+    // Crossings, welded to the vertices within the tolerance.
+    let index: BoxIndex = RTree::bulk_load(
+        welded
+            .iter()
+            .enumerate()
+            .map(|(i, edge)| {
+                let (a, b) = position(&welder, edge.ends);
+                GeomWithData::new(Rectangle::from_corners(a.to_array(), b.to_array()), i)
+            })
+            .collect(),
+    );
+    let mut splits: Vec<Vec<usize>> = vec![Vec::new(); welded.len()];
+    for i in 0..welded.len() {
+        let (a, b) = position(&welder, welded[i].ends);
+        let mut others: Vec<usize> = index
+            .locate_in_envelope_intersecting(&envelope(a, b, 0.0))
+            .map(|entry| entry.data)
+            .filter(|&j| j > i)
+            .collect();
+        others.sort_unstable();
+        for j in others {
+            let (c, d) = position(&welder, welded[j].ends);
+            if let Some(x) = crossing(a, b, c, d) {
+                let v = welder.weld(x);
+                splits[i].push(v);
+                splits[j].push(v);
+            }
+        }
+    }
+
+    // Every vertex within the tolerance of a segment splits it: endpoints
+    // on another segment (T junctions, collinear overlaps) and crossings.
+    let vertices = welder.into_points();
+    let index: RTree<GeomWithData<[f64; 2], usize>> = RTree::bulk_load(
+        vertices
+            .iter()
+            .enumerate()
+            .map(|(v, p)| GeomWithData::new(p.to_array(), v))
+            .collect(),
+    );
+    let mut edges: Vec<Edge> = Vec::new();
+    let mut seen: HashMap<[usize; 2], usize> = HashMap::new();
+    for (Edge { ends: [a, b], source }, mut on) in welded.into_iter().zip(splits) {
+        let (pa, pb) = (vertices[a], vertices[b]);
+        on.extend(
+            index
+                .locate_in_envelope(&envelope(pa, pb, MODEL_TOLERANCE))
+                .map(|entry| entry.data)
+                .filter(|&v| segment_distance(vertices[v], pa, pb) < MODEL_TOLERANCE),
+        );
+        let direction = pb - pa;
+        let mut along: Vec<(f64, usize)> = on
+            .into_iter()
+            .filter(|&v| v != a && v != b)
+            .map(|v| ((vertices[v] - pa).dot(direction), v))
+            .collect();
+        along.sort_by(|s, t| s.0.total_cmp(&t.0).then(s.1.cmp(&t.1)));
+        along.dedup_by_key(|(_, v)| *v);
+        let mut from = a;
+        for to in along.into_iter().map(|(_, v)| v).chain([b]) {
+            let key = if from < to { [from, to] } else { [to, from] };
+            match seen.entry(key) {
+                Entry::Vacant(entry) => {
+                    entry.insert(edges.len());
+                    edges.push(Edge {
+                        ends: [from, to],
+                        source,
+                    });
+                }
+                Entry::Occupied(entry) => {
+                    let edge = &mut edges[*entry.get()];
+                    edge.source = edge.source.or(source);
+                }
+            }
+            from = to;
+        }
+    }
+    (vertices, edges)
+}
+
+/// The faces of the noded graph. Half-edge `2 e` runs along edge `e`, `2 e + 1`
+/// against it. Leaving the head of a half-edge, a face turns into the
+/// outgoing half-edge that precedes the reverse one in counter-clockwise
+/// order, which keeps the face on the left: bounded faces run
+/// counter-clockwise (positive area), the outer boundaries of components
+/// clockwise.
+fn faces(vertices: &[DVec2], edges: &[Edge]) -> Vec<Face> {
+    let origin = |h: usize| edges[h / 2].ends[h % 2];
+    let direction = |h: usize| vertices[origin(h ^ 1)] - vertices[origin(h)];
+    let mut outgoing: Vec<Vec<usize>> = vec![Vec::new(); vertices.len()];
+    for h in 0..2 * edges.len() {
+        outgoing[origin(h)].push(h);
+    }
+    let mut rank = vec![0; 2 * edges.len()];
+    for list in &mut outgoing {
+        list.sort_by(|&g, &h| {
+            let (u, v) = (direction(g), direction(h));
+            u.to_angle()
+                .total_cmp(&v.to_angle())
+                .then(u.length_squared().total_cmp(&v.length_squared()))
+                .then(g.cmp(&h))
+        });
+        for (k, &h) in list.iter().enumerate() {
+            rank[h] = k;
+        }
+    }
+    let next = |h: usize| {
+        let reverse = h ^ 1;
+        let around = &outgoing[origin(reverse)];
+        around[(rank[reverse] + around.len() - 1) % around.len()]
+    };
+
+    let mut components = Components::new(vertices.len());
+    for edge in edges {
+        components.join(edge.ends[0], edge.ends[1]);
+    }
+    let mut visited = vec![false; 2 * edges.len()];
+    let mut faces = Vec::new();
+    for start in 0..2 * edges.len() {
+        if visited[start] {
+            continue;
+        }
+        let mut cycle = Vec::new();
+        let mut h = start;
+        while !visited[h] {
+            visited[h] = true;
+            cycle.push(h);
+            h = next(h);
+        }
+        let ring: Vec<DVec2> = without_antennas(&cycle)
+            .into_iter()
+            .map(|h| vertices[origin(h)])
+            .collect();
+        let area = signed_area(&ring);
+        if ring.len() >= 3 && area != 0.0 {
+            faces.push(Face {
+                ring,
+                area,
+                component: components.find(origin(start)),
+                islands: Vec::new(),
+            });
+        }
+    }
+    faces
+}
+
+/// The cycle of half-edges without antennas: a half-edge followed by its
+/// reverse runs into a dead end and back.
+fn without_antennas(cycle: &[usize]) -> Vec<usize> {
+    let mut kept: Vec<usize> = Vec::with_capacity(cycle.len());
+    for &h in cycle {
+        if kept.last() == Some(&(h ^ 1)) {
+            kept.pop();
+        } else {
+            kept.push(h);
+        }
+    }
+    // Pairs across the start of the cycle.
+    let mut start = 0;
+    while kept.len() >= start + 2 && kept[start] == kept[kept.len() - 1] ^ 1 {
+        start += 1;
+        kept.pop();
+    }
+    kept.split_off(start)
+}
+
+/// The ring without the vertices where it runs straight on (within the
+/// model tolerance of the line between their neighbours).
+fn without_straight_vertices(mut ring: Vec<DVec2>) -> Vec<DVec2> {
+    loop {
+        let before = ring.len();
+        let mut k = 0;
+        while ring.len() > 3 && k < ring.len() {
+            let n = ring.len();
+            if segment_distance(ring[k], ring[(k + n - 1) % n], ring[(k + 1) % n]) < MODEL_TOLERANCE {
+                ring.remove(k);
+            } else {
+                k += 1;
+            }
+        }
+        if ring.len() == before {
+            return ring;
+        }
+    }
+}
+
+/// Union-find over the vertices: the connected components of the graph.
+struct Components(Vec<usize>);
+
+impl Components {
+    fn new(n: usize) -> Self {
+        Self((0..n).collect())
+    }
+
+    fn find(&mut self, v: usize) -> usize {
+        let mut root = v;
+        while self.0[root] != root {
+            root = self.0[root];
+        }
+        let mut v = v;
+        while self.0[v] != root {
+            v = std::mem::replace(&mut self.0[v], root);
+        }
+        root
+    }
+
+    fn join(&mut self, a: usize, b: usize) {
+        let (a, b) = (self.find(a), self.find(b));
+        self.0[a.max(b)] = a.min(b);
+    }
+}
