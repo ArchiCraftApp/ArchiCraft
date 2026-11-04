@@ -7,12 +7,12 @@ use std::time::Duration;
 use archicraft_model::units::format_length;
 use egui::{Button, RichText, Ui};
 
-use super::command_widgets::{bar_button, icon_and_label, menu_item, shortcut_text, tool_button};
+use super::command_widgets::{TOOLBOX_BUTTON, bar_button, icon_and_label, menu_item, titled_tooltip, tool_button};
 use crate::commands::{
-    CommandCtx, CommandId, CommandSpec, Enabled, MENUS, MenuEntry, Registry, edit, file, menu_title, toolbox_groups,
-    tools, view,
+    CommandCtx, CommandId, CommandSpec, MENUS, MenuEntry, Registry, edit, file, menu_title, toolbox_groups, tools, view,
 };
 use crate::input::InputMode;
+use crate::persistence::prefs::MAX_TOOLBOX_COLUMNS;
 use crate::tools::ToolKind;
 use crate::tr;
 use crate::workspace::{Consumer, Pane, Workspace};
@@ -88,23 +88,6 @@ pub fn menu_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx) -> (Option<Command
     (chosen.command, chosen.recent)
 }
 
-/// The tooltip of a toolbar button (UI-011): the command's label in the
-/// state `cx`, such as "Undo Create wall", with its shortcut, then its
-/// description and, while it cannot run, the reason from the catalogue.
-fn tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, enabled: Enabled) {
-    ui.set_max_width(ui.spacing().tooltip_width);
-    ui.horizontal(|ui| {
-        ui.strong(spec.label_in(cx));
-        if let Some(keys) = shortcut_text(spec, &cx.keymap, |b| ui.ctx().format_shortcut(&b.shortcut())) {
-            ui.weak(keys);
-        }
-    });
-    ui.label(spec.description());
-    if let Enabled::No(reason) = enabled {
-        ui.colored_label(ui.visuals().warn_fg_color, tr!(reason));
-    }
-}
-
 /// The side of the toolbar's icons, in points.
 const TOOLBAR_ICON: f32 = 16.0;
 
@@ -140,8 +123,8 @@ pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
             .image_tint_follows_text_color(true);
             let response = ui
                 .add_enabled(enabled.is_yes(), button)
-                .on_hover_ui(|ui| tooltip(ui, cx, spec, enabled))
-                .on_disabled_hover_ui(|ui| tooltip(ui, cx, spec, enabled));
+                .on_hover_ui(|ui| titled_tooltip(ui, cx, spec, &spec.label_in(cx)))
+                .on_disabled_hover_ui(|ui| titled_tooltip(ui, cx, spec, &spec.label_in(cx)));
             if response.clicked() {
                 chosen = Some(spec.id);
             }
@@ -150,34 +133,90 @@ pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     chosen
 }
 
-/// The tool palette (UI-001): the toolbox places of the registry's
-/// commands (see [`tool_palette`]). Returns the command of the clicked
-/// button.
-pub fn toolbox(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
-    tool_palette(ui, cx, Registry::get().specs())
+/// The id of the toolbox panel, under which egui keeps its rectangle.
+pub const TOOLBOX_PANEL: &str = "toolbox";
+
+/// The width of the toolbox's contents with `columns` columns of tool
+/// buttons `spacing` apart.
+pub fn toolbox_content_width(columns: u8, spacing: f32) -> f32 {
+    let columns = f32::from(columns.clamp(1, MAX_TOOLBOX_COLUMNS));
+    columns * TOOLBOX_BUTTON + (columns - 1.0) * spacing
 }
 
-/// The tool palette of `specs` (UI-001): a heading per
-/// [`ToolGroup`](crate::commands::ToolGroup) that
-/// has a tool, in group order (selection, modelling, 2D and annotation,
-/// view), then its tools, each an icon and its short label with the
-/// command's description and shortcut as tooltip (UI-011). Returns the
+/// The columns of tool buttons that fit into a toolbox `width` wide inside:
+/// one up to the width of two buttons and the `spacing` between them, two
+/// from there (UI-001).
+pub fn toolbox_columns(width: f32, spacing: f32) -> u8 {
+    (1..=MAX_TOOLBOX_COLUMNS)
+        .rev()
+        .find(|&columns| width + 0.5 >= toolbox_content_width(columns, spacing))
+        .unwrap_or(1)
+}
+
+/// The toolbox, the tool palette (see [`tool_palette`]) in a left panel
+/// whose edge the user drags to switch between one and two columns of
+/// tools (UI-001, UI-015). While a drag is in progress the panel follows
+/// the pointer between the widths of one and two columns, and `columns`
+/// follows the width; otherwise the panel is exactly as wide as `columns`
+/// columns, so on release it snaps to the columns shown. Returns the
 /// command of the clicked button.
-pub fn tool_palette(ui: &mut Ui, cx: &CommandCtx, specs: &[CommandSpec]) -> Option<CommandId> {
+pub fn toolbox(ui: &mut Ui, cx: &CommandCtx, columns: &mut u8) -> Option<CommandId> {
+    let spacing = ui.spacing().item_spacing.x;
+    let frame = egui::Frame::side_top_panel(ui.style());
+    // The panel keeps room for its separator line in its outer margin.
+    let line = ui.visuals().widgets.noninteractive.bg_stroke.width.round();
+    let margin = frame.total_margin().sum().x + line;
+    let outer = |columns| toolbox_content_width(columns, spacing) + margin;
+    let panel = egui::Panel::left(TOOLBOX_PANEL).frame(frame).resizable(true);
+    // A drag of the edge cannot start or end while the panel has one exact
+    // size, so any drag in progress opens the range.
+    let panel = if ui.ctx().dragged_id().is_some() {
+        panel.size_range(outer(1)..=outer(MAX_TOOLBOX_COLUMNS))
+    } else {
+        panel.exact_size(outer(*columns))
+    };
+    panel
+        .show(ui, |ui| {
+            *columns = toolbox_columns(ui.available_width(), spacing);
+            tool_palette(ui, cx, Registry::get().specs(), *columns)
+        })
+        .inner
+}
+
+/// The tool palette of `specs` (UI-001) in `columns` columns: per
+/// [`ToolGroup`](crate::commands::ToolGroup) that has a tool, in group
+/// order (selection, modelling, 2D and annotation, view), a thin separator
+/// that names the group on hover, then its tools in rows, each an icon
+/// button with the tool's name, shortcut and description as tooltip
+/// (UI-011). Returns the command of the clicked button.
+pub fn tool_palette(ui: &mut Ui, cx: &CommandCtx, specs: &[CommandSpec], columns: u8) -> Option<CommandId> {
     let mut chosen = None;
-    for (i, (group, tools)) in toolbox_groups(specs).into_iter().enumerate() {
-        if i > 0 {
-            ui.add_space(6.0);
-        }
-        ui.label(RichText::new(tr!(group.title_key())).small().weak());
-        for spec in tools {
-            let label = spec.toolbox.map(|place| tr!(place.label)).unwrap_or_default();
-            if tool_button(ui, cx, spec, &label) {
-                chosen = Some(spec.id);
-            }
+    let width = toolbox_content_width(columns, ui.spacing().item_spacing.x);
+    for (group, tools) in toolbox_groups(specs) {
+        group_separator(ui, &tr!(group.title_key()), width);
+        for row in tools.chunks(usize::from(columns.max(1))) {
+            ui.horizontal(|ui| {
+                for spec in row {
+                    let label = spec.toolbox.map(|place| tr!(place.label)).unwrap_or_default();
+                    if tool_button(ui, cx, spec, &label) {
+                        chosen = Some(spec.id);
+                    }
+                }
+            });
         }
     }
     chosen
+}
+
+/// The separator above a group of the tool palette, `width` wide: a thin
+/// line that shows the group's `title` on hover and has it as accessible
+/// name (UI-001).
+fn group_separator(ui: &mut Ui, title: &str, width: f32) {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 9.0), egui::Sense::hover());
+    let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+    ui.painter().hline(rect.x_range(), rect.center().y, stroke);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
+    response.on_hover_text(title);
 }
 
 /// The label of the status line's problems button: "No problems", or the
@@ -302,7 +341,7 @@ mod tests {
     fn palette_rows(specs: Vec<CommandSpec>, labels: &[&str]) -> Vec<f32> {
         let cx = CommandCtx::default();
         let harness = Harness::new_ui(move |ui| {
-            tool_palette(ui, &cx, &specs);
+            tool_palette(ui, &cx, &specs, 1);
         });
         labels
             .iter()
@@ -310,8 +349,28 @@ mod tests {
             .collect()
     }
 
+    /// UI-001: one column of tool buttons fits up to the width of two
+    /// buttons and the spacing between them, two from there; each count's
+    /// width gives that count back.
+    #[test]
+    fn the_toolbox_width_gives_its_columns() {
+        let spacing = 8.0;
+        assert_eq!(toolbox_content_width(1, spacing), TOOLBOX_BUTTON);
+        assert_eq!(toolbox_content_width(2, spacing), 2.0 * TOOLBOX_BUTTON + spacing);
+        assert_eq!(toolbox_columns(0.0, spacing), 1);
+        assert_eq!(toolbox_columns(2.0 * TOOLBOX_BUTTON + spacing - 1.0, spacing), 1);
+        assert_eq!(toolbox_columns(2.0 * TOOLBOX_BUTTON + spacing, spacing), 2);
+        assert_eq!(toolbox_columns(500.0, spacing), 2);
+        for columns in 1..=MAX_TOOLBOX_COLUMNS {
+            assert_eq!(
+                toolbox_columns(toolbox_content_width(columns, spacing), spacing),
+                columns
+            );
+        }
+    }
+
     /// UI-001: the toolbox shows the Selection, Modelling and View tools
-    /// headings with their tools in that order; a registry with a stub
+    /// separators (named by their groups) with their tools in that order; a registry with a stub
     /// Annotation2d tool adds the 2D and annotation heading with its tool in
     /// third place, between Modelling and View tools.
     #[test]
@@ -337,12 +396,12 @@ mod tests {
             let cx = CommandCtx::default();
             let specs = specs.clone();
             Harness::new_ui(move |ui| {
-                tool_palette(ui, &cx, &specs);
+                tool_palette(ui, &cx, &specs, 1);
             })
         };
         assert!(
             harness.query_by_label("2D and annotation").is_none(),
-            "a group without tools has no heading"
+            "a group without tools has no separator"
         );
 
         let mut stubbed = specs;

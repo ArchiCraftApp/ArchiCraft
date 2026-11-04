@@ -937,10 +937,14 @@ impl eframe::App for ArchiCraftApp {
                 dialogs::problems_panel(ui, &mut self.ws, &self.load_problems);
             });
         }
-        egui::Panel::left("toolbox").resizable(false).show(ui, |ui| {
-            let id = shell::toolbox(ui, &cx);
-            invoked.extend(id.map(|id| (id, Origin::Toolbar)));
-        });
+        // UI-015: the toolbox's columns persist in the preferences.
+        let mut columns = self.ws.prefs.toolbox_columns;
+        let id = shell::toolbox(ui, &cx, &mut columns);
+        invoked.extend(id.map(|id| (id, Origin::Toolbar)));
+        if columns != self.ws.prefs.toolbox_columns {
+            self.ws.prefs.toolbox_columns = columns;
+            self.save_prefs();
+        }
         egui::Panel::right("browser")
             .resizable(true)
             .default_size(240.0)

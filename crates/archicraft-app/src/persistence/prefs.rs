@@ -70,6 +70,9 @@ pub struct Preferences {
     /// Save projects as indented, human-readable IFCX instead of compact JSON
     /// (IFX-008, default off). Autosaves stay compact either way.
     pub indented_ifcx: bool,
+    /// The columns of tool buttons in the toolbox, one or two (UI-001,
+    /// UI-015, default one).
+    pub toolbox_columns: u8,
     /// Recently opened projects, newest first (SW-001).
     pub recent: Vec<PathBuf>,
     /// File name of the newest crash report the user has been told about.
@@ -95,6 +98,7 @@ impl Default for Preferences {
             tracker_xyz: false,
             show_reference_lines: false,
             indented_ifcx: false,
+            toolbox_columns: 1,
             recent: Vec::new(),
             last_crash_report: None,
         }
@@ -102,6 +106,9 @@ impl Default for Preferences {
 }
 
 const MAX_RECENT: usize = 10;
+
+/// The most columns of tool buttons the toolbox has (UI-001).
+pub const MAX_TOOLBOX_COLUMNS: u8 = 2;
 
 /// Reads a value, taking its default for one this version does not know (a
 /// newer version's choice, a typo), so the other preferences of the file
@@ -156,6 +163,7 @@ impl Preferences {
             self.snap_step = 0.05;
         }
         self.input = self.input.sanitized();
+        self.toolbox_columns = self.toolbox_columns.clamp(1, MAX_TOOLBOX_COLUMNS);
         self.recent.truncate(MAX_RECENT);
         self
     }
@@ -244,6 +252,29 @@ mod tests {
         };
         prefs.save(&path).unwrap();
         assert!(Preferences::load(&path).indented_ifcx);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// UI-015: the toolbox's columns survive a restart; preference files
+    /// without them read as one column, and a count the toolbox cannot show
+    /// is clamped to one or two.
+    #[test]
+    fn toolbox_columns_round_trip() {
+        assert_eq!(Preferences::default().toolbox_columns, 1);
+        let dir = std::env::temp_dir().join(format!("archicraft-prefs-toolbox-{}", std::process::id()));
+        let path = dir.join("preferences.json");
+        let prefs = Preferences {
+            toolbox_columns: 2,
+            ..Preferences::default()
+        };
+        prefs.save(&path).unwrap();
+        assert_eq!(Preferences::load(&path).toolbox_columns, 2);
+        std::fs::write(&path, r#"{"author": "Ada"}"#).unwrap();
+        assert_eq!(Preferences::load(&path).toolbox_columns, 1);
+        std::fs::write(&path, r#"{"toolbox_columns": 7}"#).unwrap();
+        assert_eq!(Preferences::load(&path).toolbox_columns, MAX_TOOLBOX_COLUMNS);
+        std::fs::write(&path, r#"{"toolbox_columns": 0}"#).unwrap();
+        assert_eq!(Preferences::load(&path).toolbox_columns, 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

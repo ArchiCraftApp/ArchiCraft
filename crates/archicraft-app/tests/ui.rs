@@ -757,13 +757,14 @@ fn the_toolbar_tooltips_show_label_shortcut_description_and_reason() {
 
 /// UI-011: hovering a toolbox tool shows the command's description and its
 /// shortcut; View ▸ Fit to window and the status bar's Fit button show the
-/// same text, from the same command.
+/// command's description with its shortcut, from the same command.
 #[test]
 fn toolbox_menu_and_status_bar_tooltips_show_description_and_shortcut() {
     let mut harness = harness("command-tooltips");
     harness.get_by_label("Wall").hover();
     harness.run_steps(4);
-    assert_present(&harness, "Draw walls by their reference line (W)");
+    assert_present(&harness, &tr!("cmd-tool-wall-desc"));
+    assert_present(&harness, &harness.ctx.format_shortcut(&Binding::key(Key::W).shortcut()));
 
     let fit = format!(
         "Zoom the active view so that the whole model fits ({})",
@@ -802,7 +803,187 @@ fn a_tooltip_shows_the_rebound_shortcut() {
     harness.get_by_label("Wall").hover();
     harness.run_steps(4);
     let keys = harness.ctx.format_shortcut(&shift_w.shortcut());
-    assert_present(&harness, &format!("Draw walls by their reference line ({keys})"));
+    assert_present(&harness, &keys);
+}
+
+/// The tool buttons of the toolbox in group order (UI-001), by their
+/// accessible names.
+const TOOLBOX_TOOLS: [&str; 7] = ["Select", "Wall", "Slab", "Fit", "Orbit", "Plan/3D", "Measure"];
+
+/// The toolbox's button named `label`, not the view-control bar's or the
+/// status line's button with the same name.
+fn toolbox_button<'h>(harness: &'h Harness<'static, ArchiCraftApp>, label: &'h str) -> egui_kittest::Node<'h> {
+    let toolbox = panel(harness, "toolbox");
+    harness
+        .query_all(By::new().role(Role::Button).label(label))
+        .find(|node| toolbox.contains(node.rect().center()))
+        .unwrap_or_else(|| panic!("no toolbox button “{label}”"))
+}
+
+/// The rectangles of the toolbox's tool buttons, in group order.
+fn toolbox_buttons(harness: &Harness<'static, ArchiCraftApp>) -> Vec<egui::Rect> {
+    TOOLBOX_TOOLS
+        .iter()
+        .map(|label| toolbox_button(harness, label).rect())
+        .collect()
+}
+
+/// The number of columns the toolbox's buttons `rects` sit in.
+fn columns(rects: &[egui::Rect]) -> usize {
+    let mut lefts: Vec<f32> = rects.iter().map(|r| r.left().round()).collect();
+    lefts.sort_by(f32::total_cmp);
+    lefts.dedup();
+    lefts.len()
+}
+
+/// Drags the toolbox's right edge `dx` points to the right in small steps
+/// and releases it. The drag starts just inside the edge: the view right of
+/// it lies above the panel's grab area.
+fn drag_toolbox_edge(harness: &mut Harness<'static, ArchiCraftApp>, dx: f32) {
+    let toolbox = panel(harness, "toolbox");
+    let start = egui::pos2(toolbox.right() - 2.0, toolbox.bottom() - 40.0);
+    let button = |pos, pressed| Event::PointerButton {
+        pos,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    harness.hover_at(start);
+    harness.run_steps(1);
+    harness.event(button(start, true));
+    harness.run_steps(1);
+    for step in 1..=8 {
+        harness.hover_at(start + egui::vec2(dx * step as f32 / 8.0, 0.0));
+        harness.run_steps(1);
+    }
+    harness.event(button(start + egui::vec2(dx, 0.0), false));
+    harness.run_steps(3);
+}
+
+/// UI-001: at the default width the toolbox shows one column of square
+/// icon buttons without text, in group order; dragging its edge to the
+/// width of two columns puts the same buttons into two columns, a drag that
+/// stops short snaps back to the columns shown, and narrowing it again
+/// returns to one column.
+#[test]
+fn the_toolbox_resizes_between_one_and_two_columns_of_icon_buttons() {
+    let mut harness = harness("toolbox-columns");
+    let one = toolbox_buttons(&harness);
+    assert_eq!(columns(&one), 1, "{one:?}");
+    assert!(
+        one.windows(2).all(|pair| pair[0].bottom() <= pair[1].top()),
+        "in group order: {one:?}"
+    );
+    for (label, rect) in TOOLBOX_TOOLS.iter().zip(&one) {
+        assert!(
+            (rect.width() - rect.height()).abs() < 0.5,
+            "{label} is not square: {rect:?}"
+        );
+        let node = toolbox_button(&harness, label);
+        assert!(
+            node.children()
+                .all(|child| child.accesskit_node().role() != Role::TextRun),
+            "{label} has a text label"
+        );
+    }
+    let narrow = panel(&harness, "toolbox").width();
+
+    // A drag that stops short of two columns snaps back to one.
+    drag_toolbox_edge(&mut harness, 12.0);
+    assert_eq!(columns(&toolbox_buttons(&harness)), 1);
+    assert_eq!(panel(&harness, "toolbox").width(), narrow, "the width snapped back");
+
+    drag_toolbox_edge(&mut harness, 120.0);
+    let two = toolbox_buttons(&harness);
+    assert_eq!(columns(&two), 2, "{two:?}");
+    // Each group fills its rows left to right: Select stands alone, Wall
+    // and Slab share a row, then Fit and Orbit, then Plan/3D and Measure.
+    for (left, right) in [(1, 2), (3, 4), (5, 6)] {
+        assert_eq!(two[left].top(), two[right].top(), "{two:?}");
+        assert!(two[left].right() < two[right].left(), "{two:?}");
+    }
+    assert_eq!(two[0].left(), two[1].left());
+    assert!(two[0].bottom() <= two[1].top() && two[2].bottom() <= two[3].top());
+    assert!(panel(&harness, "toolbox").width() > narrow);
+
+    drag_toolbox_edge(&mut harness, -120.0);
+    assert_eq!(columns(&toolbox_buttons(&harness)), 1);
+    assert_eq!(panel(&harness, "toolbox").width(), narrow);
+}
+
+/// UI-015: the toolbox's columns persist in the preferences; a toolbox
+/// widened to two columns opens with two columns after a restart.
+#[test]
+fn the_toolbox_columns_survive_a_restart() {
+    let dir = data_dir("toolbox-restart");
+    let mut harness = harness_in(&dir, Preferences::default(), 1.0);
+    drag_toolbox_edge(&mut harness, 120.0);
+    assert_eq!(columns(&toolbox_buttons(&harness)), 2);
+    drop(harness);
+    let saved = Preferences::load(&DataDirs::at(&dir).preferences_file());
+    assert_eq!(saved.toolbox_columns, 2);
+    let harness = harness_in(&dir, saved, 1.0);
+    assert_eq!(columns(&toolbox_buttons(&harness)), 2);
+}
+
+/// The number of labels (not buttons) with the text `text`.
+fn labels(harness: &Harness<'static, ArchiCraftApp>, text: &str) -> usize {
+    harness.query_all(By::new().role(Role::Label).label(text)).count()
+}
+
+/// UI-011, UI-001: hovering the toolbox's Wall button shows a tooltip with
+/// the tool's name, its shortcut and its explanation; hovering a group's
+/// separator shows the group's name.
+#[test]
+fn the_toolbox_tooltips_name_the_tool_and_the_group() {
+    let mut harness = harness("toolbox-tooltips");
+    let explanation = tr!("cmd-tool-wall-desc");
+    let keys = harness.ctx.format_shortcut(&Binding::key(Key::W).shortcut());
+    assert_eq!(labels(&harness, "Wall"), 0, "the button has no text");
+    assert_eq!(labels(&harness, &explanation), 0);
+    toolbox_button(&harness, "Wall").hover();
+    harness.run_steps(4);
+    assert_eq!(labels(&harness, "Wall"), 1, "the tooltip's title");
+    assert_eq!(labels(&harness, &keys), 1, "the tooltip's shortcut");
+    assert_eq!(labels(&harness, &explanation), 1, "the tooltip's explanation");
+
+    // The separator of the Modelling group is its only node of that name.
+    assert_eq!(labels(&harness, "Modelling"), 1);
+    let separator = harness.get_by_label("Modelling").rect();
+    assert!(separator.height() < 12.0, "a thin separator: {separator:?}");
+    harness.hover_at(separator.center());
+    harness.run_steps(4);
+    assert_eq!(labels(&harness, "Modelling"), 2, "the separator's tooltip");
+}
+
+/// UI-001, NFR-USE-001: the toolbox's icon buttons keep their behaviour:
+/// their accessible names are the tool names, the selected tool's button is
+/// marked selected, a click selects its tool and the keyboard reaches them.
+#[test]
+fn the_toolbox_buttons_select_tools_by_click_and_keyboard() {
+    let mut harness = harness("toolbox-select");
+    for label in TOOLBOX_TOOLS {
+        toolbox_button(&harness, label);
+    }
+    let toggled =
+        |harness: &Harness<'static, ArchiCraftApp>, label| toolbox_button(harness, label).accesskit_node().toggled();
+    assert_eq!(toggled(&harness, "Select"), Some(Toggled::True));
+    assert_eq!(toggled(&harness, "Wall"), Some(Toggled::False));
+    toolbox_button(&harness, "Wall").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Wall);
+    assert_eq!(toggled(&harness, "Wall"), Some(Toggled::True));
+    assert_eq!(toggled(&harness, "Select"), Some(Toggled::False));
+
+    // The keyboard: the focused Slab button takes Space as a click.
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    toolbox_button(&harness, "Slab").focus();
+    harness.run_steps(1);
+    assert!(toolbox_button(&harness, "Slab").is_focused());
+    harness.key_press(Key::Space);
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Slab);
 }
 
 /// Invokes `id` on the active target as the command palette does.

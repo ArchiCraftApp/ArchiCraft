@@ -5,15 +5,15 @@
 //! from the effective keymap, so every place a command appears shows the
 //! same text and state.
 
-use egui::{Atom, Atoms, Button, Image, Response, RichText, Ui, Vec2};
+use egui::{Atom, Atoms, Button, Image, Response, RichText, Ui, Vec2, WidgetInfo, WidgetType};
 
 use crate::commands::{Binding, CommandCtx, CommandSpec, Enabled, Keymap};
 use crate::tr;
 
 /// The side of the toolbox's icons, in points.
 const TOOLBOX_ICON: f32 = 20.0;
-/// The size of a toolbox button, in points.
-const TOOLBOX_BUTTON: [f32; 2] = [88.0, 26.0];
+/// The side of a toolbox button, which is square, in points.
+pub const TOOLBOX_BUTTON: f32 = 32.0;
 
 /// The text of the first binding that runs `spec` under `keymap`, written by
 /// `keys`, if it has one.
@@ -22,13 +22,30 @@ pub fn shortcut_text(spec: &CommandSpec, keymap: &Keymap, keys: impl Fn(Binding)
 }
 
 /// The tooltip of a command (UI-011): its description and, when a key runs
-/// it, that key in brackets, such as "Draw walls by their reference line
-/// (W)".
+/// it, that key in brackets, such as "Measure distances along picked
+/// points and angles in working units, without changing the model (M)".
 pub fn tooltip_text(spec: &CommandSpec, keymap: &Keymap, keys: impl Fn(Binding) -> String) -> String {
     let description = spec.description();
     match shortcut_text(spec, keymap, keys) {
         Some(shortcut) => format!("{} ({shortcut})", description.trim_end_matches('.')),
         None => description,
+    }
+}
+
+/// The tooltip of a toolbar or toolbox button (UI-011): `title` in bold
+/// with the command's shortcut, then its description and, while it cannot
+/// run, the reason from the catalogue.
+pub fn titled_tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, title: &str) {
+    ui.set_max_width(ui.spacing().tooltip_width);
+    ui.horizontal(|ui| {
+        ui.strong(title);
+        if let Some(keys) = shortcut_text(spec, &cx.keymap, keys(ui)) {
+            ui.weak(keys);
+        }
+    });
+    ui.label(spec.description());
+    if let Enabled::No(reason) = spec.enabled_in(cx) {
+        ui.colored_label(ui.visuals().warn_fg_color, tr!(reason));
     }
 }
 
@@ -86,15 +103,25 @@ pub fn menu_item(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec) -> bool {
     clicked
 }
 
-/// A toolbox button of `spec` (UI-001): its icon and the short `label`,
-/// both at the button's left so the icons line up in a column, selected
-/// while the command is on. Returns true when clicked.
+/// A toolbox button of `spec` (UI-001): a square button with its icon and
+/// no text, selected while the command is on. The short `label` is its
+/// accessible name and the bold title of its tooltip, which adds the
+/// shortcut and the command's description (UI-011). Returns true when
+/// clicked.
 pub fn tool_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, label: &str) -> bool {
-    let mut atoms = icon_and_label(spec, TOOLBOX_ICON, label);
-    atoms.push_right(Atom::grow());
-    let button = Button::selectable(spec.checked_in(cx).unwrap_or(false), atoms).image_tint_follows_text_color(true);
-    let response = ui.add_enabled_ui(spec.enabled_in(cx).is_yes(), |ui| ui.add_sized(TOOLBOX_BUTTON, button));
-    with_tooltip(response.inner, ui, cx, spec).clicked()
+    let selected = spec.checked_in(cx).unwrap_or(false);
+    let enabled = spec.enabled_in(cx).is_yes();
+    let mut atoms = Atoms::default();
+    if let Some(icon) = &spec.icon {
+        atoms.push_right(Image::new(icon.clone()).fit_to_exact_size(Vec2::splat(TOOLBOX_ICON)));
+    }
+    let button = Button::selectable(selected, atoms).image_tint_follows_text_color(true);
+    let response = ui.add_enabled(enabled, |ui: &mut Ui| ui.add_sized(Vec2::splat(TOOLBOX_BUTTON), button));
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, selected, label));
+    response
+        .on_hover_ui(|ui| titled_tooltip(ui, cx, spec, label))
+        .on_disabled_hover_ui(|ui| titled_tooltip(ui, cx, spec, label))
+        .clicked()
 }
 
 /// A status-bar button of `spec` with the short `label`: a small button, or
@@ -152,13 +179,13 @@ mod tests {
             let wall = Registry::get().command(tools::WALL);
             assert_eq!(
                 tooltip_text(wall, &defaults, keys),
-                "Draw walls by their reference line (W)"
+                "Draw walls along their reference line in a length you choose. Thickness, height and material can be changed later (W)"
             );
             let mut rebound = Keymap::default();
             rebound.set(tools::WALL, vec![Binding::key(Key::W).shift()]);
             assert_eq!(
                 tooltip_text(wall, &rebound, keys),
-                "Draw walls by their reference line (Shift+W)"
+                "Draw walls along their reference line in a length you choose. Thickness, height and material can be changed later (Shift+W)"
             );
         });
     }
