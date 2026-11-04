@@ -42,8 +42,18 @@ impl SlabReference {
 /// A slab with a straight-edged outline and holes (SLB-001…003).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Slab {
-    /// The outer ring, counter-clockwise, then the holes, clockwise, inside
-    /// it (SLB-003); validation orients the rings.
+    /// The outer ring, then the holes inside it (SLB-003). After
+    /// [`validate_slab`], which also runs on outlines loaded from IFCX and
+    /// the journal, the outline holds: at least one ring, the outer ring,
+    /// counter-clockwise, and the holes clockwise; every ring at least 3
+    /// nodes, cleaned and without touching edges; every hole inside the outer
+    /// ring, touching neither it nor another hole and not inside another
+    /// hole; at most [`MAX_SLAB_POINTS`] nodes in all, which keeps the ring
+    /// count within [`RingIndex`].
+    ///
+    /// [`validate_slab`]: crate::validate::validate_slab
+    /// [`MAX_SLAB_POINTS`]: crate::validate::MAX_SLAB_POINTS
+    /// [`RingIndex`]: crate::outline::RingIndex
     pub outline: Outline,
     pub thickness: f64,
     pub reference: SlabReference,
