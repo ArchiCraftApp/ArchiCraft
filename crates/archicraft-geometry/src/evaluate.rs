@@ -130,17 +130,22 @@ impl ModelGeometry {
 }
 
 /// Evaluates one element through its kind's generator. `footprint` is the
-/// junction-resolved footprint of a wall, if available. An element whose
-/// height is below the model tolerance (NFR-ACC-003) has no body. Validation
-/// keeps elements at least 1 mm high, and storey commands refuse to make a
-/// linked element lower (NFR-REL-005), but a storey list changed outside the
-/// commands can still shorten them, so such heights do reach this point
-/// (tests/storey.rs).
+/// junction-resolved footprint of a wall, if available. An element of a kind
+/// without a body, such as a text or a dimension, evaluates to an empty
+/// geometry without asking its generator: no part, no axis and no problem
+/// (ANN-002). An element whose height is below the model tolerance
+/// (NFR-ACC-003) has no body. Validation keeps elements at least 1 mm high,
+/// and storey commands refuse to make a linked element lower (NFR-REL-005),
+/// but a storey list changed outside the commands can still shorten them, so
+/// such heights do reach this point (tests/storey.rs).
 pub fn evaluate_element(
     project: &Project,
     element: &Element,
     footprint: Option<&Footprint>,
 ) -> Result<ElementGeometry, GeometryError> {
+    if !element.kind.descriptor().has_body {
+        return Ok(ElementGeometry::default());
+    }
     let ctx = EvalContext {
         project,
         element,

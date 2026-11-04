@@ -656,7 +656,9 @@ fn plan_transform_elements(
 /// fixed (STR-004).
 fn rehome(project: &Project, element: &Element, target: StoreyId, target_elevation: f64) -> Option<Element> {
     let mut moved = element.clone();
-    moved.kind.rehome(element.storey, &project.storeys, target_elevation)?;
+    moved
+        .kind
+        .rehome(element.storey, &project.storeys, target, target_elevation)?;
     moved.storey = target;
     Some(moved)
 }

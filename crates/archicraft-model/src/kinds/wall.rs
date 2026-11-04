@@ -159,6 +159,8 @@ impl Kind for Wall {
         ifc_classes: IfcClass::WALL_CLASSES,
         predefined_types: PredefinedType::for_class,
         has_tool: true,
+        has_body: true,
+        ifcx_node: true,
         template_defaults: Some(template_defaults),
     };
 
@@ -170,7 +172,7 @@ impl Kind for Wall {
         self.material = material;
     }
 
-    fn validate(&self, storeys: &StoreyList) -> Result<Self, Message> {
+    fn validate(&self, _home: StoreyId, storeys: &StoreyList) -> Result<Self, Message> {
         validate::validate_wall(self)?;
         if self.link().missing_storey(storeys).is_some() {
             return Err(Message::new("model-error-wall-top-storey-missing"));
@@ -199,7 +201,7 @@ impl Kind for Wall {
         self.link().storey_links()
     }
 
-    fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target_elevation: f64) -> Option<()> {
+    fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, _target: StoreyId, target_elevation: f64) -> Option<()> {
         self.change_link(|link| link.rehome(home, storeys, target_elevation))
     }
 

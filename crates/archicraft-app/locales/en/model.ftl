@@ -64,6 +64,13 @@ model-kind-test-noun = { $count ->
         [one] test element
        *[other] test elements
     }
+# The body-less test kind of the model's test builds; never shown in a
+# release.
+model-kind-test-annotation = Test annotation
+model-kind-test-annotation-noun = { $count ->
+        [one] test annotation
+       *[other] test annotations
+    }
 
 ## Command errors (CommandError::message), shown in the status line after
 ## the command label. Lengths ($min, $max) are formatted in the project
@@ -141,6 +148,10 @@ model-error-ifc-class-not-allowed = { $class } is not an allowed IFC class for a
 model-error-predefined-type-not-allowed = { $type } is not a predefined type of { $class }.
 model-error-vertical-extent = The element's vertical extent cannot be determined.
 model-error-top-below-base = The top of the element must be above its base.
+# A 2D element (text, dimension) belongs to the plan view of its home
+# storey; $view and $home are storey names.
+model-error-view-storey-missing = The storey of the element's view does not exist.
+model-error-view-not-home-storey = The element is in the plan view of { $view }, but 2D elements belong to the plan view of their own storey, { $home }.
 
 ## Storeys (STR-001…006).
 

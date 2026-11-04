@@ -10,11 +10,11 @@ use std::fs;
 use std::path::Path;
 
 use archicraft_geometry::kinds::GENERATORS;
-use archicraft_geometry::{ModelGeometry, ViewRange, plan_drawing};
+use archicraft_geometry::{ElementGeometry, ModelGeometry, ViewRange, plan_drawing};
 use archicraft_model::glam::DVec2;
-use archicraft_model::kinds::Dummy;
+use archicraft_model::kinds::{Dummy, Note};
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Command, Element, History, KindTag, Message, Project, TopLink};
+use archicraft_model::{Command, Element, ElementId, History, KindTag, Message, Project, TopLink, samples};
 
 /// Elements of `kind` on the ground storey: one of each shape the kind
 /// has, a simple and a compound test element for the test kind. A new kind
@@ -39,6 +39,7 @@ fn sample_elements(p: &Project, kind: KindTag) -> Vec<Element> {
             compound.parts = true;
             vec![simple.into_element(p, g, 0), compound.into_element(p, g, 1)]
         }
+        KindTag::Note => vec![Note::new(g, DVec2::new(1.0, 1.0), "Hall").into_element(p, g, 0)],
         other => panic!("no sample element for the kind {other:?}: add one to sample_elements"),
     }
 }
@@ -227,4 +228,60 @@ fn a_material_less_test_element_evaluates_without_a_cut_region() {
     let drawn = plan.elements.iter().find(|e| e.id == low_id).unwrap();
     assert!(drawn.cut.is_empty());
     assert!(!drawn.projected.is_empty());
+}
+
+/// ANN-002: notes, the body-less test kind standing in for texts and
+/// dimensions, evaluate to an empty geometry (no body, no axis, no parts)
+/// without a problem, on the ground storey and on an upper storey alike,
+/// while a wall beside them keeps its body; the plan slices nothing of them
+/// and lists them among no drawn elements.
+#[test]
+fn notes_evaluate_to_no_body_and_appear_in_no_plan() {
+    let mut p = samples::two_storey_shell();
+    let mut h = History::default();
+    let g = p.storeys.ground();
+    let upper = p.storeys.relative(g, 1).unwrap().id;
+    let notes = vec![
+        Note::new(g, DVec2::new(2.0, 2.0), "Kitchen").into_element(&p, g, 0),
+        Note::new(upper, DVec2::new(3.0, 1.0), "Bedroom").into_element(&p, upper, 1),
+    ];
+    let ids: Vec<ElementId> = notes.iter().map(|e| e.id).collect();
+    h.execute(&mut p, Command::AddElements(notes)).unwrap();
+
+    let geometry = ModelGeometry::evaluate(&p);
+    assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+    for id in &ids {
+        assert_eq!(geometry.get(*id), Some(&ElementGeometry::default()), "{id}");
+        assert_eq!(geometry.get(*id).unwrap().bounds(), None);
+    }
+    assert!(p.elements.values().any(|e| e.as_wall().is_some()));
+    for wall in p.elements.values().filter(|e| e.as_wall().is_some()) {
+        assert!(!geometry.get(wall.id).unwrap().parts.is_empty(), "{}", wall.name);
+    }
+
+    for storey in [g, upper] {
+        let plan = plan_drawing(&p, &geometry, storey, ViewRange::for_storey(&p, storey), |_| true);
+        assert!(!plan.elements.is_empty(), "the walls are drawn");
+        assert!(
+            plan.elements.iter().all(|e| !ids.contains(&e.id)),
+            "{:?}",
+            plan.elements
+        );
+        let without: Project = {
+            let mut q = p.clone();
+            q.elements.retain(|id, _| !ids.contains(id));
+            q
+        };
+        let reference = plan_drawing(
+            &without,
+            &ModelGeometry::evaluate(&without),
+            storey,
+            ViewRange::for_storey(&without, storey),
+            |_| true,
+        );
+        assert_eq!(plan.cut_regions.len(), reference.cut_regions.len());
+        for (with, without) in plan.cut_regions.iter().zip(&reference.cut_regions) {
+            assert_eq!(with.polygons, without.polygons, "the notes add no cut region");
+        }
+    }
 }

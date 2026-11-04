@@ -21,11 +21,13 @@
 //! The base and top of vertical kinds is a shared [`VerticalLink`] (ELM-006),
 //! and plan moves, rotations and mirrors go through [`Kind::transform`].
 //!
-//! # The test kind
+//! # The test kinds
 //!
-//! One kind exists only for tests, behind the cargo feature `test-kinds`: it
-//! proves that a kind is one module plus one line in the list below, and it
-//! exercises the paths other crates take for kinds they do not know yet. The
+//! Two kinds exist only for tests, behind the cargo feature `test-kinds`:
+//! they prove that a kind is one module plus one line in the list below, and
+//! they exercise the paths other crates take for kinds they do not know yet.
+//! One is a box with a body, the other a body-less kind bound to a drafting
+//! view, as texts and dimensions will be (ANN-002, ANN-010). The
 //! feature is enabled through dev-dependencies, for this crate's own tests by
 //! a dev-dependency on itself. Cargo (resolver 2 and later) activates the
 //! features of dev-dependencies only in builds of tests, examples and
@@ -79,6 +81,18 @@ pub struct KindDescriptor {
     /// Whether a drawing tool creates this kind. The name counters of such
     /// kinds are always written to files.
     pub has_tool: bool,
+    /// Whether the kind's elements have a 3D body. Texts, 2D drafting
+    /// elements, markers and dimensions have none: they belong to a
+    /// [`DraftingView`](crate::drafting_view::DraftingView) of their home
+    /// storey (ANN-002), their vertical extent has zero height at the
+    /// storey's elevation, their geometry is empty, and the 3D views skip
+    /// them. Consumers test this flag, never a list of kinds.
+    pub has_body: bool,
+    /// Whether the kind's elements are written as IFCX nodes. False for
+    /// texts, markers and dimensions, which are stored in the ArchiCraft
+    /// namespace only (ANN-010, SRS 3.2), while 2D drafting kinds are nodes
+    /// without a body (`IfcAnnotation`, Table 5-1).
+    pub ifcx_node: bool,
     /// The tool's defaults in the template (ELM-001, Appendix D.2), with
     /// the kind's default class (ELM-011); `None` for a kind without tool
     /// defaults. Every kind with template defaults has a slot in
@@ -136,11 +150,12 @@ pub trait Kind: Sized {
     /// Replaces the material; does nothing for a kind without one.
     fn set_material(&mut self, _material: MaterialId) {}
 
-    /// Range checks (ELM-017, NFR-REL-005) and references to storeys.
-    /// Returns the payload with normalised geometry, for example polygons
-    /// cleaned and oriented (EDT-018). Errors are message keys
-    /// (NFR-L10N-001).
-    fn validate(&self, storeys: &StoreyList) -> Result<Self, Message>;
+    /// Range checks (ELM-017, NFR-REL-005) and references to storeys, for
+    /// an element on `home`, such as the binding of a 2D element to a view
+    /// of its home storey (ANN-002). Returns the payload with normalised
+    /// geometry, for example polygons cleaned and oriented (EDT-018). Errors
+    /// are message keys (NFR-L10N-001).
+    fn validate(&self, home: StoreyId, storeys: &StoreyList) -> Result<Self, Message>;
 
     /// Moves, rotates or mirrors the element in plan (EDT-001…EDT-003).
     /// Every kind supports translations. A kind that cannot represent the
@@ -160,17 +175,18 @@ pub trait Kind: Sized {
         Vec::new()
     }
 
-    /// Re-expresses the element for a new home storey at
+    /// Re-expresses the element for the new home storey `target` at
     /// `target_elevation`, keeping its absolute position; storey links become
-    /// fixed values (STR-004: moving the elements of a deleted storey).
-    /// `None`, leaving the element unchanged, if a storey is missing.
-    fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target_elevation: f64) -> Option<()>;
+    /// fixed values (STR-004: moving the elements of a deleted storey), and
+    /// a 2D element moves to the same view of `target` (ANN-002). `None`,
+    /// leaving the element unchanged, if a storey is missing.
+    fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target: StoreyId, target_elevation: f64) -> Option<()>;
 
     /// Re-expresses the element for the new home storey `target`, keeping
     /// its absolute position and its links to other storeys (ELM-005).
     fn relink(&mut self, home: StoreyId, storeys: &StoreyList, target: StoreyId) -> Option<()> {
         let target_elevation = storeys.get(target)?.elevation;
-        self.rehome(home, storeys, target_elevation)
+        self.rehome(home, storeys, target, target_elevation)
     }
 
     /// Replaces links to `storey`, which is about to be deleted, by fixed
@@ -302,9 +318,9 @@ macro_rules! kinds {
             }
 
             /// See [`Kind::validate`].
-            pub fn validate(&self, storeys: &StoreyList) -> Result<ElementKind, Message> {
+            pub fn validate(&self, home: StoreyId, storeys: &StoreyList) -> Result<ElementKind, Message> {
                 match self {
-                    $($(#[$meta])* ElementKind::$Payload(k) => k.validate(storeys).map(ElementKind::$Payload),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.validate(home, storeys).map(ElementKind::$Payload),)+
                 }
             }
 
@@ -330,9 +346,9 @@ macro_rules! kinds {
             }
 
             /// See [`Kind::rehome`].
-            pub fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target_elevation: f64) -> Option<()> {
+            pub fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target: StoreyId, target_elevation: f64) -> Option<()> {
                 match self {
-                    $($(#[$meta])* ElementKind::$Payload(k) => k.rehome(home, storeys, target_elevation),)+
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.rehome(home, storeys, target, target_elevation),)+
                 }
             }
 
@@ -386,6 +402,7 @@ kinds! {
     wall => Wall (as_wall, as_wall_mut),
     slab => Slab (as_slab, as_slab_mut),
     #[cfg(feature = "test-kinds")] dummy => Dummy (as_dummy, as_dummy_mut),
+    #[cfg(feature = "test-kinds")] note => Note (as_note, as_note_mut),
 }
 
 impl KindTag {

@@ -112,9 +112,10 @@ fn every_class_has_a_model_label_key() {
     assert_eq!(keys.len(), IfcClass::ALL.len());
 }
 
-/// ELM-011: the named class sets are the SRS's sub-bullets, and the wall and
-/// slab descriptors select from theirs; every kind selects from one of the
-/// named sets and defaults to the Table 5-1 class of its kind.
+/// ELM-011: the named class sets are the SRS's sub-bullets plus the Table
+/// 5-1 class of annotations, and the wall and slab descriptors select from
+/// theirs; every kind selects from one of the named sets and defaults to the
+/// Table 5-1 class of its kind.
 #[test]
 fn elm_011_class_sets_match_the_srs() {
     use IfcClass::*;
@@ -133,14 +134,20 @@ fn elm_011_class_sets_match_the_srs() {
         // The test kind stands in for free-form solids and objects.
         assert_eq!(KindTag::Dummy.ifc_classes(), IfcClass::SELECTABLE_D5);
         assert_eq!(KindTag::Dummy.descriptor().default_class, BuildingElementProxy);
+        // The body-less test kind stands in for texts and dimensions.
+        assert_eq!(KindTag::Note.ifc_classes(), IfcClass::ANNOTATION_CLASSES);
+        assert_eq!(KindTag::Note.descriptor().default_class, Annotation);
     }
+    // Table 5-1: 2D construction geometry and annotations.
+    assert_eq!(IfcClass::ANNOTATION_CLASSES, [Annotation]);
     // Every kind selects from one of the named sets, never a list of its own.
-    let named: [&[IfcClass]; 5] = [
+    let named: [&[IfcClass]; 6] = [
         IfcClass::WALL_CLASSES,
         IfcClass::SLAB_CLASSES,
         IfcClass::BEAM_CLASSES,
         IfcClass::COLUMN_CLASSES,
         &IfcClass::SELECTABLE_D5,
+        IfcClass::ANNOTATION_CLASSES,
     ];
     for &kind in KindTag::ALL {
         assert!(

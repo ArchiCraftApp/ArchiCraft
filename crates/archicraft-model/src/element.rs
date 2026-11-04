@@ -126,6 +126,10 @@ impl IfcClass {
     /// ELM-011: the classes selectable for columns.
     pub const COLUMN_CLASSES: &'static [IfcClass] = &[IfcClass::Column, IfcClass::Member];
 
+    /// Table 5-1, ANN-010: the class of 2D construction geometry and
+    /// annotations.
+    pub const ANNOTATION_CLASSES: &'static [IfcClass] = &[IfcClass::Annotation];
+
     /// IFX-016, Table 5-1: the classes of the parts of stairs, railings,
     /// curtain walls and multi-plane roofs.
     pub const COMPOUND_PART_CLASSES: &'static [CompoundPart] = &[

@@ -4137,7 +4137,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "2D elements owned by a view and a layer; usable as tracing input and trim/split cutters.",
+      "gap": "No 2D element kind exists yet (texts archicraft-u4vm.2, 2D drafting kinds archicraft-j47m), and none acts as tracing input or as a trim/split cutter. The view membership they will use exists: a kind without a body (KindDescriptor::has_body, crates/archicraft-model/src/kinds/mod.rs) belongs to a DraftingView of its home storey (crates/archicraft-model/src/drafting_view.rs), checked on every edit, rebound when the element moves to another storey, evaluated to no geometry and skipped by the plan cut and the 3D views; tests use the body-less test kind (crates/archicraft-model/tests/drafting_view.rs).",
       "depends_on": []
     },
     {

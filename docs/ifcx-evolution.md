@@ -86,7 +86,7 @@ optional and not done yet; the code is ready for it:
 - `alpha::schema::document(timestamp)` (`crates/archicraft-ifcx/src/alpha/schema.rs`) is a
   standalone, schema-only IFCX document in the shape of the bundled standard schemas: the
   declarations of `schema::declarations(…)` for every kind a release stores (`kinds::published`;
-  the test kind of test builds is left out), no imports, no data, `header.id` `archicraft` and
+  the test kinds of test builds are left out), no imports, no data, `header.id` `archicraft` and
   `header.dataVersion` the `FORMAT_VERSION` it describes.
 - The example `archicraft_schema` writes it, indented:
   `cargo run -p archicraft-ifcx --example archicraft_schema -- archicraft@v1.ifcx <timestamp>`.

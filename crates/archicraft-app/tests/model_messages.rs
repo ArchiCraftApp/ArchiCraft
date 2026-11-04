@@ -145,6 +145,7 @@ fn error_representatives() -> Vec<Message> {
         "model-error-element-material-missing",
         "model-error-vertical-extent",
         "model-error-top-below-base",
+        "model-error-view-storey-missing",
         "model-error-no-storeys",
         "model-error-ground-not-in-list",
         "model-error-storey-name",
@@ -217,6 +218,9 @@ fn error_representatives() -> Vec<Message> {
             .text("upper", "01")
             .length("min", 0.01),
         Message::new("model-error-storey-invalid-values").text("name", "00"),
+        Message::new("model-error-view-not-home-storey")
+            .text("view", "01")
+            .text("home", "00"),
         Message::new("model-error-storey-cut-plane")
             .text("name", "00")
             .length("max", 100.0),

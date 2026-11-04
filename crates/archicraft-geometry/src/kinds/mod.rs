@@ -12,7 +12,7 @@
 //! classes and the part bodies by role.
 //!
 //! A registry of its own, because the model must not depend on geometry
-//! (NFR-MNT-002, NFR-MNT-004). Test builds register the test kind too (cargo
+//! (NFR-MNT-002, NFR-MNT-004). Test builds register the test kinds too (cargo
 //! feature `test-kinds`), so nothing outside this module iterates the table
 //! to produce output that reaches golden files.
 //!
@@ -118,4 +118,5 @@ generators! {
     wall => Wall,
     slab => Slab,
     #[cfg(feature = "test-kinds")] dummy => Dummy,
+    #[cfg(feature = "test-kinds")] note => Note,
 }

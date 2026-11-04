@@ -84,10 +84,15 @@ pub fn model_bounds(project: &Project, geometry: &ModelGeometry, ids: Option<&[E
         .reduce(|(a, b), (c, d)| (a.min(c), b.max(d)))
 }
 
-/// The nearest visible element under a pick ray and the hit point.
+/// The nearest visible element under a pick ray and the hit point. Elements
+/// of kinds without a body are never picked in 3D (ANN-002).
 pub fn pick(project: &Project, geometry: &ModelGeometry, origin: DVec3, dir: DVec3) -> Option<(ElementId, DVec3)> {
     let mut best: Option<(f64, ElementId)> = None;
-    for element in project.elements.values().filter(|e| project.is_visible(e)) {
+    for element in project
+        .elements
+        .values()
+        .filter(|e| e.kind.descriptor().has_body && project.is_visible(e))
+    {
         let (Some(storey), Some(g)) = (project.storeys.get(element.storey), geometry.get(element.id)) else {
             continue;
         };
@@ -337,5 +342,35 @@ mod tests {
 
         let (_, hi) = model_bounds(&project, &geometry, Some(&[id])).unwrap();
         assert!((hi.z - (elevation + 1.5)).abs() < 1e-9, "{hi}");
+    }
+
+    /// ANN-002: a ray never picks an element whose kind has no body (the
+    /// body-less test kind), by the descriptor's flag: even where a geometry
+    /// wrongly carries a box for it, the ray passes on to the box behind.
+    #[test]
+    fn a_ray_never_picks_a_kind_without_a_body() {
+        use archicraft_model::kinds::Note;
+
+        let mut project = default_metric_project();
+        let storey = project.storeys.ground();
+        let material = project.materials[0].id;
+        let near = Dummy::new(DVec2::new(1.0, 1.0), DVec2::ONE, material).into_element(&project, storey, 0);
+        let far = Dummy::new(DVec2::new(5.0, 1.0), DVec2::ONE, material).into_element(&project, storey, 1);
+        let note = Note::new(storey, DVec2::new(1.5, 1.5), "Shaft").into_element(&project, storey, 0);
+        let (near_id, far_id, note_id) = (near.id, far.id, note.id);
+        History::default()
+            .execute(&mut project, Command::AddElements(vec![near, far, note]))
+            .unwrap();
+        let mut geometry = ModelGeometry::evaluate(&project);
+        assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+        let ray = |project: &Project, geometry: &ModelGeometry| {
+            pick(project, geometry, DVec3::new(-10.0, 1.5, 0.5), DVec3::X).map(|(hit, _)| hit)
+        };
+        assert_eq!(ray(&project, &geometry), Some(near_id));
+
+        // The note now has the near box's body, and the near box none.
+        let a_box = geometry.elements.remove(&near_id).unwrap();
+        geometry.elements.insert(note_id, a_box);
+        assert_eq!(ray(&project, &geometry), Some(far_id));
     }
 }

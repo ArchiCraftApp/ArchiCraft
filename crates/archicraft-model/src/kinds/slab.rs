@@ -111,6 +111,8 @@ impl Kind for Slab {
         ifc_classes: IfcClass::SLAB_CLASSES,
         predefined_types: PredefinedType::for_class,
         has_tool: true,
+        has_body: true,
+        ifcx_node: true,
         template_defaults: Some(template_defaults),
     };
 
@@ -123,7 +125,7 @@ impl Kind for Slab {
     }
 
     /// Normalises the outline and holes (EDT-018).
-    fn validate(&self, _storeys: &StoreyList) -> Result<Self, Message> {
+    fn validate(&self, _home: StoreyId, _storeys: &StoreyList) -> Result<Self, Message> {
         validate::validate_slab(self)
     }
 
@@ -145,7 +147,7 @@ impl Kind for Slab {
         })
     }
 
-    fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target_elevation: f64) -> Option<()> {
+    fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, _target: StoreyId, target_elevation: f64) -> Option<()> {
         let home = storeys.get(home)?.elevation;
         self.offset = home + self.offset - target_elevation;
         Some(())
