@@ -31,8 +31,21 @@ jobs:
   test:
     name: Test (ubuntu-24.04)
     runs-on: ubuntu-24.04
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v4
+      - name: Disk space at the start (measurement)
+        run: scripts/ci-disk-space.sh "at the start"
+      - name: Free disk space (measurement)
+        run: |
+          for d in /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift; do
+            a="$(df -BM --output=avail / | tail -n 1 | tr -dc 0-9)"; t0="$(date +%s.%N)"
+            sudo rm -rf "$d"
+            b="$(df -BM --output=avail / | tail -n 1 | tr -dc 0-9)"; t1="$(date +%s.%N)"
+            echo "MEASURE $d: $((b - a)) MiB freed in $(awk -v a="$t0" -v b="$t1" 'BEGIN { printf "%.1f", b - a }') s"
+          done
+          scripts/ci-disk-space.sh "after freeing"
       - name: Install the pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
