@@ -6,9 +6,9 @@
 //! anchor point when the text grows. Both types are plain data; the views
 //! lay the text out.
 //!
-//! Like the other model enums they keep serde's default variant names, and
-//! files store them through [`TextAlign::code`] and [`AnchorPos::code`], so
-//! renaming a variant never changes a file.
+//! Like the other model enums they keep serde's default variant names. Files
+//! are to store them through [`TextAlign::code`] and [`AnchorPos::code`]
+//! (nothing writes them yet), so renaming a variant never changes a file.
 
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +24,7 @@ pub enum TextAlign {
 impl TextAlign {
     pub const ALL: [TextAlign; 3] = [TextAlign::Left, TextAlign::Center, TextAlign::Right];
 
-    /// The name stored in files.
+    /// The name files are to store.
     pub fn code(self) -> &'static str {
         match self {
             TextAlign::Left => "left",
@@ -70,7 +70,7 @@ impl AnchorPos {
         AnchorPos::BottomRight,
     ];
 
-    /// The name stored in files.
+    /// The name files are to store.
     pub fn code(self) -> &'static str {
         match self {
             AnchorPos::TopLeft => "top_left",
