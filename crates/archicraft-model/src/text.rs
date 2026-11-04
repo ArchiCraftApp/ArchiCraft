@@ -5,12 +5,15 @@
 //! anchor position: the point of the text block that stays on the text's
 //! anchor point when the text grows. Both types are plain data; the views
 //! lay the text out.
+//!
+//! Like the other model enums they keep serde's default variant names, and
+//! files store them through [`TextAlign::code`] and [`AnchorPos::code`], so
+//! renaming a variant never changes a file.
 
 use serde::{Deserialize, Serialize};
 
 /// How the lines of a text block line up with each other (ANN-007).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum TextAlign {
     #[default]
     Left,
@@ -18,12 +21,28 @@ pub enum TextAlign {
     Right,
 }
 
+impl TextAlign {
+    pub const ALL: [TextAlign; 3] = [TextAlign::Left, TextAlign::Center, TextAlign::Right];
+
+    /// The name stored in files.
+    pub fn code(self) -> &'static str {
+        match self {
+            TextAlign::Left => "left",
+            TextAlign::Center => "center",
+            TextAlign::Right => "right",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.code() == code)
+    }
+}
+
 /// The point of a text block that sits on the text's anchor point (ANN-007):
 /// a corner, the midpoint of an edge or the centre of the block. It stays in
 /// place when the text grows, so a text anchored at a top position grows
 /// downwards and one anchored at a bottom position grows upwards.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum AnchorPos {
     TopLeft,
     TopCenter,
@@ -50,6 +69,25 @@ impl AnchorPos {
         AnchorPos::BottomCenter,
         AnchorPos::BottomRight,
     ];
+
+    /// The name stored in files.
+    pub fn code(self) -> &'static str {
+        match self {
+            AnchorPos::TopLeft => "top_left",
+            AnchorPos::TopCenter => "top_center",
+            AnchorPos::TopRight => "top_right",
+            AnchorPos::MiddleLeft => "middle_left",
+            AnchorPos::Center => "center",
+            AnchorPos::MiddleRight => "middle_right",
+            AnchorPos::BottomLeft => "bottom_left",
+            AnchorPos::BottomCenter => "bottom_center",
+            AnchorPos::BottomRight => "bottom_right",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.code() == code)
+    }
 
     /// Where the position lies across the block's width: 0 at the left edge,
     /// 0.5 in the middle, 1 at the right edge.
@@ -83,30 +121,43 @@ mod tests {
         assert_eq!(AnchorPos::default(), AnchorPos::BottomLeft);
     }
 
-    /// ANN-007: the settings serialise under stable snake-case names.
+    /// ANN-007: files store the settings under stable snake-case codes,
+    /// which read back to the same value; unknown codes read as nothing.
     #[test]
-    fn serde_names_are_snake_case() {
-        let align = [TextAlign::Left, TextAlign::Center, TextAlign::Right];
-        let names: Vec<String> = align.iter().map(|a| serde_json::to_string(a).unwrap()).collect();
-        assert_eq!(names, ["\"left\"", "\"center\"", "\"right\""]);
-        let names: Vec<String> = AnchorPos::ALL
-            .iter()
-            .map(|a| serde_json::to_string(a).unwrap())
-            .collect();
+    fn codes_are_snake_case_and_round_trip() {
+        let codes: Vec<&str> = TextAlign::ALL.iter().map(|a| a.code()).collect();
+        assert_eq!(codes, ["left", "center", "right"]);
+        let codes: Vec<&str> = AnchorPos::ALL.iter().map(|a| a.code()).collect();
         assert_eq!(
-            names,
+            codes,
             [
-                "\"top_left\"",
-                "\"top_center\"",
-                "\"top_right\"",
-                "\"middle_left\"",
-                "\"center\"",
-                "\"middle_right\"",
-                "\"bottom_left\"",
-                "\"bottom_center\"",
-                "\"bottom_right\"",
+                "top_left",
+                "top_center",
+                "top_right",
+                "middle_left",
+                "center",
+                "middle_right",
+                "bottom_left",
+                "bottom_center",
+                "bottom_right",
             ]
         );
+        for align in TextAlign::ALL {
+            assert_eq!(TextAlign::from_code(align.code()), Some(align));
+        }
+        for anchor in AnchorPos::ALL {
+            assert_eq!(AnchorPos::from_code(anchor.code()), Some(anchor));
+        }
+        assert_eq!(TextAlign::from_code("Left"), None);
+        assert_eq!(AnchorPos::from_code("middle"), None);
+    }
+
+    /// ANN-007: serde keeps the default variant names, as the other model
+    /// enums do.
+    #[test]
+    fn serde_uses_the_default_variant_names() {
+        assert_eq!(serde_json::to_string(&TextAlign::Center).unwrap(), "\"Center\"");
+        assert_eq!(serde_json::to_string(&AnchorPos::BottomLeft).unwrap(), "\"BottomLeft\"");
         for anchor in AnchorPos::ALL {
             let json = serde_json::to_string(&anchor).unwrap();
             assert_eq!(serde_json::from_str::<AnchorPos>(&json).unwrap(), anchor);
