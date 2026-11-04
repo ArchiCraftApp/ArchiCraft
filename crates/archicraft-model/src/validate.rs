@@ -342,7 +342,7 @@ pub fn validate_prototype(project: &Project, element: &Element) -> Result<Elemen
     if project.layer(element.layer).is_none() {
         return Err(Message::new("model-error-element-layer-missing"));
     }
-    if project.material(element.kind.material()).is_none() {
+    if element.kind.material().is_some_and(|m| project.material(m).is_none()) {
         return Err(Message::new("model-error-element-material-missing"));
     }
     // ELM-011: the class must be one of the kind's selectable classes.

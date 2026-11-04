@@ -103,6 +103,9 @@ impl SceneData {
 
 pub const SELECTION_COLOR: [f32; 4] = [0.15, 0.45, 0.95, 1.0];
 const HOVER_TINT: f32 = 0.35;
+/// The appearance of a body without a material, like a space (SPC-001):
+/// light blue-grey and translucent, so that it never hides what it holds.
+pub const MATERIAL_LESS_APPEARANCE: [f32; 4] = [0.72, 0.79, 0.86, 0.25];
 const EDGE_COLOR: [f32; 4] = [0.12, 0.12, 0.14, 1.0];
 
 fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
@@ -141,9 +144,23 @@ pub fn build_scene(
         let selected = selection.contains(&element.id);
         let hovered = hover == Some(element.id);
         for part in g.bodies() {
-            let material = project.material(part.material);
-            let rgb = material.map_or([0.7, 0.7, 0.7], |m| m.color.0.map(|c| c as f32));
-            let opacity = material.map_or(1.0, |m| m.opacity as f32);
+            let (rgb, opacity) = match part.material {
+                None => (
+                    [
+                        MATERIAL_LESS_APPEARANCE[0],
+                        MATERIAL_LESS_APPEARANCE[1],
+                        MATERIAL_LESS_APPEARANCE[2],
+                    ],
+                    MATERIAL_LESS_APPEARANCE[3],
+                ),
+                Some(id) => {
+                    let material = project.material(id);
+                    (
+                        material.map_or([0.7, 0.7, 0.7], |m| m.color.0.map(|c| c as f32)),
+                        material.map_or(1.0, |m| m.opacity as f32),
+                    )
+                }
+            };
             let rgb = if selected {
                 [SELECTION_COLOR[0], SELECTION_COLOR[1], SELECTION_COLOR[2]]
             } else if hovered {
@@ -667,6 +684,39 @@ mod tests {
         // The parts are 0.5 m high on top of the 1 m box.
         let (_, hi) = scene.bounds.unwrap();
         assert!((hi.z - 1.5).abs() < 1e-9, "{hi}");
+    }
+
+    /// SPC-001 (preparation): a body without a material (the test kind
+    /// without one) goes into the transparent batch in the neutral
+    /// appearance, all of its triangles and nothing else of it.
+    #[test]
+    fn a_material_less_body_is_drawn_translucent_in_the_neutral_appearance() {
+        use archicraft_model::glam::DVec2;
+        use archicraft_model::kinds::Dummy;
+        use archicraft_model::template::default_metric_project;
+        use archicraft_model::{Command, History};
+
+        let mut project = default_metric_project();
+        let storey = project.storeys.ground();
+        let dummy = Dummy::without_material(DVec2::ZERO, DVec2::new(2.0, 1.0)).into_element(&project, storey, 0);
+        let id = dummy.id;
+        History::default()
+            .execute(&mut project, Command::AddElements(vec![dummy]))
+            .unwrap();
+        let geometry = ModelGeometry::evaluate(&project);
+        assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+        let triangles: usize = geometry
+            .get(id)
+            .unwrap()
+            .bodies()
+            .map(|p| p.mesh.triangle_count())
+            .sum();
+        assert!(triangles > 0);
+
+        let scene = build_scene(&project, &geometry, &HashSet::new(), None);
+        assert!(scene.opaque.is_empty());
+        assert_eq!(scene.transparent.len(), triangles * 3);
+        assert!(scene.transparent.iter().all(|v| v.color == MATERIAL_LESS_APPEARANCE));
     }
 
     #[test]

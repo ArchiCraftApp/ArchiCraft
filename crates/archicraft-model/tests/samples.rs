@@ -86,7 +86,7 @@ fn the_template_takes_identities_from_the_source() {
     let ids: HashSet<Uuid> = (1..=n).map(Uuid::from_u128).collect();
     assert!(identities(&p).iter().all(|id| ids.contains(id)));
     for (_, slot) in p.tool_defaults.iter() {
-        assert!(p.material(slot.kind.material()).is_some());
+        assert!(p.material(slot.kind.material().unwrap()).is_some());
         assert!(p.layer(slot.layer).is_some());
     }
     // Without a source, every project still gets new random identities.

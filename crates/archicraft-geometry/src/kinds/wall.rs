@@ -66,7 +66,7 @@ impl GeometryKind for Wall {
         Ok(ElementGeometry {
             parts: vec![BodyPart {
                 name: "Body".to_owned(),
-                material: self.material,
+                material: Some(self.material),
                 mesh,
             }],
             axis: vec![self.start.extend(bottom), self.end.extend(bottom)],

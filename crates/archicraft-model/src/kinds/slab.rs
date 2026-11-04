@@ -112,8 +112,8 @@ impl Kind for Slab {
         template_defaults: Some(template_defaults),
     };
 
-    fn material(&self) -> MaterialId {
-        self.material
+    fn material(&self) -> Option<MaterialId> {
+        Some(self.material)
     }
 
     fn set_material(&mut self, material: MaterialId) {

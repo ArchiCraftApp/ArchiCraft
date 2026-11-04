@@ -15,7 +15,7 @@ impl GeometryKind for Slab {
         Ok(ElementGeometry {
             parts: vec![BodyPart {
                 name: "Body".to_owned(),
-                material: self.material,
+                material: Some(self.material),
                 mesh,
             }],
             axis: Vec::new(),

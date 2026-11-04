@@ -140,11 +140,16 @@ fn snap_excluded() -> Value {
 
 /// A tool's defaults slot (ELM-001): the kind's parameters from its codec,
 /// then the common members (the material a string here, a reference on the
-/// element).
+/// element, and optional for a kind that may have none).
 fn defaults_slot(codec: &dyn Codec) -> Value {
     let mut fields = codec.slot_schema();
+    let material = if codec.optional_material() {
+        optional(string())
+    } else {
+        string()
+    };
     fields.extend([
-        ("material", string()),
+        ("material", material),
         ("layer", string()),
         ("position", positions()),
         ("ifcClass", string()),

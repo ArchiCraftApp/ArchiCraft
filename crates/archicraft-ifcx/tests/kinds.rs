@@ -282,3 +282,84 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
         p.tool_defaults.get(KindTag::Slab)
     );
 }
+
+/// The ids of the material nodes in `file`: the nodes with a diffuse colour.
+fn material_nodes(file: &Value) -> Vec<String> {
+    file["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["attributes"].get("bsi::ifc::presentation::diffuseColor").is_some())
+        .map(|n| n["path"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// SPC-001, ANN-007 (preparation): a project with a test element and a
+/// defaults slot without a material round-trips its elements equal; the
+/// element's Body has no material inherit, its attribute and the slot no
+/// material member, the written material list equals that of the project
+/// without them and the file is valid. The only problem is the slot's
+/// unknown tool, as for any slot of a kind without template defaults; a
+/// material-less slot read through a template is tested in the reader.
+#[test]
+fn a_material_less_dummy_round_trips_without_a_material() {
+    let plain = samples::storey_with_walls_and_slab();
+    let mut p = plain.clone();
+    let ground = p.storeys.ground();
+    let dummy = Dummy::without_material(DVec2::new(20.0, 1.0), DVec2::new(2.0, 1.5)).into_element(&p, ground, 0);
+    let (id, name) = (dummy.id, dummy.name.clone());
+    let mut defaults = p.tool_defaults.clone();
+    defaults.insert(DefaultsSlot {
+        layer: p.layers[0].id,
+        position: Position::Undefined,
+        ifc_class: KindTag::Dummy.descriptor().default_class,
+        predefined_type: None,
+        kind: Dummy::without_material(DVec2::ZERO, DVec2::ONE).into(),
+    });
+    let mut h = History::default();
+    h.execute(&mut p, Command::AddElements(vec![dummy])).unwrap();
+    h.execute(&mut p, Command::SetToolDefaults(defaults)).unwrap();
+
+    let bytes = save(&p);
+    let file: Value = serde_json::from_slice(&bytes).unwrap();
+    let node = &file["data"][node_index(&file, &name)];
+    assert!(
+        !node["attributes"]["archicraft::dummy"]
+            .as_object()
+            .unwrap()
+            .contains_key("material")
+    );
+    let body_path = node["children"]["Body"].as_str().unwrap();
+    let body = file["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["path"] == body_path)
+        .unwrap();
+    assert!(body["attributes"].get("usd::usdgeom::mesh").is_some());
+    assert!(
+        body.get("inherits").is_none_or(|i| i.get("material").is_none()),
+        "{body}"
+    );
+    let plain_file: Value = serde_json::from_slice(&save(&plain)).unwrap();
+    assert_eq!(material_nodes(&file), material_nodes(&plain_file));
+    let slot = project_attribute(&file)["toolDefaults"]["dummy"].as_object().unwrap();
+    assert!(!slot.contains_key("material"), "{slot:?}");
+    let parsed = validate::parse(&bytes).unwrap();
+    assert!(
+        validate::validate(&parsed).is_empty(),
+        "{:#?}",
+        validate::validate(&parsed)
+    );
+
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let messages: Vec<String> = loaded.problems.iter().map(|p| p.message.to_string()).collect();
+    assert_eq!(messages.len(), 1, "{messages:#?}");
+    assert!(
+        messages[0].contains(r#"ifcx-tool-unknown(key="dummy")"#),
+        "{messages:#?}"
+    );
+    assert!(!messages.iter().any(|m| m.contains("material")), "{messages:#?}");
+    assert_eq!(loaded.project.element(id), p.element(id));
+    assert_eq!(loaded.project.elements, p.elements);
+}

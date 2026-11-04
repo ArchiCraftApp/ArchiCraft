@@ -1895,6 +1895,38 @@ fn a_kind_without_its_own_panel_shows_the_common_fields() {
     assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
 }
 
+/// SPC-001 (preparation): the properties show the Material row only when
+/// every selected element has a material, so not for the test kind without
+/// one, alone or together with a wall, and still for the wall alone.
+#[test]
+fn the_material_row_is_shown_only_for_elements_with_a_material() {
+    let mut harness = harness("material-less");
+    let (dummy, wall) = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let dummy = archicraft_model::kinds::Dummy::without_material(DVec2::ZERO, DVec2::ONE).into_element(
+            &ws.doc.project,
+            storey,
+            0,
+        );
+        let wall = ws
+            .doc
+            .project
+            .new_wall(storey, DVec2::new(0.0, 3.0), DVec2::new(4.0, 3.0), 0);
+        let ids = (dummy.id, wall.id);
+        assert!(ws.execute(Command::AddElements(vec![dummy, wall])));
+        ids
+    };
+    for (selection, shown) in [(vec![dummy], false), (vec![dummy, wall], false), (vec![wall], true)] {
+        let ws = harness.state_mut().workspace();
+        ws.selection.clear();
+        ws.selection.extend(selection);
+        harness.run_steps(2);
+        harness.get_by_label("Layer");
+        assert_eq!(harness.query_by_label("Material").is_some(), shown, "shown: {shown}");
+    }
+}
+
 /// Adds a 4 m wall and a 4 m × 3 m slab on the ground storey, `slab_type`
 /// set on the slab, and returns their ids.
 fn add_wall_and_slab(

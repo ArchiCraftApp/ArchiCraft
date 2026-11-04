@@ -784,7 +784,7 @@ fn plan_delete_material(
     let mut edits: Vec<Edit> = project
         .elements
         .values()
-        .filter(|e| e.kind.material() == material)
+        .filter(|e| e.kind.material() == Some(material))
         .map(|e| {
             let mut changed = e.clone();
             changed.kind.set_material(replacement);
@@ -792,7 +792,7 @@ fn plan_delete_material(
         })
         .collect();
     let mut defaults = project.tool_defaults.clone();
-    for slot in defaults.slots_mut().filter(|s| s.kind.material() == material) {
+    for slot in defaults.slots_mut().filter(|s| s.kind.material() == Some(material)) {
         slot.kind.set_material(replacement);
     }
     if defaults != project.tool_defaults {

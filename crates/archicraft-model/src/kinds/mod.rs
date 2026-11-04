@@ -127,10 +127,14 @@ pub enum Container {
 pub trait Kind: Sized {
     const DESCRIPTOR: KindDescriptor;
 
-    /// The element's (main) material.
-    fn material(&self) -> MaterialId;
+    /// The element's (main) material, or `None` for a kind that is not
+    /// built of a material, like a space (SPC-001) or a text (ANN-007).
+    fn material(&self) -> Option<MaterialId> {
+        None
+    }
 
-    fn set_material(&mut self, material: MaterialId);
+    /// Replaces the material; does nothing for a kind without one.
+    fn set_material(&mut self, _material: MaterialId) {}
 
     /// Range checks (ELM-017, NFR-REL-005) and references to storeys.
     /// Returns the payload with normalised geometry, for example polygons
@@ -284,7 +288,7 @@ macro_rules! kinds {
             }
 
             /// See [`Kind::material`].
-            pub fn material(&self) -> MaterialId {
+            pub fn material(&self) -> Option<MaterialId> {
                 match self {
                     $($(#[$meta])* ElementKind::$Payload(k) => k.material(),)+
                 }

@@ -104,7 +104,9 @@ fn tool_defaults(p: &Project, warnings: &mut Vec<Problem>) -> Value {
             ));
             continue;
         };
-        members.insert("material".into(), json!(slot.kind.material().to_string()));
+        if let Some(material) = slot.kind.material() {
+            members.insert("material".into(), json!(material.to_string()));
+        }
         members.insert("layer".into(), json!(slot.layer.to_string()));
         members.insert("position".into(), json!(slot.position.code()));
         members.insert("ifcClass".into(), json!(slot.ifc_class.code()));
@@ -497,10 +499,14 @@ fn write_element(
     let Some(g) = geometry else { return };
     for part in &g.parts {
         let mut body = Node::new(sub_node_id(e.id.uuid(), &part.name).to_string());
-        body.inherits.insert("material".into(), Some(part.material.to_string()));
+        // A body without a material, like a space's (SPC-001), inherits
+        // none and adds none to the written material list.
+        if let Some(material) = part.material {
+            body.inherits.insert("material".into(), Some(material.to_string()));
+            used_materials.insert(material);
+        }
         body.attributes
             .insert("usd::usdgeom::mesh".into(), mesh_attribute(&part.mesh));
-        used_materials.insert(part.material);
         emit(body);
     }
     if !g.axis.is_empty() {

@@ -4077,7 +4077,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Space element with name, number, boundary (drawn or detected), storey-linked height, plan stamp, IfcSpace export.",
+      "gap": "Prepared: a kind and its body parts may have no material, drawn translucent in 3D and cut in no plan region (crates/archicraft-model/src/kinds/mod.rs). Missing: space element with name, number, boundary (drawn or detected), storey-linked height, plan stamp, IfcSpace export.",
       "depends_on": []
     },
     {
@@ -4097,7 +4097,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "2D construction lines (single, chained straight+arc), polylines, arcs and circles by centre/radius and three points, each with pen and line type; drawing them in plan.",
+      "gap": "Prepared: a kind may have no material (crates/archicraft-model/src/kinds/mod.rs). Missing: 2D construction lines (single, chained straight+arc), polylines, arcs and circles by centre/radius and three points, each with pen and line type; drawing them in plan.",
       "depends_on": []
     },
     {
@@ -4187,7 +4187,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Text blocks with font, paper-unit size, styles, alignment, pen, line spacing, fixed anchor; text style editor and presets.",
+      "gap": "Prepared: a kind may have no material (crates/archicraft-model/src/kinds/mod.rs). Missing: text blocks with font, paper-unit size, styles, alignment, pen, line spacing, fixed anchor; text style editor and presets.",
       "depends_on": []
     },
     {
@@ -4836,7 +4836,7 @@
       "section": "5.2.5",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-ifcx/src/alpha/writer.rs:479-480 (Name on every material node), 553 (every body part inherits a material). Regression check: Test: `ifx_043_every_body_references_a_named_material_node` (ifcx)",
+      "evidence": "Done: crates/archicraft-ifcx/src/alpha/writer.rs:424-425 (Name on every material node), 502-506 (every body part with a material inherits it). Regression check: Test: `ifx_043_every_body_references_a_named_material_node` (ifcx)",
       "gap": "",
       "depends_on": []
     },

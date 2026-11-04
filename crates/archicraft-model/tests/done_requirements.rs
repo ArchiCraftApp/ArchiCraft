@@ -487,7 +487,10 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
         .materials
         .iter()
         .map(|m| m.id)
-        .find(|&m| m != slot(&p, KindTag::Wall).kind.material() && m != slot(&p, KindTag::Slab).kind.material())
+        .find(|&m| {
+            m != slot(&p, KindTag::Wall).kind.material().unwrap()
+                && m != slot(&p, KindTag::Slab).kind.material().unwrap()
+        })
         .expect("the template has a third material");
     defaults.insert(DefaultsSlot {
         layer: structure,
@@ -595,7 +598,10 @@ fn und_001_every_change_category_undoes_and_redoes_exactly() {
         },
     );
     assert_undo_redo_exact(&mut p, &mut h, Command::AddLayer(Layer::new("Survey")));
-    let mut brick = p.material(slot(&p, KindTag::Wall).kind.material()).unwrap().clone();
+    let mut brick = p
+        .material(slot(&p, KindTag::Wall).kind.material().unwrap())
+        .unwrap()
+        .clone();
     brick.opacity = 0.5;
     assert_undo_redo_exact(&mut p, &mut h, Command::UpdateMaterial(brick));
     let mut defaults = p.tool_defaults.clone();
