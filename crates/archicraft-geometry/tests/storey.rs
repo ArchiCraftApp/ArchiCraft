@@ -164,3 +164,78 @@ fn a_wall_without_length_reports_the_model_reason() {
         other => panic!("no nested model reason: {other:?}"),
     }
 }
+
+/// A 10 m × 8 m slab with a 2 m × 1 m and a 1.5 m × 1.5 m hole on the
+/// ground storey, its top `top` above the storey.
+fn slab_with_two_holes(top: f64) -> (Project, archicraft_model::ElementId) {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let g = p.storeys.ground();
+    let rect = |x0: f64, y0: f64, x1: f64, y1: f64| {
+        vec![
+            DVec2::new(x0, y0),
+            DVec2::new(x1, y0),
+            DVec2::new(x1, y1),
+            DVec2::new(x0, y1),
+        ]
+    };
+    let holes = vec![rect(1.0, 1.0, 3.0, 2.0), rect(6.0, 4.0, 7.5, 5.5)];
+    let mut slab = p.new_slab(g, rect(0.0, 0.0, 10.0, 8.0), holes, 0);
+    if let Some(s) = slab.as_slab_mut() {
+        s.offset = top;
+    }
+    let id = slab.id;
+    h.execute(&mut p, Command::AddElements(vec![slab])).unwrap();
+    (p, id)
+}
+
+/// SLB-003 ("any number of holes"), archicraft-ysf8.3: a slab with two
+/// holes extrudes to a closed, outward-oriented body (IFX-032) whose
+/// volume is the area net of both holes times the thickness; cut by the
+/// plan's cut plane it shows one polygon with both holes, and below the
+/// cut plane its projected outline has the edges of all three rings.
+#[test]
+fn a_slab_with_two_holes_extrudes_and_cuts_with_both() {
+    let p = default_metric_project();
+    let cut = ViewRange::for_storey(&p, p.storeys.ground()).cut;
+    let (p, id) = slab_with_two_holes(cut + 0.1);
+    let g = p.storeys.ground();
+    let geometry = ModelGeometry::evaluate(&p);
+    assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+    let body = geometry.get(id).unwrap();
+    for part in &body.parts {
+        assert_eq!(part.mesh.check_closed(), Ok(()));
+    }
+    let net = 80.0 - 2.0 - 2.25;
+    let thickness = p.element(id).unwrap().as_slab().unwrap().thickness;
+    assert!((body.volume() - net * thickness).abs() < 1e-9, "{}", body.volume());
+
+    let plan = plan_drawing(&p, &geometry, g, ViewRange::for_storey(&p, g), |_| true);
+    let slab = plan.element(id).unwrap();
+    assert_eq!(slab.cut.len(), 1);
+    let mut holes: Vec<f64> = slab.cut[0]
+        .interiors()
+        .iter()
+        .map(|h| geo::Polygon::new(h.clone(), Vec::new()).unsigned_area())
+        .collect();
+    holes.sort_by(f64::total_cmp);
+    assert_eq!(holes, [2.0, 2.25]);
+    assert!((slab.cut[0].unsigned_area() - net).abs() < 1e-9);
+    assert_eq!(plan.pick(DVec2::new(5.0, 3.0), 0.01), [id]);
+    assert!(
+        plan.pick(DVec2::new(2.0, 1.5), 0.01).is_empty(),
+        "inside the first hole"
+    );
+    assert!(
+        plan.pick(DVec2::new(6.75, 4.75), 0.01).is_empty(),
+        "inside the second hole"
+    );
+
+    let (p, id) = slab_with_two_holes(0.0);
+    let g = p.storeys.ground();
+    let geometry = ModelGeometry::evaluate(&p);
+    let plan = plan_drawing(&p, &geometry, g, ViewRange::for_storey(&p, g), |_| true);
+    let slab = plan.element(id).unwrap();
+    assert!(slab.cut.is_empty());
+    assert_eq!(slab.projected.len(), 12);
+}

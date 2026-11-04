@@ -1234,3 +1234,45 @@ fn an_invalid_group_counter_is_repaired_to_the_number_of_groups() {
         assert!(repaired[0].1.contains(reason), "{repaired:#?}");
     }
 }
+
+/// SLB-003 ("any number of holes"), IFX-064, archicraft-ysf8.3: a slab with
+/// two holes is written with both in its `holes` array and a closed body
+/// (IFX-032), validates, and reads back equal to the saved model.
+#[test]
+fn a_slab_with_two_holes_round_trips() {
+    let mut project = archicraft_model::template::default_metric_project();
+    let rect = |x0: f64, y0: f64, x1: f64, y1: f64| {
+        vec![
+            DVec2::new(x0, y0),
+            DVec2::new(x1, y0),
+            DVec2::new(x1, y1),
+            DVec2::new(x0, y1),
+        ]
+    };
+    let holes = vec![rect(1.0, 1.0, 3.0, 2.0), rect(6.0, 4.0, 7.5, 5.5)];
+    let slab = project.new_slab(project.storeys.ground(), rect(0.0, 0.0, 10.0, 8.0), holes, 0);
+    archicraft_model::History::default()
+        .execute(&mut project, archicraft_model::Command::AddElements(vec![slab]))
+        .unwrap();
+
+    let bytes = save(&project);
+    let file = validate::parse(&bytes).unwrap();
+    assert!(validate::validate(&file).is_empty());
+    let written: Vec<&Value> = file
+        .data
+        .iter()
+        .filter_map(|node| node.attributes.get("archicraft::slab"))
+        .collect();
+    assert_eq!(written.len(), 1);
+    assert_eq!(written[0]["holes"].as_array().unwrap().len(), 2);
+    let meshes = meshes(&file);
+    assert_eq!(meshes.len(), 1);
+    assert_eq!(meshes[0].1.check_closed(), Ok(()));
+
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    let mut expected = project;
+    expected.revision = 0;
+    expected.data_version = 7;
+    assert_eq!(loaded.project, expected);
+}
