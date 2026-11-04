@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+geo.workspace = true
 glam.workspace = true
 indexmap.workspace = true
 serde.workspace = true

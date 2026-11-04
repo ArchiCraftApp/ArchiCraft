@@ -1467,7 +1467,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No contextual edit palette and no node or edge hit-testing: PlanDrawing::pick (crates/archicraft-geometry/src/plan.rs:270) returns whole elements only, and TargetSink::handle (crates/archicraft-app/src/input/targets.rs:207) has no producer. None of the node commands (move, insert or delete node, fillet/chamfer corner, EDT-014) or edge commands (offset edge, offset all edges, curve edge, straighten edge) exist as model commands or tools, and nothing remembers the last-used command. Curve edge needs arc segments, which walls and slabs lack (Slab::outline is a plain point list, crates/archicraft-model/src/kinds/slab.rs:45). The whole-element transforms depend on EDT-001.",
+      "gap": "No contextual edit palette and no node or edge hit-testing: PlanDrawing::pick (crates/archicraft-geometry/src/plan.rs:270) returns whole elements only, and TargetSink::handle (crates/archicraft-app/src/input/targets.rs:207) has no producer. None of the node commands (move, insert or delete node, fillet/chamfer corner, EDT-014) or edge commands (offset edge, offset all edges, curve edge, straighten edge) exist as model commands or tools, and nothing remembers the last-used command. Curve edge needs arc segments, which walls and slabs lack (Slab::outline is a plain point list, crates/archicraft-model/src/kinds/slab.rs:45). The edit commands are to be written once against the generic Outline<E> type (crates/archicraft-model/src/outline/mod.rs, archicraft-ysf8.1): rings addressed by RingIndex (0 outer, 1.. holes), edges carrying data, EdgeShape::Line only; slabs move onto it in archicraft-ysf8.2. The whole-element transforms depend on EDT-001.",
       "depends_on": []
     },
     {
@@ -1557,7 +1557,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No union or difference of a drawn polygon with a slab outline: no model command, tool or menu entry. The geo crate is a dependency of the geometry crate only (unary_union in plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and provides BooleanOps, so this is mostly a command and tool with polygon input, plus result handling: a polygon inside the outline becomes a hole, a difference may split the slab, and every result must pass validate_slab_polygon (crates/archicraft-model/src/validate.rs:205), which rejects holes touching the outline. Slabs are the only polygon-based kind so far.",
+      "gap": "No union or difference of a drawn polygon with a slab outline: no model command, tool or menu entry. The geo crate (unary_union in plan_drawing, crates/archicraft-geometry/src/plan.rs:111) provides BooleanOps even without default features and is a model dependency too: the generic Outline<E> type (crates/archicraft-model/src/outline/mod.rs, archicraft-ysf8.1) converts to and from geo::Polygon bit-exactly (Outline::to_geo, Outline::from_geo), but slabs do not store an Outline yet (archicraft-ysf8.2), so this is mostly a command and tool with polygon input, plus result handling: a polygon inside the outline becomes a hole, a difference may split the slab, and every result must pass validate_slab_polygon (crates/archicraft-model/src/validate.rs:205), which rejects holes touching the outline. Slabs are the only polygon-based kind so far.",
       "depends_on": []
     },
     {
@@ -2207,7 +2207,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Holes count toward the 10,000 points per slab in outline and holes together (MAX_SLAB_POINTS, crates/archicraft-model/src/validate.rs:46, D.9), so a rectangular slab takes up to 2,499 rectangular holes. validate_slab_polygon (crates/archicraft-model/src/validate.rs:205) checks the outline, each hole, and with one sweep line that no hole touches the outline or another hole or lies outside the outline or in another hole (crates/archicraft-model/src/validate/sweep.rs, archicraft-91jj), about 10 ms at the limit (slabs_at_the_point_limit_validate_quickly); a rectangle with 2,499 holes evaluates in under 20 ms (slabs_at_the_point_limit_evaluate_quickly). Holes are stored, validated, extruded and read from IFCX, but no UI path creates one: every slab completion passes Vec::new() for holes (ToolState::complete and ToolState::close, crates/archicraft-app/src/tools/mod.rs:219 and 242). Holes are not editable (no polygon editing commands, EDT-008 and EDT-009, no node or edge handles in plan) and cannot be traced (INP-018 contour detection is absent).",
+      "gap": "Holes count toward the 10,000 points per slab in outline and holes together (MAX_SLAB_POINTS, crates/archicraft-model/src/validate.rs:46, D.9), so a rectangular slab takes up to 2,499 rectangular holes. validate_slab_polygon (crates/archicraft-model/src/validate.rs:205) checks the outline, each hole, and with one sweep line that no hole touches the outline or another hole or lies outside the outline or in another hole (crates/archicraft-model/src/validate/sweep.rs, archicraft-91jj), about 10 ms at the limit (slabs_at_the_point_limit_validate_quickly); a rectangle with 2,499 holes evaluates in under 20 ms (slabs_at_the_point_limit_evaluate_quickly). Holes are stored, validated, extruded and read from IFCX, but no UI path creates one: every slab completion passes Vec::new() for holes (ToolState::complete and ToolState::close, crates/archicraft-app/src/tools/mod.rs:219 and 242). Holes are not editable (no polygon editing commands, EDT-008 and EDT-009, no node or edge handles in plan) and cannot be traced (INP-018 contour detection is absent). The generic Outline<E> type (crates/archicraft-model/src/outline/mod.rs, archicraft-ysf8.1) addresses holes like the outline (rings 1..), so the edit commands of the later tasks apply to holes too, with area net of holes (Outline::area) and contains; slabs still store outline and holes as point lists until archicraft-ysf8.2.",
       "depends_on": []
     },
     {
@@ -2227,7 +2227,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Per-edge angle attribute on the outline and holes, non-vertical side-face generation (offset top/bottom rings per edge), UI per edge, IFCX schema and reader.",
+      "gap": "Per-edge angle attribute on the outline and holes, non-vertical side-face generation (offset top/bottom rings per edge), UI per edge, IFCX schema and reader. Groundwork: the generic Outline<E> type (crates/archicraft-model/src/outline/mod.rs, archicraft-ysf8.1) carries an EdgeData value per edge that follows its edge through reversing; slabs do not use it yet (archicraft-ysf8.2), and a SlabEdge with the angle is still to come.",
       "depends_on": []
     },
     {
@@ -2257,7 +2257,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Numeric elevation editing exists: the Elevation offset and Reference plane fields of geometry_fields (crates/archicraft-app/src/ui/properties.rs:216). No polygon editing commands (EDT-008 node/edge palette, EDT-009 stretching, EDT-015 union/difference) exist anywhere, so slab outlines and holes cannot be edited after creation; the plan view ui (crates/archicraft-app/src/views/plan.rs:664) handles only tool points and selection. No dragging of the slab elevation: there are no section or elevation views (VIEW-030, VIEW-032), the 3D view only navigates and picks (pick, crates/archicraft-app/src/views/view3d.rs:75), and no handle/grip drag framework exists (SnapKind::Handle, crates/archicraft-app/src/input/snap.rs:59, is a snap target only).",
+      "gap": "Numeric elevation editing exists: the Elevation offset and Reference plane fields of geometry_fields (crates/archicraft-app/src/ui/properties.rs:216). No polygon editing commands (EDT-008 node/edge palette, EDT-009 stretching, EDT-015 union/difference) exist anywhere, so slab outlines and holes cannot be edited after creation; the plan view ui (crates/archicraft-app/src/views/plan.rs:664) handles only tool points and selection. No dragging of the slab elevation: there are no section or elevation views (VIEW-030, VIEW-032), the 3D view only navigates and picks (pick, crates/archicraft-app/src/views/view3d.rs:75), and no handle/grip drag framework exists (SnapKind::Handle, crates/archicraft-app/src/input/snap.rs:59, is a snap target only). The polygon commands are to work on the generic Outline<E> type (crates/archicraft-model/src/outline/mod.rs, archicraft-ysf8.1), which slabs adopt in archicraft-ysf8.2.",
       "depends_on": []
     },
     {
