@@ -171,27 +171,30 @@ pub fn plan_drawing(
     }
 }
 
+/// True if `p` lies inside the ring `pts` (even-odd rule).
+pub(crate) fn ring_contains(pts: &[DVec2], p: DVec2) -> bool {
+    if pts.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let mut j = pts.len() - 1;
+    for i in 0..pts.len() {
+        let (a, b) = (pts[i], pts[j]);
+        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
 fn point_in_polygon(p: DVec2, polygon: &Polygon<f64>) -> bool {
-    let inside = |ring: &LineString<f64>| {
-        let pts = ring_coords(ring);
-        if pts.len() < 3 {
-            return false;
-        }
-        let mut inside = false;
-        let mut j = pts.len() - 1;
-        for i in 0..pts.len() {
-            let (a, b) = (pts[i], pts[j]);
-            if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
-                inside = !inside;
-            }
-            j = i;
-        }
-        inside
-    };
+    let inside = |ring: &LineString<f64>| ring_contains(&ring_coords(ring), p);
     inside(polygon.exterior()) && !polygon.interiors().iter().any(inside)
 }
 
-fn segment_distance(p: DVec2, a: DVec2, b: DVec2) -> f64 {
+/// The distance from `p` to the segment `a b`.
+pub(crate) fn segment_distance(p: DVec2, a: DVec2, b: DVec2) -> f64 {
     let ab = b - a;
     let len2 = ab.length_squared();
     let t = if len2 > 0.0 {

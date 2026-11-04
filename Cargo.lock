@@ -274,6 +274,7 @@ dependencies = [
  "criterion",
  "geo",
  "glam",
+ "rstar",
  "spade",
  "tracing",
 ]

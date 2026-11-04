@@ -14,8 +14,8 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
 | done | 70 | 9 | 1 | 80 |
-| partial | 110 | 35 | 6 | 151 |
-| missing | 134 | 156 | 47 | 337 |
+| partial | 110 | 36 | 6 | 152 |
+| missing | 134 | 155 | 47 | 336 |
 | **total** | 314 | 200 | 54 | 568 |
 
 Remaining effort of the 488 open requirements: S 114, M 215, L 134, XL 25.
@@ -34,7 +34,7 @@ Remaining effort of the 488 open requirements: S 114, M 215, L 134, XL 25.
 | 4.3 | Workspace and user interface | 1/7/0 | 2/5/1 | 0/0/1 | 17 |
 | 4.4 | Views and navigation | 2/8/8 | 0/2/15 | 0/0/3 | 38 |
 | 4.5 | Plan display and graphic attributes | 0/7/1 | 0/2/7 | 0/1/2 | 20 |
-| 4.6 | Drawing input and precision | 3/8/4 | 3/1/4 | 0/0/1 | 24 |
+| 4.6 | Drawing input and precision | 3/8/4 | 3/2/3 | 0/0/1 | 24 |
 | 4.7 | Selection | 0/5/1 | 0/0/3 | 0/0/1 | 10 |
 | 4.8 | Editing and transformation | 0/4/11 | 0/0/9 | 0/0/1 | 25 |
 | 4.9 | Common element behaviour | 4/4/4 | 0/3/4 | 0/0/1 | 20 |
@@ -348,7 +348,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | INP-015 | M | missing | L | Whole requirement: horizontal plane at typed elevation (default active storey), vertical through two points, three-point plane, picked from a face, and a look-perpendicular command. |
 | INP-016 | M | missing | L | Whole requirement: point-on-face snapping and X/Y/Z axis-parallel inference guides from the last point in 3D. |
 | INP-017 | S | done | none | Done: Element.snap_excluded and Layer.snap_excluded (crates/archicraft-model/src/element.rs, layer.rs), changed through UpdateElements/UpdateLayer (an element-locked element accepts the snap flag like its lock flag); Project::provides_snaps filters the snap index (crates/archicraft-app/src/input/targets.rs SnapIndex::update) while is_visible keeps drawing and selection; locked elements keep providing targets. References switch off as a whole source with SnapIndex::set_source_excluded (the linked reference-model source itself comes with IFX-084). IFCX: optional `snapExcluded` in archicraft::element and the project's layers entries, written only when set and declared as an optional Boolean in the embedded schemas (snap_excluded, crates/archicraft-ifcx/src/alpha/schema.rs:122); the golden file two-storey-shell.ifcx carries both flags (the upper floor slab and the References layer of samples::two_storey_shell), so conformance/run.sh checks them (IFX-006). Test: `the_snap_exclusion_flag_is_declared_as_an_optional_boolean`, `the_shell_golden_file_carries_both_snap_exclusion_flags` (roundtrip.rs). UI: 'Snap targets' checkbox beside 'Locked' (ui/properties.rs) and the 'Snaps' column of the Layers dialog. |
-| INP-018 | S | missing | L | Whole requirement: contour-detection key, preview and creation from a clicked edge, edge chain or smallest closed region, in plan and 3D, preserving arcs. |
+| INP-018 | S | partial | L | Only the region half of the plan geometry exists: ContourGraph (crates/archicraft-geometry/src/contour.rs) nodes the segments of a PlanSegmentSource (a storey's PlanDrawing: the union of all cut regions, projected and overhead lines, optionally wall reference lines) within MODEL_TOLERANCE into a half-edge graph, and region_at finds the smallest closed region around a point with its islands, antennas removed (crates/archicraft-geometry/tests/contour.rs). Missing: the clicked edge and edge chain (edge_at, chain_at), the contour-detection key, preview and creation in the creation tools, 3D (a segment source for a working plane) and arcs (edges carry a CurveRef, but no source supplies curves). |
 | INP-019 | C | missing | M | Whole requirement: gravity option taking the elevation of the highest slab/roof/terrain under the pointer for columns, walls, objects, stairs. |
 | INP-020 | S | done | none | Done: click-click is the default `InputMode` and press-drag-release is the `input_mode` preference (persistence/prefs.rs, read leniently), chosen in the Preferences window's Input group (ui/dialogs.rs preferences_window); `PointInput::pointer` (input/mod.rs) takes a point on the press and the next on the release beyond the drag threshold, a press and release without movement as a click; the plan view maps the primary button to `PointerEvent`s (views/plan.rs) and the status line names the mode (ui/shell.rs). |
 | INP-021 | S | missing | L | Whole requirement: live distances from the placed/moved element to nearest grid axes, walls, columns, beams; choosing the reference edge; typing a distance to place. |

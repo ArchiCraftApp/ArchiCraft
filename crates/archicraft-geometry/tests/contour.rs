@@ -1,0 +1,398 @@
+//! Contour detection (INP-018), geometry half: the planar graph of a plan's
+//! lines and the smallest closed region around a point.
+
+#![allow(clippy::unwrap_used)]
+
+use archicraft_geometry::contour::{ContourGraph, ContourOptions, PlanSegmentSource, Region, Segment};
+use archicraft_geometry::{ModelGeometry, PlanDrawing, ViewRange, plan_drawing};
+use archicraft_model::glam::DVec2;
+use archicraft_model::samples::{FixtureBuilder, two_storey_shell};
+use archicraft_model::{MODEL_TOLERANCE, Position, Project, ReferenceLine};
+
+const MICROMETRE: f64 = 1e-6;
+
+fn v(x: f64, y: f64) -> DVec2 {
+    DVec2::new(x, y)
+}
+
+/// The plan of the storey at `index` with every element shown.
+fn plan_of(project: &Project, index: usize) -> PlanDrawing {
+    let geometry = ModelGeometry::evaluate(project);
+    assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+    let storey = project.storeys.as_slice()[index].id;
+    plan_drawing(
+        project,
+        &geometry,
+        storey,
+        ViewRange::for_storey(project, storey),
+        |_| true,
+    )
+}
+
+fn graph_of(segments: &[[DVec2; 2]]) -> ContourGraph {
+    let segments: Vec<Segment> = segments.iter().map(|[a, b]| Segment::new(*a, *b)).collect();
+    ContourGraph::build(segments.as_slice(), &ContourOptions::default())
+}
+
+/// The closed polyline through `points`, as segments.
+fn ring_segments(points: &[DVec2]) -> Vec<[DVec2; 2]> {
+    (0..points.len())
+        .map(|i| [points[i], points[(i + 1) % points.len()]])
+        .collect()
+}
+
+fn rectangle(min: DVec2, max: DVec2) -> Vec<DVec2> {
+    vec![min, v(max.x, min.y), max, v(min.x, max.y)]
+}
+
+/// Signed area of a ring, positive for counter-clockwise.
+fn signed_area(ring: &[DVec2]) -> f64 {
+    (0..ring.len())
+        .map(|i| ring[i].perp_dot(ring[(i + 1) % ring.len()]))
+        .sum::<f64>()
+        / 2.0
+}
+
+/// Asserts that `found` is the ring `expected`, in the same direction and
+/// within the model tolerance, starting anywhere.
+fn assert_ring(found: &[DVec2], expected: &[DVec2]) {
+    assert_eq!(found.len(), expected.len(), "{found:?} is not {expected:?}");
+    let start = found
+        .iter()
+        .position(|p| p.distance(expected[0]) < MODEL_TOLERANCE)
+        .unwrap_or_else(|| panic!("{found:?} does not pass {}", expected[0]));
+    for (k, e) in expected.iter().enumerate() {
+        let f = found[(start + k) % found.len()];
+        assert!(
+            f.distance(*e) < MODEL_TOLERANCE,
+            "point {k}: {f} is not {e} in {found:?}"
+        );
+    }
+}
+
+/// The interior faces of the two-storey shell's exterior walls on the ground
+/// storey, with the notch of the interior T wall (0.115 m, centred on x = 5,
+/// from the south wall to y = 6).
+fn ground_room() -> Vec<DVec2> {
+    vec![
+        v(0.25, 0.25),
+        v(4.9425, 0.25),
+        v(4.9425, 6.0),
+        v(5.0575, 6.0),
+        v(5.0575, 0.25),
+        v(11.75, 0.25),
+        v(11.75, 8.75),
+        v(0.25, 8.75),
+    ]
+}
+
+/// INP-018: on the ground storey of the two-storey shell, the smallest
+/// region around a point in the room is bounded by the interior faces of the
+/// exterior walls and the notch of the T wall, without islands; a point in
+/// the walls gets the wall body, whose island is the room's boundary.
+#[test]
+fn the_smallest_region_around_a_point_in_the_ground_room() {
+    let plan = plan_of(&two_storey_shell(), 0);
+    let graph = ContourGraph::build(&plan, &ContourOptions::default());
+
+    let room = graph.region_at(v(2.0, 3.0)).unwrap();
+    assert_ring(&room.outer, &ground_room());
+    let area = 11.5 * 8.5 - 0.115 * 5.75;
+    assert!((signed_area(&room.outer) - 97.08875).abs() < 1e-6, "{room:?}");
+    assert!((room.area() - area).abs() < 1e-6);
+    assert!(room.islands.is_empty(), "{:?}", room.islands);
+
+    let walls = graph.region_at(v(0.1, 3.0)).unwrap();
+    assert_ring(&walls.outer, &rectangle(v(0.0, 0.0), v(12.0, 9.0)));
+    assert_eq!(walls.islands.len(), 1);
+    let mut island = ground_room();
+    island.reverse();
+    assert_ring(&walls.islands[0], &island);
+    assert!((walls.area() - (12.0 * 9.0 - area)).abs() < 1e-6);
+
+    assert_eq!(graph.region_at(v(-1.0, 3.0)), None, "outside the building");
+    assert_eq!(graph.region_at(v(13.0, 3.0)), None);
+}
+
+/// INP-018, NFR-ACC-003: endpoints 5 µm apart are one vertex, so the square
+/// closes; 20 µm apart they are two, and the square stays open.
+#[test]
+fn a_gap_below_the_tolerance_closes_the_region_and_a_wider_one_does_not() {
+    let square = |gap: DVec2| {
+        vec![
+            [v(0.0, 0.0), v(4.0, 0.0)],
+            [v(4.0, 0.0) + gap, v(4.0, 4.0)],
+            [v(4.0, 4.0), v(0.0, 4.0)],
+            [v(0.0, 4.0), v(0.0, 0.0)],
+        ]
+    };
+    let closed = graph_of(&square(v(3.0, 4.0) * MICROMETRE));
+    let region = closed.region_at(v(2.0, 2.0)).expect("5 µm apart: the region closes");
+    assert!((region.area() - 16.0).abs() < 1e-4, "{region:?}");
+    assert_eq!(region.outer.len(), 4);
+
+    let open = graph_of(&square(v(0.0, 20.0 * MICROMETRE)));
+    assert_eq!(open.region_at(v(2.0, 2.0)), None, "20 µm apart: open");
+
+    // A gap within one straight side behaves the same.
+    let mut split_side = square(DVec2::ZERO);
+    split_side[0] = [v(0.0, 0.0), v(2.0, 0.0)];
+    split_side.push([v(2.0 + 5.0 * MICROMETRE, 0.0), v(4.0, 0.0)]);
+    let region = graph_of(&split_side).region_at(v(2.0, 2.0)).unwrap();
+    assert_eq!(region.outer.len(), 4, "the side's two halves merge: {region:?}");
+    split_side[4][0] = v(2.0 + 20.0 * MICROMETRE, 0.0);
+    assert_eq!(graph_of(&split_side).region_at(v(2.0, 2.0)), None);
+}
+
+/// INP-018: overlapping collinear segments become one set of edges: no
+/// duplicate edge and no zero-area face between them.
+#[test]
+fn collinear_overlapping_segments_are_deduplicated() {
+    let graph = graph_of(&[
+        [v(0.0, 0.0), v(10.0, 0.0)],
+        [v(5.0, 0.0), v(15.0, 0.0)],
+        [v(10.0, 0.0), v(0.0, 0.0)],
+        [v(2.0, 0.0), v(3.0, 0.0)],
+    ]);
+    let mut edges: Vec<(f64, f64)> = graph
+        .edges()
+        .map(|e| {
+            let [a, b] = e.points;
+            assert!(a.y.abs() < MODEL_TOLERANCE && b.y.abs() < MODEL_TOLERANCE);
+            (a.x.min(b.x), a.x.max(b.x))
+        })
+        .collect();
+    edges.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert_eq!(edges, [(0.0, 2.0), (2.0, 3.0), (3.0, 5.0), (5.0, 10.0), (10.0, 15.0)]);
+    assert!(graph.regions().is_empty(), "a line encloses nothing");
+
+    // A square whose sides are each drawn twice, in overlapping halves.
+    let corners = rectangle(v(0.0, 0.0), v(4.0, 4.0));
+    let mut segments = ring_segments(&corners);
+    for [a, b] in ring_segments(&corners) {
+        segments.push([a, a.lerp(b, 0.75)]);
+        segments.push([b, a.lerp(b, 0.25)]);
+    }
+    let graph = graph_of(&segments);
+    let regions = graph.regions();
+    assert_eq!(regions.len(), 1, "{regions:?}");
+    assert_ring(&regions[0].outer, &corners);
+    assert_eq!(graph.edges().count(), 12, "every side in three pieces");
+}
+
+/// INP-018: lines that end inside a region (antennas) are not part of its
+/// boundary, and a free-standing line encloses nothing, so it is no island;
+/// a closed loop inside is one, with its own antenna removed.
+#[test]
+fn antennas_are_removed_and_closed_components_become_islands() {
+    let corners = rectangle(v(0.0, 0.0), v(6.0, 4.0));
+    let island = rectangle(v(3.0, 1.0), v(4.0, 2.0));
+    let mut segments = ring_segments(&corners);
+    segments.extend(ring_segments(&island));
+    segments.extend([
+        // From the south side into the room, with a branch.
+        [v(1.0, 0.0), v(1.0, 2.0)],
+        [v(1.0, 2.0), v(1.5, 2.5)],
+        // Free-standing.
+        [v(0.5, 3.0), v(2.0, 3.5)],
+        // From the island into the room.
+        [v(4.0, 2.0), v(5.0, 3.0)],
+    ]);
+    let graph = graph_of(&segments);
+    let region = graph.region_at(v(2.0, 1.0)).unwrap();
+    assert_ring(&region.outer, &corners);
+    assert_eq!(region.islands.len(), 1, "{region:?}");
+    let mut hole = island.clone();
+    hole.reverse();
+    assert_ring(&region.islands[0], &hole);
+    assert!((region.area() - 23.0).abs() < 1e-9);
+    assert_ring(&graph.region_at(v(3.5, 1.5)).unwrap().outer, &island);
+}
+
+/// A storey with a 10 x 8 m ring of exterior walls and two 0.115 m interior
+/// walls, centred on x = 5 and y = 4, crossing each other.
+fn crossing_walls() -> Project {
+    let mut b = FixtureBuilder::new("crossing-walls").titled("Crossing walls");
+    let ground = b.storey(0);
+    let corners = rectangle(v(0.0, 0.0), v(10.0, 8.0));
+    for [start, end] in ring_segments(&corners) {
+        b.wall(ground, start, end);
+    }
+    b.commit();
+    for [start, end] in [[v(5.0, 0.0), v(5.0, 8.0)], [v(0.0, 4.0), v(10.0, 4.0)]] {
+        let wall = b.wall(ground, start, end);
+        b.edit(wall, |e| {
+            e.position = Position::Interior;
+            if let Some(wall) = e.as_wall_mut() {
+                wall.thickness = 0.115;
+                wall.reference_line = ReferenceLine::Center;
+            }
+        });
+    }
+    b.finish()
+}
+
+/// INP-018: two crossing walls divide the room inside a ring of walls into
+/// four regions, one per quadrant.
+#[test]
+fn two_crossing_walls_give_four_regions() {
+    let plan = plan_of(&crossing_walls(), 0);
+    let graph = ContourGraph::build(&plan, &ContourOptions::default());
+    let (west, east) = ((0.25, 4.9425), (5.0575, 9.75));
+    let (south, north) = ((0.25, 3.9425), (4.0575, 7.75));
+    for ((x0, x1), (y0, y1)) in [(west, south), (east, south), (west, north), (east, north)] {
+        let centre = v(x0 + x1, y0 + y1) / 2.0;
+        let region = graph.region_at(centre).unwrap();
+        assert_ring(&region.outer, &rectangle(v(x0, y0), v(x1, y1)));
+        assert!(region.islands.is_empty());
+    }
+    // The quadrants and the wall body around them, nothing else.
+    let quadrant = (4.9425 - 0.25) * (3.9425 - 0.25);
+    let areas: Vec<f64> = graph.regions().iter().map(Region::area).collect();
+    assert_eq!(areas.len(), 5, "{areas:?}");
+    let rooms = areas.iter().filter(|a| (*a - quadrant).abs() < 1e-6).count();
+    assert_eq!(rooms, 4, "{areas:?}");
+
+    // The same with single lines, which cross each other and the square's
+    // sides and overshoot them.
+    let mut segments = ring_segments(&rectangle(v(0.0, 0.0), v(4.0, 4.0)));
+    segments.extend([[v(-1.0, 1.5), v(5.0, 1.5)], [v(2.5, 5.0), v(2.5, -1.0)]]);
+    let graph = graph_of(&segments);
+    let (west, east) = ((0.0, 2.5), (2.5, 4.0));
+    let (south, north) = ((0.0, 1.5), (1.5, 4.0));
+    for ((x0, x1), (y0, y1)) in [(west, south), (east, south), (west, north), (east, north)] {
+        let region = graph.region_at(v(x0 + x1, y0 + y1) / 2.0).unwrap();
+        assert_ring(&region.outer, &rectangle(v(x0, y0), v(x1, y1)));
+    }
+    assert_eq!(graph.regions().len(), 4);
+}
+
+/// INP-018: a slab outline on the outer faces of the walls (the base slab of
+/// the two-storey shell) or on their inner faces adds no face of its own:
+/// the coinciding lines are one edge.
+#[test]
+fn slab_outlines_on_wall_faces_create_no_zero_area_faces() {
+    let plan = plan_of(&two_storey_shell(), 0);
+    let graph = ContourGraph::build(&plan, &ContourOptions::default());
+    let mut areas: Vec<f64> = graph.regions().iter().map(Region::area).collect();
+    areas.sort_by(f64::total_cmp);
+    let room = 11.5 * 8.5 - 0.115 * 5.75;
+    assert_eq!(areas.len(), 2, "the wall body and the room: {areas:?}");
+    assert!((areas[0] - (108.0 - room)).abs() < 1e-6, "{areas:?}");
+    assert!((areas[1] - room).abs() < 1e-6, "{areas:?}");
+
+    let mut b = FixtureBuilder::new("inner-slab").titled("Slab on the inner faces");
+    let ground = b.storey(0);
+    for [start, end] in ring_segments(&rectangle(v(0.0, 0.0), v(8.0, 6.0))) {
+        b.wall(ground, start, end);
+    }
+    b.commit();
+    b.slab(ground, rectangle(v(0.25, 0.25), v(7.75, 5.75)), Vec::new());
+    let plan = plan_of(&b.finish(), 0);
+    let graph = ContourGraph::build(&plan, &ContourOptions::default());
+    let mut areas: Vec<f64> = graph.regions().iter().map(Region::area).collect();
+    areas.sort_by(f64::total_cmp);
+    assert_eq!(areas.len(), 2, "{areas:?}");
+    assert!((areas[0] - (48.0 - 41.25)).abs() < 1e-6, "{areas:?}");
+    assert!((areas[1] - 41.25).abs() < 1e-6, "{areas:?}");
+}
+
+/// INP-018: the reference lines of walls are graph input only when the
+/// options ask for them.
+#[test]
+fn wall_reference_lines_are_included_on_request() {
+    let plan = plan_of(&two_storey_shell(), 0);
+    let is_t_wall_line = |s: &Segment| s.points == [v(5.0, 0.0), v(5.0, 6.0)];
+    let without = plan.segments(&ContourOptions::default());
+    assert!(!without.iter().any(is_t_wall_line));
+    let with = plan.segments(&ContourOptions { reference_lines: true });
+    assert!(with.iter().any(is_t_wall_line));
+    assert_eq!(with.len(), without.len() + 5, "one per wall");
+}
+
+/// INP-018: the graph does not depend on the order or the direction in which
+/// the segments arrive.
+#[test]
+fn segments_in_reversed_order_give_identical_regions() {
+    let plan = plan_of(&crossing_walls(), 0);
+    let options = ContourOptions { reference_lines: true };
+    let segments = plan.segments(&options);
+    let mut reversed = segments.clone();
+    reversed.reverse();
+    let mut flipped = segments.clone();
+    for s in &mut flipped {
+        s.points.reverse();
+    }
+    let graphs = [&segments, &reversed, &flipped].map(|s| ContourGraph::build(s.as_slice(), &options));
+    let probes = [v(2.0, 2.0), v(7.0, 6.0), v(0.1, 3.0), v(5.01, 4.02), v(-1.0, 0.0)];
+    for graph in &graphs[1..] {
+        assert_eq!(graph.regions(), graphs[0].regions());
+        for p in probes {
+            assert_eq!(graph.region_at(p), graphs[0].region_at(p), "at {p}");
+        }
+    }
+    assert!(graphs[0].region_at(v(2.0, 2.0)).is_some());
+}
+
+/// A small linear congruential generator, so the random segments are the
+/// same on every run.
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self) -> f64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (self.0 >> 11) as f64 / (1u64 << 53) as f64
+    }
+}
+
+/// INP-018: 10,000 random segments, many of them crossing, touching or
+/// nearly coinciding, build into a graph without panicking, and its queries
+/// answer.
+#[test]
+fn ten_thousand_random_segments_build_without_panic() {
+    let mut rng = Lcg(0x5eed);
+    let mut segments: Vec<Segment> = Vec::new();
+    while segments.len() < 10_000 {
+        let n = segments.len();
+        let random = v(rng.next() * 100.0, rng.next() * 100.0);
+        let length = 2.0 + 2.0 * rng.next().round();
+        let [a, b] = match n % 4 {
+            // Axis-parallel, as walls mostly are, starting on a 2 m grid, so
+            // that many overlap or meet end to end.
+            0 => {
+                let a = v((random.x / 2.0).round() * 2.0, random.y);
+                [a, a + v(length, 0.0)]
+            }
+            1 => {
+                let a = v(random.x, (random.y / 2.0).round() * 2.0);
+                [a, a + v(0.0, length)]
+            }
+            // Starting within a few micrometres of the previous end.
+            2 => {
+                let [_, end] = segments[n - 1].points;
+                let a = end + v(rng.next(), rng.next()) * 3.0 * MICROMETRE;
+                [a, a + DVec2::from_angle(rng.next() * std::f64::consts::TAU)]
+            }
+            // Zero-length ones among them.
+            _ if n % 100 == 3 => [random, random],
+            _ => [
+                random,
+                random + DVec2::from_angle(rng.next() * std::f64::consts::TAU) * length,
+            ],
+        };
+        segments.push(Segment::new(a, b));
+    }
+    let graph = ContourGraph::build(segments.as_slice(), &ContourOptions::default());
+    assert!(graph.edges().count() > 0);
+    let regions = graph.regions();
+    assert!(regions.iter().all(|r| r.area() > 0.0));
+    for k in 0..100 {
+        let p = v(k as f64, (k * 37 % 100) as f64 + 0.5);
+        if let Some(region) = graph.region_at(p) {
+            assert!(region.area() > 0.0);
+        }
+    }
+}
