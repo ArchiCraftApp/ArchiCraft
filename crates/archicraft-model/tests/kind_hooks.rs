@@ -22,11 +22,6 @@ fn close(a: DVec2, b: DVec2) -> bool {
     a.distance(b) < MODEL_TOLERANCE
 }
 
-fn signed_area(ring: &[DVec2]) -> f64 {
-    let n = ring.len();
-    (0..n).map(|i| ring[i].perp_dot(ring[(i + 1) % n])).sum::<f64>() / 2.0
-}
-
 /// EDT-002: a wall rotated 90° counter-clockwise about a point keeps its
 /// thickness and reference line, and its ends turn about that point.
 #[test]
@@ -90,8 +85,9 @@ fn mirroring_a_slab_keeps_outline_and_hole_orientation() {
     let mirror = PlanTransform::mirror(DVec2::new(5.0, 0.0), DVec2::new(5.0, 1.0)).unwrap();
     s.kind.transform(&mirror).unwrap();
     let slab = s.as_slab().unwrap();
+    let (outer, holes) = (slab.outline.outer(), slab.outline.holes());
     assert_eq!(
-        slab.outline,
+        outer.points().collect::<Vec<_>>(),
         [
             DVec2::new(10.0, 0.0),
             DVec2::new(10.0, 3.0),
@@ -100,7 +96,7 @@ fn mirroring_a_slab_keeps_outline_and_hole_orientation() {
         ]
     );
     assert_eq!(
-        slab.holes,
+        holes.iter().map(|h| h.points().collect()).collect::<Vec<Vec<_>>>(),
         [vec![
             DVec2::new(9.0, 1.0),
             DVec2::new(8.0, 1.0),
@@ -108,8 +104,8 @@ fn mirroring_a_slab_keeps_outline_and_hole_orientation() {
             DVec2::new(9.0, 2.0)
         ]]
     );
-    assert!(signed_area(&slab.outline) > 0.0, "outline counter-clockwise");
-    assert!(signed_area(&slab.holes[0]) < 0.0, "hole clockwise");
+    assert!(outer.signed_area() > 0.0, "outline counter-clockwise");
+    assert!(holes[0].signed_area() < 0.0, "hole clockwise");
 
     h.execute(&mut p, Command::UpdateElements(vec![s.clone()])).unwrap();
     assert_eq!(
@@ -154,8 +150,15 @@ fn move_elements_translates_exactly() {
     let original = w.as_wall().unwrap();
     assert_eq!((moved.start, moved.end), (original.start + delta, original.end + delta));
     let moved = p.element(ids[1]).unwrap().as_slab().unwrap();
-    let expected: Vec<DVec2> = s.as_slab().unwrap().outline.iter().map(|q| *q + delta).collect();
-    assert_eq!(moved.outline, expected);
+    let expected: Vec<DVec2> = s
+        .as_slab()
+        .unwrap()
+        .outline
+        .outer()
+        .points()
+        .map(|q| q + delta)
+        .collect();
+    assert_eq!(moved.outline.outer().points().collect::<Vec<_>>(), expected);
     let mut translated = s.kind.clone();
     translated.translate(delta);
     assert_eq!(&p.element(ids[1]).unwrap().kind, &translated);

@@ -3,10 +3,11 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor, KindTag, plan_bounds_of};
+use super::{Kind, KindDescriptor, KindTag};
 use crate::element::{Element, IfcClass, Position, PredefinedType};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
+use crate::outline::{Outline, Ring};
 use crate::project::{DefaultsSlot, Project};
 use crate::storey::StoreyList;
 use crate::template::TemplateContext;
@@ -41,10 +42,9 @@ impl SlabReference {
 /// A slab with a straight-edged outline and holes (SLB-001…003).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Slab {
-    /// Outline, counter-clockwise, without repeating the first point.
-    pub outline: Vec<DVec2>,
-    /// Holes, clockwise, inside the outline.
-    pub holes: Vec<Vec<DVec2>>,
+    /// The outer ring, counter-clockwise, then the holes, clockwise, inside
+    /// it (SLB-003); validation orients the rings.
+    pub outline: Outline,
     pub thickness: f64,
     pub reference: SlabReference,
     /// Elevation of the reference face relative to the home storey.
@@ -53,13 +53,15 @@ pub struct Slab {
 }
 
 /// The ring transformed point by point. A mirror reverses the orientation,
-/// so the ring is reversed as well, keeping its first point first.
-fn transform_ring(ring: &mut [DVec2], transform: &PlanTransform) {
-    for p in ring.iter_mut() {
-        *p = transform.apply(*p);
+/// so the ring is reversed as well, keeping its first point first: node `j`
+/// becomes node `n - j` (mod `n`) and each edge stays between its nodes.
+fn transform_ring(ring: &mut Ring, transform: &PlanTransform) {
+    for vertex in &mut ring.vertices {
+        vertex.point = transform.apply(vertex.point);
     }
     if transform.is_mirror() && ring.len() > 1 {
-        ring[1..].reverse();
+        ring.reverse();
+        ring.vertices.rotate_right(1);
     }
 }
 
@@ -72,8 +74,7 @@ fn template_defaults(context: &TemplateContext<'_>) -> DefaultsSlot {
         ifc_class: Slab::DESCRIPTOR.default_class,
         predefined_type: None,
         kind: Slab {
-            outline: vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::Y],
-            holes: Vec::new(),
+            outline: Outline::from_point_rings([[DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::Y]]),
             thickness: 0.20,
             reference: SlabReference::Top,
             offset: 0.0,
@@ -85,12 +86,13 @@ fn template_defaults(context: &TemplateContext<'_>) -> DefaultsSlot {
 
 impl Project {
     /// A new slab with `outline` and `holes` on `storey` with the slab
-    /// tool's defaults (ELM-001). `nth` numbers slabs created together.
+    /// tool's defaults (ELM-001). `nth` numbers slabs created together. The
+    /// rings are kept as given; validation orients them.
     pub fn new_slab(&self, storey: StoreyId, outline: Vec<DVec2>, holes: Vec<Vec<DVec2>>, nth: u32) -> Element {
         let mut element = self.new_element(KindTag::Slab, storey, nth)
             .unwrap_or_else(|| unreachable!("slabs have template defaults"));
         if let Some(slab) = element.as_slab_mut() {
-            (slab.outline, slab.holes) = (outline, holes);
+            slab.outline = Outline::from_point_rings(std::iter::once(outline).chain(holes));
         }
         element
     }
@@ -128,9 +130,8 @@ impl Kind for Slab {
     /// Keeps the outline counter-clockwise and the holes clockwise, also
     /// when mirrored (SLB-001).
     fn transform(&mut self, transform: &PlanTransform) -> Result<(), TransformError> {
-        transform_ring(&mut self.outline, transform);
-        for hole in &mut self.holes {
-            transform_ring(hole, transform);
+        for ring in &mut self.outline.rings {
+            transform_ring(ring, transform);
         }
         Ok(())
     }
@@ -152,6 +153,6 @@ impl Kind for Slab {
 
     /// Holes lie inside the outline, so the outline bounds the slab.
     fn plan_bounds(&self) -> Option<(DVec2, DVec2)> {
-        plan_bounds_of(self.outline.iter().copied())
+        self.outline.bounds()
     }
 }

@@ -9,7 +9,6 @@
 use archicraft_model::command::relink_to_storey;
 use archicraft_model::project::DefaultsSlot;
 use archicraft_model::units::{NumberFormat, UnitSettings, format_area, format_length, format_volume};
-use archicraft_model::validate::signed_area;
 use archicraft_model::{
     Command, Element, ElementKind, GroupId, IfcClass, KindTag, LayerId, MaterialId, Position, PredefinedType, Project,
     ReferenceLine, SlabReference, StoreyId, TopLink,
@@ -561,8 +560,7 @@ fn derived(ui: &mut Ui, ws: &mut Workspace, layout: Layout) {
     match &element.kind {
         ElementKind::Wall(w) => rows.push(("Length", format_length(w.length(), units, &nf, true))),
         ElementKind::Slab(s) => {
-            let area = signed_area(&s.outline).abs() - s.holes.iter().map(|h| signed_area(h).abs()).sum::<f64>();
-            rows.push(("Area", format_area(area, units, &nf)));
+            rows.push(("Area", format_area(s.outline.area(), units, &nf)));
         }
         _ => {}
     }

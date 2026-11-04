@@ -264,6 +264,22 @@ impl<E: EdgeData> Outline<E> {
         outline
     }
 
+    /// The outline through rings of points, ring 0 the outer ring, with
+    /// straight edges and default data. The rings are kept as given: neither
+    /// oriented nor validated.
+    pub fn from_point_rings<R: IntoIterator<Item = DVec2>>(rings: impl IntoIterator<Item = R>) -> Self {
+        Self {
+            rings: rings.into_iter().map(Ring::from_points).collect(),
+        }
+    }
+
+    /// The nodes of the outer ring and of each hole, for code that works on
+    /// lists of points; an outline without rings gives no points.
+    pub fn to_points(&self) -> (Vec<DVec2>, Vec<Vec<DVec2>>) {
+        let mut rings = self.rings.iter().map(|ring| ring.points().collect());
+        (rings.next().unwrap_or_default(), rings.collect())
+    }
+
     /// Orients the outer ring counter-clockwise and the holes clockwise.
     pub fn normalize_orientation(&mut self) {
         for (i, ring) in self.rings.iter_mut().enumerate() {
@@ -382,8 +398,8 @@ mod tests {
     mod queries {
         use super::*;
 
-        /// SLB-001, SLB-003: the outer ring counter-clockwise, the holes
-        /// clockwise, whatever the input direction.
+        /// SLB-003: the outer ring counter-clockwise, the holes clockwise,
+        /// whatever the input direction.
         pub fn from_rings_normalises_orientation<E: EdgeData>() {
             let outline: Outline<E> = shell();
             assert!(outline.outer().is_counter_clockwise());
@@ -581,6 +597,26 @@ mod tests {
             .expect("edge 1 reversed");
         assert_eq!(reversed.edge.data.tag, 1);
         assert_eq!(ring.edge(0).edge.data.tag, 2, "old edge n - 2 - 0");
+    }
+
+    /// SLB-003: rings of points are kept as given, in order and direction,
+    /// and come back as the same points: slabs made by `Project::new_slab`
+    /// or read from IFCX leave orienting to validation.
+    #[test]
+    fn point_rings_are_kept_as_given() {
+        let outer = vec![
+            DVec2::ZERO,
+            DVec2::new(0.0, 9.0),
+            DVec2::new(12.0, 9.0),
+            DVec2::new(12.0, 0.0),
+        ];
+        let hole = rectangle(DVec2::ONE, DVec2::splat(2.0));
+        let outline: Outline = Outline::from_point_rings([outer.clone(), hole.clone()]);
+        assert!(!outline.outer().is_counter_clockwise(), "not oriented");
+        assert!(outline.holes()[0].is_counter_clockwise(), "not oriented");
+        assert_eq!(outline.to_points(), (outer, vec![hole]));
+        let empty: Outline = Outline::from_point_rings(Vec::<Vec<DVec2>>::new());
+        assert_eq!(empty.to_points(), (Vec::new(), Vec::new()));
     }
 
     /// The command journal serialises elements, so outlines round-trip
