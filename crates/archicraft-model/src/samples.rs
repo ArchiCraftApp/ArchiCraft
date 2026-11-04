@@ -298,16 +298,39 @@ pub fn storey_with_walls_and_slab() -> Project {
 /// conformance check (IFX-006).
 pub fn two_storey_shell() -> Project {
     let mut b = FixtureBuilder::new("two-storey-shell").titled("Two-storey shell");
+    add_two_storey_shell(&mut b);
+    b.finish()
+}
+
+/// [`two_storey_shell`] with a shaft on the upper storey: four 11.5 cm
+/// interior walls referenced at their centres around x 1.0-3.0, y 6.5-8.0,
+/// joined at the corners, which stand free in the room (INP-018). The
+/// shaft's inner faces enclose 1.885 m x 1.385 m = 2.610725 m². Not a
+/// reference model.
+pub fn two_storey_shell_with_shaft() -> Project {
+    let mut b = FixtureBuilder::new("two-storey-shell-with-shaft").titled("Two-storey shell with shaft");
+    let [_, upper] = add_two_storey_shell(&mut b);
+    let shaft = rectangle(DVec2::new(1.0, 6.5), DVec2::new(3.0, 8.0));
+    for i in 0..shaft.len() {
+        let wall = b.wall(upper, shaft[i], shaft[(i + 1) % shaft.len()]);
+        make_interior(&mut b, wall);
+    }
+    b.finish()
+}
+
+/// Adds the storeys and elements of [`two_storey_shell`]; returns the
+/// ground and the upper storey.
+fn add_two_storey_shell(b: &mut FixtureBuilder) -> [StoreyId; 2] {
     let ground = b.storey(0);
     let upper = b.storey(1);
     let outline = rectangle(DVec2::ZERO, DVec2::new(12.0, 9.0));
 
     for storey in [ground, upper] {
-        add_wall_ring(&mut b, storey, &outline);
+        add_wall_ring(b, storey, &outline);
         b.commit();
         // Interior wall from the south wall's reference line northwards.
         let interior = b.wall(storey, DVec2::new(5.0, 0.0), DVec2::new(5.0, 6.0));
-        make_interior(&mut b, interior);
+        make_interior(b, interior);
         b.commit();
     }
 
@@ -321,7 +344,8 @@ pub fn two_storey_shell() -> Project {
     });
     let references = b.layer("References");
     b.edit_layer(references, |l| l.snap_excluded = true);
-    b.finish()
+    b.commit();
+    [ground, upper]
 }
 
 /// A sample of the catalogue: its file name (without `.ifcx`) and

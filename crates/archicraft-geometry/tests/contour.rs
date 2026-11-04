@@ -6,7 +6,7 @@
 use archicraft_geometry::contour::{ContourGraph, ContourOptions, PlanSegmentSource, Region, Segment};
 use archicraft_geometry::{ModelGeometry, PlanDrawing, ViewRange, plan_drawing};
 use archicraft_model::glam::DVec2;
-use archicraft_model::samples::{FixtureBuilder, two_storey_shell};
+use archicraft_model::samples::{FixtureBuilder, two_storey_shell, two_storey_shell_with_shaft};
 use archicraft_model::{MODEL_TOLERANCE, Position, Project, ReferenceLine};
 
 const MICROMETRE: f64 = 1e-6;
@@ -112,6 +112,42 @@ fn the_smallest_region_around_a_point_in_the_ground_room() {
 
     assert_eq!(graph.region_at(v(-1.0, 3.0)), None, "outside the building");
     assert_eq!(graph.region_at(v(13.0, 3.0)), None);
+}
+
+/// INP-018: on the upper storey of the shell with a shaft, a point in the
+/// shaft gets the rectangle of the shaft walls' inner faces; a point in the
+/// room gets the room with two islands, the stair hole of the floor slab and
+/// the outer faces of the shaft walls; a point outside gets nothing.
+#[test]
+fn the_shaft_walls_on_the_upper_storey_are_an_island_of_the_room() {
+    let plan = plan_of(&two_storey_shell_with_shaft(), 1);
+    let graph = ContourGraph::build(&plan, &ContourOptions::default());
+
+    let inner = rectangle(v(1.0575, 6.5575), v(2.9425, 7.9425));
+    let shaft = graph.region_at(v(2.0, 7.25)).unwrap();
+    assert_ring(&shaft.outer, &inner);
+    assert!(shaft.islands.is_empty(), "{:?}", shaft.islands);
+    assert!((shaft.area() - 2.610725).abs() < 1e-6, "{shaft:?}");
+
+    let room = graph.region_at(v(2.0, 3.0)).unwrap();
+    assert_ring(&room.outer, &ground_room());
+    assert_eq!(room.islands.len(), 2, "{:?}", room.islands);
+    let mut stair_hole = rectangle(v(6.0, 1.0), v(9.0, 2.2));
+    stair_hole.reverse();
+    let mut shaft_outside = rectangle(v(0.9425, 6.4425), v(3.0575, 8.0575));
+    shaft_outside.reverse();
+    let (hole, outside) = if room.islands[0][0].y < 4.0 { (0, 1) } else { (1, 0) };
+    assert_ring(&room.islands[hole], &stair_hole);
+    assert_ring(&room.islands[outside], &shaft_outside);
+    let area = 11.5 * 8.5 - 0.115 * 5.75 - 3.0 * 1.2 - 2.115 * 1.615;
+    assert!((room.area() - area).abs() < 1e-6, "{room:?}");
+
+    // The shaft walls' body: between their outer and inner faces.
+    let walls = graph.region_at(v(1.0, 7.25)).unwrap();
+    assert_ring(&walls.outer, &rectangle(v(0.9425, 6.4425), v(3.0575, 8.0575)));
+    assert_eq!(walls.islands.len(), 1, "{:?}", walls.islands);
+
+    assert_eq!(graph.region_at(v(-1.0, 3.0)), None, "outside the building");
 }
 
 /// INP-018, NFR-ACC-003: endpoints 5 µm apart are one vertex, so the square
