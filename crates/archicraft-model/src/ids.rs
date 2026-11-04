@@ -77,3 +77,9 @@ id_type!(
     /// Identity of an element group (ELM-015).
     GroupId
 );
+id_type!(
+    /// Identity of a relation between elements (SRS 3.3), computed from the
+    /// relation's variant and ends by [`crate::relations::Relation::id`];
+    /// `new()` is not used for relations.
+    RelationId
+);

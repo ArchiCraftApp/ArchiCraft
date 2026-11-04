@@ -15,6 +15,7 @@ use archicraft_geometry::{ModelGeometry, TriMesh};
 use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
 use archicraft_model::project::NameCounters;
+use archicraft_model::relations::RelationStore;
 use archicraft_model::{Element, Group, KindTag, Layer, MaterialId, PredefinedType, Project};
 use indexmap::IndexMap;
 use serde::Serialize;
@@ -22,6 +23,7 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use super::kinds::{self, CODECS};
+use super::relations;
 use super::schema::{self, FORMAT_VERSION};
 use crate::container::{Header, IfcxFile, Import, Node};
 use crate::json::{self, round_coordinate};
@@ -305,7 +307,7 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
     let file = IfcxFile {
         header: header(project, options),
         imports: imports(),
-        schemas: schema::declarations(&kinds::present(project)),
+        schemas: schema::declarations(&kinds::present(project), relations::present(project)),
         data,
     };
     WriteOutcome { file, warnings }
@@ -326,7 +328,7 @@ pub fn save(
     pretty: bool,
 ) -> (Vec<u8>, Vec<Problem>) {
     let mut warnings = Vec::new();
-    let declarations = schema::declarations(&kinds::present(project));
+    let declarations = schema::declarations(&kinds::present(project), relations::present(project));
     let mut document = DocumentWriter::new(&header(project, options), &imports(), &declarations, pretty);
     nodes(project, geometry, &mut warnings, &mut |node| document.node(&node));
     (document.finish(), warnings)
@@ -415,7 +417,7 @@ fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem
         emit(node);
 
         for e in elements {
-            write_element(e, geometry, emit, &mut used_materials, warnings);
+            write_element(e, &project.relations, geometry, emit, &mut used_materials, warnings);
         }
     }
 
@@ -434,8 +436,10 @@ fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem
 /// Emits an element node and then its sub-nodes: each body and the axis
 /// node is built and emitted in turn, so that only one of them is held at a
 /// time (NFR-SEC-003). The element node needs only their names and ids.
+/// The element's explicit relations go on its node (SRS 3.3, IFX-060).
 fn write_element(
     e: &Element,
+    relations: &RelationStore,
     geometry: &ModelGeometry,
     emit: &mut impl FnMut(Node),
     used_materials: &mut HashSet<MaterialId>,
@@ -484,6 +488,9 @@ fn write_element(
             }
             node.attributes.insert(schema::ELEMENT.into(), common);
             node.attributes.insert(key.into(), value);
+            if let Some(relations) = relations::write(relations, e.id) {
+                node.attributes.insert(relations::ATTRIBUTE.into(), relations);
+            }
         }
         // Without its kind and parameters the element reads back as an
         // unsupported node, not as a broken element.

@@ -153,6 +153,15 @@ pub const ALL_KEYS: &[&str] = &[
     "model-problem-home-storey-missing",
     "model-problem-layer-missing",
     "model-problem-material-missing",
+    "model-problem-relation-end-missing",
+    "model-problem-relation-ends-missing",
+    // Relations (relations.rs, Relation::label_key).
+    "model-relation-storey-link",
+    "model-relation-host",
+    "model-relation-junction",
+    "model-relation-trim",
+    "model-relation-solid-operation",
+    "model-relation-annotation-binding",
     // Typed lengths, angles and slopes (units.rs, ParseError::message).
     "model-error-parse-empty",
     "model-error-parse-length",
@@ -224,7 +233,7 @@ pub const ALL_KEYS: &[&str] = &[
 /// `&'static str`, so reading a message back (from a journal, for example)
 /// maps the name onto this list.
 pub const ARG_NAMES: &[&str] = &[
-    "count", "kind", "min", "max", "name", "reason", "class", "lower", "upper", "layer", "text", "type",
+    "count", "kind", "min", "max", "name", "reason", "class", "lower", "upper", "layer", "text", "type", "relation",
 ];
 
 /// A typed argument of a [`Message`].

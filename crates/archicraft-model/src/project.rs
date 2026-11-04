@@ -8,10 +8,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, PredefinedType};
 use crate::group::Group;
-use crate::ids::{BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
+use crate::ids::{
+    BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, RelationId, SiteId, StoreyId, ViewId,
+};
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
+use crate::relations::RelationStore;
 use crate::storey::StoreyList;
 use crate::template::TemplateContext;
 use crate::units::UnitSettings;
@@ -316,6 +319,10 @@ pub struct Project {
     /// Element groups, outermost and nested, in creation order (ELM-015).
     #[serde(default)]
     pub groups: IndexMap<GroupId, Group>,
+    /// The explicit relations between elements (SRS 3.3). Derived storey
+    /// links are not stored; they follow from the elements.
+    #[serde(default)]
+    pub relations: RelationStore,
     pub tool_defaults: ToolDefaults,
     pub views: Vec<View3d>,
     pub counters: NameCounters,
@@ -436,22 +443,68 @@ impl Project {
         })
     }
 
-    /// The storey, layer and material references that are dangling, as a
-    /// list of problems naming the element (NFR-REL-004, NFR-L10N-001).
-    pub fn integrity_problems(&self) -> Vec<Message> {
+    /// The dangling references of the project (NFR-REL-004): an element's
+    /// storey, layer or material that does not exist, and an explicit
+    /// relation whose end names no element. Each problem carries what a
+    /// problems panel needs to select it (UI-012) and its message
+    /// (NFR-L10N-001).
+    pub fn integrity_problems(&self) -> Vec<IntegrityProblem> {
         let mut problems = Vec::new();
         for e in self.elements.values() {
-            let problem = |key| Message::new(key).text("name", &e.name);
+            let mut problem = |key| {
+                problems.push(IntegrityProblem {
+                    element: Some(e.id),
+                    relation: None,
+                    message: Message::new(key).text("name", &e.name),
+                });
+            };
             if self.storeys.get(e.storey).is_none() {
-                problems.push(problem("model-problem-home-storey-missing"));
+                problem("model-problem-home-storey-missing");
             }
             if self.layer(e.layer).is_none() {
-                problems.push(problem("model-problem-layer-missing"));
+                problem("model-problem-layer-missing");
             }
             if e.kind.material().is_some_and(|m| self.material(m).is_none()) {
-                problems.push(problem("model-problem-material-missing"));
+                problem("model-problem-material-missing");
             }
+        }
+        for (id, relation) in self.relations.iter() {
+            let Some((first, second)) = relation.ends() else {
+                continue;
+            };
+            let ends = [first, second].map(|end| self.element(end));
+            if ends.iter().all(Option::is_some) {
+                continue;
+            }
+            let kind = Message::new(relation.label_key());
+            let (element, message) = match ends.into_iter().flatten().next() {
+                Some(e) => (
+                    Some(e.id),
+                    Message::new("model-problem-relation-end-missing")
+                        .text("name", &e.name)
+                        .nested("relation", kind),
+                ),
+                None => (
+                    None,
+                    Message::new("model-problem-relation-ends-missing").nested("relation", kind),
+                ),
+            };
+            problems.push(IntegrityProblem {
+                element,
+                relation: Some(id),
+                message,
+            });
         }
         problems
     }
+}
+
+/// A dangling reference found by [`Project::integrity_problems`]
+/// (NFR-REL-004): the element to select, if one exists, the relation when a
+/// relation's end is missing, and the message to show (UI-012).
+#[derive(Clone, Debug, PartialEq)]
+pub struct IntegrityProblem {
+    pub element: Option<ElementId>,
+    pub relation: Option<RelationId>,
+    pub message: Message,
 }

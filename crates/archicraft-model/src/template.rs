@@ -15,6 +15,7 @@ use crate::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use crate::project::{
     Building, Location, NameCounters, Project, ProjectInfo, ProjectSettings, Projection, Site, ToolDefaults, View3d,
 };
+use crate::relations::RelationStore;
 use crate::storey::{Storey, StoreyList};
 
 /// Name, short code, category, colour (sRGB bytes), opacity, intersection
@@ -399,6 +400,7 @@ pub fn default_metric_project_with(ids: &mut dyn FnMut(&str) -> Uuid) -> Project
         materials,
         elements: IndexMap::new(),
         groups: IndexMap::new(),
+        relations: RelationStore::default(),
         tool_defaults,
         views: vec![
             View3d {

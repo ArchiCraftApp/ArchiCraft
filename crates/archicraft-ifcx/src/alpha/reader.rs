@@ -22,8 +22,10 @@
 //! `planGrid` (files from before INP-013), the `snapExcluded` flag of
 //! elements and layers, written only when set (INP-017), and the project's
 //! `groups`, a group's `parent`, an element's `group` and the `group`
-//! counter, written only for projects with groups (ELM-015). Their absence
-//! is no problem.
+//! counter, written only for projects with groups (ELM-015), and an element
+//! node's `archicraft::relations`, written only for an element with
+//! explicit relations (SRS 3.3, [`super::relations`]). Their absence is no
+//! problem.
 //!
 //! An opened file holds its attribute values as raw JSON text
 //! ([`crate::validate::parse_raw`]); the reader parses the attributes it
@@ -39,6 +41,7 @@ use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategor
 use archicraft_model::project::{
     Building, DefaultsSlot, Location, NameCounters, Projection, Site, Tessellation, ToolDefaults, View3d,
 };
+use archicraft_model::relations::RelationStore;
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::{TemplateContext, template_tool_defaults};
 use archicraft_model::tolerance::MODEL_TOLERANCE;
@@ -55,6 +58,7 @@ use uuid::Uuid;
 
 use super::kinds::{self, ReadContext};
 use super::migrate::{self, Migration};
+use super::relations;
 use super::schema::{self, FORMAT_VERSION};
 use super::writer::IFCX_VERSION;
 use crate::container::{AttributeValue, IfcxFile};
@@ -93,7 +97,7 @@ pub(crate) struct Report<'a> {
 }
 
 impl<'a> Report<'a> {
-    fn new(problems: &'a mut Vec<Problem>, path: &str, record: Message) -> Self {
+    pub(crate) fn new(problems: &'a mut Vec<Problem>, path: &str, record: Message) -> Self {
         Self {
             problems,
             path: path.to_owned(),
@@ -278,7 +282,7 @@ fn predefined_type(map: &Object, kind: KindTag, class: IfcClass, report: &mut Re
 
 /// The attribute `id` of `node` as a tree, parsed if it is raw text. `None`
 /// when it is absent, or when it cannot be parsed, which validation reports.
-fn attribute<'n, A: AttributeValue>(node: &'n FlatNode<A>, id: &str) -> Option<Cow<'n, Value>> {
+pub(crate) fn attribute<'n, A: AttributeValue>(node: &'n FlatNode<A>, id: &str) -> Option<Cow<'n, Value>> {
     node.attributes.get(id)?.value().ok()
 }
 
@@ -1007,7 +1011,7 @@ fn storey_list(
 }
 
 /// Names an element node in reports, by its name if it has one.
-fn element_record<A: AttributeValue>(path: &str, node: &FlatNode<A>) -> Message {
+pub(crate) fn element_record<A: AttributeValue>(path: &str, node: &FlatNode<A>) -> Message {
     Message::new("ifcx-record-element").text("name", name(node).as_deref().unwrap_or(path))
 }
 
@@ -1245,6 +1249,7 @@ fn read_migrated<A: AttributeValue>(
         materials: data.materials,
         elements: IndexMap::new(),
         groups: data.groups,
+        relations: RelationStore::default(),
         tool_defaults,
         views: data.views,
         counters: NameCounters::default(),
@@ -1258,6 +1263,8 @@ fn read_migrated<A: AttributeValue>(
     });
 
     let mut seen = HashSet::new();
+    // The elements read, in file order, for the relations pass below.
+    let mut read_elements: Vec<(String, ElementId)> = Vec::new();
     for (storey, children) in &storey_entries {
         let storey_lost = project.storeys.get(storey.id).is_none();
         for child in children {
@@ -1296,10 +1303,14 @@ fn read_migrated<A: AttributeValue>(
                     ));
                     continue;
                 }
+                read_elements.push((child.clone(), element.id));
                 project.elements.insert(element.id, element);
             }
         }
     }
+    // SRS 3.3: the explicit relations, once every element is known, so that
+    // a relation to an element later in the file resolves.
+    relations::read(&mut project, &nodes, &read_elements, &mut problems);
     project.counters = read_counters(
         data.counters.as_ref().map_err(Clone::clone),
         &project,
