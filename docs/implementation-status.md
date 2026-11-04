@@ -14,8 +14,8 @@ Increment 0 (the walking skeleton of Appendix F) is delivered: a four-crate Rust
 | Status | Must (M) | Should (S) | Could (C) | Total |
 |---|---:|---:|---:|---:|
 | done | 70 | 9 | 1 | 80 |
-| partial | 110 | 36 | 6 | 152 |
-| missing | 134 | 155 | 47 | 336 |
+| partial | 110 | 37 | 6 | 153 |
+| missing | 134 | 154 | 47 | 335 |
 | **total** | 314 | 200 | 54 | 568 |
 
 Remaining effort of the 488 open requirements: S 114, M 215, L 134, XL 25.
