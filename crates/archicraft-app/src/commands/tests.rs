@@ -786,7 +786,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
 /// UI-001: the toolbox is the registry's toolbox places: Select under
 /// Selection, Wall and Slab under Modelling, and Fit, Orbit, Plan/3D and
 /// Measure under the view tools; no tool is 2D or annotation yet, so that
-/// group has no heading. Each label is a catalogue key.
+/// group has no separator. Each label is a catalogue key.
 #[test]
 fn the_toolbox_groups_come_from_the_registry() {
     let groups: Vec<(ToolGroup, Vec<&str>)> = Registry::get()
@@ -813,6 +813,34 @@ fn the_toolbox_groups_come_from_the_registry() {
     }
     for group in ToolGroup::ALL {
         assert!(english.has(group.title_key()), "{group:?}");
+    }
+}
+
+/// UI-001, UI-011: every tool the toolbox shows has an icon, a name and an
+/// explanation in the English catalogue, the command's description, of one
+/// or two sentences and at most 160 characters, which its icon button shows
+/// as tooltip instead of a text label.
+#[test]
+fn every_toolbox_tool_has_an_icon_and_an_explanation() {
+    let english = Localizer::english();
+    let tools: Vec<&CommandSpec> = Registry::get()
+        .toolbox()
+        .into_iter()
+        .flat_map(|(_, tools)| tools)
+        .collect();
+    assert_eq!(tools.len(), 7);
+    for spec in tools {
+        let id = spec.id;
+        assert!(spec.icon.is_some(), "{id} has no icon");
+        let place = spec.toolbox.unwrap_or_else(|| panic!("{id}"));
+        assert!(!english.format(place.label, None).trim().is_empty(), "{id} has no name");
+        let key = id.description_key();
+        assert!(english.has(&key), "{id}: no English explanation {key}");
+        let explanation = english.format(&key, None);
+        let length = explanation.trim().chars().count();
+        assert!((1..=160).contains(&length), "{id}: {length} characters: {explanation}");
+        let sentences = explanation.trim_end_matches('.').matches(". ").count() + 1;
+        assert!(sentences <= 2, "{id}: {sentences} sentences: {explanation}");
     }
 }
 
