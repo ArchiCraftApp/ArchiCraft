@@ -9,7 +9,10 @@
 //! them, a segment is split at every vertex that lies on it, and overlapping
 //! collinear pieces become one edge. The bounded faces of the resulting
 //! half-edge structure, without their antennas, are the regions
-//! ([`ContourGraph::region_at`]).
+//! ([`ContourGraph::region_at`]). The runs of edges through the vertices
+//! where two edges meet are the chains: the clicked edge
+//! ([`ContourGraph::edge_at`], up to the first corner) and the chain of
+//! connected edges ([`ContourGraph::chain_at`]).
 //!
 //! The segments are put into a canonical order before noding, so the graph
 //! does not depend on the order or direction in which a source supplies
@@ -27,7 +30,7 @@ use archicraft_model::validate::signed_area;
 use archicraft_model::{ElementId, MODEL_TOLERANCE};
 use geo::Polygon;
 use glam::DVec2;
-use rstar::primitives::{GeomWithData, Rectangle};
+use rstar::primitives::{GeomWithData, Line, Rectangle};
 use rstar::{AABB, RTree};
 
 use crate::plan::{PlanDrawing, polygon_rings, ring_contains, segment_distance};
@@ -126,6 +129,19 @@ impl Region {
     }
 }
 
+/// A run of connected edges of a contour graph: the clicked edge or a chain
+/// of connected edges (INP-018).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Chain {
+    /// The ends and corners, without the vertices where the chain runs
+    /// straight on. An open chain runs from its lexically first end (smaller
+    /// x, then smaller y); a closed one runs counter-clockwise from its
+    /// lexically first corner and does not repeat it.
+    pub points: Vec<DVec2>,
+    /// True if the chain returns to its start.
+    pub closed: bool,
+}
+
 /// A cycle of half-edges without its antennas.
 #[derive(Clone, Debug)]
 struct Face {
@@ -156,6 +172,10 @@ pub struct ContourGraph {
     faces: Vec<Face>,
     /// The bounding boxes of the bounded faces.
     bounded: BoxIndex,
+    /// The edges at each vertex.
+    incident: Vec<Vec<usize>>,
+    /// The edges as lines, with their indices.
+    lines: RTree<GeomWithData<Line<[f64; 2]>, usize>>,
 }
 
 impl ContourGraph {
@@ -184,11 +204,29 @@ impl ContourGraph {
                 .map(|(k, face)| GeomWithData::new(Rectangle::from_aabb(bounds(&face.ring)), k))
                 .collect(),
         );
+        let mut incident = vec![Vec::new(); vertices.len()];
+        for (e, edge) in edges.iter().enumerate() {
+            for v in edge.ends {
+                incident[v].push(e);
+            }
+        }
+        let lines = RTree::bulk_load(
+            edges
+                .iter()
+                .enumerate()
+                .map(|(e, edge)| {
+                    let [a, b] = edge.ends.map(|v| vertices[v].to_array());
+                    GeomWithData::new(Line::new(a, b), e)
+                })
+                .collect(),
+        );
         let mut graph = Self {
             vertices,
             edges,
             faces,
             bounded,
+            incident,
+            lines,
         };
         graph.assign_islands();
         graph
@@ -215,6 +253,98 @@ impl ContourGraph {
     /// (INP-018).
     pub fn region_at(&self, p: DVec2) -> Option<Region> {
         self.smallest_face_around(p, None).map(|k| self.region(k))
+    }
+
+    /// The straight run of edges through the edge nearest to `p` within
+    /// `radius`, up to the corners and the vertices where other than two
+    /// edges meet: the clicked edge (INP-018).
+    pub fn edge_at(&self, p: DVec2, radius: f64) -> Option<Chain> {
+        self.nearest_edge(p, radius).map(|e| self.chain(e, true))
+    }
+
+    /// The run of edges through the edge nearest to `p` within `radius`, up
+    /// to the vertices where other than two edges meet: the chain of
+    /// connected edges (INP-018).
+    pub fn chain_at(&self, p: DVec2, radius: f64) -> Option<Chain> {
+        self.nearest_edge(p, radius).map(|e| self.chain(e, false))
+    }
+
+    /// The edge nearest to `p` within `radius`; of equally near ones the
+    /// first.
+    fn nearest_edge(&self, p: DVec2, radius: f64) -> Option<usize> {
+        self.lines
+            .locate_within_distance(p.to_array(), radius * radius)
+            .map(|entry| {
+                let [a, b] = self.edges[entry.data].ends.map(|v| self.vertices[v]);
+                (segment_distance(p, a, b), entry.data)
+            })
+            .filter(|&(distance, _)| distance <= radius)
+            .min_by(|s, t| s.0.total_cmp(&t.0).then(s.1.cmp(&t.1)))
+            .map(|(_, e)| e)
+    }
+
+    /// The chain through edge `e`, walking on from both of its ends while two
+    /// edges meet at the vertex and, if `straight`, the chain runs straight
+    /// on there.
+    fn chain(&self, e: usize, straight: bool) -> Chain {
+        let [a, b] = self.edges[e].ends;
+        let mut path = vec![a, b];
+        self.walk(e, straight, &mut path);
+        if path[path.len() - 1] != a {
+            let mut back = vec![b, a];
+            self.walk(e, straight, &mut back);
+            back.reverse();
+            back.extend_from_slice(&path[2..]);
+            path = back;
+        }
+        // Back at the start, also where more than two edges meet.
+        let closed = path.len() > 3 && path[0] == path[path.len() - 1];
+        if closed {
+            path.pop();
+        }
+        let all: Vec<DVec2> = path.iter().map(|&v| self.vertices[v]).collect();
+        let n = all.len();
+        let mut points: Vec<DVec2> = (0..n)
+            .filter(|&k| {
+                let end = !closed && (k == 0 || k == n - 1);
+                end || !runs_straight(all[(k + n - 1) % n], all[k], all[(k + 1) % n])
+            })
+            .map(|k| all[k])
+            .collect();
+        if closed {
+            if signed_area(&points) < 0.0 {
+                points.reverse();
+            }
+            let first = (0..points.len()).min_by(|&j, &k| lexical(points[j], points[k]));
+            points.rotate_left(first.unwrap_or(0));
+        } else if lexical(points[points.len() - 1], points[0]).is_lt() {
+            points.reverse();
+        }
+        Chain { points, closed }
+    }
+
+    /// Walks on from the last vertex of `path`, reached along edge `e`, and
+    /// appends the vertices it passes, until it reaches a vertex where other
+    /// than two edges meet, a corner if `straight`, or the start of `path`.
+    fn walk(&self, mut e: usize, straight: bool, path: &mut Vec<usize>) {
+        loop {
+            let v = path[path.len() - 1];
+            let &[f, g] = self.incident[v].as_slice() else {
+                return;
+            };
+            let next = if f == e { g } else { f };
+            let [u, w] = self.edges[next].ends;
+            let w = if u == v { w } else { u };
+            let previous = path[path.len() - 2];
+            if straight && !runs_straight(self.vertices[previous], self.vertices[v], self.vertices[w]) {
+                return;
+            }
+            path.push(w);
+            if w == path[0] {
+                return;
+            }
+            e = next;
+        }
     }
 
     /// The bounded face of smallest area whose boundary contains `p`, other
@@ -252,6 +382,15 @@ impl ContourGraph {
                 .collect(),
         }
     }
+}
+
+/// True if the path `a b c` runs straight on at `b`: its two pieces are
+/// parallel ([`is_parallel`]) without turning back, and `b` lies within the
+/// model tolerance of the line `a c`, so that a long sliver keeps its
+/// corners.
+fn runs_straight(a: DVec2, b: DVec2, c: DVec2) -> bool {
+    let (u, v) = (b - a, c - b);
+    is_parallel(u, v) && u.dot(v) > 0.0 && segment_distance(b, a, c) < MODEL_TOLERANCE
 }
 
 /// Orders points by x, then y.
