@@ -18,6 +18,7 @@ use egui::{
     Ui,
 };
 
+use super::annotation_draw::{LaidOutText, TextBlock, layout_text};
 use super::camera::{Camera2d, ZoomHistory};
 use crate::commands::{CommandId, view_keys};
 use crate::input::{
@@ -101,6 +102,13 @@ impl PlanViewState {
             self.zoom_history.record(self.camera);
         }
         self.last_record = now;
+    }
+
+    /// Lays annotation text out at paper size for this view: at its drawing
+    /// scale, seen through its camera where it was drawn last (VIEW-013,
+    /// ANN-007).
+    pub fn layout_text(&self, ctx: &egui::Context, text: &TextBlock) -> Option<LaidOutText> {
+        layout_text(ctx, text, self.scale, &self.camera, self.last_rect)
     }
 
     pub fn fit(&mut self, rect: Rect, plan: &PlanDrawing) {
@@ -1287,6 +1295,37 @@ mod tests {
         step(&mut state, "previous_zoom", false);
         state.next_zoom();
         step(&mut state, "next_zoom", false);
+    }
+
+    /// VIEW-013: a plan lays annotation text out at its own drawing scale:
+    /// 2.5 mm stand for half the model length at 1:50 as at 1:100, so at the
+    /// same zoom the text is half as large on screen.
+    #[test]
+    fn plan_text_follows_the_views_drawing_scale() {
+        use archicraft_model::{AnchorPos, TextAlign};
+
+        let ctx = egui::Context::default();
+        ctx.begin_pass(egui::RawInput::default());
+        let text = TextBlock {
+            content: "Living".to_owned(),
+            size_mm: 2.5,
+            line_spacing: 1.0,
+            align: TextAlign::Left,
+            anchor: DVec2::ZERO,
+            anchor_pos: AnchorPos::BottomLeft,
+            angle: 0.0,
+        };
+        let mut state = PlanViewState {
+            camera: Camera2d {
+                center: DVec2::ZERO,
+                scale: 100.0,
+            },
+            last_rect: Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(800.0, 600.0)),
+            ..PlanViewState::default()
+        };
+        assert_eq!(state.layout_text(&ctx, &text).unwrap().size, 25.0);
+        state.scale = DrawingScale::new(50).unwrap();
+        assert_eq!(state.layout_text(&ctx, &text).unwrap().size, 12.5);
     }
 
     /// INP-001: the plan view's surface maps screen and plane points as its
