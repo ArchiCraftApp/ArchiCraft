@@ -10,6 +10,8 @@ python3 scripts/tests/test_dashboard.py
 """
 
 import importlib.util
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -364,6 +366,26 @@ class ShowcaseDemos(unittest.TestCase):
         shown, = dashboard.showcase_demos(demo(1, [], verify_status="closed"))
         accepted, = dashboard.showcase_demos(demo(1, [], verify_status="closed", status="closed"))
         self.assertEqual((shown["state"], accepted["state"]), ("demo", "accepted"))
+
+
+class BeadsLock(unittest.TestCase):
+    """Every bd process waits for the embedded Dolt lock, so the dashboard keeps its own bd calls few."""
+
+    def test_status_sh_runs_without_the_real_bd(self):
+        with tempfile.TemporaryDirectory() as tree:
+            script = Path(tree) / "scripts" / "loop" / "status.sh"
+            script.parent.mkdir(parents=True)
+            script.write_text('echo "  gate:   $(bd show x-a --json)"\necho "  paused: $(command -v bd)"\n')
+            with mock.patch.object(dashboard, "NO_BD", dashboard.stand_in_bd()):
+                fields = dashboard.loop_status(tree)
+                self.assertEqual(fields, {"gate": "[]", "paused": str(dashboard.NO_BD / "bd")})
+                shutil.rmtree(dashboard.NO_BD)
+
+    def test_the_bead_queries_wait_longer_for_the_lock_than_other_commands(self):
+        with mock.patch.object(dashboard, "run_json", return_value=[]) as run_json:
+            dashboard.collect_beads()
+        self.assertEqual([c.kwargs["timeout"] for c in run_json.call_args_list], [dashboard.BD_TIMEOUT] * 4)
+        self.assertGreater(dashboard.BD_TIMEOUT, 60)
 
 
 if __name__ == "__main__":
