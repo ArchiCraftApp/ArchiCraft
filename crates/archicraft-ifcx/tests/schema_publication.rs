@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use archicraft_ifcx::alpha::kinds::published;
+use archicraft_ifcx::alpha::relations;
 use archicraft_ifcx::alpha::schema::{self, FORMAT_VERSION};
 use archicraft_ifcx::alpha::writer::{IFCX_VERSION, to_bytes};
 use archicraft_ifcx::container::Import;
@@ -54,20 +55,28 @@ fn importing_the_schema(mut file: IfcxFile) -> IfcxFile {
 
 /// IFX-092: the schema document holds exactly the declarations the writer
 /// puts into a file of the kinds a release stores (the golden files, which
-/// store every such kind), none of the test kind that every test build and
-/// the example that writes the document have, no data and no imports, and
-/// is versioned by the ArchiCraft format version.
+/// store every such kind) plus `archicraft::relations`, which a file
+/// declares only when the project has relations (IFX-061; the samples have
+/// none), none of the test kind that every test build and the example that
+/// writes the document have, no data and no imports, and is versioned by the
+/// ArchiCraft format version.
 #[test]
 fn ifx_092_the_schema_document_holds_only_the_archicraft_declarations() {
     let document = schema_document();
-    assert_eq!(document.schemas, schema::declarations(&published()));
+    assert_eq!(document.schemas, schema::declarations(&published(), true));
+    assert!(document.schemas.contains_key(relations::ATTRIBUTE));
+    let without_relations: Vec<(&String, &serde_json::Value)> = document
+        .schemas
+        .iter()
+        .filter(|(id, _)| id.as_str() != relations::ATTRIBUTE)
+        .collect();
     for (name, golden) in golden_files() {
         let in_file: Vec<(&String, &serde_json::Value)> = golden
             .schemas
             .iter()
             .filter(|(id, _)| id.starts_with("archicraft::"))
             .collect();
-        assert_eq!(document.schemas.iter().collect::<Vec<_>>(), in_file, "{name}");
+        assert_eq!(without_relations, in_file, "{name}");
     }
     assert!(document.schemas.keys().all(|id| id.starts_with("archicraft::")));
     assert!(document.data.is_empty());

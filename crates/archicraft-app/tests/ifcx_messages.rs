@@ -167,6 +167,10 @@ fn representatives() -> Vec<Message> {
             .text("type", "FLOOR")
             .text("class", "IfcWall"),
         text("ifcx-element-material-missing", "name"),
+        Message::new("ifcx-relation-target-missing")
+            .text("relation", "host")
+            .text("text", "0e3b6c2a-…"),
+        Message::new("ifcx-relation-listed-twice").text("relation", "host"),
         Message::new("ifcx-parameters-missing").kind("kind", KindTag::Wall),
         nested("ifcx-holes-left-out", "reason"),
         Message::new("ifcx-kind-unreadable").kind("kind", KindTag::Slab),

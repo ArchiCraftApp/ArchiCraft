@@ -25,6 +25,7 @@ use std::collections::HashSet;
 use archicraft_model::KindTag;
 use serde_json::Value;
 
+use super::relations;
 use super::schema;
 use crate::container::{AttributeValue, IfcxFile};
 use crate::message::Message;
@@ -123,7 +124,10 @@ pub(crate) fn upgrade<A: AttributeValue>(
         }
     }
     file.schemas.retain(|id, _| !id.starts_with("archicraft::"));
-    file.schemas.extend(schema::declarations(&present(&file)));
+    // The declarations follow from the content (IFX-061): the kinds the
+    // file stores and, when a node carries relations, `archicraft::relations`.
+    file.schemas
+        .extend(schema::declarations(&present(&file), relations::present_in(&file)));
     Some((file, from))
 }
 
@@ -309,7 +313,14 @@ mod tests {
         let (file, _) = upgrade(&old, TEST_MIGRATIONS, 2, &mut Vec::new()).unwrap();
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
         assert!(!file.schemas.contains_key("archicraft::retired"));
-        assert_eq!(file.schemas.get(slab), schema::declarations(KindTag::ALL).get(slab));
+        assert_eq!(
+            file.schemas.get(slab),
+            schema::declarations(KindTag::ALL, false).get(slab)
+        );
+        assert!(
+            !file.schemas.contains_key(relations::ATTRIBUTE),
+            "no relations in the file"
+        );
         // The file's kinds and no others, however many codecs this build has.
         let declared: Vec<&String> = file
             .schemas
@@ -325,6 +336,40 @@ mod tests {
                 "archicraft::wall",
                 slab
             ]
+        );
+    }
+
+    /// SRS 3.3, IFX-062: a migrated file keeps declaring
+    /// `archicraft::relations` when one of its nodes carries relations, so
+    /// the relations of a file written at the current format survive the
+    /// first real migration and validate afterwards.
+    #[test]
+    fn a_migrated_file_with_relations_keeps_declaring_them() {
+        let mut old = format_1();
+        let elements: Vec<String> = old
+            .data
+            .iter()
+            .filter(|n| n.attributes.contains_key(schema::ELEMENT))
+            .map(|n| n.path.clone())
+            .collect();
+        assert!(elements.len() >= 2, "{elements:?}");
+        let (first, second) = (&elements[0], &elements[1]);
+        let node = old.data.iter_mut().find(|n| &n.path == first).unwrap();
+        node.attributes.insert(
+            relations::ATTRIBUTE.into(),
+            serde_json::json!([{"kind": "host", "target": second}]),
+        );
+        old.schemas.extend(
+            schema::declarations(&[], true)
+                .into_iter()
+                .filter(|(id, _)| id == relations::ATTRIBUTE),
+        );
+        assert!(validate::validate(&old).is_empty(), "{:#?}", validate::validate(&old));
+        let (file, _) = upgrade(&old, TEST_MIGRATIONS, 2, &mut Vec::new()).unwrap();
+        assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
+        assert_eq!(
+            file.schemas.get(relations::ATTRIBUTE),
+            schema::declarations(&[], true).get(relations::ATTRIBUTE)
         );
     }
 

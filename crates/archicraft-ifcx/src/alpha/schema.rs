@@ -19,6 +19,7 @@ use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, Volu
 use archicraft_model::{KindTag, Position, PredefinedType};
 
 use super::kinds::{self, Codec};
+use super::relations;
 use super::writer::IFCX_VERSION;
 use crate::container::{Header, IfcxFile};
 
@@ -278,10 +279,12 @@ fn project(present: &[&dyn Codec]) -> Value {
 
 /// The `schemas` section of a file that stores the kinds `present`, in
 /// registry order (IFX-061): the project, the storey, the common element
-/// data and the attribute of each present kind that has a codec (IFX-060).
-/// The writer passes [`kinds::present`] of the project; [`document`] passes
-/// [`kinds::published`].
-pub fn declarations(present: &[KindTag]) -> IndexMap<String, Value> {
+/// data, the attribute of each present kind that has a codec (IFX-060) and,
+/// with `relations`, the explicit relations between elements (SRS 3.3).
+/// The writer passes [`kinds::present`] and [`relations::present`] of the
+/// project; [`document`] passes [`kinds::published`] and declares the
+/// relations.
+pub fn declarations(present: &[KindTag], relations: bool) -> IndexMap<String, Value> {
     let present: Vec<&dyn Codec> = present.iter().filter_map(|&kind| kinds::codec(kind)).collect();
     let mut schemas = IndexMap::new();
     schemas.insert(PROJECT.to_owned(), json!({"value": project(&present)}));
@@ -308,6 +311,9 @@ pub fn declarations(present: &[KindTag]) -> IndexMap<String, Value> {
     for codec in present {
         schemas.insert(codec.attribute().to_owned(), json!({"value": codec.schema()}));
     }
+    if relations {
+        schemas.insert(relations::ATTRIBUTE.to_owned(), json!({"value": relations::schema()}));
+    }
     schemas
 }
 
@@ -328,7 +334,7 @@ pub fn document(timestamp: &str) -> IfcxFile {
             timestamp: timestamp.to_owned(),
         },
         imports: Vec::new(),
-        schemas: declarations(&kinds::published()),
+        schemas: declarations(&kinds::published(), true),
         data: Vec::new(),
     }
 }

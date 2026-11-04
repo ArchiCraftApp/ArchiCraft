@@ -179,6 +179,17 @@ model-error-layer-locked = { $name } is on the locked layer “{ $layer }”.
 model-problem-home-storey-missing = { $name }: the home storey is missing.
 model-problem-layer-missing = { $name }: the layer is missing.
 model-problem-material-missing = { $name }: the material is missing.
+model-problem-relation-end-missing = { $name }: its { $relation } relation refers to a missing element.
+model-problem-relation-ends-missing = A { $relation } relation refers to two missing elements.
+
+## Relations (SRS 3.3), from Relation::label_key
+
+model-relation-storey-link = storey link
+model-relation-host = host
+model-relation-junction = junction
+model-relation-trim = trim
+model-relation-solid-operation = solid operation
+model-relation-annotation-binding = annotation binding
 
 ## Typed lengths, angles and slopes (INP-005, NFR-L10N-003). $text is what the user typed.
 

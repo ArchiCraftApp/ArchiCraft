@@ -66,7 +66,7 @@ fn every_project_field_is_persisted() {
     let mapped: BTreeSet<&str> = PROJECT_FIELDS.iter().map(|(field, _)| *field).collect();
     assert_eq!(fields_of_project, mapped, "Project's fields and PROJECT_FIELDS");
     assert_eq!(PROJECT_FIELDS.len(), mapped.len(), "each field once");
-    let declared = schema::declarations(KindTag::ALL);
+    let declared = schema::declarations(KindTag::ALL, true);
     let project_members = members(&declared["archicraft::project"]);
     for (field, stored) in PROJECT_FIELDS {
         assert!(!stored.is_empty(), "{field} is stored somewhere");

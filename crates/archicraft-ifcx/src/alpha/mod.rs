@@ -5,5 +5,6 @@
 pub mod kinds;
 pub mod migrate;
 pub mod reader;
+pub mod relations;
 pub mod schema;
 pub mod writer;

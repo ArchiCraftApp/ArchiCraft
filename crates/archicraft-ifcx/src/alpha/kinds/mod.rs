@@ -243,6 +243,9 @@ pub enum Stored {
     /// A member of `archicraft::project` on the project node, as a path such
     /// as `counters.group`.
     Member(&'static str),
+    /// The element nodes' `archicraft::relations`, each explicit relation
+    /// on the node of its first end ([`super::relations`], SRS 3.3).
+    Relations,
     /// A field of the file header.
     Header(&'static str),
 }
@@ -262,6 +265,7 @@ pub const PROJECT_FIELDS: &[(&str, &[Stored])] = &[
     ("materials", &[Stored::Member("materials"), Stored::Node("Material")]),
     ("elements", &[Stored::Elements]),
     ("groups", &[Stored::Member("groups")]),
+    ("relations", &[Stored::Relations]),
     ("tool_defaults", &[Stored::Member("toolDefaults")]),
     ("views", &[Stored::Member("views")]),
     ("counters", &[Stored::Member("counters")]),

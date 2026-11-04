@@ -124,6 +124,8 @@ pub const ALL_KEYS: &[&str] = &[
     "ifcx-predefined-type-not-offered",
     "ifcx-element-material-missing",
     "ifcx-element-group-missing",
+    "ifcx-relation-target-missing",
+    "ifcx-relation-listed-twice",
     "ifcx-parameters-missing",
     "ifcx-holes-left-out",
     "ifcx-kind-unreadable",
