@@ -20,6 +20,7 @@ pub mod project;
 pub mod samples;
 pub mod storey;
 pub mod template;
+pub mod text;
 pub mod tolerance;
 pub mod transform;
 pub mod units;
@@ -36,6 +37,7 @@ pub use material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 pub use message::{Arg, Message};
 pub use project::{PlanGrid, Project, ProjectInfo, ProjectSettings};
 pub use storey::{Storey, StoreyList};
+pub use text::{AnchorPos, TextAlign};
 pub use tolerance::{ANGLE_TOLERANCE, JOIN_TOLERANCE, MODEL_TOLERANCE};
 
 /// Re-exported so that dependants use the same vector types.

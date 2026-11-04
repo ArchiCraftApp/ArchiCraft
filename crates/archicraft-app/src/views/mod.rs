@@ -1,5 +1,6 @@
 //! Plan and 3D views.
 
+pub mod annotation_draw;
 pub mod camera;
 pub mod plan;
 pub mod render3d;
