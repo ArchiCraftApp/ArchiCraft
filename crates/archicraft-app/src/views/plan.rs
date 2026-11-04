@@ -11,7 +11,7 @@ use std::sync::Arc;
 use archicraft_geometry::plan::{PlanDrawing, polygon_rings};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{NumberFormat, UnitSettings};
-use archicraft_model::{ElementId, Project, StoreyId};
+use archicraft_model::{DrawingScale, ElementId, Project, StoreyId};
 use egui::epaint::Vertex;
 use egui::{
     Align2, Color32, CursorIcon, Event, FontId, Key, Mesh, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
@@ -32,6 +32,10 @@ use crate::workspace::{Consumer, InputFrames, Pane, Request, Workspace};
 #[derive(Clone, Debug)]
 pub struct PlanViewState {
     pub camera: Camera2d,
+    /// The drawing scale of the view (VIEW-013, default 1:100). It is kept
+    /// outside the camera, so that pan, zoom, fit and the zoom history never
+    /// change it.
+    pub scale: DrawingScale,
     pub zoom_history: ZoomHistory,
     fitted: bool,
     area_start: Option<Pos2>,
@@ -69,6 +73,7 @@ impl Default for PlanViewState {
     fn default() -> Self {
         Self {
             camera: Camera2d::default(),
+            scale: DrawingScale::default(),
             zoom_history: ZoomHistory::default(),
             fitted: false,
             area_start: None,
@@ -1229,6 +1234,60 @@ fn context_menu(ui: &mut Ui, ws: &mut Workspace) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// VIEW-013: pan moves the camera's centre and zoom, fit, zoom to
+    /// elements and previous and next zoom change its points per metre, but
+    /// none of them changes the view's drawing scale.
+    #[test]
+    fn navigation_never_changes_the_drawing_scale() {
+        use archicraft_geometry::{ModelGeometry, ViewRange, plan_drawing};
+        use archicraft_model::samples::FixtureBuilder;
+
+        let mut fixture = FixtureBuilder::new("plan-scale");
+        let ground = fixture.project().storeys.ground();
+        let wall = fixture.wall(ground, DVec2::ZERO, DVec2::new(8.0, 0.0));
+        let project = fixture.project().clone();
+        let geometry = ModelGeometry::evaluate(&project);
+        let plan = plan_drawing(
+            &project,
+            &geometry,
+            ground,
+            ViewRange::for_storey(&project, ground),
+            |_| true,
+        );
+        let rect = Rect::from_min_size(Pos2::ZERO, egui::Vec2::new(800.0, 600.0));
+        let scale = DrawingScale::new(50).unwrap();
+        let mut state = PlanViewState {
+            scale,
+            last_rect: rect,
+            ..PlanViewState::default()
+        };
+        let mut camera = state.camera;
+        let mut step = |state: &mut PlanViewState, name: &str, center_moves: bool| {
+            if center_moves {
+                assert_ne!(state.camera.center, camera.center, "{name} moves the centre");
+            } else {
+                assert_ne!(state.camera.scale, camera.scale, "{name} zooms");
+            }
+            assert_eq!(state.scale, scale, "{name} keeps the drawing scale");
+            camera = state.camera;
+        };
+
+        state.camera.pan(egui::Vec2::new(30.0, -12.0));
+        step(&mut state, "pan", true);
+        state.camera.zoom_at(rect, Pos2::new(100.0, 200.0), 2.0);
+        step(&mut state, "zoom_at", false);
+        state.zoom_by(1.25);
+        step(&mut state, "zoom_by", false);
+        state.fit(rect, &plan);
+        step(&mut state, "fit", false);
+        state.zoom_to(rect, &plan, &[wall]);
+        step(&mut state, "zoom_to", false);
+        state.previous_zoom();
+        step(&mut state, "previous_zoom", false);
+        state.next_zoom();
+        step(&mut state, "next_zoom", false);
+    }
 
     /// INP-001: the plan view's surface maps screen and plane points as its
     /// camera does, on the plane at the storey elevation.

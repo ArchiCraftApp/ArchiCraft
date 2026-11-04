@@ -26,6 +26,7 @@ use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_length};
 use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{
     Command, ElementId, ElementKind, IfcClass, KindTag, Material, PredefinedType, ProjectSettings, ReferenceLine,
+    StoreyId,
 };
 use common::{assert_present, data_dir, harness, harness_at, harness_in};
 use egui::accesskit::{Role, Toggled};
@@ -1115,9 +1116,10 @@ fn zoom_readout(harness: &mut Harness<'static, ArchiCraftApp>, percent: f64) -> 
 }
 
 /// UI-001: the view-control bar of a plan and of a 3D view shows Zoom in,
-/// Zoom out, Fit and the zoom readout; the 3D bar also shows the display
-/// mode, the view presets and the projection. Neither shows the former
-/// hard-coded "Scale 1:100" or the points-per-metre readout.
+/// Zoom out, Fit and the zoom readout; the plan bar also shows its drawing
+/// scale (VIEW-013), the 3D bar the display mode, the view presets and the
+/// projection. Neither shows the former hard-coded "Scale 1:100" or the
+/// points-per-metre readout, and the 3D bar has no drawing scale.
 #[test]
 fn the_view_bar_shows_the_controls_of_the_active_view() {
     let mut harness = harness("view-bar");
@@ -1140,6 +1142,8 @@ fn the_view_bar_shows_the_controls_of_the_active_view() {
     };
     let expected = zoom_readout(&mut harness, view_bar::plan_zoom_percent(scale, 1.0, 100.0));
     assert!(plan.contains(&expected), "{expected} in {plan:?}");
+    let drawing_scale = By::new().role(Role::ComboBox).label("Drawing scale").value("1:100");
+    assert!(panel(&harness, "view_bar").contains(harness.get(drawing_scale.clone()).rect().center()));
 
     harness.get_by_label("Plan/3D").click();
     harness.run_steps(3);
@@ -1163,12 +1167,121 @@ fn the_view_bar_shows_the_controls_of_the_active_view() {
         "the display-mode choice"
     );
     for texts in [&plan, &view3d] {
-        assert!(
-            texts.iter().all(|t| !t.contains("1:100") && !t.contains("pt/m")),
-            "{texts:?}"
-        );
+        assert!(texts.iter().all(|t| !t.contains("pt/m")), "{texts:?}");
     }
+    assert!(view3d.iter().all(|t| !t.contains("1:100")), "{view3d:?}");
+    assert!(harness.query(drawing_scale).is_none(), "no drawing scale in 3D");
     assert!(harness.query_all_by_label_contains("Scale 1:100").next().is_none());
+}
+
+/// VIEW-013: the view-control bar of the ground-floor plan shows its
+/// drawing scale, 1:100 by default, in a drop-down labelled "Drawing
+/// scale". With the upper storey's plan open too, from the project browser,
+/// choosing 1:50 in the ground-floor plan sets the scale of that plan only,
+/// and its zoom readout reads against 1:50; choosing 1:200 in the upper plan
+/// leaves the ground floor at 1:50. Fit to window changes the zoom but keeps
+/// 1:50. No "Scale 1:100" label is left.
+#[test]
+fn each_plan_has_its_own_drawing_scale() {
+    let mut harness = harness("drawing-scale");
+    let scale_of = |harness: &mut Harness<'static, ArchiCraftApp>, storey| {
+        harness.state_mut().workspace().plan_views[&storey].scale.to_string()
+    };
+    let (ground, upper) = {
+        let ws = harness.state_mut().workspace();
+        let ground = ws.active_storey;
+        assert_eq!(ws.active_pane, Some(Pane::Plan(ground)));
+        let name = |id| ws.doc.project.storeys.iter().find(|s| s.id == id).unwrap().name.clone();
+        let upper = ws.doc.project.storeys.iter().find(|s| s.id != ground).unwrap().id;
+        ((ground, name(ground)), (upper, name(upper)))
+    };
+    let combo = By::new().role(Role::ComboBox).label("Drawing scale");
+    let shown = |harness: &Harness<'static, ArchiCraftApp>| {
+        harness
+            .get(combo.clone())
+            .accesskit_node()
+            .value()
+            .map(|v| v.to_string())
+    };
+    // Opens the plan of `storey` from its row in the project browser.
+    let open_plan = |harness: &mut Harness<'static, ArchiCraftApp>, (storey, name): &(StoreyId, String)| {
+        let row = harness
+            .query_all_by_label_contains(name)
+            .filter_map(|n| n.accesskit_node().label())
+            .find(|label| !label.starts_with("Plan: "))
+            .unwrap();
+        harness.get_by_label(&row).click();
+        // The plan's tab settles before the bar shows its view.
+        harness.run_steps(4);
+        assert_eq!(harness.state_mut().workspace().active_pane, Some(Pane::Plan(*storey)));
+    };
+    let choose = |harness: &mut Harness<'static, ArchiCraftApp>, scale: &str| {
+        harness.get(combo.clone()).click();
+        harness.run_steps(2);
+        harness.get_by_label(scale).click();
+        harness.run_steps(2);
+    };
+    // The zoom readout of the ground-floor plan at the drawing scale 1:`denominator`.
+    let readout = |harness: &mut Harness<'static, ArchiCraftApp>, denominator: f64| {
+        let points_per_metre = harness.state_mut().workspace().plan_views[&ground.0].camera.scale;
+        zoom_readout(harness, view_bar::plan_zoom_percent(points_per_metre, 1.0, denominator))
+    };
+
+    let bar = panel(&harness, "view_bar");
+    assert!(
+        bar.contains(harness.get(combo.clone()).rect().center()),
+        "the drop-down is in the view-control bar"
+    );
+    assert_eq!(shown(&harness).as_deref(), Some("1:100"));
+    assert!(harness.query_all_by_label_contains("Scale 1:100").next().is_none());
+
+    open_plan(&mut harness, &upper);
+    assert_eq!(scale_of(&mut harness, upper.0), "1:100");
+    open_plan(&mut harness, &ground);
+    choose(&mut harness, "1:50");
+    assert_eq!(scale_of(&mut harness, ground.0), "1:50");
+    assert_eq!(
+        scale_of(&mut harness, upper.0),
+        "1:100",
+        "the open upper plan keeps its scale"
+    );
+    assert_eq!(shown(&harness).as_deref(), Some("1:50"));
+    let (at_50, at_100) = (readout(&mut harness, 50.0), readout(&mut harness, 100.0));
+    assert_ne!(at_50, at_100);
+    let texts = view_bar_texts(&harness);
+    assert!(texts.contains(&at_50), "{at_50} in {texts:?}");
+    assert!(!texts.contains(&at_100), "{at_100} in {texts:?}");
+
+    let before = harness.state_mut().workspace().plan_views[&ground.0].camera;
+    harness
+        .state_mut()
+        .workspace()
+        .plan_views
+        .get_mut(&ground.0)
+        .unwrap()
+        .camera
+        .scale *= 3.0;
+    let ctx = harness.ctx.clone();
+    let app = harness.state_mut();
+    let target = Target::active(app.workspace());
+    app.invoke(&ctx, commands::view::FIT_WINDOW, target, Origin::Test);
+    harness.run_steps(2);
+    let fitted = harness.state_mut().workspace().plan_views[&ground.0].camera;
+    assert!((fitted.scale - before.scale * 3.0).abs() > 1e-6, "Fit zooms");
+    assert_eq!(scale_of(&mut harness, ground.0), "1:50", "Fit keeps the drawing scale");
+    let at_50 = readout(&mut harness, 50.0);
+    assert!(view_bar_texts(&harness).contains(&at_50), "the readout follows the fit");
+
+    open_plan(&mut harness, &upper);
+    assert_eq!(shown(&harness).as_deref(), Some("1:100"));
+    choose(&mut harness, "1:200");
+    assert_eq!(scale_of(&mut harness, upper.0), "1:200");
+    assert_eq!(
+        scale_of(&mut harness, ground.0),
+        "1:50",
+        "the ground floor keeps its scale"
+    );
+    assert_eq!(shown(&harness).as_deref(), Some("1:200"));
 }
 
 /// UI-001, VIEW-014: Zoom in and Zoom out of the view-control bar, and

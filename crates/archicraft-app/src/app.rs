@@ -962,10 +962,22 @@ impl eframe::App for ArchiCraftApp {
         // UI-001: the view-control bar of the active view, above the status
         // line.
         if let Some(provider) = view_bar::provider(&self.ws, &cx, ctx.zoom_factor()) {
-            egui::Panel::bottom("view_bar").show(ui, |ui| {
-                let id = view_bar::view_bar(ui, &cx, provider.as_ref());
-                invoked.extend(id.map(|id| (id, Origin::Toolbar)));
-            });
+            let action = egui::Panel::bottom("view_bar")
+                .show(ui, |ui| view_bar::view_bar(ui, &cx, provider.as_ref()))
+                .inner;
+            match action {
+                Some(view_bar::BarAction::Command(id)) => invoked.push((id, Origin::Toolbar)),
+                // VIEW-013: the scale of the active plan only, not of the
+                // other plans.
+                Some(view_bar::BarAction::Scale(scale)) => {
+                    if let Some(Pane::Plan(storey)) = self.ws.active_pane
+                        && let Some(state) = self.ws.plan_views.get_mut(&storey)
+                    {
+                        state.scale = scale;
+                    }
+                }
+                None => {}
+            }
         }
         if self.dialogs.problems {
             egui::Panel::bottom("problems").resizable(true).show(ui, |ui| {

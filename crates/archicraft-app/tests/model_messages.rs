@@ -8,6 +8,7 @@ mod catalogue_check;
 use std::collections::BTreeSet;
 
 use archicraft_app::i18n::{self, Localizer};
+use archicraft_model::drawing::ScaleError;
 use archicraft_model::message::ALL_KEYS;
 use archicraft_model::units::{
     AngleUnit, AreaUnit, LengthUnit, NumberFormat, ParseError, SlopeFormat, UnitSettings, VolumeUnit, format_length,
@@ -95,6 +96,11 @@ fn label_representatives() -> Vec<Message> {
         ]
         .iter()
         .map(ParseError::message),
+    );
+    messages.extend(
+        [ScaleError::Invalid("1:-5".into()), ScaleError::OutOfRange]
+            .iter()
+            .map(ScaleError::message),
     );
     messages
 }
@@ -391,5 +397,13 @@ fn unit_names_and_parse_errors_render_in_english() {
     assert_eq!(
         render(&ParseError::InvalidSlope("1:0".into()).message()),
         "“1:0” is not a valid slope."
+    );
+    assert_eq!(
+        render(&ScaleError::Invalid("abc".into()).message()),
+        "“abc” is not a drawing scale; enter 1:50 or 50."
+    );
+    assert_eq!(
+        render(&ScaleError::OutOfRange.message()),
+        "A drawing scale runs from 1:1 to 1:10000."
     );
 }

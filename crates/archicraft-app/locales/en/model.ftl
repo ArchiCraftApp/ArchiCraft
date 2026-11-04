@@ -187,6 +187,12 @@ model-error-parse-length = “{ $text }” is not a valid length.
 model-error-parse-angle = “{ $text }” is not a valid angle.
 model-error-parse-slope = “{ $text }” is not a valid slope.
 
+## Drawing scales of 2D views (VIEW-013). $text is what the user typed, $max
+## the largest denominator.
+
+model-error-parse-scale = “{ $text }” is not a drawing scale; enter 1:50 or 50.
+model-error-scale-range = A drawing scale runs from 1:1 to 1:{ $max }.
+
 ## Unit names in the project settings (STR-009).
 
 model-unit-length-m = Metre
