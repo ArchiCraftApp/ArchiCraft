@@ -36,8 +36,13 @@ jobs:
       - name: Install the pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+      - name: Disk space before the build
+        run: scripts/ci-disk-space.sh "before the build"
       - name: Build
         run: cargo build --workspace --all-targets --locked
+      - name: Disk space after the build
+        if: ${{ !cancelled() }}
+        run: scripts/ci-disk-space.sh "after the build"
       - name: Test
         run: cargo test --workspace --locked
       # NFR-PERF-001: the frame-time and latency instrumentation is off by default; build
@@ -53,6 +58,9 @@ jobs:
         run: cargo test -p archicraft-ifcx --features successor-stub --locked
       - name: clippy with the successor-stub feature
         run: cargo clippy -p archicraft-ifcx --all-targets --features successor-stub --locked -- -D warnings
+      - name: Disk space at the end of the job
+        if: ${{ !cancelled() }}
+        run: scripts/ci-disk-space.sh "at the end of the job"
 
   lint:
     name: Format and clippy
