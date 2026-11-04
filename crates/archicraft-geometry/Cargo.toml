@@ -20,10 +20,15 @@ glam.workspace = true
 spade.workspace = true
 tracing.workspace = true
 
+[features]
+# The model's test-only element kind with its geometry generator
+# (src/kinds/mod.rs). Enabled for this crate's tests by the dev-dependency on
+# itself below and for the other crates' tests by theirs; never in a normal
+# or release build.
+test-kinds = ["archicraft-model/test-kinds"]
+
 [dev-dependencies]
-# The test-only element kind (archicraft_model::kinds), for kinds without
-# kind-specific code here.
-archicraft-model = { workspace = true, features = ["test-kinds"] }
+archicraft-geometry = { workspace = true, features = ["test-kinds"] }
 criterion.workspace = true
 
 [[bench]]

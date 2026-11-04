@@ -521,9 +521,29 @@ fn the_test_kind_refuses_mirrors() {
     assert_eq!(d.as_dummy().unwrap().origin, DVec2::new(2.0, 1.5));
 }
 
-/// The test kind's remaining hooks: no parts yet, the site container when
-/// asked for, plan bounds of its rectangle, and validation of the rectangle
-/// and the linked storey.
+/// IFX-016: the test kind declares no parts unless asked for them; then it
+/// stands in for a compound element with two parts of the Table 5-1 part
+/// classes, `Part_1` an IfcMember and `Part_2` an IfcPlate, in that order.
+#[cfg(feature = "test-kinds")]
+#[test]
+fn the_test_kind_declares_two_parts_when_asked() {
+    use archicraft_model::IfcClass;
+
+    let p = default_metric_project();
+    let mut d = linked_dummy(&p, ground(&p), TopLink::Fixed { height: 2.0 }, 0);
+    assert!(d.kind.parts().is_empty());
+    d.as_dummy_mut().unwrap().parts = true;
+    let parts = d.kind.parts();
+    let roles: Vec<&str> = parts.iter().map(|part| part.role.as_str()).collect();
+    assert_eq!(roles, ["Part_1", "Part_2"]);
+    let classes: Vec<IfcClass> = parts.iter().map(|part| part.class).collect();
+    assert_eq!(classes, [IfcClass::Member, IfcClass::Plate]);
+    assert!(parts.iter().all(|part| !part.label.is_empty()));
+}
+
+/// The test kind's remaining hooks: the site container when asked for,
+/// plan bounds of its rectangle, and validation of the rectangle and the
+/// linked storey.
 #[cfg(feature = "test-kinds")]
 #[test]
 fn the_test_kind_hooks() {
@@ -532,7 +552,6 @@ fn the_test_kind_hooks() {
     let mut p = default_metric_project();
     let mut h = History::default();
     let mut d = linked_dummy(&p, ground(&p), TopLink::Fixed { height: 2.0 }, 0);
-    assert!(d.kind.parts().is_empty());
     assert_eq!(d.kind.container(), Container::Storey);
     d.as_dummy_mut().unwrap().site_level = true;
     assert_eq!(d.kind.container(), Container::Site);

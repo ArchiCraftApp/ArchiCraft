@@ -50,10 +50,15 @@ mod tests {
     /// covers exactly what the crate emits.
     #[test]
     fn all_keys_lists_the_keys_the_sources_use() {
+        // The test kind's generator, test builds only, emits no key of its
+        // own and stays unnamed here (the model's module-layout test).
         let sources = [
             include_str!("lib.rs"),
             include_str!("evaluate.rs"),
             include_str!("extrude.rs"),
+            include_str!("kinds/mod.rs"),
+            include_str!("kinds/slab.rs"),
+            include_str!("kinds/wall.rs"),
             include_str!("mesh.rs"),
             include_str!("plan.rs"),
             include_str!("slice.rs"),

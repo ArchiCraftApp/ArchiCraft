@@ -92,7 +92,7 @@ pub fn pick(project: &Project, geometry: &ModelGeometry, origin: DVec3, dir: DVe
             continue;
         };
         let local_origin = origin - DVec3::new(0.0, 0.0, storey.elevation);
-        for part in &g.parts {
+        for part in g.bodies() {
             if let Some(t) = part.mesh.ray_hit(local_origin, dir)
                 && best.is_none_or(|(b, _)| t < b)
             {
@@ -287,4 +287,55 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
         super::group_menu_items(ui, ws);
     });
     ws.views_3d.insert(view, state);
+}
+
+#[cfg(test)]
+mod tests {
+    use archicraft_model::glam::DVec2;
+    use archicraft_model::kinds::Dummy;
+    use archicraft_model::template::default_metric_project;
+    use archicraft_model::{Command, History};
+
+    use super::*;
+
+    /// IFX-016, VIEW-001: a ray through a part of a compound element (the
+    /// test kind with parts, which stacks two half-high parts on top of its
+    /// box) picks the element at the part's face, and the bounds of the
+    /// element include its parts.
+    #[test]
+    fn a_ray_through_a_part_picks_the_element() {
+        let mut project = default_metric_project();
+        let storey = project.storeys.ground();
+        let material = project.materials[0].id;
+        // A 2 × 1 × 1 m box from (3, 1) with two 1 × 1 × 0.5 m parts on top.
+        let mut compound = Dummy::new(DVec2::new(3.0, 1.0), DVec2::new(2.0, 1.0), material);
+        compound.parts = true;
+        let compound = compound.into_element(&project, storey, 0);
+        let id = compound.id;
+        History::default()
+            .execute(&mut project, Command::AddElements(vec![compound]))
+            .unwrap();
+        let geometry = ModelGeometry::evaluate(&project);
+        assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+        let elevation = project.storeys.get(storey).unwrap().elevation;
+        let along_x = |height: f64| {
+            pick(
+                &project,
+                &geometry,
+                DVec3::new(-10.0, 1.5, elevation + height),
+                DVec3::X,
+            )
+        };
+
+        // Above the box, through the parts: the first part's face at x = 3.
+        let (hit, point) = along_x(1.25).expect("a part is hit");
+        assert_eq!(hit, id);
+        assert!((point.x - 3.0).abs() < 1e-9, "{point}");
+        // Through the box itself, and above everything.
+        assert_eq!(along_x(0.5).map(|(hit, _)| hit), Some(id));
+        assert!(along_x(1.75).is_none());
+
+        let (_, hi) = model_bounds(&project, &geometry, Some(&[id])).unwrap();
+        assert!((hi.z - (elevation + 1.5)).abs() < 1e-9, "{hi}");
+    }
 }

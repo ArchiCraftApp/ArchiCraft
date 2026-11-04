@@ -28,8 +28,9 @@ serde_json.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-# The test-only element kind (archicraft_model::kinds), for kinds without
-# kind-specific code here.
+# The test-only element kind (archicraft_model::kinds) with its geometry
+# generator, for kinds without kind-specific code here.
+archicraft-geometry = { workspace = true, features = ["test-kinds"] }
 archicraft-model = { workspace = true, features = ["test-kinds"] }
 criterion.workspace = true
 insta.workspace = true

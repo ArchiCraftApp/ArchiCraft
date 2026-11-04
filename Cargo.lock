@@ -269,6 +269,7 @@ dependencies = [
 name = "archicraft-geometry"
 version = "0.1.0"
 dependencies = [
+ "archicraft-geometry",
  "archicraft-model",
  "criterion",
  "geo",

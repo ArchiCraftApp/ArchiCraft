@@ -36,6 +36,8 @@ crates/archicraft-model/src/group.rs::Group::automatic_name | "Group {n}" | auto
 crates/archicraft-model/src/kinds/wall.rs::Wall | "Wall" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Wall_1a2b3c4d (file format)
 crates/archicraft-model/src/kinds/slab.rs::Slab | "Slab" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Slab_1a2b3c4d (file format)
 crates/archicraft-model/src/kinds/dummy.rs::Dummy | "Dummy" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Dummy_1a2b3c4d (file format, test builds only)
+crates/archicraft-model/src/kinds/dummy.rs::Dummy::parts | "Part_{n}" | PartSpec::role: the IFCX child key of a compound part's node such as Part_1 (file format, IFX-016, test builds only)
+crates/archicraft-model/src/kinds/dummy.rs::Dummy::parts | "Part {n}" | PartSpec::label of the test kind's stand-in parts, never shown: no user interface lists parts yet, and the compound kinds' part labels go through the catalogue (test builds only)
 crates/archicraft-model/src/element.rs::IfcClass::code | * | keyword table: IFC class names written to IFCX (bsi::ifc::class)
 crates/archicraft-model/src/element.rs::PredefinedType::code | * | keyword table: IFC 4.3 predefined-type literals written to IFCX (archicraft::element.predefinedType, IFX-024)
 crates/archicraft-model/src/material.rs::MaterialCategory::code | * | keyword table: IFC material category codes written to IFCX
@@ -75,7 +77,9 @@ crates/archicraft-ifcx/src/validate/stream.rs::Check::expecting | "any valid JSO
 
 # archicraft-geometry: the body-part name keys the element's IFCX sub-node,
 # and mesh checks are diagnostics of the tests that check bodies (IFX-032).
-crates/archicraft-geometry/src/evaluate.rs::evaluate_element | "Body" | body-part name, the IFCX sub-node name of the element's body (file format)
+crates/archicraft-geometry/src/kinds/wall.rs::Wall::evaluate | "Body" | body-part name, the IFCX sub-node name of the element's body (file format)
+crates/archicraft-geometry/src/kinds/slab.rs::Slab::evaluate | "Body" | body-part name, the IFCX sub-node name of the element's body (file format)
+crates/archicraft-geometry/src/kinds/dummy.rs::body | "Body" | body-part name, the IFCX sub-node name of the test kind's bodies (file format, test builds only)
 crates/archicraft-geometry/src/mesh.rs::MeshIssue::fmt | * | diagnostic of check_closed, which only tests and benches call (IFX-032); never shown in the user interface
 
 # The default keymap page docs/keymap.md, English documentation that a test

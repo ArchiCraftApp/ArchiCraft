@@ -5,19 +5,25 @@
 //! and Y as in the model, Z relative to the storey elevation. That is how they
 //! are written to IFCX, below a storey node that carries the elevation
 //! (IFX-031).
+//!
+//! The bodies of each kind come from its generator in [`crate::kinds`]. This
+//! module is the generic path around them: the junction pre-pass for walls,
+//! the extent check, one `catch_unwind` per element and the collection of
+//! problems.
 
 use std::collections::{BTreeMap, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use archicraft_model::validate::validate_ring;
-use archicraft_model::{Element, ElementId, ElementKind, MODEL_TOLERANCE, MaterialId, Project};
-use glam::{DVec2, DVec3};
+use archicraft_model::{Element, ElementId, MODEL_TOLERANCE, MaterialId, Project};
+use glam::DVec3;
 
 use crate::GeometryError;
-use crate::extrude::extrude;
+use crate::kinds::{self, EvalContext};
 use crate::mesh::TriMesh;
 use crate::message::Message;
-use crate::wall::{Footprint, WallInput, footprints};
+use crate::wall::{Footprint, footprints};
+
+pub use crate::kinds::wall::wall_inputs;
 
 /// One closed, single-material part of an element body (IFX-017).
 #[derive(Clone, Debug, PartialEq)]
@@ -28,24 +34,47 @@ pub struct BodyPart {
     pub mesh: TriMesh,
 }
 
+/// The bodies of one part of a compound element (IFX-016), in storey
+/// coordinates like the element's own.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct PartGeometry {
+    /// The part's role in the model's `Kind::parts`, for example `Part_1`
+    /// or `Flight_1`: the child node name in IFCX, stable per kind so that
+    /// the part's id survives edits.
+    pub role: String,
+    pub parts: Vec<BodyPart>,
+    /// Reference line of the part, if it has one; empty otherwise.
+    pub axis: Vec<DVec3>,
+}
+
 /// The evaluated geometry of one element, in storey coordinates.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct ElementGeometry {
     pub parts: Vec<BodyPart>,
     /// Reference line of walls (IFX-035); empty for other kinds.
     pub axis: Vec<DVec3>,
+    /// The bodies of the parts of a compound element, one per entry of the
+    /// model's `Kind::parts` in its order (IFX-016); empty for simple kinds.
+    pub children: Vec<PartGeometry>,
 }
 
 impl ElementGeometry {
-    pub fn bounds(&self) -> Option<(DVec3, DVec3)> {
+    /// The element's own body parts followed by those of its children:
+    /// everything that is drawn, picked and measured (VIEW-001).
+    pub fn bodies(&self) -> impl Iterator<Item = &BodyPart> {
         self.parts
             .iter()
+            .chain(self.children.iter().flat_map(|child| child.parts.iter()))
+    }
+
+    pub fn bounds(&self) -> Option<(DVec3, DVec3)> {
+        self.bodies()
             .filter_map(|p| p.mesh.bounds())
             .reduce(|(lo, hi), (l, h)| (lo.min(l), hi.max(h)))
     }
 
     pub fn volume(&self) -> f64 {
-        self.parts.iter().map(|p| p.mesh.signed_volume()).sum()
+        self.bodies().map(|p| p.mesh.signed_volume()).sum()
     }
 }
 
@@ -97,102 +126,26 @@ impl ModelGeometry {
     }
 }
 
-/// Wall data for junction resolution.
-pub fn wall_inputs(project: &Project) -> Vec<WallInput> {
-    project
-        .elements
-        .values()
-        .filter_map(|e| {
-            let wall = e.as_wall()?;
-            let (bottom, top) = project.vertical_extent(e)?;
-            Some(WallInput {
-                id: e.id,
-                storey: e.storey,
-                start: wall.start,
-                end: wall.end,
-                thickness: wall.thickness,
-                reference_line: wall.reference_line,
-                bottom,
-                top,
-            })
-        })
-        .collect()
-}
-
-/// Bottom and top of an element relative to its home storey.
-fn local_extent(project: &Project, element: &Element) -> Result<(f64, f64), GeometryError> {
-    let home = project
-        .storeys
-        .get(element.storey)
-        .ok_or(GeometryError::MissingHomeStorey)?
-        .elevation;
-    let (bottom, top) = project
-        .vertical_extent(element)
-        .ok_or(GeometryError::MissingLinkedStorey)?;
-    match &element.kind {
-        // Keep the stored offsets exact rather than subtracting elevations.
-        ElementKind::Wall(wall) => Ok((wall.base_offset, wall.base_offset + (top - bottom))),
-        _ => Ok((bottom - home, top - home)),
-    }
-}
-
-fn square_footprint(start: DVec2, end: DVec2, offsets: (f64, f64)) -> Footprint {
-    let normal = (end - start).normalize_or_zero().perp();
-    let (ext, int) = offsets;
-    [
-        start + normal * ext,
-        end + normal * ext,
-        end + normal * int,
-        start + normal * int,
-    ]
-}
-
-/// Evaluates one element. `footprint` is the junction-resolved footprint of a
-/// wall, if available. An element whose height is below the model tolerance
-/// (NFR-ACC-003) has no body. Validation keeps elements at least 1 mm high,
-/// and storey commands refuse to make a linked element lower (NFR-REL-005),
-/// but a storey list changed outside the commands can still shorten them, so
-/// such heights do reach this point (tests/storey.rs).
+/// Evaluates one element through its kind's generator. `footprint` is the
+/// junction-resolved footprint of a wall, if available. An element whose
+/// height is below the model tolerance (NFR-ACC-003) has no body. Validation
+/// keeps elements at least 1 mm high, and storey commands refuse to make a
+/// linked element lower (NFR-REL-005), but a storey list changed outside the
+/// commands can still shorten them, so such heights do reach this point
+/// (tests/storey.rs).
 pub fn evaluate_element(
     project: &Project,
     element: &Element,
     footprint: Option<&Footprint>,
 ) -> Result<ElementGeometry, GeometryError> {
-    let (bottom, top) = local_extent(project, element)?;
+    let ctx = EvalContext {
+        project,
+        element,
+        footprint,
+    };
+    let (bottom, top) = kinds::local_extent(&ctx)?;
     if top - bottom < MODEL_TOLERANCE {
         return Err(GeometryError::InvalidExtent);
     }
-    match &element.kind {
-        ElementKind::Wall(wall) => {
-            let square = square_footprint(wall.start, wall.end, wall.reference_line.face_offsets(wall.thickness));
-            let joined = footprint.copied().unwrap_or(square);
-            // A junction can fold a very short wall; fall back to square ends.
-            let ring = validate_ring(&joined)
-                .or_else(|_| validate_ring(&square))
-                .map_err(GeometryError::InvalidPolygon)?;
-            let mesh = extrude(&ring, &[], bottom, top)?;
-            Ok(ElementGeometry {
-                parts: vec![BodyPart {
-                    name: "Body".to_owned(),
-                    material: wall.material,
-                    mesh,
-                }],
-                axis: vec![wall.start.extend(bottom), wall.end.extend(bottom)],
-            })
-        }
-        ElementKind::Slab(slab) => {
-            let mesh = extrude(&slab.outline, &slab.holes, bottom, top)?;
-            Ok(ElementGeometry {
-                parts: vec![BodyPart {
-                    name: "Body".to_owned(),
-                    material: slab.material,
-                    mesh,
-                }],
-                axis: Vec::new(),
-            })
-        }
-        // Until kinds register their own generators, other kinds are listed
-        // as problems (NFR-REL-006).
-        _ => Err(GeometryError::UnsupportedKind(element.tag())),
-    }
+    kinds::evaluate(&ctx)
 }
