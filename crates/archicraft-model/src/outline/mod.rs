@@ -253,6 +253,7 @@ impl<E: EdgeData> Outline<E> {
     /// The outline of the `outer` ring and the `holes`, oriented: the outer
     /// ring counter-clockwise, the holes clockwise. Coordinates and the
     /// order of the nodes are kept otherwise; nothing else is validated.
+    /// [`Outline::from_point_rings`] keeps the rings as given instead.
     pub fn from_rings<P, H>(outer: P, holes: impl IntoIterator<Item = H>) -> Self
     where
         P: IntoIterator<Item = DVec2>,
@@ -265,8 +266,13 @@ impl<E: EdgeData> Outline<E> {
     }
 
     /// The outline through rings of points, ring 0 the outer ring, with
-    /// straight edges and default data. The rings are kept as given: neither
-    /// oriented nor validated.
+    /// straight edges and default data. The rings are kept as given, neither
+    /// oriented nor validated; [`Outline::from_rings`] differs only in that
+    /// it turns the outer ring counter-clockwise and the holes clockwise. It
+    /// suits rings already oriented, such as those [`validate_slab_polygon`]
+    /// returns.
+    ///
+    /// [`validate_slab_polygon`]: crate::validate::validate_slab_polygon
     pub fn from_point_rings<R: IntoIterator<Item = DVec2>>(rings: impl IntoIterator<Item = R>) -> Self {
         Self {
             rings: rings.into_iter().map(Ring::from_points).collect(),
