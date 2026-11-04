@@ -113,8 +113,9 @@ fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 }
 
 /// Builds the scene from the evaluated geometry. Elements on hidden layers
-/// are left out; selected elements are drawn in the selection colour, and
-/// the hovered element is tinted.
+/// are left out, and so are elements of kinds without a body, such as texts,
+/// which only their drafting views draw (ANN-002); selected elements are
+/// drawn in the selection colour, and the hovered element is tinted.
 pub fn build_scene(
     project: &Project,
     geometry: &ModelGeometry,
@@ -123,7 +124,11 @@ pub fn build_scene(
 ) -> SceneData {
     let mut bounds: Option<(DVec3, DVec3)> = None;
     let mut visible = Vec::new();
-    for element in project.elements.values().filter(|e| project.is_visible(e)) {
+    for element in project
+        .elements
+        .values()
+        .filter(|e| e.kind.descriptor().has_body && project.is_visible(e))
+    {
         let (Some(storey), Some(g)) = (project.storeys.get(element.storey), geometry.get(element.id)) else {
             continue;
         };
@@ -717,6 +722,42 @@ mod tests {
         assert!(scene.opaque.is_empty());
         assert_eq!(scene.transparent.len(), triangles * 3);
         assert!(scene.transparent.iter().all(|v| v.color == MATERIAL_LESS_APPEARANCE));
+    }
+
+    /// ANN-002: the scene has no vertex of an element whose kind has no body
+    /// (the body-less test kind), by the descriptor's flag: even a geometry
+    /// that wrongly carries a box for it adds nothing, while a box beside it
+    /// is drawn.
+    #[test]
+    fn the_scene_skips_kinds_without_a_body() {
+        use archicraft_model::glam::DVec2;
+        use archicraft_model::kinds::{Dummy, Note};
+        use archicraft_model::template::default_metric_project;
+        use archicraft_model::{Command, History};
+
+        let mut project = default_metric_project();
+        let storey = project.storeys.ground();
+        let material = project.materials[0].id;
+        let dummy = Dummy::new(DVec2::ZERO, DVec2::ONE, material).into_element(&project, storey, 0);
+        let note = Note::new(storey, DVec2::new(0.5, 0.5), "Store").into_element(&project, storey, 0);
+        let (box_id, note_id) = (dummy.id, note.id);
+        History::default()
+            .execute(&mut project, Command::AddElements(vec![dummy, note]))
+            .unwrap();
+        let mut geometry = ModelGeometry::evaluate(&project);
+        assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+        assert_eq!(geometry.get(note_id), Some(&ElementGeometry::default()));
+        let only_the_box = build_scene(&project, &geometry, &HashSet::new(), None);
+        assert!(!only_the_box.opaque.is_empty());
+
+        let a_box = geometry.get(box_id).unwrap().clone();
+        geometry.elements.insert(note_id, a_box);
+        let scene = build_scene(&project, &geometry, &HashSet::from([note_id]), Some(note_id));
+        assert_eq!(scene.opaque.len(), only_the_box.opaque.len());
+        assert!(scene.transparent.is_empty());
+        assert_eq!(scene.edges.len(), only_the_box.edges.len());
+        assert!(scene.opaque.iter().all(|v| v.color != SELECTION_COLOR));
+        assert_eq!(scene.bounds, only_the_box.bounds);
     }
 
     #[test]

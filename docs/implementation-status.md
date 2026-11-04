@@ -737,7 +737,7 @@ One row per SRS requirement, grouped by section. Effort is the remaining effort 
 | ANN-011 | S | missing | L | Rectangles, rotated rectangles, splines, tangent arcs/circles with solution choice. |
 | ANN-013 | S | missing | M | Ellipses and elliptical arcs as 2D shapes by centre and both semi-axes at any rotation, with pen and line type. |
 | ANN-012 | C | missing | M | 2D construction geometry in section/elevation views. |
-| ANN-002 | M | missing | M | 2D elements owned by a view and a layer; usable as tracing input and trim/split cutters. |
+| ANN-002 | M | missing | M | No 2D element kind exists yet (texts archicraft-u4vm.2, 2D drafting kinds archicraft-j47m), and none acts as tracing input or as a trim/split cutter. The view membership they will use exists: a kind without a body (KindDescriptor::has_body, crates/archicraft-model/src/kinds/mod.rs) belongs to a DraftingView of its home storey (crates/archicraft-model/src/drafting_view.rs), checked on every edit, rebound when the element moves to another storey, evaluated to no geometry and skipped by the plan cut and the 3D views; tests use the body-less test kind (crates/archicraft-model/tests/drafting_view.rs). |
 | ANN-003 | C | missing | M | Drafting fills with DSP-009 patterns showing their area. |
 | ANN-004 | S | missing | L | Linear dimensions (horizontal, vertical, aligned, chained), associative points, stale-reference flagging. |
 | ANN-005 | S | missing | M | Level dimensions with selectable origin, associative to slab/roof/terrain top, bottom or core top. |

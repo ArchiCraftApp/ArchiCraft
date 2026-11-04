@@ -266,6 +266,11 @@ pub fn check_offset(value: f64, key: &'static str) -> Result<(), Message> {
     Ok(())
 }
 
+/// Checks a plan point against [`MAX_COORDINATE`] (NFR-ACC-001).
+pub fn check_point(point: DVec2) -> Result<(), Message> {
+    check_coordinates(&[point])
+}
+
 /// Range checks for a wall (ELM-017, NFR-REL-005).
 pub fn validate_wall(wall: &Wall) -> Result<(), Message> {
     check_coordinates(&[wall.start, wall.end])?;
@@ -320,11 +325,14 @@ pub fn validate_slab(slab: &Slab) -> Result<Slab, Message> {
 
 /// Validates an element against the project it is placed in: references to
 /// storey, layer and material, its parameters, and its vertical extent. On
-/// success, returns the element with normalised geometry.
+/// success, returns the element with normalised geometry. An element without
+/// a body has no height to check: its extent is flat by design (ANN-002).
 pub fn validate_element(project: &Project, element: &Element) -> Result<Element, Message> {
     let element = validate_prototype(project, element)?;
     match project.vertical_extent(&element) {
-        Some((bottom, top)) if top - bottom < MIN_HEIGHT => Err(Message::new("model-error-top-below-base")),
+        Some((bottom, top)) if top - bottom < MIN_HEIGHT && element.kind.descriptor().has_body => {
+            Err(Message::new("model-error-top-below-base"))
+        }
         _ => Ok(element),
     }
 }
@@ -361,7 +369,7 @@ pub fn validate_prototype(project: &Project, element: &Element) -> Result<Elemen
             .text("class", element.ifc_class.code()));
     }
     let element = Element {
-        kind: element.kind.validate(&project.storeys)?,
+        kind: element.kind.validate(element.storey, &project.storeys)?,
         ..element.clone()
     };
     if project.vertical_extent(&element).is_none() {

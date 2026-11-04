@@ -48,7 +48,7 @@ pub(crate) fn integer() -> Value {
     json!({"dataType": "Integer"})
 }
 
-fn string() -> Value {
+pub(crate) fn string() -> Value {
     json!({"dataType": "String"})
 }
 

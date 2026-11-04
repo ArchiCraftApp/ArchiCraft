@@ -64,7 +64,7 @@ fn element_kinds_are_generated_from_one_list() {
         .and_then(|(_, rest)| rest.split_once("\n}"))
         .map(|(list, _)| list)
         .expect("kinds/mod.rs must invoke `kinds! { … }`");
-    for (module, payload) in [("wall", "Wall"), ("slab", "Slab"), ("dummy", "Dummy")] {
+    for (module, payload) in [("wall", "Wall"), ("slab", "Slab"), ("dummy", "Dummy"), ("note", "Note")] {
         let entry = format!("{module} => {payload}");
         assert_eq!(invocation.matches(&entry).count(), 1, "`{entry}` must be listed once");
     }
@@ -176,66 +176,101 @@ fn only_kind_modules_match_on_kind_variants() {
     }
 }
 
-/// A file below a crate's `src/` that may name the test kind, and on how
-/// many lines (`None`: any number).
-type Allowed = (&'static str, Option<usize>);
+/// A test kind: the file name of its modules and whether a line of source
+/// names it.
+type TestKind = (&'static str, fn(&str) -> bool);
 
-/// The crates whose sources [`the_test_kind_is_named_only_in_its_module`]
-/// scans, with the files of each that may name the test kind: the model's
-/// kind module and registry line, the geometry crate's generator module and
-/// its registry line (IFX-016), and the IFCX crate's codec module and its
-/// line in the codec list (IFX-060).
-const TEST_KIND_SCOPE: &[(&str, &[Allowed])] = &[
-    (
-        "archicraft-model",
-        &[("kinds/dummy.rs", None), ("kinds/mod.rs", Some(1))],
-    ),
-    (
-        "archicraft-geometry",
-        &[("kinds/dummy.rs", None), ("kinds/mod.rs", Some(1))],
-    ),
-    (
-        "archicraft-ifcx",
-        &[("alpha/kinds/dummy.rs", None), ("alpha/kinds/mod.rs", Some(1))],
-    ),
-    ("archicraft-app", &[]),
+/// The test kinds the scan looks for. The box's identifiers `Dummy` and
+/// `dummy` are found anywhere in a line. "note" is an English word, so the
+/// body-less kind's identifiers `Note` and `note` (also in `as_note`) count
+/// only as whole words, split at underscores, in code outside comments.
+const TEST_KINDS: &[TestKind] = &[
+    ("dummy.rs", |line| line.contains("Dummy") || line.contains("dummy")),
+    ("note.rs", |line| {
+        let code = line.split("//").next().unwrap_or_default();
+        code.split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|word| word == "Note" || word == "note")
+    }),
+];
+
+/// The crates whose sources [`the_test_kinds_are_named_only_in_their_modules`]
+/// scans, with the folder of each that holds a module per test kind and the
+/// registry `mod.rs` naming each on one line: the model's kind modules, the
+/// geometry crate's generators (IFX-016) and the IFCX crate's codecs
+/// (IFX-060). `None` for a crate that names no test kind at all.
+const TEST_KIND_SCOPE: &[(&str, Option<&str>)] = &[
+    ("archicraft-model", Some("kinds/")),
+    ("archicraft-geometry", Some("kinds/")),
+    ("archicraft-ifcx", Some("alpha/kinds/")),
+    ("archicraft-app", None),
 ];
 
 /// SRS 3.2, ELM-011: a kind is one module plus one line in the `kinds!`
 /// list, its geometry one module plus one line in the geometry crate's
 /// registry, and its IFCX attribute one codec module plus one line in the
 /// IFCX crate's codec list. Outside `#[cfg(test)]` items, which exercise the
-/// test kind on purpose, the test kind's identifiers `Dummy` and `dummy`
-/// occur in the model, geometry and IFCX sources only in the kind's own
-/// module and on one line of the registry, and in no other scanned crate,
-/// so everything else reaches it through the registries and the hooks.
+/// test kinds on purpose, each test kind is named in the model, geometry and
+/// IFCX sources only in its own module and on one line of the registry, and
+/// in no other scanned crate, so everything else reaches it through the
+/// registries, the descriptor flags and the hooks.
 #[test]
-fn the_test_kind_is_named_only_in_its_module() {
+fn the_test_kinds_are_named_only_in_their_modules() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("the crates folder");
-    for (krate, allowed) in TEST_KIND_SCOPE {
+    for (krate, folder) in TEST_KIND_SCOPE {
         let root = crates.join(krate).join("src");
         let mut files = Vec::new();
         rust_files(&root, &root, &mut files);
         assert!(!files.is_empty(), "{}", root.display());
-        for (name, _) in *allowed {
-            assert!(files.iter().any(|f| f == name), "{krate}: {name} is missing");
-        }
-        for file in &files {
-            let text = fs::read_to_string(root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
-            let text = without_test_items(&text);
-            let lines: Vec<(usize, &str)> = text
-                .lines()
-                .enumerate()
-                .filter(|(_, line)| line.contains("Dummy") || line.contains("dummy"))
-                .map(|(n, line)| (n + 1, line))
-                .collect();
-            match allowed.iter().find(|(name, _)| name == file) {
-                Some((_, None)) => {}
-                Some((_, Some(limit))) => assert_eq!(lines.len(), *limit, "{krate}/src/{file}: {lines:?}"),
-                None => assert!(lines.is_empty(), "{krate}/src/{file}: {lines:?}"),
+        for (module, names) in TEST_KINDS {
+            // The files that may name the kind, and on how many lines
+            // (`None`: any number).
+            let allowed: Vec<(String, Option<usize>)> = folder
+                .map(|folder| {
+                    vec![
+                        (format!("{folder}{module}"), None),
+                        (format!("{folder}mod.rs"), Some(1)),
+                    ]
+                })
+                .unwrap_or_default();
+            for (name, _) in &allowed {
+                assert!(files.iter().any(|f| f == name), "{krate}: {name} is missing");
+            }
+            for file in &files {
+                let text = fs::read_to_string(root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+                let text = without_test_items(&text);
+                let lines: Vec<(usize, &str)> = text
+                    .lines()
+                    .enumerate()
+                    .filter(|(_, line)| names(line))
+                    .map(|(n, line)| (n + 1, line))
+                    .collect();
+                match allowed.iter().find(|(name, _)| name == file) {
+                    Some((_, None)) => {}
+                    Some((_, Some(limit))) => assert_eq!(lines.len(), *limit, "{krate}/src/{file}: {lines:?}"),
+                    None => assert!(lines.is_empty(), "{module}: {krate}/src/{file}: {lines:?}"),
+                }
             }
         }
+    }
+}
+
+/// The scan for the body-less test kind finds its identifiers in code, also
+/// as part of an accessor, but not the English word in a comment or inside
+/// longer words.
+#[test]
+fn the_scan_for_the_body_less_test_kind_skips_comments_and_longer_words() {
+    let (_, names) = TEST_KINDS[1];
+    for line in [
+        "use archicraft_model::kinds::Note;",
+        "e.as_note()",
+        "note => Note,",
+        "KindTag::Note",
+    ] {
+        assert!(names(line), "{line}");
+    }
+    for line in ["/// the privacy note", "let notes = 3;", "denote(x)", "x // see Note"] {
+        assert!(!names(line), "{line}");
     }
 }

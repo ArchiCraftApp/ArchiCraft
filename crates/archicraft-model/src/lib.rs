@@ -6,6 +6,7 @@
 //! (NFR-MNT-001).
 
 pub mod command;
+pub mod drafting_view;
 pub mod drawing;
 pub mod element;
 pub mod fixtures;
@@ -27,6 +28,7 @@ pub mod units;
 pub mod validate;
 
 pub use command::{Command, CommandError, History};
+pub use drafting_view::DraftingView;
 pub use drawing::DrawingScale;
 pub use element::{CompoundPart, Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, TopLink};
 pub use group::Group;

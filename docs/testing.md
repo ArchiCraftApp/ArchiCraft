@@ -517,7 +517,7 @@ The reader branches the corpus missed, and the seeds added for them:
 | project data that is not an object | `coverage-project-not-object` |
 
 The 9 lines still missed cannot run in the fuzz build: the reading of kinds other than walls
-and slabs (the test-only kind of `archicraft-model`'s `test-kinds` feature is not in it), the
+and slabs (the test-only kinds of `archicraft-model`'s `test-kinds` feature are not in it), the
 reading of a migrated file (`MIGRATIONS` is empty until format 2) and the `unreachable!` of a
 single default storey. `llvm-cov` counts lines and regions, not branches. The other modules
 were not part of the check; most of what they miss lies off the path of `ifcx_load`: the

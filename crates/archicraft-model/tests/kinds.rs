@@ -15,13 +15,13 @@ use archicraft_model::template::{TemplateContext, default_metric_project};
 use archicraft_model::{Arg, Command, CommandError, History, IfcClass, KindTag};
 use common::{ground, wall};
 
-/// The registry lists wall and slab, plus the test kind (tests always build
+/// The registry lists wall and slab, plus the test kinds (tests always build
 /// with the feature `test-kinds`, tests/test_kinds_feature.rs), in the order
 /// of `KindTag::ALL`, and each tag's descriptor is its registry entry.
 #[test]
 fn the_registry_has_wall_and_slab() {
     let codes: Vec<&str> = KINDS.iter().map(|d| d.code).collect();
-    assert_eq!(codes, ["wall", "slab", "dummy"]);
+    assert_eq!(codes, ["wall", "slab", "dummy", "note"]);
     assert_eq!(KINDS.len(), KindTag::ALL.len());
     for (tag, descriptor) in KindTag::ALL.iter().zip(KINDS) {
         // Codes are unique (below), so equal codes mean the same entry.
@@ -151,6 +151,39 @@ fn the_test_kind_has_its_own_descriptor() {
     assert_eq!(d.default_class, IfcClass::BuildingElementProxy);
     assert_eq!(IfcClass::from_code("IfcBuildingElementProxy"), Some(d.default_class));
     assert_eq!(KindTag::from_code("dummy"), Some(KindTag::Dummy));
+}
+
+/// ANN-002, ANN-010: every descriptor declares whether its elements have a
+/// body and whether they are IFCX nodes. Walls, slabs and the test kind's
+/// boxes have both; the body-less test kind, standing in for texts and
+/// dimensions, has neither.
+#[test]
+fn every_kind_declares_its_body_and_its_ifcx_node() {
+    let flags: Vec<(&str, bool, bool)> = KINDS.iter().map(|d| (d.code, d.has_body, d.ifcx_node)).collect();
+    assert_eq!(
+        flags,
+        [
+            ("wall", true, true),
+            ("slab", true, true),
+            ("dummy", true, true),
+            ("note", false, false),
+        ]
+    );
+}
+
+/// ANN-002, ELM-019: the body-less test kind is an `IfcAnnotation` (Table
+/// 5-1), has no drawing tool and names its elements `NT-001`, `NT-002`, ….
+#[cfg(feature = "test-kinds")]
+#[test]
+fn the_body_less_test_kind_has_its_own_descriptor() {
+    let d = KindTag::Note.descriptor();
+    assert_eq!(
+        (d.code, d.name_prefix, d.node_prefix, d.has_tool),
+        ("note", "NT", "Note", false)
+    );
+    assert_eq!(d.default_class, IfcClass::Annotation);
+    assert!(d.template_defaults.is_none());
+    assert_eq!(KindTag::from_code("note"), Some(KindTag::Note));
 }
 
 /// ELM-001, ELM-011: every kind with a tool has template defaults, a slot

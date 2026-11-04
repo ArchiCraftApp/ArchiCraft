@@ -1,9 +1,10 @@
 //! What the kind codecs share, each with its schema, writing and reading
 //! side: plan points, the top link of vertical kinds (ELM-006), the wall
-//! reference line (WAL-003) and the repair of a material reference (PRJ-008).
+//! reference line (WAL-003), the drafting view of 2D elements (ANN-002) and
+//! the repair of a material reference (PRJ-008).
 
 use archicraft_model::glam::DVec2;
-use archicraft_model::{MaterialId, ReferenceLine, StoreyId, TopLink};
+use archicraft_model::{DraftingView, MaterialId, ReferenceLine, StoreyId, TopLink};
 use serde_json::{Map, Value, json};
 
 use super::ReadContext;
@@ -22,6 +23,26 @@ pub(crate) fn top_link_schema() -> Value {
 
 pub(crate) fn reference_line_schema() -> Value {
     schema::enumeration(["outside", "center", "inside", "custom"])
+}
+
+/// The drafting view of a 2D element (ANN-002): its type and, for a plan
+/// view, the storey.
+pub(crate) fn drafting_view_schema() -> Value {
+    schema::object(&[("type", schema::enumeration(["plan"])), ("storey", schema::reference())])
+}
+
+/// The view in the model's own form, `{"type": "plan", "storey": "<uuid>"}`.
+pub(crate) fn drafting_view_value(view: DraftingView) -> Value {
+    json!(view)
+}
+
+/// The view from its members. Whether it belongs to the element's home
+/// storey is checked with the element (ANN-002).
+pub(crate) fn read_drafting_view(map: &Object) -> Result<DraftingView, Message> {
+    match text(map, "type")?.as_str() {
+        "plan" => Ok(DraftingView::plan(StoreyId::from_uuid(uuid(map, "storey")?))),
+        other => Err(about("ifcx-field-unknown-value", "type").text("value", other)),
+    }
 }
 
 pub(crate) fn point2_value(p: DVec2) -> Value {

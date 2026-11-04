@@ -111,6 +111,8 @@ impl Kind for Dummy {
         ifc_classes: &IfcClass::SELECTABLE_D5,
         predefined_types: PredefinedType::for_class,
         has_tool: false,
+        has_body: true,
+        ifcx_node: true,
         template_defaults: None,
     };
 
@@ -127,7 +129,7 @@ impl Kind for Dummy {
 
     /// The rectangle is checked as a polygon; a missing linked storey shows
     /// as an undeterminable extent in [`validate::validate_element`].
-    fn validate(&self, _storeys: &StoreyList) -> Result<Self, Message> {
+    fn validate(&self, _home: StoreyId, _storeys: &StoreyList) -> Result<Self, Message> {
         if !(self.size.x > 0.0 && self.size.y > 0.0) {
             return Err(Message::new("model-error-polygon-area"));
         }
@@ -154,7 +156,7 @@ impl Kind for Dummy {
         self.link.storey_links()
     }
 
-    fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target_elevation: f64) -> Option<()> {
+    fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, _target: StoreyId, target_elevation: f64) -> Option<()> {
         self.link.rehome(home, storeys, target_elevation)
     }
 

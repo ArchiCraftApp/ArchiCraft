@@ -15,7 +15,7 @@ use archicraft_ifcx::alpha::kinds::{PROJECT_FIELDS, Stored, fields, registered};
 use archicraft_ifcx::alpha::schema;
 use archicraft_ifcx::validate::{self, Severity};
 use archicraft_model::glam::DVec2;
-use archicraft_model::kinds::Dummy;
+use archicraft_model::kinds::{Dummy, Note};
 use archicraft_model::{Command, Element, ElementKind, History, KindTag, ReferenceLine, StoreyId, TopLink, samples};
 use serde_json::Value;
 
@@ -86,6 +86,8 @@ fn every_project_field_is_persisted() {
     }
     let dummy: ElementKind = Dummy::new(DVec2::ZERO, DVec2::ONE, project.materials[0].id).into();
     payloads.insert(KindTag::Dummy, serde_json::to_value(&dummy).unwrap());
+    let note: ElementKind = Note::new(project.storeys.ground(), DVec2::ONE, "Hall").into();
+    payloads.insert(KindTag::Note, serde_json::to_value(&note).unwrap());
     assert_eq!(
         payloads.keys().copied().collect::<BTreeSet<_>>(),
         KindTag::ALL.iter().copied().collect(),
@@ -351,6 +353,7 @@ fn format_code_has_no_per_kind_arm() {
         "kinds/wall.rs",
         "kinds/slab.rs",
         "kinds/dummy.rs",
+        "kinds/note.rs",
     ] {
         assert!(alpha.join(file).is_file(), "src/alpha/{file} exists");
     }

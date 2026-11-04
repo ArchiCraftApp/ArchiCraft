@@ -107,7 +107,8 @@ fn fill_mesh(polygons: &MultiPolygon<f64>) -> FillMesh {
 
 /// Generates the plan of `storey`. `shown` decides which elements appear
 /// (layer visibility and view filters); elements are drawn on their home
-/// storey.
+/// storey. Elements of kinds without a body are not sliced: their views
+/// draw them (ANN-002).
 pub fn plan_drawing(
     project: &Project,
     geometry: &ModelGeometry,
@@ -117,7 +118,10 @@ pub fn plan_drawing(
 ) -> PlanDrawing {
     let mut elements = Vec::new();
     let mut by_material: BTreeMap<MaterialId, Vec<Polygon<f64>>> = BTreeMap::new();
-    for element in project.elements_on(storey).filter(|e| shown(e)) {
+    for element in project
+        .elements_on(storey)
+        .filter(|e| e.kind.descriptor().has_body && shown(e))
+    {
         let Some(body) = geometry.get(element.id) else {
             continue;
         };

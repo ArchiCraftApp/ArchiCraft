@@ -53,10 +53,12 @@ pub const ALL_KEYS: &[&str] = &[
     "model-kind-wall-noun",
     "model-kind-slab",
     "model-kind-slab-noun",
-    // The test kind (feature `test-kinds`), listed in every build so that
+    // The test kinds (feature `test-kinds`), listed in every build so that
     // the application's catalogue is the same in test and release builds.
     "model-kind-test",
     "model-kind-test-noun",
+    "model-kind-test-annotation",
+    "model-kind-test-annotation-noun",
     // Command errors (CommandError::message).
     "model-error-no-change",
     "model-error-invalid-distance",
@@ -117,6 +119,9 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-predefined-type-not-allowed",
     "model-error-vertical-extent",
     "model-error-top-below-base",
+    // Drafting views (drafting_view.rs).
+    "model-error-view-storey-missing",
+    "model-error-view-not-home-storey",
     // Storeys (storey.rs).
     "model-error-no-storeys",
     "model-error-ground-not-in-list",

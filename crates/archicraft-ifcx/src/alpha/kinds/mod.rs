@@ -13,10 +13,10 @@
 //! warning, and read as an unsupported node.
 //!
 //! A file declares the attributes of the kinds the project stores
-//! ([`present`]), not of every codec this build has: the model's test kind
-//! and its codec exist only in test builds (the cargo feature `test-kinds`,
+//! ([`present`]), not of every codec this build has: the model's test kinds
+//! and their codecs exist only in test builds (the cargo feature `test-kinds`,
 //! enabled through the dev-dependency on this crate), and a project without
-//! it must be written the same by a test build and a release build.
+//! them must be written the same by a test build and a release build.
 //!
 //! Every field of the model has a stored member: [`KindCodec::FIELDS`] maps
 //! each payload's serde fields and [`PROJECT_FIELDS`] the project's to where
@@ -179,12 +179,13 @@ macro_rules! codecs {
 }
 
 // Every kind with an attribute, once. Adding a kind is a new module plus one
-// line here. The test kind's line is compiled only with the feature its
-// kind needs (see the module documentation).
+// line here. The test kinds' lines are compiled only with the feature their
+// kinds need (see the module documentation).
 codecs! {
     wall => Wall,
     slab => Slab,
     #[cfg(feature = "test-kinds")] dummy => Dummy,
+    #[cfg(feature = "test-kinds")] note => Note,
 }
 
 /// The codec of `kind`, if this build stores the kind.
