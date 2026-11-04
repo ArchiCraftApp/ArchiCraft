@@ -106,7 +106,18 @@ pub struct ArchiCraftApp {
     /// When set, [`ArchiCraftApp::invoke`] records invocations here instead
     /// of running them (tests).
     recorder: Option<Vec<Invocation>>,
+    /// When set, the save dialog answers from here instead of opening the
+    /// native dialog (tests).
+    save_dialog: Option<SaveDialogStub>,
     _log: Arc<RecentLog>,
+}
+
+/// The save dialog's stand-in in tests: the path it answers and how often it
+/// was asked.
+#[derive(Debug)]
+struct SaveDialogStub {
+    answer: Option<PathBuf>,
+    asked: usize,
 }
 
 impl std::fmt::Debug for ArchiCraftApp {
@@ -174,6 +185,7 @@ impl ArchiCraftApp {
             released: Vec::new(),
             file_size_limit: archicraft_ifcx::validate::MAX_FILE_SIZE as u64,
             recorder: None,
+            save_dialog: None,
             _log: log,
         };
         if let Some(path) = open {
@@ -289,13 +301,22 @@ impl ArchiCraftApp {
         let path = match (&self.ws.doc.path, save_as) {
             (Some(path), false) => path.clone(),
             _ => {
-                let mut dialog = rfd::FileDialog::new()
-                    .add_filter(tr!("file-filter-ifcx"), IFCX_EXTENSIONS)
-                    .set_file_name(format!("{}.{}", self.ws.doc.project.info.name, IFCX_EXTENSIONS[0]));
-                if let Some(dir) = self.ws.doc.path.as_ref().and_then(|p| p.parent()) {
-                    dialog = dialog.set_directory(dir);
-                }
-                match dialog.save_file() {
+                let answer = match &mut self.save_dialog {
+                    Some(stub) => {
+                        stub.asked += 1;
+                        stub.answer.clone()
+                    }
+                    None => {
+                        let mut dialog = rfd::FileDialog::new()
+                            .add_filter(tr!("file-filter-ifcx"), IFCX_EXTENSIONS)
+                            .set_file_name(format!("{}.{}", self.ws.doc.project.info.name, IFCX_EXTENSIONS[0]));
+                        if let Some(dir) = self.ws.doc.path.as_ref().and_then(|p| p.parent()) {
+                            dialog = dialog.set_directory(dir);
+                        }
+                        dialog.save_file()
+                    }
+                };
+                match answer {
                     Some(p) => with_ifcx_extension(p),
                     None => return false,
                 }
@@ -509,6 +530,20 @@ impl ArchiCraftApp {
     #[doc(hidden)]
     pub fn take_invocations(&mut self) -> Vec<Invocation> {
         self.recorder.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
+    /// Lets the save dialog answer `path` (`None` for Cancel) instead of
+    /// opening the native dialog, for tests of the first save (PRJ-003).
+    #[doc(hidden)]
+    pub fn stub_save_dialog(&mut self, path: Option<PathBuf>) {
+        self.save_dialog = Some(SaveDialogStub { answer: path, asked: 0 });
+    }
+
+    /// How often the stubbed save dialog was asked since
+    /// [`ArchiCraftApp::stub_save_dialog`].
+    #[doc(hidden)]
+    pub fn save_dialogs_asked(&self) -> usize {
+        self.save_dialog.as_ref().map_or(0, |stub| stub.asked)
     }
 
     /// The state commands are shown and enabled in this frame.
