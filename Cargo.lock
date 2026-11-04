@@ -284,6 +284,7 @@ name = "archicraft-ifcx"
 version = "0.1.0"
 dependencies = [
  "archicraft-geometry",
+ "archicraft-ifcx",
  "archicraft-model",
  "criterion",
  "indexmap",

@@ -182,8 +182,9 @@ type Allowed = (&'static str, Option<usize>);
 
 /// The crates whose sources [`the_test_kind_is_named_only_in_its_module`]
 /// scans, with the files of each that may name the test kind: the model's
-/// kind module and registry line, and the geometry crate's generator module
-/// and its registry line (IFX-016).
+/// kind module and registry line, the geometry crate's generator module and
+/// its registry line (IFX-016), and the IFCX crate's codec module and its
+/// line in the codec list (IFX-060).
 const TEST_KIND_SCOPE: &[(&str, &[Allowed])] = &[
     (
         "archicraft-model",
@@ -193,16 +194,21 @@ const TEST_KIND_SCOPE: &[(&str, &[Allowed])] = &[
         "archicraft-geometry",
         &[("kinds/dummy.rs", None), ("kinds/mod.rs", Some(1))],
     ),
+    (
+        "archicraft-ifcx",
+        &[("alpha/kinds/dummy.rs", None), ("alpha/kinds/mod.rs", Some(1))],
+    ),
     ("archicraft-app", &[]),
 ];
 
 /// SRS 3.2, ELM-011: a kind is one module plus one line in the `kinds!`
-/// list, and its geometry one module plus one line in the geometry crate's
-/// registry. Outside `#[cfg(test)]` items, which exercise the test kind on
-/// purpose, the test kind's identifiers `Dummy` and `dummy` occur in the
-/// model and geometry sources only in `kinds/dummy.rs` and on one line of
-/// `kinds/mod.rs`, and in no other scanned crate, so everything else reaches
-/// it through the registries and the hooks.
+/// list, its geometry one module plus one line in the geometry crate's
+/// registry, and its IFCX attribute one codec module plus one line in the
+/// IFCX crate's codec list. Outside `#[cfg(test)]` items, which exercise the
+/// test kind on purpose, the test kind's identifiers `Dummy` and `dummy`
+/// occur in the model, geometry and IFCX sources only in the kind's own
+/// module and on one line of the registry, and in no other scanned crate,
+/// so everything else reaches it through the registries and the hooks.
 #[test]
 fn the_test_kind_is_named_only_in_its_module() {
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))

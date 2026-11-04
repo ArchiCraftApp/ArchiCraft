@@ -8,13 +8,23 @@ use super::common::{
     point2_value, read_material, read_reference_line, read_top_link, reference_line_schema, top_link_schema,
     top_link_value, write_reference_line,
 };
-use super::{KindCodec, ReadContext};
+use super::{Fields, KindCodec, ReadContext};
 use crate::alpha::reader::{self, Object, Report};
 use crate::alpha::schema;
 use crate::message::Message;
 
 impl KindCodec for Wall {
     const ATTRIBUTE: &'static str = "archicraft::wall";
+
+    const FIELDS: Fields = &[
+        ("start", &["start"]),
+        ("end", &["end"]),
+        ("thickness", &["thickness"]),
+        ("reference_line", &["referenceLine", "referenceOffset"]),
+        ("base_offset", &["baseOffset"]),
+        ("top", &["top"]),
+        ("material", &["material"]),
+    ];
 
     fn schema() -> Value {
         let mut fields = vec![("start", schema::point2()), ("end", schema::point2())];

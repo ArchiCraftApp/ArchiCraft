@@ -4867,7 +4867,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Junction settings, layer structures (PRF-001), profiles (PRF-004) and presets named by the requirement are not stored because neither the model nor the writer has them. Views are stored only as id, name and projection, since View3d (crates/archicraft-model/src/project.rs:188) holds nothing more (saved-view state of VIEW-004 is missing). Project settings, location, layers, materials, tool defaults, views, counters (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs), storeys, and element parameters with reference lines and storey links are written under archicraft:: attributes; each kind's parameters go through its codec under crates/archicraft-ifcx/src/alpha/kinds/ (KindCodec, CODECS; archicraft-hi6f.1), so a new kind or a new attribute is one codec module plus one registry line.",
+      "gap": "Junction settings, layer structures (PRF-001), profiles (PRF-004) and presets named by the requirement are not stored because neither the model nor the writer has them. Views are stored only as id, name and projection, since View3d (crates/archicraft-model/src/project.rs:188) holds nothing more (saved-view state of VIEW-004 is missing). Project settings, location, layers, materials, tool defaults, views, counters (project_attribute, crates/archicraft-ifcx/src/alpha/writer.rs), storeys, and element parameters with reference lines and storey links are written under archicraft:: attributes; each kind's parameters go through its codec under crates/archicraft-ifcx/src/alpha/kinds/ (KindCodec, CODECS; archicraft-hi6f.1), so a new kind or a new attribute is one codec module plus one registry line, proven by the test kind's codec alpha/kinds/dummy.rs behind the crate's test-kinds feature (archicraft-hi6f.2). The declarations follow from the kinds the project stores (kinds::present), so test and release builds write the same bytes (`declarations_cover_only_the_kinds_the_project_stores`), and every serde field of Project and of each payload is mapped to its stored member by PROJECT_FIELDS and KindCodec::FIELDS (`every_project_field_is_persisted`, crates/archicraft-ifcx/tests/codecs.rs), so the categories this requirement still lacks cannot be added to the model without a stored member.",
       "depends_on": []
     },
     {
@@ -4876,7 +4876,7 @@
       "section": "5.2.7",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done: crates/archicraft-ifcx/src/alpha/schema.rs project() (archicraft::project) and declarations() (storey, element, then every kind's attribute from KindCodec::schema in crates/archicraft-ifcx/src/alpha/kinds/) with complete value descriptions incl. enums, optional fields and quantityKind. Regression check: Test: `ifx_061_every_archicraft_attribute_has_a_complete_value_description` (ifcx)",
+      "evidence": "Done: crates/archicraft-ifcx/src/alpha/schema.rs project() (archicraft::project) and declarations(present) (storey, element, then the attribute of each kind the project stores, kinds::present, from KindCodec::schema in crates/archicraft-ifcx/src/alpha/kinds/) with complete value descriptions incl. enums, optional fields and quantityKind. Regression check: Test: `ifx_061_every_archicraft_attribute_has_a_complete_value_description` (ifcx)",
       "gap": "",
       "depends_on": []
     },

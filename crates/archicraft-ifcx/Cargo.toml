@@ -18,6 +18,11 @@ bench = false
 # table takes a second IFCX version without touching the model or geometry
 # crates (IFX-091, NFR-MNT-004). Test-only; never in a release build.
 successor-stub = []
+# The model's test-only element kind with its codec (src/alpha/kinds/dummy.rs)
+# and its geometry generator. Enabled for this crate's tests by the
+# dev-dependency on itself below and for the other crates' tests by theirs;
+# never in a normal or release build.
+test-kinds = ["archicraft-model/test-kinds", "archicraft-geometry/test-kinds"]
 
 [dependencies]
 archicraft-geometry.workspace = true
@@ -28,10 +33,7 @@ serde_json.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-# The test-only element kind (archicraft_model::kinds) with its geometry
-# generator, for kinds without kind-specific code here.
-archicraft-geometry = { workspace = true, features = ["test-kinds"] }
-archicraft-model = { workspace = true, features = ["test-kinds"] }
+archicraft-ifcx = { workspace = true, features = ["test-kinds"] }
 criterion.workspace = true
 insta.workspace = true
 jsonschema.workspace = true

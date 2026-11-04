@@ -5,7 +5,7 @@ use archicraft_model::{Slab, SlabReference};
 use serde_json::{Map, Value, json};
 
 use super::common::{point2_value, read_material};
-use super::{KindCodec, ReadContext};
+use super::{Fields, KindCodec, ReadContext};
 use crate::alpha::reader::{self, Object, Report};
 use crate::alpha::schema;
 use crate::message::Message;
@@ -16,6 +16,15 @@ fn ring_value(ring: &[archicraft_model::glam::DVec2]) -> Value {
 
 impl KindCodec for Slab {
     const ATTRIBUTE: &'static str = "archicraft::slab";
+
+    const FIELDS: Fields = &[
+        ("outline", &["outline"]),
+        ("holes", &["holes"]),
+        ("thickness", &["thickness"]),
+        ("reference", &["reference"]),
+        ("offset", &["offset"]),
+        ("material", &["material"]),
+    ];
 
     fn schema() -> Value {
         let mut fields = vec![

@@ -11,6 +11,18 @@
 //! `codecs!` invocation below, next to its line in the model's `kinds!`
 //! list. A kind without a codec is saved without its parameters, with a
 //! warning, and read as an unsupported node.
+//!
+//! A file declares the attributes of the kinds the project stores
+//! ([`present`]), not of every codec this build has: the model's test kind
+//! and its codec exist only in test builds (the cargo feature `test-kinds`,
+//! enabled through the dev-dependency on this crate), and a project without
+//! it must be written the same by a test build and a release build.
+//!
+//! Every field of the model has a stored member: [`KindCodec::FIELDS`] maps
+//! each payload's serde fields and [`PROJECT_FIELDS`] the project's to where
+//! the file keeps them, and a test compares the tables with the serde forms,
+//! so a field added to the model fails the test until the file stores it
+//! (IFX-060).
 
 use archicraft_model::{ElementKind, KindTag, Project};
 use serde_json::{Map, Value};
@@ -26,11 +38,24 @@ pub(crate) struct ReadContext<'a> {
     pub project: &'a Project,
 }
 
+/// Where a type's serde fields are stored: each field's name with the
+/// members of the attribute that hold it (IFX-060).
+pub type Fields = &'static [(&'static str, &'static [&'static str])];
+
 /// The attribute of one element kind (IFX-060, IFX-061), implemented for
 /// the model's payload types (a local trait, so the orphan rule allows it).
 pub(crate) trait KindCodec: Sized {
     /// The attribute holding the parameters, `archicraft::<kind code>`.
     const ATTRIBUTE: &'static str;
+
+    /// Every serde field of the payload with the members of
+    /// [`Self::ATTRIBUTE`] that store it.
+    const FIELDS: Fields;
+
+    /// True for a kind that exists only in test builds: the published schema
+    /// document leaves it out (IFX-092), because the example that writes the
+    /// document is built with the test kinds like every test.
+    const TEST_ONLY: bool = false;
 
     /// The value description of [`Self::ATTRIBUTE`] (IFX-061).
     fn schema() -> Value;
@@ -61,6 +86,8 @@ pub(crate) trait KindCodec: Sized {
 pub(crate) trait Codec: Sync {
     fn tag(&self) -> KindTag;
     fn attribute(&self) -> &'static str;
+    fn fields(&self) -> Fields;
+    fn test_only(&self) -> bool;
     fn schema(&self) -> Value;
     fn slot_schema(&self) -> Vec<(&'static str, Value)>;
     fn write(&self, kind: &ElementKind) -> Option<Map<String, Value>>;
@@ -70,19 +97,28 @@ pub(crate) trait Codec: Sync {
 }
 
 /// [`Codec`] for the payload type `P`, with its kind and its place in the
-/// model's [`ElementKind`] from `codecs!`.
+/// model's [`ElementKind`] from `codecs!`. It holds a tag and a function
+/// pointer, so it is `Sync` whatever `P` is.
 struct Erased<P: 'static> {
     tag: KindTag,
     of: fn(&ElementKind) -> Option<&P>,
 }
 
-impl<P: KindCodec + Into<ElementKind> + Sync> Codec for Erased<P> {
+impl<P: KindCodec + Into<ElementKind>> Codec for Erased<P> {
     fn tag(&self) -> KindTag {
         self.tag
     }
 
     fn attribute(&self) -> &'static str {
         P::ATTRIBUTE
+    }
+
+    fn fields(&self) -> Fields {
+        P::FIELDS
+    }
+
+    fn test_only(&self) -> bool {
+        P::TEST_ONLY
     }
 
     fn schema(&self) -> Value {
@@ -133,10 +169,12 @@ macro_rules! codecs {
 }
 
 // Every kind with an attribute, once. Adding a kind is a new module plus one
-// line here.
+// line here. The test kind's line is compiled only with the feature its
+// kind needs (see the module documentation).
 codecs! {
     wall => Wall,
     slab => Slab,
+    #[cfg(feature = "test-kinds")] dummy => Dummy,
 }
 
 /// The codec of `kind`, if this build stores the kind.
@@ -144,7 +182,79 @@ pub(crate) fn codec(kind: KindTag) -> Option<&'static dyn Codec> {
     CODECS.iter().copied().find(|c| c.tag() == kind)
 }
 
+/// The kinds `project` stores, in registry order: those with an element, a
+/// tool-defaults slot or a non-zero name counter. The file declares the
+/// attributes, the kind enumeration options, the defaults slots and the
+/// counters of these kinds and no others (IFX-061), so what a file declares
+/// follows from the project, not from the codecs this build happens to have.
+pub fn present(project: &Project) -> Vec<KindTag> {
+    KindTag::ALL
+        .iter()
+        .copied()
+        .filter(|&kind| {
+            project.tool_defaults.get(kind).is_some()
+                || project.counters.get(kind) != 0
+                || project.elements.values().any(|e| e.tag() == kind)
+        })
+        .collect()
+}
+
+/// The kinds a release build stores, in registry order: every registered
+/// kind that is not [`KindCodec::TEST_ONLY`]. The published schema document
+/// declares these (IFX-092).
+pub fn published() -> Vec<KindTag> {
+    CODECS.iter().filter(|c| !c.test_only()).map(|c| c.tag()).collect()
+}
+
 /// Each registered kind with its attribute, in registry order (for tests).
 pub fn registered() -> Vec<(KindTag, &'static str)> {
     CODECS.iter().map(|c| (c.tag(), c.attribute())).collect()
 }
+
+/// Each registered kind with its [`KindCodec::FIELDS`], in registry order
+/// (for tests).
+pub fn fields() -> Vec<(KindTag, Fields)> {
+    CODECS.iter().map(|c| (c.tag(), c.fields())).collect()
+}
+
+/// Where the file keeps a field of the project (IFX-060).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stored {
+    /// The project node: its path, `bsi::ifc::prop::Name` and
+    /// `bsi::ifc::prop::Description`.
+    Root,
+    /// The nodes whose child key starts with this prefix (`Site`,
+    /// `Building`, `Storey`, `Material`): their path and their `bsi::` and
+    /// `archicraft::` attributes.
+    Node(&'static str),
+    /// The element nodes: `archicraft::element` and the attribute of the
+    /// kind's codec, whose [`KindCodec::FIELDS`] map the payload.
+    Elements,
+    /// A member of `archicraft::project` on the project node, as a path such
+    /// as `counters.group`.
+    Member(&'static str),
+    /// A field of the file header.
+    Header(&'static str),
+}
+
+/// Where the file keeps each top-level serde field of
+/// [`archicraft_model::Project`] (IFX-060). `revision` is `#[serde(skip)]`
+/// and not stored. A field without an entry fails the test that compares
+/// this table with the project's serde form.
+pub const PROJECT_FIELDS: &[(&str, &[Stored])] = &[
+    ("id", &[Stored::Root]),
+    ("info", &[Stored::Member("info"), Stored::Root]),
+    ("settings", &[Stored::Member("settings")]),
+    ("site", &[Stored::Node("Site"), Stored::Member("location")]),
+    ("building", &[Stored::Node("Building")]),
+    ("storeys", &[Stored::Node("Storey"), Stored::Member("groundStorey")]),
+    ("layers", &[Stored::Member("layers")]),
+    ("materials", &[Stored::Member("materials"), Stored::Node("Material")]),
+    ("elements", &[Stored::Elements]),
+    ("groups", &[Stored::Member("groups")]),
+    ("tool_defaults", &[Stored::Member("toolDefaults")]),
+    ("views", &[Stored::Member("views")]),
+    ("counters", &[Stored::Member("counters")]),
+    ("group_counter", &[Stored::Member("counters.group")]),
+    ("data_version", &[Stored::Header("dataVersion")]),
+];

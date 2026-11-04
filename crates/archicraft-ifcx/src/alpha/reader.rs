@@ -194,7 +194,7 @@ pub(crate) fn text(map: &Object, key: &str) -> Result<String, Message> {
         .ok_or_else(|| about("ifcx-field-not-text", key))
 }
 
-fn boolean(map: &Object, key: &str) -> Result<bool, Message> {
+pub(crate) fn boolean(map: &Object, key: &str) -> Result<bool, Message> {
     field(map, key)?
         .as_bool()
         .ok_or_else(|| about("ifcx-field-not-boolean", key))
