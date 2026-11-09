@@ -279,13 +279,18 @@ fn project(present: &[&dyn Codec]) -> Value {
 
 /// The `schemas` section of a file that stores the kinds `present`, in
 /// registry order (IFX-061): the project, the storey, the common element
-/// data, the attribute of each present kind that has a codec (IFX-060) and,
+/// data, the attribute of each present kind that has a codec other than a
+/// placeholder (IFX-060) and,
 /// with `relations`, the explicit relations between elements (SRS 3.3).
 /// The writer passes [`kinds::present`] and [`relations::present`] of the
 /// project; [`document`] passes [`kinds::published`] and declares the
 /// relations.
 pub fn declarations(present: &[KindTag], relations: bool) -> IndexMap<String, Value> {
-    let present: Vec<&dyn Codec> = present.iter().filter_map(|&kind| kinds::codec(kind)).collect();
+    let present: Vec<&dyn Codec> = present
+        .iter()
+        .filter_map(|&kind| kinds::codec(kind))
+        .filter(|codec| !codec.placeholder())
+        .collect();
     let mut schemas = IndexMap::new();
     schemas.insert(PROJECT.to_owned(), json!({"value": project(&present)}));
     schemas.insert(

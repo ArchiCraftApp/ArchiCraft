@@ -58,6 +58,11 @@ model-kind-slab-noun = { $count ->
         [one] slab
        *[other] slabs
     }
+model-kind-space = Space
+model-kind-space-noun = { $count ->
+        [one] space
+       *[other] spaces
+    }
 # The test kind of the model's test builds; never shown in a release.
 model-kind-test = Test element
 model-kind-test-noun = { $count ->
@@ -128,9 +133,10 @@ model-error-polygon-area = The polygon has no area.
 model-error-polygon-sliver = The polygon has a sliver corner sharper than { $min }.
 model-error-polygon-self-intersection = The polygon outline intersects itself.
 model-error-hole = Hole: { $reason }
-model-error-hole-outside = A hole must lie inside the slab outline without touching it.
+model-error-hole-outside = A hole must lie inside the outline without touching it.
 model-error-holes-overlap = Holes must not overlap each other.
 model-error-slab-points = A slab may have at most { $max_text } points in its outline and holes together.
+model-error-space-points = A space may have at most { $max_text } points in its boundary and holes together.
 model-error-thickness-range = Thickness must be between { $min } and { $max }.
 model-error-base-offset-range = The base offset must be a finite value within ±{ $max }.
 model-error-top-offset-range = The top offset must be a finite value within ±{ $max }.
@@ -138,6 +144,7 @@ model-error-slab-offset-range = The slab offset must be a finite value within ±
 model-error-wall-length = A wall must be at least { $min } long.
 model-error-reference-line-range = The reference-line offset must be within ±{ $max }.
 model-error-wall-height-range = The wall height must be between { $min } and { $max }.
+model-error-space-height-range = The space height must be between { $min } and { $max }.
 model-error-linked-storey-range = The linked storey must be at most { $max_text } storeys away.
 model-error-wall-top-storey-missing = The storey the wall top is linked to does not exist.
 model-error-element-name = An element needs a name.

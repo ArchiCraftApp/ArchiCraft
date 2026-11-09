@@ -153,3 +153,7 @@ ifcx-duplicate = { $name } appears twice; the second occurrence was skipped
 ifcx-tool-defaults-not-saved = The defaults of the { $kind } tool cannot be stored in this file format yet and were not saved.
 ifcx-saved-without-body = { $name } has no valid geometry and was saved without a body.
 ifcx-kind-not-storable = { $name } ({ $kind }) cannot be stored in this file format yet; it was saved without its parameters and will not open as an editable element.
+ifcx-kind-not-saved-yet = { $count ->
+        [one] 1 { $kind } element was not saved, because this file format cannot store it yet: { $names }.
+       *[other] { $count_text } { $kind } elements were not saved, because this file format cannot store them yet: { $names }.
+    }

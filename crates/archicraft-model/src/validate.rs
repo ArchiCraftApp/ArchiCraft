@@ -9,7 +9,7 @@ mod sweep;
 use glam::DVec2;
 
 use crate::element::{Element, TopLink};
-use crate::kinds::{ReferenceLine, Slab, VerticalLink, Wall};
+use crate::kinds::{BoundarySource, ReferenceLine, Slab, Space, VerticalLink, Wall};
 use crate::message::Message;
 use crate::outline::{Outline, Ring};
 use crate::project::Project;
@@ -295,6 +295,35 @@ pub fn validate_slab(slab: &Slab) -> Result<Slab, Message> {
     Ok(Slab {
         outline: Outline::from_point_rings(std::iter::once(outer).chain(holes)),
         ..slab.clone()
+    })
+}
+
+/// Range checks for a space (SPC-001), returning the space with a
+/// normalised boundary: its rings validated like a slab's outline by
+/// [`validate_slab_polygon`], ring 0 as the outer ring and the others as
+/// holes. Its height must be positive, which [`validate_element`] checks
+/// against the storeys.
+pub fn validate_space(space: &Space) -> Result<Space, Message> {
+    if let TopLink::Fixed { height } = space.link.top
+        && !(height.is_finite() && (MIN_HEIGHT..=MAX_HEIGHT).contains(&height))
+    {
+        return Err(Message::new("model-error-space-height-range")
+            .length("min", MIN_HEIGHT)
+            .length("max", MAX_HEIGHT));
+    }
+    check_vertical_link(&space.link)?;
+    check_point(space.stamp_offset)?;
+    if let BoundarySource::Detected { seed, .. } = space.source {
+        check_point(seed)?;
+    }
+    if space.boundary.node_count() > MAX_SLAB_POINTS {
+        return Err(Message::new("model-error-space-points").count("max", MAX_SLAB_POINTS));
+    }
+    let (outer, holes) = space.boundary.to_points();
+    let (outer, holes) = validate_slab_polygon(&outer, &holes)?;
+    Ok(Space {
+        boundary: Outline::from_point_rings(std::iter::once(outer).chain(holes)),
+        ..space.clone()
     })
 }
 

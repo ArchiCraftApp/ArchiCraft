@@ -34,7 +34,7 @@ pub use drawing::DrawingScale;
 pub use element::{CompoundPart, Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, TopLink};
 pub use group::Group;
 pub use ids::{BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, RelationId, SiteId, StoreyId, ViewId};
-pub use kinds::{ReferenceLine, Slab, SlabReference, Wall};
+pub use kinds::{BoundarySource, ReferenceLine, Slab, SlabReference, Space, Wall};
 pub use layer::Layer;
 pub use material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 pub use message::{Arg, Message};

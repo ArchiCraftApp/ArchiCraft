@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
-use archicraft_ifcx::alpha::kinds::{PROJECT_FIELDS, Stored, fields, registered};
+use archicraft_ifcx::alpha::kinds::{PROJECT_FIELDS, Stored, fields, placeholders, registered};
 use archicraft_ifcx::alpha::schema;
 use archicraft_ifcx::validate::{self, Severity};
 use archicraft_model::glam::DVec2;
@@ -56,7 +56,10 @@ fn members(declaration: &Value) -> BTreeSet<&str> {
 /// `archicraft::` member or node that stores it, by the tables reachable
 /// from `alpha/kinds/mod.rs`, and every member the tables name is declared.
 /// A field added without a mapping, or a kind without a sample payload
-/// here, fails the test.
+/// here, fails the test. The one exception is the space kind, whose codec
+/// is a placeholder until spaces are stored (SPC-001, archicraft-awj): it
+/// maps no field and declares nothing, and saving reports its elements
+/// (tests/spaces.rs).
 #[test]
 fn every_project_field_is_persisted() {
     let project = samples::storey_with_walls_and_slab();
@@ -88,14 +91,27 @@ fn every_project_field_is_persisted() {
     payloads.insert(KindTag::Dummy, serde_json::to_value(&dummy).unwrap());
     let note: ElementKind = Note::new(project.storeys.ground(), DVec2::ONE, "Hall").into();
     payloads.insert(KindTag::Note, serde_json::to_value(&note).unwrap());
+    let space = project.new_space(
+        project.storeys.ground(),
+        vec![DVec2::ZERO, DVec2::X, DVec2::ONE],
+        Vec::new(),
+        0,
+    );
+    payloads.insert(KindTag::Space, serde_json::to_value(&space.kind).unwrap());
     assert_eq!(
         payloads.keys().copied().collect::<BTreeSet<_>>(),
         KindTag::ALL.iter().copied().collect(),
         "a sample payload of every kind"
     );
+    assert_eq!(placeholders(), [KindTag::Space], "the kinds that store nothing yet");
     let tables = fields();
     assert_eq!(tables.len(), KindTag::ALL.len());
     for (tag, table) in tables {
+        if placeholders().contains(&tag) {
+            assert!(table.is_empty(), "{tag:?}: a placeholder maps no field");
+            assert!(declared.get(attribute_of(tag)).is_none(), "{tag:?} is not declared");
+            continue;
+        }
         // Externally tagged: `{"Wall": {…}}`.
         let payload = payloads[&tag].as_object().unwrap().values().next().unwrap();
         let fields_of_payload: BTreeSet<&str> = payload.as_object().unwrap().keys().map(String::as_str).collect();

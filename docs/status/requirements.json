@@ -4074,10 +4074,10 @@
       "id": "SPC-001",
       "priority": "C",
       "section": "4.25",
-      "status": "missing",
+      "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Prepared: a kind and its body parts may have no material, drawn translucent in 3D and cut in no plan region (crates/archicraft-model/src/kinds/mod.rs). Missing: space element with name, number, boundary (drawn or detected), storey-linked height, plan stamp, IfcSpace export.",
+      "gap": "The space kind exists (Space, crates/archicraft-model/src/kinds/space.rs): long name, number (Project::suggested_space_number), a boundary outline with holes validated like a slab's, a drawn or detected boundary source, a storey-linked height (top at the next storey by default, STR-006), the net area and IfcSpace as its only class; its generator extrudes one closed body without a material (crates/archicraft-geometry/src/kinds/space.rs), which plans neither cut nor project and contour detection ignores (KindDescriptor::construction; tests/space.rs, spaces_inside_a_room_do_not_split_its_region). Missing: the plan stamp with name, number and area and the boundary in plan views (archicraft-1fo.2), the space tool with drawn and wall-detected boundaries (archicraft-vwt) and the IfcSpace export: saving leaves spaces out with one warning (placeholder codec, crates/archicraft-ifcx/src/alpha/kinds/space.rs; archicraft-awj).",
       "depends_on": []
     },
     {

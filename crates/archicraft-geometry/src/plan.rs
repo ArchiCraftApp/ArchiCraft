@@ -108,7 +108,9 @@ fn fill_mesh(polygons: &MultiPolygon<f64>) -> FillMesh {
 /// Generates the plan of `storey`. `shown` decides which elements appear
 /// (layer visibility and view filters); elements are drawn on their home
 /// storey. Elements of kinds without a body are not sliced: their views
-/// draw them (ANN-002).
+/// draw them (ANN-002). The bodies of kinds that are no construction
+/// elements, like spaces (SPC-001), add no lines: their kind draws its own
+/// plan symbol, and they bound no region in contour detection (INP-018).
 pub fn plan_drawing(
     project: &Project,
     geometry: &ModelGeometry,
@@ -135,8 +137,10 @@ pub fn plan_drawing(
         // The parts of a compound element are classified like its own
         // body, under the element id (IFX-016). A cut part without a
         // material is not drawn: its kind draws its own plan symbol, like
-        // the stamp of a space (SPC-001).
-        for part in body.bodies() {
+        // the stamp of a space (SPC-001), and a kind that is no
+        // construction element adds no lines of its body at all.
+        let construction = element.kind.descriptor().construction;
+        for part in body.bodies().filter(|_| construction) {
             let Some((lo, hi)) = part.mesh.bounds() else {
                 continue;
             };

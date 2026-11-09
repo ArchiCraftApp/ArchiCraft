@@ -161,6 +161,7 @@ impl Kind for Wall {
         has_tool: true,
         has_body: true,
         ifcx_node: true,
+        construction: true,
         template_defaults: Some(template_defaults),
     };
 

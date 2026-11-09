@@ -143,6 +143,7 @@ pub const ALL_KEYS: &[&str] = &[
     "ifcx-tool-defaults-not-saved",
     "ifcx-saved-without-body",
     "ifcx-kind-not-storable",
+    "ifcx-kind-not-saved-yet",
 ];
 
 #[cfg(test)]

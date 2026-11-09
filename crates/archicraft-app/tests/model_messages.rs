@@ -179,12 +179,14 @@ fn error_representatives() -> Vec<Message> {
         max("model-error-grid-origin", 100_000.0),
         range("model-error-thickness-range", 0.001, 10.0),
         range("model-error-wall-height-range", 0.001, 1000.0),
+        range("model-error-space-height-range", 0.001, 1000.0),
         Message::new("model-error-wall-length").length("min", 0.0001),
         Message::new("model-error-storey-height-min").length("min", 0.01),
         Message::new("model-error-polygon-sliver").angle("min", 0.1_f64.to_radians()),
         Message::new("model-error-display-precision").count("max", 8),
         Message::new("model-error-linked-storey-range").count("max", 200),
         Message::new("model-error-slab-points").count("max", 1000),
+        Message::new("model-error-space-points").count("max", 1000),
         Message::new("model-error-priority-range")
             .count("min", 1)
             .count("max", 999),

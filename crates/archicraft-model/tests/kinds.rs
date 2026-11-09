@@ -15,13 +15,14 @@ use archicraft_model::template::{TemplateContext, default_metric_project};
 use archicraft_model::{Arg, Command, CommandError, History, IfcClass, KindTag};
 use common::{ground, wall};
 
-/// The registry lists wall and slab, plus the test kinds (tests always build
-/// with the feature `test-kinds`, tests/test_kinds_feature.rs), in the order
-/// of `KindTag::ALL`, and each tag's descriptor is its registry entry.
+/// The registry lists wall, slab and space, plus the test kinds (tests
+/// always build with the feature `test-kinds`, tests/test_kinds_feature.rs),
+/// in the order of `KindTag::ALL`, and each tag's descriptor is its registry
+/// entry.
 #[test]
-fn the_registry_has_wall_and_slab() {
+fn the_registry_has_wall_slab_and_space() {
     let codes: Vec<&str> = KINDS.iter().map(|d| d.code).collect();
-    assert_eq!(codes, ["wall", "slab", "dummy", "note"]);
+    assert_eq!(codes, ["wall", "slab", "space", "dummy", "note"]);
     assert_eq!(KINDS.len(), KindTag::ALL.len());
     for (tag, descriptor) in KindTag::ALL.iter().zip(KINDS) {
         // Codes are unique (below), so equal codes mean the same entry.
@@ -165,10 +166,68 @@ fn every_kind_declares_its_body_and_its_ifcx_node() {
         [
             ("wall", true, true),
             ("slab", true, true),
+            ("space", true, true),
             ("dummy", true, true),
             ("note", false, false),
         ]
     );
+}
+
+/// SPC-001, INP-018: every descriptor declares whether its elements are
+/// construction elements. Walls, slabs and the test kind's boxes are;
+/// spaces, which describe a room, and the body-less test kind are not.
+#[test]
+fn every_kind_declares_whether_it_is_a_construction_element() {
+    let flags: Vec<(&str, bool)> = KINDS.iter().map(|d| (d.code, d.construction)).collect();
+    assert_eq!(
+        flags,
+        [
+            ("wall", true),
+            ("slab", true),
+            ("space", false),
+            ("dummy", true),
+            ("note", false),
+        ]
+    );
+}
+
+/// SPC-001, ELM-011, ELM-019: a space is always an `IfcSpace` (Table 5-1)
+/// named `SP-001`, `SP-002`, …; its tool's template slot has no material,
+/// no name or number, a drawn boundary, no stamp offset and the top linked
+/// to the home storey + 1 with offset 0.
+#[test]
+fn the_space_kind_has_its_own_descriptor_and_defaults() {
+    use archicraft_model::kinds::{BoundarySource, VerticalLink};
+    use archicraft_model::{Element, TopLink};
+
+    let d = KindTag::Space.descriptor();
+    assert_eq!(
+        (d.code, d.name_prefix, d.node_prefix, d.has_tool),
+        ("space", "SP", "Space", true)
+    );
+    assert_eq!(
+        (d.default_class, d.ifc_classes),
+        (IfcClass::Space, &[IfcClass::Space][..])
+    );
+    let p = default_metric_project();
+    let slot = p.tool_defaults.get(KindTag::Space).unwrap();
+    assert_eq!(slot.kind.material(), None);
+    let element = p.new_space(ground(&p), vec![DVec2::ZERO, DVec2::X, DVec2::ONE], Vec::new(), 0);
+    assert_eq!(element.name, "SP-001");
+    let space = Element::as_space(&element).unwrap();
+    assert_eq!((space.long_name.as_str(), space.number.as_str()), ("", ""));
+    assert_eq!(
+        space.link,
+        VerticalLink {
+            base_offset: 0.0,
+            top: TopLink::Relative {
+                storeys: 1,
+                offset: 0.0
+            },
+        }
+    );
+    assert_eq!(space.source, BoundarySource::Drawn);
+    assert_eq!(space.stamp_offset, DVec2::ZERO);
 }
 
 /// ANN-002, ELM-019: the body-less test kind is an `IfcAnnotation` (Table

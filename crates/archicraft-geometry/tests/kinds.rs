@@ -33,6 +33,15 @@ fn sample_elements(p: &Project, kind: KindTag) -> Vec<Element> {
             ];
             vec![p.new_slab(g, outline, Vec::new(), 0)]
         }
+        KindTag::Space => {
+            let boundary = vec![
+                DVec2::new(0.0, 6.0),
+                DVec2::new(4.0, 6.0),
+                DVec2::new(4.0, 9.0),
+                DVec2::new(0.0, 9.0),
+            ];
+            vec![p.new_space(g, boundary, Vec::new(), 0)]
+        }
         KindTag::Dummy => {
             let simple = Dummy::new(DVec2::new(6.0, 0.0), DVec2::ONE, material);
             let mut compound = Dummy::new(DVec2::new(8.0, 0.0), DVec2::new(2.0, 1.0), material);

@@ -117,6 +117,7 @@ macro_rules! generators {
 generators! {
     wall => Wall,
     slab => Slab,
+    space => Space,
     #[cfg(feature = "test-kinds")] dummy => Dummy,
     #[cfg(feature = "test-kinds")] note => Note,
 }

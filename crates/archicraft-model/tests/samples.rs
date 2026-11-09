@@ -67,7 +67,8 @@ fn the_catalogue_lists_the_reference_samples() {
 
 /// IFX-011: the template takes its identities from the given source, one
 /// call per object with its role, and the tool defaults refer to the
-/// resources by those identities.
+/// resources by those identities; the space tool's slot refers to no
+/// material (SPC-001).
 #[test]
 fn the_template_takes_identities_from_the_source() {
     let mut roles = Vec::new();
@@ -85,8 +86,11 @@ fn the_template_takes_identities_from_the_source() {
     assert_eq!(count("view"), 2);
     let ids: HashSet<Uuid> = (1..=n).map(Uuid::from_u128).collect();
     assert!(identities(&p).iter().all(|id| ids.contains(id)));
-    for (_, slot) in p.tool_defaults.iter() {
-        assert!(p.material(slot.kind.material().unwrap()).is_some());
+    for (kind, slot) in p.tool_defaults.iter() {
+        match slot.kind.material() {
+            Some(material) => assert!(p.material(material).is_some(), "{kind:?}"),
+            None => assert_eq!(kind, KindTag::Space),
+        }
         assert!(p.layer(slot.layer).is_some());
     }
     // Without a source, every project still gets new random identities.

@@ -13,7 +13,7 @@ use archicraft_model::template::default_metric_project;
 use archicraft_model::validate::{MAX_GRID_SPACING, MAX_HEIGHT, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
 use archicraft_model::{
     Arg, Command, CommandError, Element, ElementId, ElementKind, Group, GroupId, History, IfcClass, KindTag, Layer,
-    Material, Message, PlanGrid, Project, ProjectSettings, Slab, Storey, StoreyId, TopLink, Wall,
+    Material, Message, PlanGrid, Project, ProjectSettings, Slab, Space, Storey, StoreyId, TopLink, Wall,
 };
 use common::{ground, wall};
 
@@ -1859,4 +1859,213 @@ fn membership_changes_only_through_the_group_commands() {
     stray.group = Some(group);
     h.execute(&mut p, Command::AddElements(vec![stray.clone()])).unwrap();
     assert_eq!(p.group_members(group), [a, b, stray.id]);
+}
+
+/// The L-shaped boundary of the space tests (SPC-001): a 6 m x 4 m
+/// rectangle from the origin without its 2 m x 2 m north-east corner,
+/// 20 m².
+fn l_shape() -> Vec<DVec2> {
+    [(0.0, 0.0), (6.0, 0.0), (6.0, 2.0), (4.0, 2.0), (4.0, 4.0), (0.0, 4.0)]
+        .map(|(x, y)| DVec2::new(x, y))
+        .to_vec()
+}
+
+/// A 1 m x 1 m hole inside [`l_shape`].
+fn unit_hole() -> Vec<DVec2> {
+    [(1.0, 1.0), (2.0, 1.0), (2.0, 2.0), (1.0, 2.0)]
+        .map(|(x, y)| DVec2::new(x, y))
+        .to_vec()
+}
+
+/// The space with the id `id` in `p`.
+fn space_of(p: &Project, id: ElementId) -> &Space {
+    p.element(id).and_then(Element::as_space).unwrap()
+}
+
+/// SPC-001, ELM-019, UND-001, UND-002: adding a space names it SP-001 and
+/// bumps only its counter; undo restores the exact project, redo the added
+/// space.
+#[test]
+fn adding_a_space_and_undo_redo_restore_the_project() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let start = content(&p);
+    let s = p.new_space(ground(&p), l_shape(), Vec::new(), 0);
+    let id = s.id;
+    assert_eq!(s.name, "SP-001");
+    assert_eq!(s.ifc_class, IfcClass::Space);
+    h.execute(&mut p, Command::AddElements(vec![s])).unwrap();
+    let added = content(&p);
+    assert_eq!(p.counters.get(KindTag::Space), 1);
+    assert_eq!(p.counters.get(KindTag::Wall), 0);
+    assert_eq!(space_of(&p, id).boundary.outer().len(), 6);
+
+    let label = h.undo(&mut p).unwrap();
+    assert_eq!(label.arg("kind"), Some(&Arg::Kind(KindTag::Space)));
+    assert_eq!(content(&p), start);
+    h.redo(&mut p).unwrap();
+    assert_eq!(content(&p), added);
+}
+
+/// SPC-001, EDT-018: a self-intersecting and a zero-area boundary are
+/// rejected with `CommandError::Invalid`, and so is a space without a
+/// positive height (its top at its base); the project stays unchanged.
+#[test]
+fn a_space_with_an_invalid_boundary_or_height_is_rejected() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let before = p.clone();
+    let bow_tie = [(0.0, 0.0), (4.0, 3.0), (4.0, 0.0), (0.0, 4.0)].map(|(x, y)| DVec2::new(x, y));
+    let flat = [(0.0, 0.0), (2.0, 0.0), (4.0, 0.0)].map(|(x, y)| DVec2::new(x, y));
+    let mut flat_top = p.new_space(ground(&p), l_shape(), Vec::new(), 0);
+    flat_top.as_space_mut().unwrap().link.top = TopLink::Relative {
+        storeys: 0,
+        offset: 0.0,
+    };
+    let cases = [
+        (
+            p.new_space(ground(&p), bow_tie.to_vec(), Vec::new(), 0),
+            "model-error-polygon-self-intersection",
+        ),
+        (
+            p.new_space(ground(&p), flat.to_vec(), Vec::new(), 0),
+            "model-error-polygon-area",
+        ),
+        (flat_top, "model-error-top-below-base"),
+    ];
+    for (space, key) in cases {
+        match h.execute(&mut p, Command::AddElements(vec![space])) {
+            Err(CommandError::Invalid(message)) => assert_eq!(message.key(), key),
+            other => panic!("expected CommandError::Invalid({key}), got {other:?}"),
+        }
+        assert_eq!(p, before);
+    }
+}
+
+/// SPC-001: the net area of the L-shaped 6 m x 4 m boundary without its
+/// 2 m x 2 m notch is 20 m², and 19 m² with a 1 m x 1 m hole; validation
+/// orients the rings and keeps the area.
+#[test]
+fn a_space_net_area_deducts_the_notch_and_its_holes() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let mut clockwise = l_shape();
+    clockwise.reverse();
+    let plain = p.new_space(ground(&p), clockwise, Vec::new(), 0);
+    let holed = p.new_space(ground(&p), l_shape(), vec![unit_hole()], 1);
+    let (plain_id, holed_id) = (plain.id, holed.id);
+    h.execute(&mut p, Command::AddElements(vec![plain, holed])).unwrap();
+    let plain = space_of(&p, plain_id);
+    assert!(plain.boundary.outer().is_counter_clockwise());
+    assert!((plain.net_area() - 20.0).abs() < 1e-9, "{}", plain.net_area());
+    let holed = space_of(&p, holed_id);
+    assert!(!holed.boundary.holes()[0].is_counter_clockwise());
+    assert!((holed.net_area() - 19.0).abs() < 1e-9, "{}", holed.net_area());
+}
+
+/// SPC-001, STR-006: a space's top is linked to the next storey by
+/// default, so changing the storey height changes its resolved top; undo
+/// restores it.
+#[test]
+fn a_space_top_follows_the_storey_height() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let s = p.new_space(ground(&p), l_shape(), Vec::new(), 0);
+    let id = s.id;
+    h.execute(&mut p, Command::AddElements(vec![s])).unwrap();
+    assert_eq!(p.vertical_extent(p.element(id).unwrap()), Some((0.0, 3.0)));
+    let g = ground(&p);
+    h.execute(
+        &mut p,
+        Command::SetStoreyHeight {
+            storey: g,
+            height: 3.4,
+            shift_above: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(p.vertical_extent(p.element(id).unwrap()), Some((0.0, 3.4)));
+    h.undo(&mut p).unwrap();
+    assert_eq!(p.vertical_extent(p.element(id).unwrap()), Some((0.0, 3.0)));
+}
+
+/// SPC-001: a space and the space tool's slot have no material, so
+/// deleting a material with a replacement (DSP-003) leaves both unchanged
+/// while the wall that used it changes.
+#[test]
+fn deleting_a_material_leaves_spaces_unchanged() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let w = wall(&p, (0.0, 0.0), (5.0, 0.0));
+    let brick = w.kind.material().unwrap();
+    let concrete = p.materials[0].id;
+    let s = p.new_space(ground(&p), l_shape(), Vec::new(), 0);
+    assert_eq!(s.kind.material(), None);
+    let (wall_id, space_id) = (w.id, s.id);
+    h.execute(&mut p, Command::AddElements(vec![w, s])).unwrap();
+    let before = p.clone();
+    assert_eq!(p.tool_defaults.get(KindTag::Space).unwrap().kind.material(), None);
+
+    h.execute(
+        &mut p,
+        Command::DeleteMaterial {
+            material: brick,
+            replacement: concrete,
+        },
+    )
+    .unwrap();
+    assert_eq!(p.element(wall_id).unwrap().kind.material(), Some(concrete));
+    assert_eq!(p.element(space_id), before.element(space_id));
+    assert_eq!(
+        p.tool_defaults.get(KindTag::Space),
+        before.tool_defaults.get(KindTag::Space)
+    );
+    assert!(p.integrity_problems().is_empty(), "{:?}", p.integrity_problems());
+}
+
+/// SPC-001: the suggested number of a new space is the storey number and
+/// a two-digit count of the storey's spaces plus one: 0.01 for the first on
+/// the ground storey, 0.02 after it, 1.01 on the storey above.
+#[test]
+fn space_numbers_are_suggested_per_storey() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let g = ground(&p);
+    let upper = p.storeys.relative(g, 1).unwrap().id;
+    assert_eq!(p.suggested_space_number(g).as_deref(), Some("0.01"));
+    let s = p.new_space(g, l_shape(), Vec::new(), 0);
+    h.execute(&mut p, Command::AddElements(vec![s])).unwrap();
+    assert_eq!(p.suggested_space_number(g).as_deref(), Some("0.02"));
+    assert_eq!(p.suggested_space_number(upper).as_deref(), Some("1.01"));
+    assert_eq!(p.suggested_space_number(StoreyId::new()), None);
+}
+
+/// SPC-001, ELM-017, NFR-SEC-003: a fixed space height outside 1 mm to
+/// 1000 m and a boundary with more points than a slab may have are
+/// rejected with the space's own messages, and the project stays
+/// unchanged.
+#[test]
+fn a_space_beyond_its_limits_is_rejected_with_its_own_messages() {
+    use archicraft_model::validate::MAX_SLAB_POINTS;
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let before = p.clone();
+    let mut flat = p.new_space(ground(&p), l_shape(), Vec::new(), 0);
+    flat.as_space_mut().unwrap().link.top = TopLink::Fixed { height: 0.0 };
+    let n = MAX_SLAB_POINTS + 1;
+    let circle: Vec<DVec2> = (0..n)
+        .map(|i| DVec2::from_angle(std::f64::consts::TAU * i as f64 / n as f64) * 100.0)
+        .collect();
+    let crowded = p.new_space(ground(&p), circle, Vec::new(), 0);
+    for (space, key) in [
+        (flat, "model-error-space-height-range"),
+        (crowded, "model-error-space-points"),
+    ] {
+        match h.execute(&mut p, Command::AddElements(vec![space])) {
+            Err(CommandError::Invalid(message)) => assert_eq!(message.key(), key),
+            other => panic!("expected CommandError::Invalid({key}), got {other:?}"),
+        }
+        assert_eq!(p, before);
+    }
 }

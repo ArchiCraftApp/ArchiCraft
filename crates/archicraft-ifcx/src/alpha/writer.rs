@@ -9,7 +9,7 @@
 //! the model bit for bit. Both are deterministic and exponent-free through
 //! [`crate::json`].
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use archicraft_geometry::{ModelGeometry, TriMesh};
 use archicraft_model::glam::DVec3;
@@ -95,10 +95,12 @@ fn predefined_type(value: &mut Value, predefined: Option<PredefinedType>) {
 
 /// The tool defaults, one member per kind code in slot order (ELM-001): the
 /// prototype's parameters from the kind's codec, then the slot's common
-/// members. A slot of a kind without a codec is left out with a warning.
+/// members. A slot of a kind without a codec is left out with a warning,
+/// one whose codec is a placeholder without one: the reader takes the
+/// template's slot for it.
 fn tool_defaults(p: &Project, warnings: &mut Vec<Problem>) -> Value {
     let mut map = Map::new();
-    for (kind, slot) in p.tool_defaults.iter() {
+    for (kind, slot) in p.tool_defaults.iter().filter(|(kind, _)| !kinds::placeholder(*kind)) {
         let Some(mut members) = CODECS.iter().find_map(|c| c.write_slot(&slot.kind)) else {
             warnings.push(Problem::warning(
                 None,
@@ -225,10 +227,12 @@ fn project_attribute(p: &Project, warnings: &mut Vec<Problem>) -> Value {
 
 /// Name counters (ELM-019) by kind code: every kind that has a tool, so that
 /// files keep the same keys, plus any other kind with a non-zero counter,
-/// and the group counter (ELM-015) when it is not zero.
+/// and the group counter (ELM-015) when it is not zero. The counter of a
+/// kind whose codec is a placeholder is left out, like its elements.
 fn counters(counters: &NameCounters, group_counter: u32) -> Value {
     let mut map: Map<String, Value> = KindTag::ALL
         .iter()
+        .filter(|kind| !kinds::placeholder(**kind))
         .filter(|kind| kind.descriptor().has_tool || counters.get(**kind) != 0)
         .map(|&kind| (kind.code().to_owned(), json!(counters.get(kind))))
         .collect();
@@ -337,8 +341,11 @@ pub fn save(
 /// Builds the data nodes of the document in file order and hands each to
 /// `emit`: the spatial tree from the project down, every storey followed by
 /// its elements and their sub-nodes, then the materials the elements use.
+/// Elements of a kind whose codec is a placeholder are left out, with one
+/// warning per kind that names them (PRJ-008).
 fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem>, emit: &mut impl FnMut(Node)) {
     let mut used_materials: HashSet<MaterialId> = HashSet::new();
+    let mut unsaved: BTreeMap<KindTag, Vec<&str>> = BTreeMap::new();
 
     let project_uuid = project.id.uuid();
     let site_uuid = project.site.id.uuid();
@@ -393,7 +400,12 @@ fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem
     for storey in project.storeys.iter() {
         let mut node = Node::new(storey.id.to_string());
         let mut element_keys = HashSet::new();
-        let elements: Vec<&Element> = project.elements_on(storey.id).collect();
+        let (elements, left_out): (Vec<&Element>, Vec<&Element>) = project
+            .elements_on(storey.id)
+            .partition(|e| !kinds::placeholder(e.tag()));
+        for e in left_out {
+            unsaved.entry(e.tag()).or_default().push(&e.name);
+        }
         for e in &elements {
             node.children.insert(
                 child_key(e.kind.descriptor().node_prefix, e.id.uuid(), &mut element_keys),
@@ -419,6 +431,15 @@ fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem
         for e in elements {
             write_element(e, &project.relations, geometry, emit, &mut used_materials, warnings);
         }
+    }
+    for (kind, names) in unsaved {
+        warnings.push(Problem::warning(
+            None,
+            Message::new("ifcx-kind-not-saved-yet")
+                .kind("kind", kind)
+                .count("count", names.len())
+                .text("names", names.join(", ")),
+        ));
     }
 
     for material in project.materials.iter().filter(|m| used_materials.contains(&m.id)) {

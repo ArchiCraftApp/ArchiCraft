@@ -138,15 +138,20 @@ fn elm_011_class_sets_match_the_srs() {
         assert_eq!(KindTag::Note.ifc_classes(), IfcClass::ANNOTATION_CLASSES);
         assert_eq!(KindTag::Note.descriptor().default_class, Annotation);
     }
+    // Table 5-1: spaces (SPC-001) are always IfcSpace.
+    assert_eq!(IfcClass::SPACE_CLASSES, [Space]);
+    assert_eq!(KindTag::Space.ifc_classes(), IfcClass::SPACE_CLASSES);
+    assert_eq!(KindTag::Space.descriptor().default_class, Space);
     // Table 5-1: 2D construction geometry and annotations.
     assert_eq!(IfcClass::ANNOTATION_CLASSES, [Annotation]);
     // Every kind selects from one of the named sets, never a list of its own.
-    let named: [&[IfcClass]; 6] = [
+    let named: [&[IfcClass]; 7] = [
         IfcClass::WALL_CLASSES,
         IfcClass::SLAB_CLASSES,
         IfcClass::BEAM_CLASSES,
         IfcClass::COLUMN_CLASSES,
         &IfcClass::SELECTABLE_D5,
+        IfcClass::SPACE_CLASSES,
         IfcClass::ANNOTATION_CLASSES,
     ];
     for &kind in KindTag::ALL {

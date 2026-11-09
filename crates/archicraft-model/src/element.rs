@@ -126,6 +126,9 @@ impl IfcClass {
     /// ELM-011: the classes selectable for columns.
     pub const COLUMN_CLASSES: &'static [IfcClass] = &[IfcClass::Column, IfcClass::Member];
 
+    /// ELM-011, Table 5-1: the class of spaces (SPC-001).
+    pub const SPACE_CLASSES: &'static [IfcClass] = &[IfcClass::Space];
+
     /// Table 5-1, ANN-010: the class of 2D construction geometry and
     /// annotations.
     pub const ANNOTATION_CLASSES: &'static [IfcClass] = &[IfcClass::Annotation];

@@ -10,7 +10,10 @@
 //! matching on kinds, so a new kind is one module here plus one line in the
 //! `codecs!` invocation below, next to its line in the model's `kinds!`
 //! list. A kind without a codec is saved without its parameters, with a
-//! warning, and read as an unsupported node.
+//! warning, and read as an unsupported node. A kind this format version
+//! cannot store yet has a placeholder codec ([`KindCodec::PLACEHOLDER`]):
+//! its elements, defaults slot and counter are left out of the file, with one
+//! warning per kind naming the elements (PRJ-008).
 //!
 //! A file declares the attributes of the kinds the project stores
 //! ([`present`]), not of every codec this build has: the model's test kinds
@@ -62,6 +65,15 @@ pub(crate) trait KindCodec: Sized {
     /// optional and written only when the slot has one.
     const OPTIONAL_MATERIAL: bool = false;
 
+    /// True for a kind this format version cannot store yet, like spaces
+    /// (SPC-001) until their IFCX content exists: the writer leaves its
+    /// elements, its defaults slot and its counter out of the file and warns
+    /// once with the names of the elements it left out (PRJ-008), the file
+    /// declares nothing for it ([`present`], [`published`]), and the reader
+    /// takes the template's slot and counts its elements, without a report.
+    /// Such a codec has no [`Self::FIELDS`].
+    const PLACEHOLDER: bool = false;
+
     /// The value description of [`Self::ATTRIBUTE`] (IFX-061).
     fn schema() -> Value;
 
@@ -94,6 +106,7 @@ pub(crate) trait Codec: Sync {
     fn fields(&self) -> Fields;
     fn test_only(&self) -> bool;
     fn optional_material(&self) -> bool;
+    fn placeholder(&self) -> bool;
     fn schema(&self) -> Value;
     fn slot_schema(&self) -> Vec<(&'static str, Value)>;
     fn write(&self, kind: &ElementKind) -> Option<Map<String, Value>>;
@@ -129,6 +142,10 @@ impl<P: KindCodec + Into<ElementKind>> Codec for Erased<P> {
 
     fn optional_material(&self) -> bool {
         P::OPTIONAL_MATERIAL
+    }
+
+    fn placeholder(&self) -> bool {
+        P::PLACEHOLDER
     }
 
     fn schema(&self) -> Value {
@@ -184,6 +201,7 @@ macro_rules! codecs {
 codecs! {
     wall => Wall,
     slab => Slab,
+    space => Space,
     #[cfg(feature = "test-kinds")] dummy => Dummy,
     #[cfg(feature = "test-kinds")] note => Note,
 }
@@ -193,28 +211,47 @@ pub(crate) fn codec(kind: KindTag) -> Option<&'static dyn Codec> {
     CODECS.iter().copied().find(|c| c.tag() == kind)
 }
 
+/// Whether `kind`'s codec is a [`KindCodec::PLACEHOLDER`]: the file
+/// stores nothing of the kind yet.
+pub(crate) fn placeholder(kind: KindTag) -> bool {
+    codec(kind).is_some_and(|c| c.placeholder())
+}
+
 /// The kinds `project` stores, in registry order: those with an element, a
-/// tool-defaults slot or a non-zero name counter. The file declares the
-/// attributes, the kind enumeration options, the defaults slots and the
-/// counters of these kinds and no others (IFX-061), so what a file declares
-/// follows from the project, not from the codecs this build happens to have.
+/// tool-defaults slot or a non-zero name counter, without the kinds whose
+/// codec is a placeholder. The file declares the attributes, the kind
+/// enumeration options, the defaults slots and the counters of these kinds
+/// and no others (IFX-061), so what a file declares follows from the
+/// project, not from the codecs this build happens to have.
 pub fn present(project: &Project) -> Vec<KindTag> {
     KindTag::ALL
         .iter()
         .copied()
         .filter(|&kind| {
-            project.tool_defaults.get(kind).is_some()
-                || project.counters.get(kind) != 0
-                || project.elements.values().any(|e| e.tag() == kind)
+            !placeholder(kind)
+                && (project.tool_defaults.get(kind).is_some()
+                    || project.counters.get(kind) != 0
+                    || project.elements.values().any(|e| e.tag() == kind))
         })
         .collect()
 }
 
 /// The kinds a release build stores, in registry order: every registered
-/// kind that is not [`KindCodec::TEST_ONLY`]. The published schema document
-/// declares these (IFX-092).
+/// kind that is neither [`KindCodec::TEST_ONLY`] nor a
+/// [`KindCodec::PLACEHOLDER`]. The published schema document declares these
+/// (IFX-092).
 pub fn published() -> Vec<KindTag> {
-    CODECS.iter().filter(|c| !c.test_only()).map(|c| c.tag()).collect()
+    CODECS
+        .iter()
+        .filter(|c| !c.test_only() && !c.placeholder())
+        .map(|c| c.tag())
+        .collect()
+}
+
+/// The registered kinds whose codec is a [`KindCodec::PLACEHOLDER`], in
+/// registry order (for tests).
+pub fn placeholders() -> Vec<KindTag> {
+    CODECS.iter().filter(|c| c.placeholder()).map(|c| c.tag()).collect()
 }
 
 /// Each registered kind with its attribute, in registry order (for tests).
