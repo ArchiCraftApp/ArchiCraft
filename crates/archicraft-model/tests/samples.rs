@@ -70,8 +70,8 @@ fn the_catalogue_lists_the_reference_samples() {
 
 /// IFX-011: the template takes its identities from the given source, one
 /// call per object with its role, and the tool defaults refer to the
-/// resources by those identities; the space tool's slot refers to no
-/// material (SPC-001).
+/// resources by those identities; the space and text tools' slots refer to
+/// no material (SPC-001, ANN-007).
 #[test]
 fn the_template_takes_identities_from_the_source() {
     let mut roles = Vec::new();
@@ -92,7 +92,7 @@ fn the_template_takes_identities_from_the_source() {
     for (kind, slot) in p.tool_defaults.iter() {
         match slot.kind.material() {
             Some(material) => assert!(p.material(material).is_some(), "{kind:?}"),
-            None => assert_eq!(kind, KindTag::Space),
+            None => assert!(matches!(kind, KindTag::Space | KindTag::Text), "{kind:?}"),
         }
         assert!(p.layer(slot.layer).is_some());
     }

@@ -837,6 +837,9 @@ fn check_slot(project: &Project, kind: KindTag, slot: &DefaultsSlot) -> Result<(
     if slot.tag() != kind {
         return Err(invalid_slot(Message::new("model-error-kind-change")));
     }
+    let mut payload = slot.kind.clone();
+    // A 2D element's view in the slot is a placeholder (ANN-002).
+    payload.place_on(project.storeys.ground());
     let prototype = Element {
         id: ElementId::new(),
         name: project.next_element_name(kind, 0),
@@ -848,7 +851,7 @@ fn check_slot(project: &Project, kind: KindTag, slot: &DefaultsSlot) -> Result<(
         locked: false,
         snap_excluded: false,
         group: None,
-        kind: slot.kind.clone(),
+        kind: payload,
     };
     validate::validate_prototype(project, &prototype).map_err(invalid_slot)?;
     Ok(())

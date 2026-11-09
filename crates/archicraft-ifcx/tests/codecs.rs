@@ -58,9 +58,12 @@ fn members(declaration: &Value) -> BTreeSet<&str> {
 /// A field added without a mapping, or a kind without a sample payload
 /// here, fails the test. A kind that is not an IFCX node (ANN-010) declares
 /// its members under its kind code in the entries of
-/// `archicraft::annotations`, not as an attribute of its own. A kind whose
-/// codec is a placeholder maps no field and declares nothing; no kind of
-/// this build is one.
+/// `archicraft::annotations`, not as an attribute of its own. The one
+/// exception is the text kind, whose codec is a placeholder until texts are
+/// stored (ANN-007, archicraft-u4vm.2.2): it maps no field and declares
+/// nothing, and saving reports its elements (tests/texts.rs). A project
+/// field the file does not hold yet is `Stored::Template`: the reader takes
+/// the template's value (the text styles, which no command changes yet).
 #[test]
 fn every_project_field_is_persisted() {
     let project = samples::storey_with_walls_and_slab();
@@ -81,6 +84,16 @@ fn every_project_field_is_persisted() {
             }
         }
     }
+    let from_template: Vec<&str> = PROJECT_FIELDS
+        .iter()
+        .filter(|(_, stored)| stored.contains(&Stored::Template))
+        .map(|(field, _)| *field)
+        .collect();
+    assert_eq!(
+        from_template,
+        ["text_styles"],
+        "the fields the reader takes from the template"
+    );
 
     let mut payloads: BTreeMap<KindTag, Value> = BTreeMap::new();
     for element in project.elements.values() {
@@ -99,12 +112,14 @@ fn every_project_field_is_persisted() {
         0,
     );
     payloads.insert(KindTag::Space, serde_json::to_value(&space.kind).unwrap());
+    let text = project.new_text(project.storeys.ground(), DVec2::ONE, "Hall", 0);
+    payloads.insert(KindTag::Text, serde_json::to_value(&text.kind).unwrap());
     assert_eq!(
         payloads.keys().copied().collect::<BTreeSet<_>>(),
         KindTag::ALL.iter().copied().collect(),
         "a sample payload of every kind"
     );
-    assert_eq!(placeholders(), [], "the kinds that store nothing yet");
+    assert_eq!(placeholders(), [KindTag::Text], "the kinds that store nothing yet");
     let tables = fields();
     assert_eq!(tables.len(), KindTag::ALL.len());
     for (tag, table) in tables {

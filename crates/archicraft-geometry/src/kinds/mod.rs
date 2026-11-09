@@ -118,6 +118,7 @@ generators! {
     wall => Wall,
     slab => Slab,
     space => Space,
+    text => Text,
     #[cfg(feature = "test-kinds")] dummy => Dummy,
     #[cfg(feature = "test-kinds")] note => Note,
 }

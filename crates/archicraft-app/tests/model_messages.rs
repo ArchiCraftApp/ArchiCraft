@@ -146,6 +146,11 @@ fn error_representatives() -> Vec<Message> {
         "model-error-vertical-extent",
         "model-error-top-below-base",
         "model-error-view-storey-missing",
+        "model-error-text-content-empty",
+        "model-error-text-angle",
+        "model-error-text-size",
+        "model-error-text-style-missing",
+        "model-error-text-style-name",
         "model-error-no-storeys",
         "model-error-ground-not-in-list",
         "model-error-storey-name",
@@ -231,6 +236,10 @@ fn error_representatives() -> Vec<Message> {
         Message::new("model-error-view-not-home-storey")
             .text("view", "01")
             .text("home", "00"),
+        Message::new("model-error-text-style-size").text("name", "Standard 2.5 mm"),
+        Message::new("model-error-text-style-line-spacing").text("name", "Standard 2.5 mm"),
+        Message::new("model-error-text-style-duplicate-name").text("name", "Standard 2.5 mm"),
+        Message::new("model-error-duplicate-text-style-id").text("name", "Standard 2.5 mm"),
         Message::new("model-error-storey-cut-plane")
             .text("name", "00")
             .length("max", 100.0),

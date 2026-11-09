@@ -69,6 +69,12 @@ impl PlanTransform {
         self.linear * p + self.translation
     }
 
+    /// The transformed direction or offset `v`: the linear part only,
+    /// without the translation.
+    pub fn apply_vector(&self, v: DVec2) -> DVec2 {
+        self.linear * v
+    }
+
     /// True if the transformation only translates.
     pub fn is_translation(&self) -> bool {
         self.linear == DMat2::IDENTITY

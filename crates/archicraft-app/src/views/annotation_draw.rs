@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use archicraft_model::glam::DVec2;
-use archicraft_model::{ANGLE_TOLERANCE, AnchorPos, DrawingScale, TextAlign};
+use archicraft_model::{AnchorPos, DrawingScale, TextAlign};
 use egui::emath::{Rot2, TSTransform};
 use egui::epaint::TextShape;
 use egui::text::LayoutJob;
@@ -80,22 +80,9 @@ impl LaidOutText {
     }
 }
 
-/// The reading direction of a text at `angle`, turned by pi when it would
-/// point into the screen's left half-plane, so that text never reads upside
-/// down; vertical text, and text within [`ANGLE_TOLERANCE`] of vertical,
-/// reads from bottom to top, so two texts a hair either side of -pi/2 read
-/// the same way. The result lies within that tolerance of (-pi/2, pi/2].
-pub fn upright(angle: f64) -> f64 {
-    use std::f64::consts::{FRAC_PI_2, PI, TAU};
-    let a = (angle + FRAC_PI_2).rem_euclid(TAU) - FRAC_PI_2;
-    if a > FRAC_PI_2 + ANGLE_TOLERANCE {
-        a - PI
-    } else if a <= -FRAC_PI_2 + ANGLE_TOLERANCE {
-        a + PI
-    } else {
-        a
-    }
-}
+/// The reading direction a text is drawn at: never upside down, vertical
+/// text reading from bottom to top (the model's rule, ANN-007).
+pub use archicraft_model::text::upright;
 
 /// Lays `text` out for a view at the drawing scale `scale` seen through
 /// `camera` in `rect` (ANN-007, VIEW-013, DSP-019).
@@ -212,7 +199,9 @@ pub fn paint(painter: &Painter, text: &LaidOutText, color: Color32) {
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::{FRAC_PI_2, PI};
+    use std::f64::consts::FRAC_PI_2;
+
+    use archicraft_model::ANGLE_TOLERANCE;
 
     use super::*;
 
@@ -373,18 +362,12 @@ mod tests {
     }
 
     /// ANN-007: text never reads upside down: 170 degrees is drawn at -10
-    /// degrees, 90 degrees reads bottom to top and so does -90 degrees.
+    /// degrees, 90 degrees reads bottom to top and so does -90 degrees (the
+    /// angles themselves: `upright_never_reads_upside_down` in the model).
     #[test]
     fn text_is_turned_upright() {
         let ctx = context();
         let degrees = |d: f64| d.to_radians();
-        assert!((upright(degrees(170.0)) - degrees(-10.0)).abs() < 1e-12);
-        assert!((upright(degrees(-170.0)) - degrees(10.0)).abs() < 1e-12);
-        assert!((upright(FRAC_PI_2) - FRAC_PI_2).abs() < 1e-12);
-        assert!((upright(-FRAC_PI_2) - FRAC_PI_2).abs() < 1e-12);
-        assert!((upright(PI) - 0.0).abs() < 1e-12);
-        assert!((upright(degrees(30.0) + 4.0 * PI) - degrees(30.0)).abs() < 1e-12);
-
         let tilted = lay_out(
             &ctx,
             &TextBlock {
@@ -423,7 +406,6 @@ mod tests {
         let ctx = context();
         let near = 0.5 * ANGLE_TOLERANCE;
         for angle in [-FRAC_PI_2 + near, -FRAC_PI_2 - near, FRAC_PI_2 + near, FRAC_PI_2 - near] {
-            assert!((upright(angle) - FRAC_PI_2).abs() <= ANGLE_TOLERANCE, "{angle}");
             let laid = lay_out(
                 &ctx,
                 &TextBlock {
