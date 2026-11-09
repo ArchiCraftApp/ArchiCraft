@@ -186,7 +186,7 @@
       "section": "4.2",
       "status": "done",
       "remaining_effort": "none",
-      "evidence": "Done for the current element kinds (walls, slabs): storey-relative data is resolved through the kind hooks at evaluation time; new kinds must implement the same hooks",
+      "evidence": "Done for the current element kinds (walls, slabs, spaces): storey-relative data is resolved through the kind hooks at evaluation time; new kinds must implement the same hooks. Test: `linked_tops_and_bases_follow_storey_changes` (crates/archicraft-model/tests/kind_hooks.rs), `a_space_top_follows_the_storey_height` (crates/archicraft-model/tests/commands.rs)",
       "gap": "",
       "depends_on": []
     },
