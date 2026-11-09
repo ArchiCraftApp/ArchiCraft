@@ -179,6 +179,10 @@ fn representatives() -> Vec<Message> {
         Message::new("ifcx-tool-defaults-not-saved").kind("kind", KindTag::Slab),
         text("ifcx-saved-without-body", "name"),
         text("ifcx-kind-not-storable", "name").kind("kind", KindTag::Slab),
+        Message::new("ifcx-kind-not-saved-yet")
+            .kind("kind", KindTag::Space)
+            .count("count", 2)
+            .text("names", "SP-001, SP-002"),
     ]);
     messages
 }

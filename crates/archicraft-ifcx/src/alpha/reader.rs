@@ -711,7 +711,8 @@ fn count_of(value: u32) -> usize {
 /// largest `u32` or equal to it, which leaves no number for the next element.
 /// A kind without a tool has no counter until it has named elements. Counters
 /// of kinds this build does not know are ignored: their elements are skipped
-/// and reported on their own.
+/// and reported on their own. A kind whose codec is a placeholder has no
+/// counter in the file: it counts its elements without a report.
 fn read_counters(
     map: Result<&Object, Message>,
     project: &Project,
@@ -744,6 +745,10 @@ fn read_counters(
     };
     for &kind in KindTag::ALL {
         let (key, existing) = (kind.code(), count(kind));
+        if kinds::placeholder(kind) {
+            counters.set(kind, existing);
+            continue;
+        }
         let value = match integer(map, key) {
             Ok(v) if v < 0 => {
                 report.repaired(about("ifcx-counter-negative", key).count("value", count_of(existing)));
@@ -810,7 +815,9 @@ fn read_group_counter(map: Option<&Object>, project: &Project, path: &str, probl
 /// project data. The template's slots, with their material and layer found
 /// by name among `materials` and `layers`, stand in for missing tool
 /// defaults and missing slots, and their values for invalid fields. Members
-/// that name no kind with a tool are ignored and reported.
+/// that name no kind with a tool are ignored and reported. A kind whose codec
+/// is a placeholder has no slot in the file: it gets the template's slot
+/// without a report.
 fn read_tool_defaults(
     map: Option<&Object>,
     materials: &[Material],
@@ -830,11 +837,16 @@ fn read_tool_defaults(
     }
     template
         .iter()
-        .map(|(kind, default)| match object(map, kind.code()) {
-            Ok(slot) => read_defaults_slot(slot, default, materials, layers, &mut report),
-            Err(e) => {
-                report.repaired(Message::new("ifcx-tool-template-used").nested("reason", e));
-                default.clone()
+        .map(|(kind, default)| {
+            if kinds::placeholder(kind) {
+                return default.clone();
+            }
+            match object(map, kind.code()) {
+                Ok(slot) => read_defaults_slot(slot, default, materials, layers, &mut report),
+                Err(e) => {
+                    report.repaired(Message::new("ifcx-tool-template-used").nested("reason", e));
+                    default.clone()
+                }
             }
         })
         .collect()

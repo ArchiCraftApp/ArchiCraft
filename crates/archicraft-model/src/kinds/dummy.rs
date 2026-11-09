@@ -113,6 +113,7 @@ impl Kind for Dummy {
         has_tool: false,
         has_body: true,
         ifcx_node: true,
+        construction: true,
         template_defaults: None,
     };
 

@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 use crate::element::{Element, IfcClass, PredefinedType};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
+use crate::outline::Outline;
 use crate::project::DefaultsSlot;
 use crate::storey::StoreyList;
 use crate::template::TemplateContext;
@@ -48,6 +49,7 @@ use crate::transform::{PlanTransform, TransformError};
 mod vertical;
 
 pub use self::slab::SlabReference;
+pub use self::space::BoundarySource;
 pub use self::vertical::VerticalLink;
 pub use self::wall::ReferenceLine;
 
@@ -93,6 +95,14 @@ pub struct KindDescriptor {
     /// namespace only (ANN-010, SRS 3.2), while 2D drafting kinds are nodes
     /// without a body (`IfcAnnotation`, Table 5-1).
     pub ifcx_node: bool,
+    /// Whether the kind's elements are construction elements: they may join
+    /// at junctions, host openings, be trimmed and take part in solid
+    /// operations, and their plan lines bound the regions of contour
+    /// detection (INP-018). False for spaces (SPC-001), which describe the
+    /// room the construction elements enclose and draw their own plan
+    /// symbol, and for kinds without a body. Consumers test this flag, never
+    /// a list of kinds.
+    pub construction: bool,
     /// The tool's defaults in the template (ELM-001, Appendix D.2), with
     /// the kind's default class (ELM-011); `None` for a kind without tool
     /// defaults. Every kind with template defaults has a slot in
@@ -224,6 +234,23 @@ pub(crate) fn plan_bounds_of(points: impl IntoIterator<Item = DVec2>) -> Option<
         .into_iter()
         .map(|p| (p, p))
         .reduce(|(lo, hi), (l, h)| (lo.min(l), hi.max(h)))
+}
+
+/// Transforms every ring of `outline` point by point. A mirror reverses the
+/// orientation, so each ring is reversed as well, keeping its first point
+/// first: node `j` becomes node `n - j` (mod `n`) and each edge stays between
+/// its nodes. The outer ring stays counter-clockwise and the holes clockwise
+/// (SLB-001, SPC-001).
+pub(crate) fn transform_outline(outline: &mut Outline, transform: &PlanTransform) {
+    for ring in &mut outline.rings {
+        for vertex in &mut ring.vertices {
+            vertex.point = transform.apply(vertex.point);
+        }
+        if transform.is_mirror() && ring.len() > 1 {
+            ring.reverse();
+            ring.vertices.rotate_right(1);
+        }
+    }
 }
 
 /// Generates the registry from one list of
@@ -401,6 +428,7 @@ macro_rules! kinds {
 kinds! {
     wall => Wall (as_wall, as_wall_mut),
     slab => Slab (as_slab, as_slab_mut),
+    space => Space (as_space, as_space_mut),
     #[cfg(feature = "test-kinds")] dummy => Dummy (as_dummy, as_dummy_mut),
     #[cfg(feature = "test-kinds")] note => Note (as_note, as_note_mut),
 }

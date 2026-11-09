@@ -3,11 +3,11 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor, KindTag};
+use super::{Kind, KindDescriptor, KindTag, transform_outline};
 use crate::element::{Element, IfcClass, Position, PredefinedType};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
-use crate::outline::{Outline, Ring};
+use crate::outline::Outline;
 use crate::project::{DefaultsSlot, Project};
 use crate::storey::StoreyList;
 use crate::template::TemplateContext;
@@ -62,19 +62,6 @@ pub struct Slab {
     pub material: MaterialId,
 }
 
-/// The ring transformed point by point. A mirror reverses the orientation,
-/// so the ring is reversed as well, keeping its first point first: node `j`
-/// becomes node `n - j` (mod `n`) and each edge stays between its nodes.
-fn transform_ring(ring: &mut Ring, transform: &PlanTransform) {
-    for vertex in &mut ring.vertices {
-        vertex.point = transform.apply(vertex.point);
-    }
-    if transform.is_mirror() && ring.len() > 1 {
-        ring.reverse();
-        ring.vertices.rotate_right(1);
-    }
-}
-
 /// The slab tool's defaults in the template (Appendix D.2): 0.20 m
 /// reinforced concrete on the slabs layer, the top at the storey elevation.
 fn template_defaults(context: &TemplateContext<'_>) -> DefaultsSlot {
@@ -123,6 +110,7 @@ impl Kind for Slab {
         has_tool: true,
         has_body: true,
         ifcx_node: true,
+        construction: true,
         template_defaults: Some(template_defaults),
     };
 
@@ -142,9 +130,7 @@ impl Kind for Slab {
     /// Keeps the outline counter-clockwise and the holes clockwise, also
     /// when mirrored (SLB-001).
     fn transform(&mut self, transform: &PlanTransform) -> Result<(), TransformError> {
-        for ring in &mut self.outline.rings {
-            transform_ring(ring, transform);
-        }
+        transform_outline(&mut self.outline, transform);
         Ok(())
     }
 

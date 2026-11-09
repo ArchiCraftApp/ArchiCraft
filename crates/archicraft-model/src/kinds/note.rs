@@ -75,6 +75,7 @@ impl Kind for Note {
         has_tool: false,
         has_body: false,
         ifcx_node: false,
+        construction: false,
         template_defaults: None,
     };
 

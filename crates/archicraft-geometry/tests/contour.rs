@@ -100,6 +100,34 @@ fn ground_room() -> Vec<DVec2> {
     ]
 }
 
+/// INP-018, SPC-001: contour detection ignores spaces. Spaces drawn
+/// inside the ground room of the two-storey shell, one up to the next
+/// storey and one lower than the cut plane, neither split the room's region
+/// nor add one: the room is the same region, and the plan has as many
+/// regions as without them.
+#[test]
+fn spaces_inside_a_room_do_not_split_its_region() {
+    let mut p = two_storey_shell();
+    let before = ContourGraph::build(&plan_of(&p, 0), &ContourOptions::default())
+        .regions()
+        .len();
+    let ground = p.storeys.ground();
+    let tall = p.new_space(ground, rectangle(v(1.0, 1.0), v(4.0, 5.0)), Vec::new(), 0);
+    let mut low = p.new_space(ground, rectangle(v(6.0, 1.0), v(10.0, 7.0)), Vec::new(), 1);
+    low.as_space_mut().unwrap().link.top = archicraft_model::TopLink::Fixed { height: 0.5 };
+    archicraft_model::History::default()
+        .execute(&mut p, archicraft_model::Command::AddElements(vec![tall, low]))
+        .unwrap();
+
+    let graph = ContourGraph::build(&plan_of(&p, 0), &ContourOptions::default());
+    for inside in [v(2.0, 3.0), v(8.0, 3.0), v(11.0, 8.0)] {
+        let room = graph.region_at(inside).unwrap();
+        assert_ring(&room.outer, &ground_room());
+        assert!(room.islands.is_empty(), "{:?}", room.islands);
+    }
+    assert_eq!(graph.regions().len(), before);
+}
+
 /// INP-018: on the ground storey of the two-storey shell, the smallest
 /// region around a point in the room is bounded by the interior faces of the
 /// exterior walls and the notch of the T wall, without islands; a point in

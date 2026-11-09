@@ -53,6 +53,8 @@ pub const ALL_KEYS: &[&str] = &[
     "model-kind-wall-noun",
     "model-kind-slab",
     "model-kind-slab-noun",
+    "model-kind-space",
+    "model-kind-space-noun",
     // The test kinds (feature `test-kinds`), listed in every build so that
     // the application's catalogue is the same in test and release builds.
     "model-kind-test",
@@ -102,6 +104,7 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-hole-outside",
     "model-error-holes-overlap",
     "model-error-slab-points",
+    "model-error-space-points",
     "model-error-thickness-range",
     "model-error-base-offset-range",
     "model-error-top-offset-range",
@@ -109,6 +112,7 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-wall-length",
     "model-error-reference-line-range",
     "model-error-wall-height-range",
+    "model-error-space-height-range",
     "model-error-linked-storey-range",
     "model-error-wall-top-storey-missing",
     "model-error-element-name",
