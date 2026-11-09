@@ -55,6 +55,8 @@ pub const ALL_KEYS: &[&str] = &[
     "model-kind-slab-noun",
     "model-kind-space",
     "model-kind-space-noun",
+    "model-kind-text",
+    "model-kind-text-noun",
     // The test kinds (feature `test-kinds`), listed in every build so that
     // the application's catalogue is the same in test and release builds.
     "model-kind-test",
@@ -126,6 +128,16 @@ pub const ALL_KEYS: &[&str] = &[
     // Drafting views (drafting_view.rs).
     "model-error-view-storey-missing",
     "model-error-view-not-home-storey",
+    // Texts and text styles (kinds/text.rs, text.rs; ANN-007).
+    "model-error-text-content-empty",
+    "model-error-text-angle",
+    "model-error-text-size",
+    "model-error-text-style-missing",
+    "model-error-text-style-name",
+    "model-error-text-style-size",
+    "model-error-text-style-line-spacing",
+    "model-error-text-style-duplicate-name",
+    "model-error-duplicate-text-style-id",
     // Storeys (storey.rs).
     "model-error-no-storeys",
     "model-error-ground-not-in-list",

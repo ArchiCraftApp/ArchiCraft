@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, PredefinedType};
 use crate::group::Group;
 use crate::ids::{
-    BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, RelationId, SiteId, StoreyId, ViewId,
+    BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, RelationId, SiteId, StoreyId, TextStyleId, ViewId,
 };
 use crate::layer::Layer;
 use crate::material::Material;
@@ -17,6 +17,7 @@ use crate::message::Message;
 use crate::relations::RelationStore;
 use crate::storey::StoreyList;
 use crate::template::TemplateContext;
+use crate::text::TextStyle;
 use crate::units::UnitSettings;
 
 /// Project information (PRJ-010).
@@ -315,6 +316,11 @@ pub struct Project {
     pub storeys: StoreyList,
     pub layers: Vec<Layer>,
     pub materials: Vec<Material>,
+    /// The text styles the project's texts refer to, in list order
+    /// (ANN-007); valid together by [`crate::text::check_text_styles`]. A
+    /// project from the template has its presets.
+    #[serde(default = "crate::template::template_text_styles")]
+    pub text_styles: Vec<TextStyle>,
     pub elements: IndexMap<ElementId, Element>,
     /// Element groups, outermost and nested, in creation order (ELM-015).
     #[serde(default)]
@@ -345,6 +351,11 @@ impl Project {
 
     pub fn material(&self, id: MaterialId) -> Option<&Material> {
         self.materials.iter().find(|m| m.id == id)
+    }
+
+    /// The text style `id` (ANN-007).
+    pub fn text_style(&self, id: TextStyleId) -> Option<&TextStyle> {
+        self.text_styles.iter().find(|s| s.id == id)
     }
 
     pub fn element(&self, id: ElementId) -> Option<&Element> {
@@ -421,13 +432,16 @@ impl Project {
 
     /// The `nth` (0-based) next element of `kind` on `storey`, with the
     /// tool's defaults (the template's if the slot is missing) and their
-    /// placeholder geometry: with `nth` 0, the prototype the properties panel
-    /// edits (ELM-001, ELM-019). `None` for a kind without a tool.
+    /// placeholder geometry, placed on `storey` ([`crate::kinds::Kind::place_on`]):
+    /// with `nth` 0, the prototype the properties panel edits (ELM-001,
+    /// ELM-019). `None` for a kind without a tool.
     pub fn new_element(&self, kind: KindTag, storey: StoreyId, nth: u32) -> Option<Element> {
         let slot = match self.tool_defaults.get(kind) {
             Some(slot) if slot.tag() == kind => slot.clone(),
             _ => (kind.descriptor().template_defaults?)(&TemplateContext::new(&self.materials, &self.layers)),
         };
+        let mut payload = slot.kind;
+        payload.place_on(storey);
         Some(Element {
             id: ElementId::new(),
             name: self.next_element_name(kind, nth),
@@ -439,7 +453,7 @@ impl Project {
             locked: false,
             snap_excluded: false,
             group: None,
-            kind: slot.kind,
+            kind: payload,
         })
     }
 

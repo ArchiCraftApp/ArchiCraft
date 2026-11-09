@@ -328,11 +328,14 @@ pub fn validate_space(space: &Space) -> Result<Space, Message> {
 }
 
 /// Validates an element against the project it is placed in: references to
-/// storey, layer and material, its parameters, and its vertical extent. On
-/// success, returns the element with normalised geometry. An element without
-/// a body has no height to check: its extent is flat by design (ANN-002).
+/// storey, layer, material and text style, its parameters, what placing it
+/// adds to its tool's defaults ([`crate::kinds::Kind::check_complete`]) and
+/// its vertical extent. On success, returns the element with normalised
+/// geometry. An element without a body has no height to check: its extent
+/// is flat by design (ANN-002).
 pub fn validate_element(project: &Project, element: &Element) -> Result<Element, Message> {
     let element = validate_prototype(project, element)?;
+    element.kind.check_complete()?;
     match project.vertical_extent(&element) {
         Some((bottom, top)) if top - bottom < MIN_HEIGHT && element.kind.descriptor().has_body => {
             Err(Message::new("model-error-top-below-base"))
@@ -342,7 +345,9 @@ pub fn validate_element(project: &Project, element: &Element) -> Result<Element,
 }
 
 /// [`validate_element`] for a tool's prototype (ELM-001): everything but the
-/// height, which depends on the storey the tool draws on. The extent must be
+/// height, which depends on the storey the tool draws on, and what the user
+/// adds when placing the element, such as a text's content
+/// ([`crate::kinds::Kind::check_complete`]). The extent must be
 /// determinable, so linked storeys must exist (ELM-006).
 pub fn validate_prototype(project: &Project, element: &Element) -> Result<Element, Message> {
     if element.name.trim().is_empty() {
@@ -356,6 +361,13 @@ pub fn validate_prototype(project: &Project, element: &Element) -> Result<Elemen
     }
     if element.kind.material().is_some_and(|m| project.material(m).is_none()) {
         return Err(Message::new("model-error-element-material-missing"));
+    }
+    if element
+        .kind
+        .text_style()
+        .is_some_and(|s| project.text_style(s).is_none())
+    {
+        return Err(Message::new("model-error-text-style-missing"));
     }
     // ELM-011: the class must be one of the kind's selectable classes.
     let descriptor = element.kind.descriptor();

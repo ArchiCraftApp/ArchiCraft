@@ -78,6 +78,11 @@ id_type!(
     GroupId
 );
 id_type!(
+    /// Identity of a text style (ANN-007). The template's presets have fixed
+    /// name-based identities ([`crate::template::template_text_styles`]).
+    TextStyleId
+);
+id_type!(
     /// Identity of a relation between elements (SRS 3.3), computed from the
     /// relation's variant and ends by [`crate::relations::Relation::id`];
     /// `new()` is not used for relations.

@@ -33,15 +33,17 @@ pub use drafting_view::DraftingView;
 pub use drawing::DrawingScale;
 pub use element::{CompoundPart, Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, TopLink};
 pub use group::Group;
-pub use ids::{BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, RelationId, SiteId, StoreyId, ViewId};
-pub use kinds::{BoundarySource, ReferenceLine, Slab, SlabReference, Space, Wall};
+pub use ids::{
+    BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, RelationId, SiteId, StoreyId, TextStyleId, ViewId,
+};
+pub use kinds::{BoundarySource, ReferenceLine, Slab, SlabReference, Space, Text, Wall};
 pub use layer::Layer;
 pub use material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 pub use message::{Arg, Message};
 pub use project::{IntegrityProblem, PlanGrid, Project, ProjectInfo, ProjectSettings};
 pub use relations::{Relation, RelationStore, StoreyRole};
 pub use storey::{Storey, StoreyList};
-pub use text::{AnchorPos, TextAlign};
+pub use text::{AnchorPos, TextAlign, TextStyle};
 pub use tolerance::{ANGLE_TOLERANCE, JOIN_TOLERANCE, MODEL_TOLERANCE};
 
 /// Re-exported so that dependants use the same vector types.

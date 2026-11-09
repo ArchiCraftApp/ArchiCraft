@@ -63,6 +63,11 @@ model-kind-space-noun = { $count ->
         [one] space
        *[other] spaces
     }
+model-kind-text = Text
+model-kind-text-noun = { $count ->
+        [one] text
+       *[other] texts
+    }
 # The test kind of the model's test builds; never shown in a release.
 model-kind-test = Test element
 model-kind-test-noun = { $count ->
@@ -159,6 +164,18 @@ model-error-top-below-base = The top of the element must be above its base.
 # storey; $view and $home are storey names.
 model-error-view-storey-missing = The storey of the element's view does not exist.
 model-error-view-not-home-storey = The element is in the plan view of { $view }, but 2D elements belong to the plan view of their own storey, { $home }.
+
+## Texts and text styles (ANN-007). $name is a text style name.
+
+model-error-text-content-empty = A text needs at least one visible character.
+model-error-text-angle = The text angle must be a finite number.
+model-error-text-size = The text size must be a positive number of millimetres.
+model-error-text-style-missing = The text style of the element does not exist.
+model-error-text-style-name = A text style needs a name.
+model-error-text-style-size = The size of the text style { $name } must be a positive number of millimetres.
+model-error-text-style-line-spacing = The line spacing of the text style { $name } must be a positive number.
+model-error-text-style-duplicate-name = There is more than one text style named { $name }.
+model-error-duplicate-text-style-id = The text style { $name } has the identity of another text style.
 
 ## Storeys (STR-001…006).
 

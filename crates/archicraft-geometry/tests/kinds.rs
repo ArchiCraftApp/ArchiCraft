@@ -42,6 +42,7 @@ fn sample_elements(p: &Project, kind: KindTag) -> Vec<Element> {
             ];
             vec![p.new_space(g, boundary, Vec::new(), 0)]
         }
+        KindTag::Text => vec![p.new_text(g, DVec2::new(1.0, 7.0), "Kitchen", 0)],
         KindTag::Dummy => {
             let simple = Dummy::new(DVec2::new(6.0, 0.0), DVec2::ONE, material);
             let mut compound = Dummy::new(DVec2::new(8.0, 0.0), DVec2::new(2.0, 1.0), material);
@@ -239,13 +240,13 @@ fn a_material_less_test_element_evaluates_without_a_cut_region() {
     assert!(!drawn.projected.is_empty());
 }
 
-/// ANN-002: notes, the body-less test kind standing in for texts and
-/// dimensions, evaluate to an empty geometry (no body, no axis, no parts)
-/// without a problem, on the ground storey and on an upper storey alike,
-/// while a wall beside them keeps its body; the plan slices nothing of them
-/// and lists them among no drawn elements.
+/// ANN-002, ANN-007: texts and notes, the body-less test kind standing in
+/// for markers and dimensions, evaluate to an empty geometry (no body, no
+/// axis, no parts) without a problem, on the ground storey and on an upper
+/// storey alike, while a wall beside them keeps its body; the plan slices
+/// nothing of them and lists them among no drawn elements.
 #[test]
-fn notes_evaluate_to_no_body_and_appear_in_no_plan() {
+fn texts_and_notes_evaluate_to_no_body_and_appear_in_no_plan() {
     let mut p = samples::two_storey_shell();
     let mut h = History::default();
     let g = p.storeys.ground();
@@ -253,6 +254,8 @@ fn notes_evaluate_to_no_body_and_appear_in_no_plan() {
     let notes = vec![
         Note::new(g, DVec2::new(2.0, 2.0), "Kitchen").into_element(&p, g, 0),
         Note::new(upper, DVec2::new(3.0, 1.0), "Bedroom").into_element(&p, upper, 1),
+        p.new_text(g, DVec2::new(2.0, 3.0), "Kitchen\n12 m²", 0),
+        p.new_text(upper, DVec2::new(3.0, 2.0), "Bedroom", 1),
     ];
     let ids: Vec<ElementId> = notes.iter().map(|e| e.id).collect();
     h.execute(&mut p, Command::AddElements(notes)).unwrap();

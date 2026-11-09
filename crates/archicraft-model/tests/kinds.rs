@@ -15,14 +15,14 @@ use archicraft_model::template::{TemplateContext, default_metric_project};
 use archicraft_model::{Arg, Command, CommandError, History, IfcClass, KindTag};
 use common::{ground, wall};
 
-/// The registry lists wall, slab and space, plus the test kinds (tests
+/// The registry lists wall, slab, space and text, plus the test kinds (tests
 /// always build with the feature `test-kinds`, tests/test_kinds_feature.rs),
 /// in the order of `KindTag::ALL`, and each tag's descriptor is its registry
 /// entry.
 #[test]
-fn the_registry_has_wall_slab_and_space() {
+fn the_registry_has_wall_slab_space_and_text() {
     let codes: Vec<&str> = KINDS.iter().map(|d| d.code).collect();
-    assert_eq!(codes, ["wall", "slab", "space", "dummy", "note"]);
+    assert_eq!(codes, ["wall", "slab", "space", "text", "dummy", "note"]);
     assert_eq!(KINDS.len(), KindTag::ALL.len());
     for (tag, descriptor) in KindTag::ALL.iter().zip(KINDS) {
         // Codes are unique (below), so equal codes mean the same entry.
@@ -156,8 +156,8 @@ fn the_test_kind_has_its_own_descriptor() {
 
 /// ANN-002, ANN-010: every descriptor declares whether its elements have a
 /// body and whether they are IFCX nodes. Walls, slabs and the test kind's
-/// boxes have both; the body-less test kind, standing in for texts and
-/// dimensions, has neither.
+/// boxes have both; texts and the body-less test kind, standing in for
+/// markers and dimensions, have neither.
 #[test]
 fn every_kind_declares_its_body_and_its_ifcx_node() {
     let flags: Vec<(&str, bool, bool)> = KINDS.iter().map(|d| (d.code, d.has_body, d.ifcx_node)).collect();
@@ -167,6 +167,7 @@ fn every_kind_declares_its_body_and_its_ifcx_node() {
             ("wall", true, true),
             ("slab", true, true),
             ("space", true, true),
+            ("text", false, false),
             ("dummy", true, true),
             ("note", false, false),
         ]
@@ -175,7 +176,8 @@ fn every_kind_declares_its_body_and_its_ifcx_node() {
 
 /// SPC-001, INP-018: every descriptor declares whether its elements are
 /// construction elements. Walls, slabs and the test kind's boxes are;
-/// spaces, which describe a room, and the body-less test kind are not.
+/// spaces, which describe a room, texts and the body-less test kind are
+/// not.
 #[test]
 fn every_kind_declares_whether_it_is_a_construction_element() {
     let flags: Vec<(&str, bool)> = KINDS.iter().map(|d| (d.code, d.construction)).collect();
@@ -185,6 +187,7 @@ fn every_kind_declares_whether_it_is_a_construction_element() {
             ("wall", true),
             ("slab", true),
             ("space", false),
+            ("text", false),
             ("dummy", true),
             ("note", false),
         ]
@@ -228,6 +231,46 @@ fn the_space_kind_has_its_own_descriptor_and_defaults() {
     );
     assert_eq!(space.source, BoundarySource::Drawn);
     assert_eq!(space.stamp_offset, DVec2::ZERO);
+}
+
+/// ANN-007, ANN-010, ELM-011, ELM-019: a text is always an `IfcAnnotation`
+/// (Table 5-1) named `TX-001`, `TX-002`, …, made with a tool, without a
+/// body, a material or an IFCX node; its tool's template slot has the
+/// 'Standard 2.5 mm' style, no size override, the bottom-left anchor
+/// position and angle 0.
+#[test]
+fn the_text_kind_has_its_own_descriptor_and_defaults() {
+    use archicraft_model::{AnchorPos, DraftingView, Element};
+
+    let d = KindTag::Text.descriptor();
+    assert_eq!(
+        (d.code, d.name_prefix, d.node_prefix, d.has_tool),
+        ("text", "TX", "Text", true)
+    );
+    assert_eq!(
+        (d.default_class, d.ifc_classes),
+        (IfcClass::Annotation, &[IfcClass::Annotation][..])
+    );
+    assert!(!d.has_body && !d.ifcx_node && !d.construction);
+    let p = default_metric_project();
+    let slot = p.tool_defaults.get(KindTag::Text).unwrap();
+    assert_eq!(slot.kind.material(), None);
+    let element = p.new_text(ground(&p), DVec2::new(1.0, 2.0), "Hall", 0);
+    assert_eq!(element.name, "TX-001");
+    assert_eq!(element.kind.material(), None);
+    let text = Element::as_text(&element).unwrap();
+    assert_eq!(text.view, DraftingView::plan(ground(&p)));
+    assert_eq!((text.anchor, text.content.as_str()), (DVec2::new(1.0, 2.0), "Hall"));
+    assert_eq!(
+        (text.anchor_pos, text.angle, text.size_mm),
+        (AnchorPos::BottomLeft, 0.0, None)
+    );
+    assert_eq!(p.text_style(text.style).unwrap().name, "Standard 2.5 mm");
+    assert_eq!(element.kind.text_style(), Some(text.style));
+    assert_eq!(
+        element.kind.plan_bounds(),
+        Some((DVec2::new(1.0, 2.0), DVec2::new(1.0, 2.0)))
+    );
 }
 
 /// ANN-002, ELM-019: the body-less test kind is an `IfcAnnotation` (Table

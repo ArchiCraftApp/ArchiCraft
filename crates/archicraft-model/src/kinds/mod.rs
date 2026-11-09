@@ -27,7 +27,7 @@
 //! they prove that a kind is one module plus one line in the list below, and
 //! they exercise the paths other crates take for kinds they do not know yet.
 //! One is a box with a body, the other a body-less kind bound to a drafting
-//! view, as texts and dimensions will be (ANN-002, ANN-010). The
+//! view, as texts are and dimensions will be (ANN-002, ANN-010). The
 //! feature is enabled through dev-dependencies, for this crate's own tests by
 //! a dev-dependency on itself. Cargo (resolver 2 and later) activates the
 //! features of dev-dependencies only in builds of tests, examples and
@@ -38,7 +38,7 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, IfcClass, PredefinedType};
-use crate::ids::{MaterialId, StoreyId};
+use crate::ids::{MaterialId, StoreyId, TextStyleId};
 use crate::message::Message;
 use crate::outline::Outline;
 use crate::project::DefaultsSlot;
@@ -160,12 +160,27 @@ pub trait Kind: Sized {
     /// Replaces the material; does nothing for a kind without one.
     fn set_material(&mut self, _material: MaterialId) {}
 
+    /// The text style the element refers to (ANN-007), or `None` for a kind
+    /// without text. [`crate::validate::validate_prototype`] checks that the
+    /// project has it, as it checks the material.
+    fn text_style(&self) -> Option<TextStyleId> {
+        None
+    }
+
     /// Range checks (ELM-017, NFR-REL-005) and references to storeys, for
     /// an element on `home`, such as the binding of a 2D element to a view
     /// of its home storey (ANN-002). Returns the payload with normalised
     /// geometry, for example polygons cleaned and oriented (EDT-018). Errors
     /// are message keys (NFR-L10N-001).
     fn validate(&self, home: StoreyId, storeys: &StoreyList) -> Result<Self, Message>;
+
+    /// Checks what a placed element needs beyond its tool's defaults, such
+    /// as a text's content (ANN-007): the defaults are a prototype without
+    /// it, as they are without a height (ELM-001). Called by
+    /// [`crate::validate::validate_element`], not for tool defaults.
+    fn check_complete(&self) -> Result<(), Message> {
+        Ok(())
+    }
 
     /// Moves, rotates or mirrors the element in plan (EDT-001…EDT-003).
     /// Every kind supports translations. A kind that cannot represent the
@@ -191,6 +206,11 @@ pub trait Kind: Sized {
     /// a 2D element moves to the same view of `target` (ANN-002). `None`,
     /// leaving the element unchanged, if a storey is missing.
     fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, target: StoreyId, target_elevation: f64) -> Option<()>;
+
+    /// Binds an element made from the tool's defaults to its home storey
+    /// `storey` (ELM-001): a 2D element's placeholder view becomes the plan
+    /// view of `storey` (ANN-002). Does nothing for other kinds.
+    fn place_on(&mut self, _storey: StoreyId) {}
 
     /// Re-expresses the element for the new home storey `target`, keeping
     /// its absolute position and its links to other storeys (ELM-005).
@@ -344,10 +364,31 @@ macro_rules! kinds {
                 }
             }
 
+            /// See [`Kind::text_style`].
+            pub fn text_style(&self) -> Option<TextStyleId> {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.text_style(),)+
+                }
+            }
+
+            /// See [`Kind::place_on`].
+            pub fn place_on(&mut self, storey: StoreyId) {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.place_on(storey),)+
+                }
+            }
+
             /// See [`Kind::validate`].
             pub fn validate(&self, home: StoreyId, storeys: &StoreyList) -> Result<ElementKind, Message> {
                 match self {
                     $($(#[$meta])* ElementKind::$Payload(k) => k.validate(home, storeys).map(ElementKind::$Payload),)+
+                }
+            }
+
+            /// See [`Kind::check_complete`].
+            pub fn check_complete(&self) -> Result<(), Message> {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.check_complete(),)+
                 }
             }
 
@@ -429,6 +470,7 @@ kinds! {
     wall => Wall (as_wall, as_wall_mut),
     slab => Slab (as_slab, as_slab_mut),
     space => Space (as_space, as_space_mut),
+    text => Text (as_text, as_text_mut),
     #[cfg(feature = "test-kinds")] dummy => Dummy (as_dummy, as_dummy_mut),
     #[cfg(feature = "test-kinds")] note => Note (as_note, as_note_mut),
 }

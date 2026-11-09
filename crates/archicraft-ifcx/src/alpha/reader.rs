@@ -53,7 +53,7 @@ use archicraft_model::project::{
 };
 use archicraft_model::relations::RelationStore;
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
-use archicraft_model::template::{TemplateContext, template_tool_defaults};
+use archicraft_model::template::{TemplateContext, template_text_styles, template_tool_defaults};
 use archicraft_model::tolerance::MODEL_TOLERANCE;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit};
 use archicraft_model::validate::{MAX_DECIMALS, valid_grid_origin, valid_grid_spacing, validate_element};
@@ -1344,6 +1344,8 @@ fn read_migrated<A: AttributeValue>(
         storeys,
         layers: data.layers,
         materials: data.materials,
+        // Not stored by this format version (kinds::Stored::Template).
+        text_styles: template_text_styles(),
         elements: IndexMap::new(),
         groups: data.groups,
         relations: RelationStore::default(),

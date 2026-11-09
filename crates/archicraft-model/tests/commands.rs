@@ -12,8 +12,9 @@ use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::default_metric_project;
 use archicraft_model::validate::{MAX_GRID_SPACING, MAX_HEIGHT, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
 use archicraft_model::{
-    Arg, Command, CommandError, Element, ElementId, ElementKind, Group, GroupId, History, IfcClass, KindTag, Layer,
-    Material, Message, PlanGrid, Project, ProjectSettings, Slab, Space, Storey, StoreyId, TopLink, Wall,
+    AnchorPos, Arg, Command, CommandError, DraftingView, Element, ElementId, ElementKind, Group, GroupId, History,
+    IfcClass, KindTag, Layer, Material, Message, PlanGrid, Project, ProjectSettings, Slab, Space, Storey, StoreyId,
+    Text, TextStyleId, TopLink, Wall,
 };
 use common::{ground, wall};
 
@@ -2067,5 +2068,298 @@ fn a_space_beyond_its_limits_is_rejected_with_its_own_messages() {
             other => panic!("expected CommandError::Invalid({key}), got {other:?}"),
         }
         assert_eq!(p, before);
+    }
+}
+
+/// The text with the id `id` in `p`.
+fn text_of(p: &Project, id: ElementId) -> &Text {
+    p.element(id).and_then(Element::as_text).unwrap()
+}
+
+/// The explanation of a rejected element: the error itself when it was
+/// added, the reason nested in `model-error-element-invalid` when it was
+/// edited.
+fn explanation(error: CommandError) -> Message {
+    let CommandError::Invalid(message) = error else {
+        panic!("expected CommandError::Invalid, got {error:?}");
+    };
+    if message.key() != "model-error-element-invalid" {
+        return message;
+    }
+    match message.arg("reason") {
+        Some(Arg::Nested(reason)) => (**reason).clone(),
+        other => panic!("expected a nested reason, got {other:?}"),
+    }
+}
+
+/// ANN-007, ELM-019, UND-001, UND-002: adding a text names it TX-001,
+/// binds it to the plan view of its storey with the text tool's defaults
+/// (the 'Standard 2.5 mm' style, bottom left, angle 0, the '2D construction'
+/// layer) and bumps only its counter; undo restores the exact project, redo
+/// the added text.
+#[test]
+fn adding_a_text_and_undo_redo_restore_the_project() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let start = content(&p);
+    let t = p.new_text(ground(&p), DVec2::new(2.0, 1.5), "Living room\n24 m²", 0);
+    let id = t.id;
+    assert_eq!(t.name, "TX-001");
+    assert_eq!(t.ifc_class, IfcClass::Annotation);
+    assert_eq!(p.layer(t.layer).unwrap().name, "2D construction");
+    let text = t.as_text().unwrap();
+    assert_eq!(text.view, DraftingView::plan(ground(&p)));
+    assert_eq!(text.anchor, DVec2::new(2.0, 1.5));
+    assert_eq!(
+        (text.anchor_pos, text.angle, text.size_mm),
+        (AnchorPos::BottomLeft, 0.0, None)
+    );
+    let style = p.text_style(text.style).unwrap();
+    assert_eq!(style.name, "Standard 2.5 mm");
+    assert_eq!(text.effective_size_mm(style), 2.5);
+    let larger = Text {
+        size_mm: Some(5.0),
+        ..text.clone()
+    };
+    assert_eq!(larger.effective_size_mm(style), 5.0, "the override wins");
+
+    h.execute(&mut p, Command::AddElements(vec![t])).unwrap();
+    let added = content(&p);
+    assert_eq!(p.counters.get(KindTag::Text), 1);
+    assert_eq!(p.counters.get(KindTag::Wall), 0);
+    assert_eq!(text_of(&p, id).content, "Living room\n24 m²");
+
+    let label = h.undo(&mut p).unwrap();
+    assert_eq!(label.arg("kind"), Some(&Arg::Kind(KindTag::Text)));
+    assert_eq!(content(&p), start);
+    h.redo(&mut p).unwrap();
+    assert_eq!(content(&p), added);
+}
+
+/// ANN-007, ANN-002, ELM-017: a text with empty or blank content, a style
+/// the project does not have, a size override that is not a positive finite
+/// number of millimetres, an angle that is not finite or a view of another
+/// storey than its home storey is rejected with `CommandError::Invalid` and
+/// an explanation; the project stays unchanged. An edit that breaks a rule
+/// is rejected the same way.
+#[test]
+fn a_text_with_invalid_content_style_size_or_view_is_rejected() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let before = p.clone();
+    let upper = p.storeys.as_slice()[1].id;
+    let with = |change: &dyn Fn(&mut Text)| {
+        let mut element = before.new_text(ground(&before), DVec2::new(1.0, 1.0), "Hall", 0);
+        change(element.as_text_mut().unwrap());
+        element
+    };
+    let cases = [
+        (with(&|t| t.content.clear()), "model-error-text-content-empty"),
+        (with(&|t| t.content = " \n\t".into()), "model-error-text-content-empty"),
+        (
+            with(&|t| t.style = TextStyleId::new()),
+            "model-error-text-style-missing",
+        ),
+        (with(&|t| t.size_mm = Some(0.0)), "model-error-text-size"),
+        (with(&|t| t.size_mm = Some(-1.0)), "model-error-text-size"),
+        (with(&|t| t.size_mm = Some(f64::NAN)), "model-error-text-size"),
+        (with(&|t| t.size_mm = Some(f64::INFINITY)), "model-error-text-size"),
+        (with(&|t| t.angle = f64::NAN), "model-error-text-angle"),
+        (
+            with(&|t| t.anchor = DVec2::new(f64::INFINITY, 0.0)),
+            "model-error-coordinates-range",
+        ),
+        (
+            with(&|t| t.view = DraftingView::plan(upper)),
+            "model-error-view-not-home-storey",
+        ),
+    ];
+    for (text, key) in cases {
+        let error = h.execute(&mut p, Command::AddElements(vec![text])).unwrap_err();
+        let explained = explanation(error);
+        assert_eq!(explained.key(), key);
+        if key == "model-error-view-not-home-storey" {
+            assert_eq!(explained.arg("view"), Some(&Arg::Text("01 First floor".into())));
+            assert_eq!(explained.arg("home"), Some(&Arg::Text("00 Ground floor".into())));
+        }
+        assert_eq!(p, before);
+    }
+
+    // A valid override is kept; an edit to an invalid one is rejected.
+    let element = with(&|t| t.size_mm = Some(5.0));
+    let id = element.id;
+    h.execute(&mut p, Command::AddElements(vec![element])).unwrap();
+    let added = p.clone();
+    assert_eq!(text_of(&p, id).size_mm, Some(5.0));
+    let mut edited = p.element(id).unwrap().clone();
+    edited.as_text_mut().unwrap().content = String::new();
+    let error = h.execute(&mut p, Command::UpdateElements(vec![edited])).unwrap_err();
+    assert_eq!(explanation(error).key(), "model-error-text-content-empty");
+    assert_eq!(p, added);
+}
+
+/// ANN-002, ELM-005, STR-004: moving a text to another storey rebinds its
+/// view to that storey's plan and keeps its anchor; deleting its storey
+/// with the elements moved to another one does the same; undo restores the
+/// view.
+#[test]
+fn moving_a_text_to_another_storey_rebinds_its_view() {
+    use archicraft_model::command::relink_to_storey;
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let (ground, upper) = (ground(&p), p.storeys.as_slice()[1].id);
+    let element = p.new_text(ground, DVec2::new(1.5, -2.25), "Hall", 0);
+    let id = element.id;
+    h.execute(&mut p, Command::AddElements(vec![element])).unwrap();
+
+    let moved = relink_to_storey(&p, p.element(id).unwrap(), upper).unwrap();
+    h.execute(&mut p, Command::UpdateElements(vec![moved])).unwrap();
+    assert_eq!(p.element(id).unwrap().storey, upper);
+    assert_eq!(text_of(&p, id).view, DraftingView::plan(upper));
+    assert_eq!(text_of(&p, id).anchor, DVec2::new(1.5, -2.25));
+    assert_eq!(p.vertical_extent(p.element(id).unwrap()), Some((3.0, 3.0)));
+
+    h.execute(
+        &mut p,
+        Command::DeleteStorey {
+            storey: upper,
+            elements: StoreyElements::MoveTo(ground),
+        },
+    )
+    .unwrap();
+    assert_eq!(text_of(&p, id).view, DraftingView::plan(ground));
+    h.undo(&mut p).unwrap();
+    assert_eq!(text_of(&p, id).view, DraftingView::plan(upper));
+}
+
+/// The corners of a text block of `size` (width along the reading
+/// direction, height across it) placed as the plan views place it: the
+/// anchor position on the anchor, the reading direction at the angle turned
+/// upright (ANN-007).
+fn block_corners(text: &Text, size: DVec2) -> [DVec2; 4] {
+    let along = DVec2::from_angle(archicraft_model::text::upright(text.angle));
+    let up = along.perp();
+    let bottom_left = text.anchor
+        - along * size.x * text.anchor_pos.x_fraction()
+        - up * size.y * (1.0 - text.anchor_pos.y_fraction());
+    [
+        bottom_left,
+        bottom_left + along * size.x,
+        bottom_left + along * size.x + up * size.y,
+        bottom_left + up * size.y,
+    ]
+}
+
+/// `points` rounded to micrometres and sorted, to compare blocks as point
+/// sets.
+fn point_set(points: impl IntoIterator<Item = DVec2>) -> Vec<(i64, i64)> {
+    let mut set: Vec<(i64, i64)> = points
+        .into_iter()
+        .map(|c| ((c.x * 1e6).round() as i64, (c.y * 1e6).round() as i64))
+        .collect();
+    set.sort_unstable();
+    set
+}
+
+/// EDT-002, ANN-007: rotating a text by 90 degrees about a point moves its
+/// anchor about that point and adds 90 degrees to its angle; a move only
+/// moves the anchor. Both are one undo step.
+#[test]
+fn rotating_a_text_turns_its_anchor_and_angle() {
+    use std::f64::consts::FRAC_PI_2;
+
+    use archicraft_model::transform::PlanTransform;
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let mut element = p.new_text(ground(&p), DVec2::new(3.0, 1.0), "Hall", 0);
+    element.as_text_mut().unwrap().angle = 0.25;
+    let id = element.id;
+    h.execute(&mut p, Command::AddElements(vec![element])).unwrap();
+    let added = content(&p);
+
+    let mut turned = p.element(id).unwrap().clone();
+    turned
+        .kind
+        .transform(&PlanTransform::rotation(DVec2::new(1.0, 1.0), FRAC_PI_2))
+        .unwrap();
+    h.execute(&mut p, Command::UpdateElements(vec![turned])).unwrap();
+    let text = text_of(&p, id);
+    assert!(text.anchor.distance(DVec2::new(1.0, 3.0)) < 1e-12, "{}", text.anchor);
+    assert!((text.angle - (0.25 + FRAC_PI_2)).abs() < 1e-12, "{}", text.angle);
+    assert_eq!(text.anchor_pos, AnchorPos::BottomLeft);
+    h.undo(&mut p).unwrap();
+    assert_eq!(content(&p), added);
+
+    h.execute(
+        &mut p,
+        Command::MoveElements {
+            ids: vec![id],
+            delta: DVec2::new(0.5, -1.0),
+        },
+    )
+    .unwrap();
+    let text = text_of(&p, id);
+    assert_eq!((text.anchor, text.angle), (DVec2::new(3.5, 0.0), 0.25));
+}
+
+/// EDT-003, ANN-007: mirroring a text never mirrors its glyphs: it moves the
+/// anchor to its mirror image and keeps the text readable, its reading
+/// direction upright, with the block covering the mirror image of the block
+/// before, whichever way the mirror axis runs; mirroring twice draws the
+/// same block again (with the same angle, or the opposite one where the
+/// angle before did not read upright).
+#[test]
+fn mirroring_a_text_keeps_it_readable() {
+    use archicraft_model::kinds::Kind;
+    use archicraft_model::transform::PlanTransform;
+
+    let p = default_metric_project();
+    let size = DVec2::new(2.0, 0.5);
+    let axes = [
+        (DVec2::ZERO, DVec2::Y),
+        (DVec2::ZERO, DVec2::X),
+        (DVec2::new(1.0, 0.0), DVec2::new(2.0, 1.0)),
+        (DVec2::new(0.0, 4.0), DVec2::new(-1.0, 2.5)),
+    ];
+    for angle in [0.0, 0.5, -1.2, std::f64::consts::FRAC_PI_2, 2.8] {
+        for anchor_pos in AnchorPos::ALL {
+            for (a, b) in axes {
+                let mirror = PlanTransform::mirror(a, b).unwrap();
+                let mut element = p.new_text(ground(&p), DVec2::new(3.0, 1.0), "Hall", 0);
+                let text = element.as_text_mut().unwrap();
+                text.angle = angle;
+                text.anchor_pos = anchor_pos;
+                let before = text.clone();
+                text.transform(&mirror).unwrap();
+                let case = format!("angle {angle}, {anchor_pos:?}, axis {a} {b}");
+                assert!(text.anchor.distance(mirror.apply(before.anchor)) < 1e-12, "{case}");
+                let reading = archicraft_model::text::upright(text.angle);
+                assert!(
+                    (reading - text.angle).abs() < 1e-9,
+                    "{case}: reads upright, {}",
+                    text.angle
+                );
+                let mirrored = point_set(block_corners(&before, size).map(|c| mirror.apply(c)));
+                assert_eq!(
+                    point_set(block_corners(text, size)),
+                    mirrored,
+                    "{case}: covers the mirror image"
+                );
+                text.transform(&mirror).unwrap();
+                assert!(text.anchor.distance(before.anchor) < 1e-9, "{case}");
+                let half_turns = (text.angle - before.angle) / std::f64::consts::PI;
+                assert!(
+                    (half_turns - half_turns.round()).abs() < 1e-9,
+                    "{case}: the angle modulo pi"
+                );
+                assert_eq!(
+                    point_set(block_corners(text, size)),
+                    point_set(block_corners(&before, size)),
+                    "{case}: twice"
+                );
+            }
+        }
     }
 }

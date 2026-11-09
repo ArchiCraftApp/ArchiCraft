@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use uuid::Uuid;
 
 use crate::element::KindTag;
-use crate::ids::{BuildingId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, ViewId};
+use crate::ids::{BuildingId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, TextStyleId, ViewId};
 use crate::layer::Layer;
 use crate::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use crate::project::{
@@ -17,6 +17,7 @@ use crate::project::{
 };
 use crate::relations::RelationStore;
 use crate::storey::{Storey, StoreyList};
+use crate::text::{TextAlign, TextStyle};
 
 /// Name, short code, category, colour (sRGB bytes), opacity, intersection
 /// priority (Appendix D.4) and cut-fill pattern of the default materials.
@@ -273,6 +274,47 @@ pub const LAYERS: [&str; 11] = [
     "References",
 ];
 
+/// Name and size in paper millimetres of the template's text styles
+/// (ANN-007), each left-aligned with [`TEXT_LINE_SPACING`]. The SRS gives no
+/// values; these are proposals (archicraft-h4d7). The first is the text
+/// tool's default.
+pub const TEXT_STYLES: [(&str, f64); 4] = [
+    ("Standard 2.5 mm", 2.5),
+    ("Dimension 2.5 mm", 2.5),
+    ("Small 1.8 mm", 1.8),
+    ("Heading 5.0 mm", 5.0),
+];
+
+/// The line spacing of the template's text styles, a multiple of the size.
+pub const TEXT_LINE_SPACING: f64 = 1.2;
+
+/// The namespace of the name-based (version 5) identities of the
+/// template's text styles.
+const TEXT_STYLE_NAMESPACE: Uuid = Uuid::from_u128(0x3c0b_8e51_7d2a_4f96_b1e4_5a9c_06d3_72f8);
+
+/// The identity of the template's text style `name`, the same in every
+/// project: text styles are no IFCX nodes, so IFX-011's new identities for
+/// a project from the template do not apply to them, and fixed identities
+/// let texts, files and migrations of older files refer to a preset
+/// without a lookup.
+pub fn template_text_style_id(name: &str) -> TextStyleId {
+    TextStyleId::from_uuid(Uuid::new_v5(&TEXT_STYLE_NAMESPACE, name.as_bytes()))
+}
+
+/// The template's text styles (ANN-007), in the order of [`TEXT_STYLES`].
+pub fn template_text_styles() -> Vec<TextStyle> {
+    TEXT_STYLES
+        .iter()
+        .map(|&(name, size_mm)| TextStyle {
+            id: template_text_style_id(name),
+            name: name.to_owned(),
+            size_mm,
+            align: TextAlign::Left,
+            line_spacing: TEXT_LINE_SPACING,
+        })
+        .collect()
+}
+
 fn material(entry: &MaterialEntry, id: MaterialId) -> Material {
     let (name, code, category, [r, g, b], opacity, priority, pattern) = *entry;
     let color = Rgb::from_u8(r, g, b);
@@ -324,6 +366,12 @@ impl<'a> TemplateContext<'a> {
             .or_else(|| self.layers.first())
             .map_or_else(LayerId::new, |l| l.id)
     }
+
+    /// The template's text style named `name` (ANN-007). The presets have
+    /// fixed identities ([`template_text_style_id`]), so this needs no list.
+    pub fn text_style(&self, name: &str) -> TextStyleId {
+        template_text_style_id(name)
+    }
 }
 
 /// The template's tool defaults: one slot per kind with template defaults,
@@ -347,7 +395,8 @@ pub fn default_metric_project() -> Project {
 /// `building`, `storey`, `layer`, `material` and `view`, in a fixed order.
 /// The tool defaults refer to the materials and layers by these identities.
 /// [`crate::samples::FixtureBuilder`] passes name-based (version 5) UUIDs, so
-/// that its fixtures are reproducible.
+/// that its fixtures are reproducible. The text styles keep their fixed
+/// identities ([`template_text_style_id`]).
 pub fn default_metric_project_with(ids: &mut dyn FnMut(&str) -> Uuid) -> Project {
     let id = ids("project");
     let site = ids("site");
@@ -398,6 +447,7 @@ pub fn default_metric_project_with(ids: &mut dyn FnMut(&str) -> Uuid) -> Project
         storeys,
         layers,
         materials,
+        text_styles: template_text_styles(),
         elements: IndexMap::new(),
         groups: IndexMap::new(),
         relations: RelationStore::default(),
