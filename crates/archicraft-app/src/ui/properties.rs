@@ -430,10 +430,16 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
     );
 }
 
+/// True if every target has a material: a kind without one, like a space
+/// (SPC-001), has none to pick and no cut fill.
+fn all_have_material(f: &Fields<'_>) -> bool {
+    f.targets.iter().all(|e| e.kind.material().is_some())
+}
+
 /// The Material row, shown only when every selected element has a
-/// material: a kind without one, like a space (SPC-001), has none to pick.
+/// material ([`all_have_material`]).
 fn appearance_fields(ui: &mut Ui, f: &mut Fields<'_>) {
-    if !f.targets.iter().all(|e| e.kind.material().is_some()) {
+    if !all_have_material(f) {
         return;
     }
     let materials: Vec<(MaterialId, String)> = f.project.materials.iter().map(|m| (m.id, m.name.clone())).collect();
@@ -772,11 +778,14 @@ fn edit_fields(ui: &mut Ui, ws: &mut Workspace, editing: &mut Editing, layout: L
         }
         Layout::Grid => {
             section(ui, "Geometry and positioning", |ui| geometry_fields(ui, &mut f));
-            section(ui, "Model and appearance", |ui| appearance_fields(ui, &mut f));
-            section(ui, "Plan display", |ui| {
-                ui.label("Cut fills come from the material.");
-                ui.end_row();
-            });
+            // Without a material both sections would be empty (SPC-001).
+            if all_have_material(&f) {
+                section(ui, "Model and appearance", |ui| appearance_fields(ui, &mut f));
+                section(ui, "Plan display", |ui| {
+                    ui.label("Cut fills come from the material.");
+                    ui.end_row();
+                });
+            }
             section(ui, "Classification", |ui| classification_fields(ui, &mut f));
         }
     }
