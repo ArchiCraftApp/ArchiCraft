@@ -1,6 +1,6 @@
 ---
 name: bead-loop
-description: Orchestrate the bead loop over several beads — sweep, start a batch of ready beads with disjoint crates, each in its own fresh session and worktree with /bead at the model and effort of its tier, verify what they landed, never wait on a merge, ask the user through AskUserQuestion (and merge a PR that waits for their review once they approve it), and stop after N beads or at an epic boundary for the user's demo.
+description: Orchestrate the bead loop over several beads — sweep, start a batch of ready beads with disjoint crates, each in its own fresh session and worktree with /bead at the model and effort of its tier, verify what they landed and start the next batch when the whole batch reported, never wait on a merge, ask the user through AskUserQuestion (and merge a PR that waits for their review once they approve it), and stop after N beads or at an epic boundary for the user's demo.
 argument-hint: "[count] [parallel] [epic-id] [loop]"
 disable-model-invocation: true
 ---
@@ -72,11 +72,17 @@ up (new `tier:` label, label `escalated`, a note) and is ready again; its next s
 the bead branch and finds the unreviewed work of the run before as a patch. A second stop, or
 one at `max` or `fable`, gives it the label `human` as before.
 
-## A user turn: start a batch
+## Starting a batch
 
-The app starts sessions only in a turn the user triggered (the `/bead-loop` command or the
-user's "continue"); in a turn a bead session's report triggered, `start_session` is refused.
-So each user turn starts a whole batch at once:
+A batch starts in a user turn (the `/bead-loop` command or the user's "continue") and in a
+report turn once the whole batch before it reported (A report turn, below), so the loop runs
+on without the user's "continue" (user decision of 2026-11-09). The app lets a turn that the
+bead sessions' reports triggered start sessions only when it follows the user's own turn or
+another such turn; after many report turns in a row without the user, or after a turn of this
+session that was stopped or failed, it refuses `start_session`. Then the batch waits for the
+user: the turn ends with "continue" starting the next batch. The app continues this session only
+when no session it started is still working, so a slot that frees up early stays empty until
+the whole batch reported. Each batch starts at once:
 
 1. **Sweep.** Run the sweep as it is on `origin/main` (this checkout's copy may be older),
    the same way as step 0 of `/bead`:
@@ -133,10 +139,12 @@ So each user turn starts a whole batch at once:
    most one loop bead per batch, and none while another loop bead's PR is open
    (`gh pr list --state open --label loop`), because loop beads edit the same files. If
    nothing is ready, say in one line which open PRs the remaining work waits on and end the
-   turn; the user's next "continue" sweeps again.
+   turn; the user's next "continue" sweeps again (no bead session is working, so no report
+   turn follows).
 4. **Start.** In the Claude desktop app, load `mcp__ccd_session__start_session` with
    ToolSearch, mark a chapter for the batch (`mcp__ccd_session__mark_chapter`), and start every bead of the batch in the same
-   message: `initiation` "user_asked" (the user ran /bead-loop or said continue), `context`
+   message: `initiation` "user_asked" (the user ran /bead-loop for `count` beads or said
+   continue), `context`
    "fresh", `use_worktree` true, `model` "claude-opus-5-5", `effort` the bead's tier
    (`medium`, `high`, `xhigh` or `max`), title `<id>: <bead title>`, prompt `/bead <id>`.
    Outside the desktop app, give the user the command per bead
@@ -147,10 +155,14 @@ So each user turn starts a whole batch at once:
 6. **End the turn.** One line: the beads started, each with its tier, and a line for each thing
    the report lists. The app continues this session when the bead sessions report.
 
-## A report turn: verify and report
+If `start_session` is refused (a report turn the app no longer lets start sessions), do not
+retry it and do not start the beads another way: the beads picked stay ready, and the turn ends
+with the report and "continue" starting the next batch.
 
-When the app continues this session with the bead sessions' reports, start nothing (the app
-would refuse it) and do not restate the reports. For each bead that reported:
+## A report turn: verify, report and start the next batch
+
+When the app continues this session with the bead sessions' reports, do not restate the
+reports. For each bead that reported:
 
 1. **Verify, do not trust the report.** `bd show <id>`: the bead has a PR in `external_ref`,
    the label `human`, or the label `escalated` with a higher `tier:` label and status open
@@ -161,8 +173,8 @@ would refuse it) and do not restate the reports. For each bead that reported:
    `.claude/settings.json` and waits for the user's review (user decision of 2026-10-19);
    `gh pr view <url> --json files` and `land.sh` name the files. An `open` PR that changes one
    of them waits for the user too: its status `User review` is not posted yet. `left-queue
-   <reason>`: the queue dropped it, and the next sweep hands it back to the bead (step 1 of a
-   user turn).
+   <reason>`: the queue dropped it, and the next sweep hands it back to the bead (step 1 of
+   Starting a batch).
 2. **Count, never wait.** The bead counts once its PR is `queued`, `auto-merge`, `merged` or
    `waits-for-user`. Do not wait for a merge: the app's PR monitor wakes a bead session on a CI
    failure, a conflict or a review comment, never on a merge or on a merge group's failure, and
@@ -172,8 +184,14 @@ would refuse it) and do not restate the reports. For each bead that reported:
    that is otherwise `open` (auto-merge off for any other reason), or with the label `human`
    does not count. A `human` bead is asked about (kind 2); the report lists the others with
    their session links.
-3. **Ask** what needs the user (Asking the user): a PR that waits for the user's review, a
-   `human` bead.
+3. **Next batch.** When the whole batch reported and fewer than `count` beads counted so far
+   in this run, start the next batch now: Starting a batch, steps 1 to 4, sized to the beads
+   still to run. An epic ready for its demo stops the loop there as in a user turn. When beads of
+   the batch are still working (a note arrived early), start nothing and end the turn after the
+   report; the app continues this session when they report.
+4. **Ask** what needs the user (Asking the user): a PR that waits for the user's review, a
+   `human` bead, and what the sweep of step 3 found, after the next batch's sessions are
+   started.
 
 Then report, one line per bead and nothing else:
 
@@ -191,10 +209,10 @@ Then report, one line per bead and nothing else:
 one line each for what the user has to do by hand and nothing here can answer: a `stale`,
 `refused` or `ATTENTION` sweep line from step 1, a bead above this session's effort (Tiers), a
 `human` bead that waits on a third party, a step after a merge that the PR's description gives
-the user (`setup-github.sh`). When beads of the batch are still working, end the turn; the app
-continues this session when they report. When the whole batch reported and the
-count is not reached, end with "continue" starting the next batch. When the count is reached,
-the last report is the run's summary.
+the user (`setup-github.sh`). Then one line for the next batch: the beads started, each with
+its tier; or, when `start_session` was refused, "continue" starting the next batch; or, when
+nothing is ready, which open PRs the remaining work waits on. When the count is reached, the
+last report is the run's summary.
 
 Never poll CI: the bead sessions have Auto-fix, and the sweep checks each PR once.
 
@@ -202,7 +220,8 @@ Never poll CI: the bead sessions have Auto-fix, and the sweep checks each PR onc
 
 The user answers here, in this session, through `AskUserQuestion` (user request of 2026-11-04):
 nobody has to look for a line in a report or merge a PR by hand. Ask at the end of a turn's
-work, after its sessions are started (a user turn) or its reports verified (a report turn), so
+work, after its sessions are started (a user turn, and a report turn that starts the next
+batch) or its reports verified (a report turn that starts none), so
 no bead waits for the answer; act on the answers in the same turn. At most four questions per
 call, PRs that wait for the review first; ask the rest in a second call. Never fill in the
 call's `answers` yourself: the `user-merge` hook refuses such a call, and only the user's own
