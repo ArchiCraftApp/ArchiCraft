@@ -22,15 +22,23 @@
 //! `planGrid` (files from before INP-013), the `snapExcluded` flag of
 //! elements and layers, written only when set (INP-017), and the project's
 //! `groups`, a group's `parent`, an element's `group` and the `group`
-//! counter, written only for projects with groups (ELM-015), and an element
+//! counter, written only for projects with groups (ELM-015), an element
 //! node's `archicraft::relations`, written only for an element with
-//! explicit relations (SRS 3.3, [`super::relations`]). Their absence is no
-//! problem.
+//! explicit relations (SRS 3.3, [`super::relations`]), and a storey node's
+//! `archicraft::annotations`, written only for a storey with elements of the
+//! kinds that are not IFCX nodes (ANN-010, [`super::kinds::annotations`]),
+//! whose entries leave out the same optional members as an element node.
+//! Their absence is no problem.
+//!
+//! The element nodes are read first, storey by storey, then the nodes'
+//! explicit relations, then the annotation entries, which may need both
+//! (a dimension's binding), and last the relations that name an entry.
 //!
 //! An opened file holds its attribute values as raw JSON text
 //! ([`crate::validate::parse_raw`]); the reader parses the attributes it
 //! reads, element by element, and drops each tree once the element is read
-//! (NFR-SEC-003). It never reads the `usd::` geometry, which is evaluated
+//! (NFR-SEC-003); a storey's annotation entries are one attribute, read as
+//! one tree. It never reads the `usd::` geometry, which is evaluated
 //! again from the parameters (IFX-010).
 
 use std::borrow::Cow;
@@ -56,7 +64,7 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
-use super::kinds::{self, ReadContext};
+use super::kinds::{self, Codec, ReadContext, annotations};
 use super::migrate::{self, Migration};
 use super::relations;
 use super::schema::{self, FORMAT_VERSION};
@@ -110,7 +118,7 @@ impl<'a> Report<'a> {
     }
 
     /// The record was not loaded (PRJ-008).
-    fn skipped(&mut self, reason: Message) {
+    pub(crate) fn skipped(&mut self, reason: Message) {
         let message = Message::new("ifcx-skipped")
             .nested("record", self.record.clone())
             .nested("reason", reason);
@@ -909,11 +917,19 @@ fn read_defaults_slot(
     }
 }
 
+/// A storey as its node was read: the node's path, the storey and the paths
+/// of the node's children.
+pub(crate) struct StoreyEntry {
+    pub path: String,
+    pub storey: Storey,
+    pub children: Vec<String>,
+}
+
 fn read_storeys<A: AttributeValue>(
     nodes: &IndexMap<String, FlatNode<A>>,
     building: &FlatNode<A>,
     problems: &mut Vec<Problem>,
-) -> Vec<(Storey, Vec<String>)> {
+) -> Vec<StoreyEntry> {
     let mut storeys = Vec::new();
     let mut seen = HashSet::new();
     for (path, node) in children_with_class(nodes, building, "IfcBuildingStorey") {
@@ -947,7 +963,11 @@ fn read_storeys<A: AttributeValue>(
                 height: 3.0,
                 cut_plane_height: None,
             };
-            storeys.push((storey, node.children.values().flatten().cloned().collect()));
+            storeys.push(StoreyEntry {
+                path: path.clone(),
+                storey,
+                children: node.children.values().flatten().cloned().collect(),
+            });
             continue;
         };
         let mut height = report.or(real(attr, "height"), 3.0);
@@ -962,7 +982,11 @@ fn read_storeys<A: AttributeValue>(
             height,
             cut_plane_height: report.optional(attr, "cutPlaneHeight", real),
         };
-        storeys.push((storey, node.children.values().flatten().cloned().collect()));
+        storeys.push(StoreyEntry {
+            path: path.clone(),
+            storey,
+            children: node.children.values().flatten().cloned().collect(),
+        });
     }
     storeys
 }
@@ -1051,7 +1075,51 @@ fn read_element<A: AttributeValue>(
         }
     };
     let id = ElementId::from_uuid(node_uuid(path, &mut report));
-    let name = name(node).unwrap_or_else(|| {
+    let record = ElementRecord {
+        kind,
+        id,
+        name: name(node),
+        class: class_code(node),
+        storey,
+        common,
+    };
+    read_element_record(project, record, |codec| attribute(node, codec.attribute()), &mut report)
+}
+
+/// An element's record wherever the file keeps it, an element node or an
+/// annotation entry ([`annotations`]), once its kind and identity are
+/// known: its name and IFC class code as found, its home storey and the
+/// object with its common data (`archicraft::element` of a node, the entry
+/// itself).
+pub(crate) struct ElementRecord<'a> {
+    pub kind: KindTag,
+    pub id: ElementId,
+    pub name: Option<String>,
+    pub class: Option<String>,
+    pub storey: StoreyId,
+    pub common: &'a Object,
+}
+
+/// Reads the element of `record` (IFX-060): a missing name, layer, class,
+/// predefined type, group, position or flag is repaired as reported on
+/// `report`, and the parameters, which `parameters` finds for the kind's
+/// codec, are read through the codec. Without a codec or parameters, or
+/// when they or the element are invalid, the element is skipped.
+pub(crate) fn read_element_record<'v>(
+    project: &Project,
+    record: ElementRecord<'_>,
+    parameters: impl FnOnce(&dyn Codec) -> Option<Cow<'v, Value>>,
+    report: &mut Report<'_>,
+) -> Option<Element> {
+    let ElementRecord {
+        kind,
+        id,
+        name,
+        class,
+        storey,
+        common,
+    } = record;
+    let name = name.unwrap_or_else(|| {
         let name = format!("{}-?", kind.name_prefix());
         report.repaired(Message::new("ifcx-no-name").text("name", name.clone()));
         name
@@ -1063,25 +1131,25 @@ fn read_element<A: AttributeValue>(
     }
     // ELM-011: a class the kind does not allow falls back to its default.
     let default_class = kind.descriptor().default_class;
-    let ifc_class = match class_code(node).as_deref().and_then(IfcClass::from_code) {
+    let ifc_class = match class.as_deref().and_then(IfcClass::from_code) {
         Some(c) if kind.ifc_classes().contains(&c) => c,
         _ => {
             report.repaired(Message::new("ifcx-element-class-unsupported").text("default", default_class.code()));
             default_class
         }
     };
-    let predefined_type = predefined_type(common, kind, ifc_class, &mut report);
+    let predefined_type = predefined_type(common, kind, ifc_class, report);
     // The writer never writes a kind it cannot read back.
     let Some(codec) = kinds::codec(kind) else {
         report.skipped(Message::new("ifcx-kind-unreadable").kind("kind", kind));
         return None;
     };
-    let attr = attribute(node, codec.attribute());
+    let attr = parameters(codec);
     let Some(attr) = attr.as_deref().and_then(Value::as_object) else {
         report.skipped(Message::new("ifcx-parameters-missing").kind("kind", kind));
         return None;
     };
-    let element_kind = match codec.read(attr, &ReadContext { project }, &mut report) {
+    let element_kind = match codec.read(attr, &ReadContext { project }, report) {
         Ok(parameters) => parameters,
         Err(e) => {
             report.skipped(e);
@@ -1237,7 +1305,7 @@ fn read_migrated<A: AttributeValue>(
         .map(|(_, b)| read_storeys(&nodes, b, &mut problems))
         .unwrap_or_default();
     let storeys = storey_list(
-        storey_entries.iter().map(|(s, _)| s.clone()).collect(),
+        storey_entries.iter().map(|entry| entry.storey.clone()).collect(),
         data.ground,
         data.ground_repaired,
         &mut problems,
@@ -1277,7 +1345,7 @@ fn read_migrated<A: AttributeValue>(
     let mut seen = HashSet::new();
     // The elements read, in file order, for the relations pass below.
     let mut read_elements: Vec<(String, ElementId)> = Vec::new();
-    for (storey, children) in &storey_entries {
+    for StoreyEntry { storey, children, .. } in &storey_entries {
         let storey_lost = project.storeys.get(storey.id).is_none();
         for child in children {
             // A missing child is reported by `validate`.
@@ -1320,9 +1388,14 @@ fn read_migrated<A: AttributeValue>(
             }
         }
     }
-    // SRS 3.3: the explicit relations, once every element is known, so that
-    // a relation to an element later in the file resolves.
-    relations::read(&mut project, &nodes, &read_elements, &mut problems);
+    // SRS 3.3: the nodes' explicit relations, once every element node is
+    // known, so that a relation to an element later in the file resolves.
+    let waiting = relations::read(&mut project, &nodes, &read_elements, &mut problems);
+    // ANN-010: the annotation entries after every element node and its
+    // relations, then the relations that name an entry, once every entry is
+    // known.
+    let entry_relations = annotations::read(&mut project, &nodes, &storey_entries, &mut problems);
+    relations::settle(&mut project, waiting.into_iter().chain(entry_relations), &mut problems);
     project.counters = read_counters(
         data.counters.as_ref().map_err(Clone::clone),
         &project,

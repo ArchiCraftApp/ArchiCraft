@@ -73,6 +73,8 @@ ifcx-record-site = site
 ifcx-record-building = building
 ifcx-record-storey = storey { $name }
 ifcx-record-element = element { $name }
+# An entry of a storey's annotations without a name or an ID, by its place in the list.
+ifcx-record-annotation = annotation entry { $index_text }
 
 ## Reasons, and what was used instead. $key is the name of a field in the
 ## file, such as thickness.

@@ -123,6 +123,7 @@ fn representatives() -> Vec<Message> {
         count("ifcx-record-layer", "index"),
         count("ifcx-record-view", "index"),
         count("ifcx-record-group", "index"),
+        count("ifcx-record-annotation", "index"),
         text("ifcx-record-storey", "name"),
         text("ifcx-record-element", "name"),
         nested("ifcx-default-used", "reason"),

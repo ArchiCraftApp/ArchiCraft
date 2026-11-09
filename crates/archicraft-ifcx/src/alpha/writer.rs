@@ -22,7 +22,7 @@ use serde::Serialize;
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
-use super::kinds::{self, CODECS};
+use super::kinds::{self, CODECS, annotations};
 use super::relations;
 use super::schema::{self, FORMAT_VERSION};
 use crate::container::{Header, IfcxFile, Import, Node};
@@ -323,8 +323,9 @@ pub fn write(project: &Project, geometry: &ModelGeometry, options: &WriteOptions
 /// and then dropped, an element's body and axis nodes one after the other.
 /// Besides the output, saving holds one data node, the element references of
 /// the current storey and the ids of the materials used so far, not a tree
-/// of the whole file (NFR-SEC-003). The bytes are those of
-/// [`to_bytes`] of the [`write`] document.
+/// of the whole file (NFR-SEC-003); a storey node holds the entries of the
+/// storey's annotations (ANN-010). The bytes are those of [`to_bytes`] of
+/// the [`write`] document.
 pub fn save(
     project: &Project,
     geometry: &ModelGeometry,
@@ -341,8 +342,10 @@ pub fn save(
 /// Builds the data nodes of the document in file order and hands each to
 /// `emit`: the spatial tree from the project down, every storey followed by
 /// its elements and their sub-nodes, then the materials the elements use.
-/// Elements of a kind whose codec is a placeholder are left out, with one
-/// warning per kind that names them (PRJ-008).
+/// The elements of a kind that is not an IFCX node are entries of their
+/// storey node's `archicraft::annotations`, not nodes (ANN-010). Elements of
+/// a kind whose codec is a placeholder are left out, with one warning per
+/// kind that names them (PRJ-008).
 fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem>, emit: &mut impl FnMut(Node)) {
     let mut used_materials: HashSet<MaterialId> = HashSet::new();
     let mut unsaved: BTreeMap<KindTag, Vec<&str>> = BTreeMap::new();
@@ -406,6 +409,8 @@ fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem
         for e in left_out {
             unsaved.entry(e.tag()).or_default().push(&e.name);
         }
+        let (entries, elements): (Vec<&Element>, Vec<&Element>) =
+            elements.into_iter().partition(|e| annotations::entry_kind(e.tag()));
         for e in &elements {
             node.children.insert(
                 child_key(e.kind.descriptor().node_prefix, e.id.uuid(), &mut element_keys),
@@ -426,6 +431,9 @@ fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem
         }
         node.attributes
             .insert(schema::STOREY.into(), Value::Object(storey_attr));
+        if let Some(value) = annotations::write(&entries, &project.relations, warnings) {
+            node.attributes.insert(annotations::ATTRIBUTE.into(), value);
+        }
         emit(node);
 
         for e in elements {
@@ -452,6 +460,28 @@ fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem
             .insert("bsi::ifc::presentation::opacity".into(), json!(material.opacity));
         emit(node);
     }
+}
+
+/// The common data of an element (IFX-060): `archicraft::element` of its
+/// node, and part of the envelope of its annotation entry. The predefined
+/// type, the snap exclusion (INP-017) and the group (ELM-015) only when set,
+/// so files of projects without them stay as they were.
+pub(crate) fn element_data(e: &Element) -> Map<String, Value> {
+    let mut common = Map::new();
+    common.insert("kind".into(), json!(e.tag().code()));
+    common.insert("layer".into(), json!(e.layer.to_string()));
+    common.insert("locked".into(), json!(e.locked));
+    common.insert("position".into(), json!(e.position.code()));
+    if let Some(predefined) = e.predefined_type {
+        common.insert("predefinedType".into(), json!(predefined.code()));
+    }
+    if e.snap_excluded {
+        common.insert("snapExcluded".into(), json!(true));
+    }
+    if let Some(group) = e.group {
+        common.insert("group".into(), json!(group.to_string()));
+    }
+    common
 }
 
 /// Emits an element node and then its sub-nodes: each body and the axis
@@ -493,21 +523,8 @@ fn write_element(
     }
     match element_attributes(e) {
         Some((key, value)) => {
-            let mut common = json!({
-                "kind": e.tag().code(),
-                "layer": e.layer.to_string(),
-                "locked": e.locked,
-                "position": e.position.code(),
-            });
-            predefined_type(&mut common, e.predefined_type);
-            if e.snap_excluded {
-                common["snapExcluded"] = json!(true);
-            }
-            // ELM-015: only for a grouped element.
-            if let Some(group) = e.group {
-                common["group"] = json!(group.to_string());
-            }
-            node.attributes.insert(schema::ELEMENT.into(), common);
+            node.attributes
+                .insert(schema::ELEMENT.into(), Value::Object(element_data(e)));
             node.attributes.insert(key.into(), value);
             if let Some(relations) = relations::write(relations, e.id) {
                 node.attributes.insert(relations::ATTRIBUTE.into(), relations);
