@@ -735,6 +735,10 @@ expect_review "FAIL after a PASS" no
 # ends its run: the hook input's last message is then empty, and the report is the call's input in
 # the agent transcript (JSONL) the input names (archicraft-wjdta).
 transcript="$work/agent.jsonl"
+# The hook waits up to LOOP_HANDBACK_WAIT seconds for a hand-back row still on its way to the
+# transcript: the cases whose transcript never gets one shorten the wait, the late-row cases at the
+# end of this section run with the hook's default.
+export LOOP_HANDBACK_WAIT=1
 row_prompt() { jq -nc --arg t "$1" '{type: "user", isMeta: true, message: {role: "user", content: $t}}'; }
 row_text() { jq -nc --arg t "$1" '{type: "assistant", message: {role: "assistant", content: [{type: "text", text: $t}]}}'; }
 row_handback() { jq -nc --arg m "$1" '{type: "assistant", message: {role: "assistant",
@@ -772,6 +776,19 @@ stamp gate.ok
 hook review-verdict "$(handback "$pass_report")" >/dev/null
 hook review-verdict "$(handback "")" >/dev/null
 expect_review "PASS in plain text, then the enforced hand-back" yes
+# The stop of the enforced hand-back may find no verdict at all (its row not in the transcript in
+# time): it leaves the PASS stamp of the unchanged tree and its report alone (archicraft-gdo0h).
+{
+    row_prompt "Review bead archicraft-ab12.1"
+    row_text "$pass_report"
+    row_prompt "[handback-send-enforce] Your report has not been delivered. Call SubagentHandback({message: <your full report>}) now; the call ends your run."
+    row_hook
+} >"$transcript"
+out="$(hook review-verdict "$(handback "")")"
+expect_review "a stop without a verdict after a PASS of the same tree" yes
+expect "a stop without a verdict keeps the PASS report in review.md" $'## Findings\nnone' "$(cat "$(loop_dir)/review.md")"
+expect "the hook says the earlier PASS of the tree stands" 1 \
+    "$(jq -r .systemMessage <<<"$out" | grep -c '^Review without verdict for .*The earlier review PASS still covers this tree')"
 hook review-verdict "$(handback $'1. Blocking\nVERDICT: FAIL')" >/dev/null
 expect_review "FAIL in the last message, PASS in the transcript" no
 # A resumed reviewer whose new run has not handed back: an earlier run's verdict does not count.
@@ -789,12 +806,56 @@ expect_review "PASS handed back in an earlier run" no
 { row_prompt "Review bead archicraft-ab12.1"; row_handback "$pass_report"; row_result; printf '{"type":"attach'; } >"$transcript"
 hook review-verdict "$(handback "")" >/dev/null
 expect_review "PASS handed back before a partly written row" yes
+# Without a stamp to keep, review.md shows what the reviewer said last.
+rm -f "$(loop_dir)/review.ok"
 out="$(hook review-verdict "$(handback "Reading the diff." "$work/missing.jsonl")")"
 expect_review "a missing transcript" no
 expect "a missing transcript leaves the last message in review.md" "Reading the diff." "$(cat "$(loop_dir)/review.md")"
 expect "the hook says a review without a transcript has no verdict" 1 "$(jq -r .systemMessage <<<"$out" | grep -c 'without verdict')"
 out="$(hook review-verdict "$(handback "" "")")"
 expect "the hook says a review without a transcript path has no verdict" 1 "$(jq -r .systemMessage <<<"$out" | grep -c 'without verdict')"
+# Claude Code (2.1.317) buffers transcript rows for up to a second, so the row of the hand-back that
+# ended the run can reach the transcript after SubagentStop started: the hook waits for it, here at
+# its default bound (archicraft-gdo0h).
+late() { # late <seconds> <row>...: appends the rows to the transcript after a delay, in the background
+    local delay="$1"
+    shift
+    (sleep "$delay" && printf '%s\n' "$@" >>"$transcript") &
+}
+{ row_prompt "Review bead archicraft-ab12.1"; row_text "Reading the diff."; } >"$transcript"
+late 2 "$(row_handback "$pass_report")" "$(row_result)"
+out="$(unset LOOP_HANDBACK_WAIT && hook review-verdict "$(handback "")")"
+wait "$!"
+expect_review "PASS handed back 2 s after SubagentStop started" yes
+expect "the hook says it stamped the late hand-back's PASS" 1 "$(jq -r .systemMessage <<<"$out" | grep -c '^Review PASS stamped')"
+# A resumed reviewer: while its new run's hand-back is on its way, the earlier run's PASS does not
+# count.
+{
+    row_prompt "Review bead archicraft-ab12.1"
+    row_handback "$pass_report"
+    row_result
+    row_hook
+    row_prompt "The coordinator sent a message while you were working: the tree changed, review again."
+} >"$transcript"
+late 1 "$(row_handback $'1. Blocking\nVERDICT: FAIL')" "$(row_result)"
+out="$(unset LOOP_HANDBACK_WAIT && hook review-verdict "$(handback "")")"
+wait "$!"
+expect_review "a resumed reviewer's late FAIL after an earlier run's PASS" no
+expect "review.md holds the resumed reviewer's late report" "1. Blocking" "$(cat "$(loop_dir)/review.md")"
+# Without any verdict the hook stamps nothing and says so, so the session can ask the reviewer again.
+{ row_prompt "Review bead archicraft-ab12.1"; row_text "Reading the diff."; } >"$transcript"
+out="$(hook review-verdict "$(handback "")")"
+expect_review "a run whose hand-back never arrives" no
+expect "the hook says a run without a hand-back has no verdict and stamped nothing" 1 \
+    "$(jq -r .systemMessage <<<"$out" | grep -c '^Review without verdict for .*Nothing was stamped')"
+# A hand-back without a verdict ends the wait at once.
+{ row_prompt "Review bead archicraft-ab12.1"; row_handback "Done."; row_result; } >"$transcript"
+started=$SECONDS
+out="$(unset LOOP_HANDBACK_WAIT && hook review-verdict "$(handback "")")"
+expect "a hand-back without a verdict ends the wait" yes "$([ $((SECONDS - started)) -lt 5 ] && echo yes || echo no)"
+expect "review.md holds the verdict-less hand-back" "Done." "$(cat "$(loop_dir)/review.md")"
+expect "the hook says the hand-back holds no verdict" 1 "$(jq -r .systemMessage <<<"$out" | grep -c 'hand-back holds none')"
+unset LOOP_HANDBACK_WAIT
 
 # --- gate: the loop's guardrails, as CI's Loop policy checks them --------------------------------
 reset_state
