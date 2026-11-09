@@ -8,17 +8,17 @@
 
 use std::sync::Arc;
 
-use archicraft_geometry::plan::{PlanDrawing, polygon_rings};
+use archicraft_geometry::plan::{FillMesh, PlanDrawing, polygon_rings};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{NumberFormat, UnitSettings};
-use archicraft_model::{DrawingScale, ElementId, Project, StoreyId};
+use archicraft_model::{AnchorPos, DrawingScale, ElementId, Project, StoreyId, TextAlign};
 use egui::epaint::Vertex;
 use egui::{
     Align2, Color32, CursorIcon, Event, FontId, Key, Mesh, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
     Ui,
 };
 
-use super::annotation_draw::{LaidOutText, TextBlock, layout_text};
+use super::annotation_draw::{LaidOutText, TextBlock, layout_text, paint};
 use super::camera::{Camera2d, ZoomHistory};
 use crate::commands::{CommandId, view_keys};
 use crate::input::{
@@ -68,6 +68,8 @@ pub struct PlanViewState {
     /// The plane point under the pointer last frame, for the coordinate
     /// readout of the view-control bar (INP-014).
     pub cursor: Option<DVec2>,
+    /// The stamps of the spaces laid out this frame, in plan order (SPC-001).
+    pub stamps: Vec<(ElementId, LaidOutText)>,
 }
 
 impl Default for PlanViewState {
@@ -90,6 +92,7 @@ impl Default for PlanViewState {
             guides: Vec::new(),
             measure: Vec::new(),
             cursor: None,
+            stamps: Vec::new(),
         }
     }
 }
@@ -306,6 +309,8 @@ struct Palette {
     hover: Color32,
     preview: Color32,
     snap: Color32,
+    /// The light tint of a space's area (SPC-001).
+    space_tint: Color32,
 }
 
 impl Palette {
@@ -323,6 +328,7 @@ impl Palette {
                 hover: Color32::from_rgb(120, 170, 240),
                 preview: Color32::from_rgb(255, 150, 50),
                 snap: Color32::from_rgb(40, 200, 120),
+                space_tint: Color32::from_rgba_unmultiplied(110, 160, 230, 24),
             }
         } else {
             Self {
@@ -337,6 +343,7 @@ impl Palette {
                 hover: Color32::from_rgb(110, 160, 245),
                 preview: Color32::from_rgb(230, 120, 30),
                 snap: Color32::from_rgb(20, 160, 90),
+                space_tint: Color32::from_rgba_unmultiplied(70, 130, 220, 22),
             }
         }
     }
@@ -346,6 +353,88 @@ impl Palette {
 const CUT_WIDTH: f32 = 1.8;
 const PROJECTED_WIDTH: f32 = 0.9;
 const HIGHLIGHT_WIDTH: f32 = 2.6;
+/// A space's boundary is drawn thinner than projected lines (SPC-001).
+const SPACE_WIDTH: f32 = 0.6;
+
+/// The text size of a space's stamp in paper millimetres (SPC-001). Appendix
+/// D has no value; proposed in archicraft-1fo.
+pub const STAMP_SIZE_MM: f64 = 2.5;
+/// The line spacing of a space's stamp as a multiple of its text size.
+const STAMP_LINE_SPACING: f64 = 1.25;
+
+/// The stamp of a space (SPC-001) as a text block: its lines centred on
+/// the anchor at [`STAMP_SIZE_MM`].
+fn stamp_block(lines: &[String], anchor: DVec2) -> TextBlock {
+    TextBlock {
+        content: lines.join("\n"),
+        size_mm: STAMP_SIZE_MM,
+        line_spacing: STAMP_LINE_SPACING,
+        align: TextAlign::Center,
+        anchor,
+        anchor_pos: AnchorPos::Center,
+        angle: 0.0,
+    }
+}
+
+/// Lays out the stamps of `plan`'s spaces for this frame (SPC-001): name,
+/// number and area in the project's area unit and the locale's number
+/// format, at paper size at the view's drawing scale. Stamps too small to
+/// read are left out.
+fn layout_stamps(
+    ctx: &egui::Context,
+    plan: &PlanDrawing,
+    state: &PlanViewState,
+    units: &UnitSettings,
+    nf: &NumberFormat,
+) -> Vec<(ElementId, LaidOutText)> {
+    plan.stamps
+        .iter()
+        .filter_map(|stamp| {
+            let block = stamp_block(&stamp.lines(units, nf), stamp.anchor);
+            Some((stamp.element, state.layout_text(ctx, &block)?))
+        })
+        .collect()
+}
+
+/// Elements under the plan point `world` at the screen point `pos`, topmost
+/// first (SEL-001): the space whose stamp is under the pointer, as the
+/// stamps are drawn on top, then [`PlanDrawing::pick`].
+fn pick(
+    plan: &PlanDrawing,
+    stamps: &[(ElementId, LaidOutText)],
+    world: DVec2,
+    pos: Pos2,
+    tolerance: f64,
+) -> Vec<ElementId> {
+    let mut candidates: Vec<ElementId> = stamps
+        .iter()
+        .rev()
+        .filter(|(_, text)| text.hit(pos))
+        .map(|(id, _)| *id)
+        .collect();
+    for id in plan.pick(world, tolerance) {
+        if !candidates.contains(&id) {
+            candidates.push(id);
+        }
+    }
+    candidates
+}
+
+fn fill_shape(fill: &FillMesh, color: Color32, to_screen: impl Fn(DVec2) -> Pos2) -> Shape {
+    Shape::mesh(Mesh {
+        vertices: fill
+            .points
+            .iter()
+            .map(|p| Vertex {
+                pos: to_screen(*p),
+                uv: egui::epaint::WHITE_UV,
+                color,
+            })
+            .collect(),
+        indices: fill.triangles.iter().flatten().copied().collect(),
+        ..Mesh::default()
+    })
+}
 
 fn rgb(c: archicraft_model::Rgb) -> Color32 {
     let [r, g, b] = c.to_u8();
@@ -427,6 +516,12 @@ fn element_outline(
     id: ElementId,
     stroke: Stroke,
 ) {
+    if let Some(stamp) = plan.stamp(id) {
+        for ring in &stamp.boundary {
+            let points: Vec<Pos2> = ring.iter().map(|p| camera.to_screen(rect, *p)).collect();
+            painter.add(Shape::closed_line(points, stroke));
+        }
+    }
     let Some(element) = plan.element(id) else {
         return;
     };
@@ -458,10 +553,22 @@ fn draw_plan(
     rect: Rect,
     camera: &Camera2d,
     plan: &PlanDrawing,
+    stamps: &[(ElementId, LaidOutText)],
     ws: &Workspace,
     palette: &Palette,
 ) {
     let project = &ws.doc.project;
+    // Spaces below the construction elements: a light tint and a thin
+    // boundary (SPC-001).
+    for stamp in &plan.stamps {
+        painter.add(fill_shape(&stamp.fill, palette.space_tint, |p| {
+            camera.to_screen(rect, p)
+        }));
+        for ring in &stamp.boundary {
+            let points: Vec<Pos2> = ring.iter().map(|p| camera.to_screen(rect, *p)).collect();
+            painter.add(Shape::closed_line(points, Stroke::new(SPACE_WIDTH, palette.projected)));
+        }
+    }
     // Overhead (dashed) and projected lines first, cut on top.
     for element in &plan.elements {
         for [a, b] in &element.overhead {
@@ -484,27 +591,17 @@ fn draw_plan(
         let fill = project
             .material(region.material)
             .map_or(Color32::from_gray(200), |m| rgb(m.cut_fill.foreground));
-        let mesh = Mesh {
-            vertices: region
-                .fill
-                .points
-                .iter()
-                .map(|p| Vertex {
-                    pos: camera.to_screen(rect, *p),
-                    uv: egui::epaint::WHITE_UV,
-                    color: fill,
-                })
-                .collect(),
-            indices: region.fill.triangles.iter().flatten().copied().collect(),
-            ..Mesh::default()
-        };
-        painter.add(Shape::mesh(mesh));
+        painter.add(fill_shape(&region.fill, fill, |p| camera.to_screen(rect, p)));
         for polygon in &region.polygons {
             for ring in polygon_rings(polygon) {
                 let points: Vec<Pos2> = ring.iter().map(|p| camera.to_screen(rect, *p)).collect();
                 painter.add(Shape::closed_line(points, Stroke::new(CUT_WIDTH, palette.cut)));
             }
         }
+    }
+    // The stamps over the plan's lines (SPC-001).
+    for (_, text) in stamps {
+        paint(painter, text, palette.cut);
     }
     for element in &plan.elements {
         let selected = ws.selection.contains(&element.id);
@@ -757,6 +854,13 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     }
 
     let camera = state.camera;
+    state.stamps = layout_stamps(
+        ui.ctx(),
+        &plan,
+        &state,
+        &ws.doc.project.settings.units,
+        &ws.prefs.number_format(),
+    );
     let palette = Palette::new(ui.visuals().dark_mode);
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, palette.paper);
@@ -784,7 +888,13 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     // Hover: preselection for the selection tool (SEL-001).
     if let Some(world) = cursor_world {
         if selecting && !ws.tool.is_drawing() {
-            let candidates = plan.pick(world, pick_tolerance);
+            let candidates = pick(
+                &plan,
+                &state.stamps,
+                world,
+                camera.to_screen(rect, world),
+                pick_tolerance,
+            );
             let index = match state.pick {
                 Some((p, i)) if p.distance(world) <= pick_tolerance => i,
                 _ => 0,
@@ -822,7 +932,13 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         && let Some(world) = cursor_world
     {
         let shift = ui.input(|i| i.modifiers.shift);
-        let candidates = plan.pick(world, pick_tolerance);
+        let candidates = pick(
+            &plan,
+            &state.stamps,
+            world,
+            camera.to_screen(rect, world),
+            pick_tolerance,
+        );
         let index = match state.pick {
             Some((p, i)) if p.distance(world) <= pick_tolerance => i,
             _ => 0,
@@ -913,12 +1029,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         let a = camera.to_world(rect, r.left_bottom());
         let b = camera.to_world(rect, r.right_top());
         let shift = ui.input(|i| i.modifiers.shift);
-        let caught: Vec<ElementId> = plan
-            .elements
-            .iter()
-            .filter(|e| e.in_rect(a.min(b), a.max(b), fully))
-            .map(|e| e.id)
-            .collect();
+        let caught = plan.in_rect(a.min(b), a.max(b), fully);
         ws.select_area(&caught, shift);
     }
     if !response.dragged_by(PointerButton::Primary) {
@@ -926,7 +1037,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     }
 
     // Drawing.
-    draw_plan(&painter, rect, &camera, &plan, ws, &palette);
+    draw_plan(&painter, rect, &camera, &plan, &state.stamps, ws, &palette);
     state.measure = draw_measurement(&painter, rect, &camera, ws, storey, &palette);
     if let Some((r, fully)) = area.filter(|(r, _)| r.area() > 4.0) {
         let stroke = Stroke::new(1.0, palette.selection);

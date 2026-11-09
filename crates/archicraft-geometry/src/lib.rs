@@ -22,7 +22,7 @@ pub use contour::{Chain, ContourGraph, ContourOptions, PlanSegmentSource, Region
 pub use evaluate::{BodyPart, ElementGeometry, ModelGeometry, PartGeometry};
 pub use kinds::{EvalContext, GeometryKind};
 pub use mesh::{MeshIssue, TriMesh};
-pub use plan::{PlanDrawing, ViewRange, plan_drawing};
+pub use plan::{PlanDrawing, PlanStamp, ViewRange, plan_drawing};
 
 /// Why an element has no geometry (UI-012). [`GeometryError::message`]
 /// gives the user-visible text as a message key (NFR-L10N-001); `Display`

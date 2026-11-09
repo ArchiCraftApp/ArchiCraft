@@ -12,8 +12,9 @@
 
 use std::collections::BTreeMap;
 
-use archicraft_model::{Element, ElementId, MODEL_TOLERANCE, MaterialId, Project, StoreyId};
-use geo::{Centroid, LineString, MultiPolygon, Polygon};
+use archicraft_model::units::{NumberFormat, UnitSettings, format_area};
+use archicraft_model::{Element, ElementId, MODEL_TOLERANCE, MaterialId, Project, Space, StoreyId};
+use geo::{Centroid, InteriorPoint, LineString, MultiPolygon, Polygon};
 use glam::DVec2;
 
 use crate::evaluate::ModelGeometry;
@@ -49,6 +50,85 @@ pub struct CutRegion {
     pub fill: FillMesh,
 }
 
+/// The plan symbol of a space (SPC-001): its boundary and its stamp with
+/// name, number and area. The boundary is no line of the plan's bodies, so
+/// it bounds no region in contour detection (INP-018).
+#[derive(Clone, Debug)]
+pub struct PlanStamp {
+    pub element: ElementId,
+    /// The centre of the stamp: the boundary's interior point, which lies
+    /// inside concave boundaries too, plus the space's stamp offset.
+    pub anchor: DVec2,
+    /// The room name (the space's long name).
+    pub name: String,
+    pub number: String,
+    /// The net area in square metres ([`Space::net_area`]).
+    pub area: f64,
+    /// The boundary's rings, the outer ring first, without the repeated
+    /// closing point.
+    pub boundary: Vec<Vec<DVec2>>,
+    /// The area inside the boundary, triangulated for the tint.
+    pub fill: FillMesh,
+}
+
+impl PlanStamp {
+    fn new(element: ElementId, space: &Space) -> Self {
+        let (outer, holes) = space.boundary.to_points();
+        let ring = |points: &[DVec2]| LineString::from(points.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>());
+        let polygon = Polygon::new(ring(&outer), holes.iter().map(|h| ring(h)).collect());
+        let interior = polygon
+            .interior_point()
+            .map_or(DVec2::ZERO, |p| DVec2::new(p.x(), p.y()));
+        let fill = fill_mesh(&MultiPolygon(vec![polygon]));
+        Self {
+            element,
+            anchor: interior + space.stamp_offset,
+            name: space.long_name.clone(),
+            number: space.number.clone(),
+            area: space.net_area(),
+            boundary: std::iter::once(outer).chain(holes).collect(),
+            fill,
+        }
+    }
+
+    /// The stamp's lines (SPC-001): the name, the number and the area in the
+    /// project's area unit `units` and the locale's number format `nf`, one
+    /// line each; an empty name or number leaves its line out.
+    pub fn lines(&self, units: &UnitSettings, nf: &NumberFormat) -> Vec<String> {
+        [self.name.trim(), self.number.trim()]
+            .into_iter()
+            .filter(|line| !line.is_empty())
+            .map(str::to_owned)
+            .chain(std::iter::once(format_area(self.area, units, nf)))
+            .collect()
+    }
+
+    /// The boundary's edges.
+    pub fn segments(&self) -> Vec<[DVec2; 2]> {
+        self.boundary
+            .iter()
+            .flat_map(|ring| (0..ring.len()).map(|i| [ring[i], ring[(i + 1) % ring.len()]]))
+            .collect()
+    }
+
+    /// True if `p` lies within `tolerance` of the boundary (SEL-001).
+    pub fn on_boundary(&self, p: DVec2, tolerance: f64) -> bool {
+        self.segments()
+            .iter()
+            .any(|[a, b]| segment_distance(p, *a, *b) <= tolerance)
+    }
+
+    pub fn bounds(&self) -> Option<(DVec2, DVec2)> {
+        points_bounds(self.boundary.iter().flatten())
+    }
+
+    /// Area selection (SEL-003) by the boundary, as [`PlanElement::in_rect`]
+    /// by an element's lines.
+    pub fn in_rect(&self, min: DVec2, max: DVec2, fully_inside: bool) -> bool {
+        segments_in_rect(&self.segments(), self.bounds(), min, max, fully_inside)
+    }
+}
+
 /// The plan of one storey.
 #[derive(Clone, Debug, Default)]
 pub struct PlanDrawing {
@@ -56,6 +136,8 @@ pub struct PlanDrawing {
     /// Elements in model order (later ones are drawn on top).
     pub elements: Vec<PlanElement>,
     pub cut_regions: Vec<CutRegion>,
+    /// The plan symbols of the spaces in model order (SPC-001).
+    pub stamps: Vec<PlanStamp>,
 }
 
 /// The vertical range of a plan view, relative to the storey elevation.
@@ -110,7 +192,8 @@ fn fill_mesh(polygons: &MultiPolygon<f64>) -> FillMesh {
 /// storey. Elements of kinds without a body are not sliced: their views
 /// draw them (ANN-002). The bodies of kinds that are no construction
 /// elements, like spaces (SPC-001), add no lines: their kind draws its own
-/// plan symbol, and they bound no region in contour detection (INP-018).
+/// plan symbol, a [`PlanStamp`], and they bound no region in contour
+/// detection (INP-018).
 pub fn plan_drawing(
     project: &Project,
     geometry: &ModelGeometry,
@@ -119,6 +202,7 @@ pub fn plan_drawing(
     shown: impl Fn(&Element) -> bool,
 ) -> PlanDrawing {
     let mut elements = Vec::new();
+    let mut stamps = Vec::new();
     let mut by_material: BTreeMap<MaterialId, Vec<Polygon<f64>>> = BTreeMap::new();
     for element in project
         .elements_on(storey)
@@ -163,6 +247,9 @@ pub fn plan_drawing(
         if let Some(wall) = element.as_wall() {
             plan.reference_line = Some([wall.start, wall.end]);
         }
+        if let Some(space) = element.as_space() {
+            stamps.push(PlanStamp::new(element.id, space));
+        }
         elements.push(plan);
     }
     let cut_regions = by_material
@@ -181,6 +268,7 @@ pub fn plan_drawing(
         storey: Some(storey),
         elements,
         cut_regions,
+        stamps,
     }
 }
 
@@ -224,6 +312,40 @@ fn segments_intersect(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> bool {
     (d1 > 0.0) != (d2 > 0.0) && (d3 > 0.0) != (d4 > 0.0)
 }
 
+fn points_bounds<'a>(points: impl IntoIterator<Item = &'a DVec2>) -> Option<(DVec2, DVec2)> {
+    points.into_iter().fold(None, |acc, p| match acc {
+        None => Some((*p, *p)),
+        Some((lo, hi)) => Some((lo.min(*p), hi.max(*p))),
+    })
+}
+
+/// Area selection (SEL-003) of lines `segments` with the bounds `bounds`:
+/// all inside the rectangle, or, unless `fully_inside`, one of them inside
+/// it or crossing its edges.
+fn segments_in_rect(
+    segments: &[[DVec2; 2]],
+    bounds: Option<(DVec2, DVec2)>,
+    min: DVec2,
+    max: DVec2,
+    fully_inside: bool,
+) -> bool {
+    let Some((lo, hi)) = bounds else {
+        return false;
+    };
+    if fully_inside {
+        return lo.x >= min.x && lo.y >= min.y && hi.x <= max.x && hi.y <= max.y;
+    }
+    if hi.x < min.x || hi.y < min.y || lo.x > max.x || lo.y > max.y {
+        return false;
+    }
+    let inside = |p: DVec2| p.x >= min.x && p.x <= max.x && p.y >= min.y && p.y <= max.y;
+    let corners = [min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)];
+    segments.iter().flatten().any(|p| inside(*p))
+        || segments
+            .iter()
+            .any(|[a, b]| (0..4).any(|i| segments_intersect(*a, *b, corners[i], corners[(i + 1) % 4])))
+}
+
 impl PlanElement {
     /// All outline segments of this element.
     pub fn segments(&self) -> Vec<[DVec2; 2]> {
@@ -241,13 +363,7 @@ impl PlanElement {
     }
 
     pub fn bounds(&self) -> Option<(DVec2, DVec2)> {
-        self.segments()
-            .iter()
-            .flatten()
-            .fold(None, |acc: Option<(DVec2, DVec2)>, p| match acc {
-                None => Some((*p, *p)),
-                Some((lo, hi)) => Some((lo.min(*p), hi.max(*p))),
-            })
+        points_bounds(self.segments().iter().flatten())
     }
 
     /// True if `p` is on this element: inside a cut region or within
@@ -262,29 +378,17 @@ impl PlanElement {
 
     /// Area selection (SEL-003): fully inside the rectangle, or touching it.
     pub fn in_rect(&self, min: DVec2, max: DVec2, fully_inside: bool) -> bool {
-        let Some((lo, hi)) = self.bounds() else {
-            return false;
-        };
-        if fully_inside {
-            return lo.x >= min.x && lo.y >= min.y && hi.x <= max.x && hi.y <= max.y;
-        }
-        if hi.x < min.x || hi.y < min.y || lo.x > max.x || lo.y > max.y {
-            return false;
-        }
-        let inside = |p: DVec2| p.x >= min.x && p.x <= max.x && p.y >= min.y && p.y <= max.y;
-        let corners = [min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)];
-        let segments = self.segments();
-        segments.iter().flatten().any(|p| inside(*p))
-            || segments
-                .iter()
-                .any(|[a, b]| (0..4).any(|i| segments_intersect(*a, *b, corners[i], corners[(i + 1) % 4])))
-            || self.cut.iter().any(|poly| point_in_polygon((min + max) / 2.0, poly))
+        segments_in_rect(&self.segments(), self.bounds(), min, max, fully_inside)
+            || (!fully_inside && self.cut.iter().any(|poly| point_in_polygon((min + max) / 2.0, poly)))
     }
 }
 
 impl PlanDrawing {
     /// Elements under `p`, topmost first: elements whose cut region contains
-    /// the point come before elements that are only near a line (SEL-001).
+    /// the point come before elements that are only near a line, and
+    /// spaces near their boundary come last, as they are drawn below the
+    /// construction elements (SEL-001, SPC-001). A space's stamp is laid
+    /// out by the view, which picks it.
     pub fn pick(&self, p: DVec2, tolerance: f64) -> Vec<ElementId> {
         let mut inside: Vec<ElementId> = Vec::new();
         let mut near: Vec<ElementId> = Vec::new();
@@ -296,11 +400,39 @@ impl PlanDrawing {
             }
         }
         inside.extend(near);
+        inside.extend(
+            self.stamps
+                .iter()
+                .rev()
+                .filter(|stamp| stamp.on_boundary(p, tolerance))
+                .map(|stamp| stamp.element),
+        );
         inside
+    }
+
+    /// The elements an area selection catches (SEL-003): by their lines, and
+    /// spaces by their boundary.
+    pub fn in_rect(&self, min: DVec2, max: DVec2, fully_inside: bool) -> Vec<ElementId> {
+        let elements = self
+            .elements
+            .iter()
+            .filter(|e| e.in_rect(min, max, fully_inside))
+            .map(|e| e.id);
+        let spaces = self
+            .stamps
+            .iter()
+            .filter(|s| s.in_rect(min, max, fully_inside))
+            .map(|s| s.element);
+        elements.chain(spaces).collect()
     }
 
     pub fn element(&self, id: ElementId) -> Option<&PlanElement> {
         self.elements.iter().find(|e| e.id == id)
+    }
+
+    /// The plan symbol of the space `id`.
+    pub fn stamp(&self, id: ElementId) -> Option<&PlanStamp> {
+        self.stamps.iter().find(|s| s.element == id)
     }
 
     /// Bounds of everything drawn, for "fit to window".
@@ -308,6 +440,7 @@ impl PlanDrawing {
         self.elements
             .iter()
             .filter_map(PlanElement::bounds)
+            .chain(self.stamps.iter().filter_map(PlanStamp::bounds))
             .reduce(|(lo, hi), (l, h)| (lo.min(l), hi.max(h)))
     }
 }
