@@ -482,6 +482,86 @@ expression: review_view(&bytes)
                         }
                       }
                     }
+                  },
+                  "space": {
+                    "dataType": "Object",
+                    "objectRestrictions": {
+                      "values": {
+                        "longName": {
+                          "dataType": "String"
+                        },
+                        "number": {
+                          "dataType": "String"
+                        },
+                        "baseOffset": {
+                          "dataType": "Real",
+                          "quantityKind": "Length"
+                        },
+                        "top": {
+                          "dataType": "Object",
+                          "objectRestrictions": {
+                            "values": {
+                              "link": {
+                                "dataType": "Enum",
+                                "enumRestrictions": {
+                                  "options": [
+                                    "fixed",
+                                    "storey",
+                                    "relative"
+                                  ]
+                                }
+                              },
+                              "value": {
+                                "dataType": "Real",
+                                "quantityKind": "Length"
+                              },
+                              "storey": {
+                                "dataType": "Reference",
+                                "optional": true
+                              },
+                              "relative": {
+                                "dataType": "Integer",
+                                "optional": true
+                              }
+                            }
+                          }
+                        },
+                        "material": {
+                          "dataType": "String",
+                          "optional": true
+                        },
+                        "layer": {
+                          "dataType": "String"
+                        },
+                        "position": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "undefined",
+                              "exterior",
+                              "interior"
+                            ]
+                          }
+                        },
+                        "ifcClass": {
+                          "dataType": "String"
+                        },
+                        "predefinedType": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "FLOOR",
+                              "ROOF",
+                              "LANDING",
+                              "BASESLAB",
+                              "PAD_FOOTING",
+                              "STRIP_FOOTING"
+                            ]
+                          },
+                          "optional": true
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -521,6 +601,9 @@ expression: review_view(&bytes)
                     "dataType": "Integer"
                   },
                   "slab": {
+                    "dataType": "Integer"
+                  },
+                  "space": {
                     "dataType": "Integer"
                   },
                   "group": {
@@ -589,7 +672,8 @@ expression: review_view(&bytes)
               "enumRestrictions": {
                 "options": [
                   "wall",
-                  "slab"
+                  "slab",
+                  "space"
                 ]
               }
             },
@@ -628,6 +712,10 @@ expression: review_view(&bytes)
               "optional": true
             },
             "group": {
+              "dataType": "String",
+              "optional": true
+            },
+            "name": {
               "dataType": "String",
               "optional": true
             }
@@ -779,6 +867,126 @@ expression: review_view(&bytes)
           }
         }
       }
+    },
+    "archicraft::space": {
+      "value": {
+        "dataType": "Object",
+        "objectRestrictions": {
+          "values": {
+            "outline": {
+              "dataType": "Array",
+              "arrayRestrictions": {
+                "value": {
+                  "dataType": "Array",
+                  "arrayRestrictions": {
+                    "value": {
+                      "dataType": "Real",
+                      "quantityKind": "Length"
+                    }
+                  }
+                }
+              }
+            },
+            "holes": {
+              "dataType": "Array",
+              "arrayRestrictions": {
+                "value": {
+                  "dataType": "Array",
+                  "arrayRestrictions": {
+                    "value": {
+                      "dataType": "Array",
+                      "arrayRestrictions": {
+                        "value": {
+                          "dataType": "Real",
+                          "quantityKind": "Length"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "longName": {
+              "dataType": "String"
+            },
+            "number": {
+              "dataType": "String"
+            },
+            "baseOffset": {
+              "dataType": "Real",
+              "quantityKind": "Length"
+            },
+            "top": {
+              "dataType": "Object",
+              "objectRestrictions": {
+                "values": {
+                  "link": {
+                    "dataType": "Enum",
+                    "enumRestrictions": {
+                      "options": [
+                        "fixed",
+                        "storey",
+                        "relative"
+                      ]
+                    }
+                  },
+                  "value": {
+                    "dataType": "Real",
+                    "quantityKind": "Length"
+                  },
+                  "storey": {
+                    "dataType": "Reference",
+                    "optional": true
+                  },
+                  "relative": {
+                    "dataType": "Integer",
+                    "optional": true
+                  }
+                }
+              }
+            },
+            "source": {
+              "dataType": "Object",
+              "objectRestrictions": {
+                "values": {
+                  "type": {
+                    "dataType": "Enum",
+                    "enumRestrictions": {
+                      "options": [
+                        "drawn",
+                        "detected"
+                      ]
+                    }
+                  },
+                  "seed": {
+                    "dataType": "Array",
+                    "arrayRestrictions": {
+                      "value": {
+                        "dataType": "Real",
+                        "quantityKind": "Length"
+                      }
+                    },
+                    "optional": true
+                  },
+                  "autoUpdate": {
+                    "dataType": "Boolean",
+                    "optional": true
+                  }
+                }
+              }
+            },
+            "stampOffset": {
+              "dataType": "Array",
+              "arrayRestrictions": {
+                "value": {
+                  "dataType": "Real",
+                  "quantityKind": "Length"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "data": [
@@ -794,7 +1002,7 @@ expression: review_view(&bytes)
         },
         "bsi::ifc::prop::Name": "Walls and slab",
         "archicraft::project": {
-          "formatVersion": "1",
+          "formatVersion": "2",
           "info": {
             "number": "",
             "client": "",
@@ -1271,6 +1479,19 @@ expression: review_view(&bytes)
               "layer": "15b3de24-1444-5be3-91cd-a743a7d3b894",
               "position": "undefined",
               "ifcClass": "IfcSlab"
+            },
+            "space": {
+              "longName": "",
+              "number": "",
+              "baseOffset": 0,
+              "top": {
+                "link": "relative",
+                "value": 0,
+                "relative": 1
+              },
+              "layer": "7d2e2fcf-385e-5952-ba6b-743fd7b93c56",
+              "position": "undefined",
+              "ifcClass": "IfcSpace"
             }
           },
           "views": [
@@ -1287,7 +1508,8 @@ expression: review_view(&bytes)
           ],
           "counters": {
             "wall": 4,
-            "slab": 1
+            "slab": 1,
+            "space": 0
           }
         }
       }

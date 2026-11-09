@@ -26,8 +26,9 @@ use super::relations;
 use super::writer::IFCX_VERSION;
 use crate::container::{Header, IfcxFile};
 
-/// Version of the ArchiCraft schema written by this release.
-pub const FORMAT_VERSION: u32 = 1;
+/// Version of the ArchiCraft schema written by this release: format 2
+/// stores spaces (SPC-001; [`super::migrate::MIGRATIONS`]).
+pub const FORMAT_VERSION: u32 = 2;
 
 pub const PROJECT: &str = "archicraft::project";
 pub const STOREY: &str = "archicraft::storey";
@@ -322,10 +323,11 @@ pub fn declarations(present: &[KindTag], relations: bool) -> IndexMap<String, Va
             ("cutPlaneHeight", optional(length())),
         ])}),
     );
-    schemas.insert(
-        ELEMENT.to_owned(),
-        json!({"value": object(&element_data(nodes.iter().map(|c| c.tag().code())))}),
-    );
+    // An element node's common data, and the element's own name when its
+    // node shows another (SPC-001).
+    let mut element = element_data(nodes.iter().map(|c| c.tag().code()));
+    element.push(("name", optional(string())));
+    schemas.insert(ELEMENT.to_owned(), json!({"value": object(&element)}));
     for codec in &nodes {
         schemas.insert(codec.attribute().to_owned(), json!({"value": codec.schema()}));
     }

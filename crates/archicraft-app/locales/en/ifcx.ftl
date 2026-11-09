@@ -50,6 +50,7 @@ ifcx-version-unsupported = the IFCX version “{ $version }” is not supported;
 ifcx-migration-unknown = no migration from ArchiCraft format { $version_text } is known; the file is read as it is
 ifcx-migration-failed = the file cannot be migrated from ArchiCraft format { $version_text }: { $detail }; it is read as it is
 ifcx-migrated = migrated from format { $from_text } to format { $to_text }: { $change }
+ifcx-migration-adds-spaces = adds space elements
 
 ## The load report (PRJ-008): “<record> skipped: <reason>” and
 ## “<record> repaired: <reason>”.

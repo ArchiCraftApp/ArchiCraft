@@ -51,6 +51,7 @@ pub const ALL_KEYS: &[&str] = &[
     "ifcx-migration-unknown",
     "ifcx-migration-failed",
     "ifcx-migrated",
+    "ifcx-migration-adds-spaces",
     // The load report (alpha/reader.rs): what happened to a record ...
     "ifcx-skipped",
     "ifcx-repaired",

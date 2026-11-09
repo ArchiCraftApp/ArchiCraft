@@ -72,8 +72,8 @@ pub(crate) trait KindCodec: Sized {
     /// optional and written only when the slot has one.
     const OPTIONAL_MATERIAL: bool = false;
 
-    /// True for a kind this format version cannot store yet, like spaces
-    /// (SPC-001) until their IFCX content exists: the writer leaves its
+    /// True for a kind this format version cannot store yet, one whose
+    /// model exists before its IFCX content: the writer leaves its
     /// elements, its defaults slot and its counter out of the file and warns
     /// once with the names of the elements it left out (PRJ-008), the file
     /// declares nothing for it ([`present`], [`published`]), and the reader
@@ -81,11 +81,27 @@ pub(crate) trait KindCodec: Sized {
     /// Such a codec has no [`Self::FIELDS`].
     const PLACEHOLDER: bool = false;
 
+    /// The first format version ([`FORMAT_VERSION`](super::schema::FORMAT_VERSION))
+    /// that stores the kind. A file migrated from an earlier format has no
+    /// element, defaults slot or counter of it, and that is no damage: the
+    /// reader takes the template's slot and counts the elements, without a
+    /// report, as for a placeholder ([`unstored`]).
+    const SINCE_FORMAT: u32 = 1;
+
     /// The value description of [`Self::ATTRIBUTE`] (IFX-061).
     fn schema() -> Value;
 
     /// The attribute's members, in the order they are written.
     fn write(&self) -> Map<String, Value>;
+
+    /// What the element's node shows as `bsi::ifc::prop::Name` instead of
+    /// the element's own name, such as a space's room name (SPC-001), for
+    /// viewers that show no `archicraft::` attribute; `None` shows the
+    /// element's name. A node that shows another name keeps the element's
+    /// own in `archicraft::element` (IFX-060).
+    fn node_name(&self) -> Option<&str> {
+        None
+    }
 
     /// The parameters from the attribute's members (IFX-083). `Err` skips
     /// the element with the reason; a member with a sensible default is
@@ -114,9 +130,11 @@ pub(crate) trait Codec: Sync {
     fn test_only(&self) -> bool;
     fn optional_material(&self) -> bool;
     fn placeholder(&self) -> bool;
+    fn since_format(&self) -> u32;
     fn schema(&self) -> Value;
     fn slot_schema(&self) -> Vec<(&'static str, Value)>;
     fn write(&self, kind: &ElementKind) -> Option<Map<String, Value>>;
+    fn node_name<'k>(&self, kind: &'k ElementKind) -> Option<&'k str>;
     fn write_slot(&self, kind: &ElementKind) -> Option<Map<String, Value>>;
     fn read(&self, attr: &Object, context: &ReadContext<'_>, report: &mut Report<'_>) -> Result<ElementKind, Message>;
     fn read_slot(&self, attr: &Object, default: &ElementKind, report: &mut Report<'_>) -> Option<ElementKind>;
@@ -155,6 +173,10 @@ impl<P: KindCodec + Into<ElementKind>> Codec for Erased<P> {
         P::PLACEHOLDER
     }
 
+    fn since_format(&self) -> u32 {
+        P::SINCE_FORMAT
+    }
+
     fn schema(&self) -> Value {
         P::schema()
     }
@@ -165,6 +187,10 @@ impl<P: KindCodec + Into<ElementKind>> Codec for Erased<P> {
 
     fn write(&self, kind: &ElementKind) -> Option<Map<String, Value>> {
         (self.of)(kind).map(KindCodec::write)
+    }
+
+    fn node_name<'k>(&self, kind: &'k ElementKind) -> Option<&'k str> {
+        (self.of)(kind).and_then(KindCodec::node_name)
     }
 
     fn write_slot(&self, kind: &ElementKind) -> Option<Map<String, Value>> {
@@ -222,6 +248,14 @@ pub(crate) fn codec(kind: KindTag) -> Option<&'static dyn Codec> {
 /// stores nothing of the kind yet.
 pub(crate) fn placeholder(kind: KindTag) -> bool {
     codec(kind).is_some_and(|c| c.placeholder())
+}
+
+/// Whether a file written in `format` stores nothing of `kind`: its codec
+/// is a placeholder, or the kind came with a later format
+/// ([`KindCodec::SINCE_FORMAT`]). The reader then takes the template's slot
+/// and counts the kind's elements without a report.
+pub(crate) fn unstored(kind: KindTag, format: u32) -> bool {
+    codec(kind).is_some_and(|c| c.placeholder() || format < c.since_format())
 }
 
 /// The kinds `project` stores, in registry order: those with an element, a

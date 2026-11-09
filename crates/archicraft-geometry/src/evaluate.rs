@@ -14,7 +14,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use archicraft_model::{Element, ElementId, MODEL_TOLERANCE, MaterialId, Project};
+use archicraft_model::{Element, ElementId, MODEL_TOLERANCE, MaterialId, Project, Rgb};
 use glam::DVec3;
 
 use crate::GeometryError;
@@ -25,14 +25,24 @@ use crate::wall::{Footprint, footprints};
 
 pub use crate::kinds::wall::wall_inputs;
 
+/// The colour of a body without a material, like a space's (SPC-001): a
+/// light blue-grey. The 3D views draw such a body in it at
+/// [`MATERIAL_LESS_OPACITY`], and IFCX writes both as the body's own
+/// presentation instead of a material.
+pub const MATERIAL_LESS_COLOR: Rgb = Rgb([0.72, 0.79, 0.86]);
+
+/// The opacity of a body without a material: translucent, so that it never
+/// hides what it holds.
+pub const MATERIAL_LESS_OPACITY: f64 = 0.25;
+
 /// One closed, single-material part of an element body (IFX-017).
 #[derive(Clone, Debug, PartialEq)]
 pub struct BodyPart {
     /// Child name in IFCX: `Body` for single-material bodies.
     pub name: String,
     /// `None` for a kind that is not built of a material, like a space
-    /// (SPC-001): the plan cuts no region from it and the 3D view draws it
-    /// in a neutral translucent appearance.
+    /// (SPC-001): the plan cuts no region from it and it appears in
+    /// [`MATERIAL_LESS_COLOR`] at [`MATERIAL_LESS_OPACITY`].
     pub material: Option<MaterialId>,
     pub mesh: TriMesh,
 }

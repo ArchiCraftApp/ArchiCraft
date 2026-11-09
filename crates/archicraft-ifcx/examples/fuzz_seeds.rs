@@ -334,9 +334,9 @@ fn coverage() -> Vec<(String, Value)> {
         }
         f["header"]["dataVersion"] = json!("one");
     });
-    // Format versions: newer than this build's, unreadable, and older
+    // Format versions: newer than any build's, unreadable, and older
     // without a known migration.
-    for (name, version) in [("newer", "2"), ("unreadable", "one"), ("older", "0")] {
+    for (name, version) in [("newer", "999"), ("unreadable", "one"), ("older", "0")] {
         seed(&format!("format-version-{name}"), &|f| {
             project(f)["formatVersion"] = json!(version);
         });
@@ -651,7 +651,7 @@ mod tests {
                     "ifcx-data-version-invalid",
                 ],
             ),
-            ("format-version-newer", &["ifcx-newer-format(version=2)"]),
+            ("format-version-newer", &["ifcx-newer-format(version=999)"]),
             ("format-version-unreadable", &["ifcx-format-version-invalid"]),
             ("format-version-older", &["ifcx-migration-unknown(version=0)"]),
         ];

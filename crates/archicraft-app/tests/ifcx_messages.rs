@@ -113,6 +113,7 @@ fn representatives() -> Vec<Message> {
             .count("from", 1)
             .count("to", 2)
             .nested("change", reason()),
+        Message::new("ifcx-migration-adds-spaces"),
         Message::new("ifcx-skipped")
             .nested("record", Message::new("ifcx-record-project"))
             .nested("reason", reason()),

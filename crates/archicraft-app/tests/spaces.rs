@@ -166,3 +166,45 @@ fn a_selected_space_shows_no_material_settings() {
         assert!(harness.query_by_label(absent).is_none(), "{absent} is shown");
     }
 }
+
+/// SPC-001, IFX-064 (demo step 4): a space added through the model and
+/// renamed in the properties strip's Name field saves as IFCX and reopens
+/// with the same name, room name, number, boundary and area, and its stamp
+/// shows the same text as before saving.
+#[test]
+fn a_renamed_space_saves_and_reopens_with_the_same_stamp() {
+    let (mut harness, space) = shell_with_kitchen("space-reopen");
+    {
+        let ws = harness.state_mut().workspace();
+        ws.selection.clear();
+        ws.selection.insert(space);
+    }
+    harness.run_steps(2);
+    let name_field = || By::new().role(Role::TextInput).value("SP-001");
+    harness.get(name_field()).click();
+    harness.run_steps(1);
+    harness.get(name_field()).type_text("KIT-1");
+    harness.key_press(egui::Key::Enter);
+    harness.run_steps(3);
+    let before = harness.state_mut().workspace().doc.project.elements[&space].clone();
+    assert_eq!(before.name, "KIT-1", "renamed in the properties strip");
+    let (_, lines, _) = stamp(&mut harness, space);
+    assert_eq!(lines[..2], ["Kitchen", "0.01"]);
+
+    let path = data_dir("space-reopen-file").join("kitchen.ifcx");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    assert!(harness.state_mut().save_to(&path));
+    let mut reopened = common::harness("space-reopen-again");
+    reopened.state_mut().open_path(&path);
+    reopened.run_steps(3);
+    let after = reopened.state_mut().workspace().doc.project.elements[&space].clone();
+    assert_eq!(after.name, "KIT-1");
+    let (a, b) = (before.as_space().unwrap(), after.as_space().unwrap());
+    assert_eq!(
+        (a.long_name.as_str(), a.number.as_str()),
+        (b.long_name.as_str(), b.number.as_str())
+    );
+    assert_eq!(a.boundary, b.boundary);
+    assert_eq!(a.net_area(), b.net_area());
+    assert_eq!(stamp(&mut reopened, space).1, lines);
+}

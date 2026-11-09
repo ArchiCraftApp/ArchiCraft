@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use archicraft_geometry::{ModelGeometry, TriMesh};
+use archicraft_geometry::{MATERIAL_LESS_COLOR, MATERIAL_LESS_OPACITY, ModelGeometry, TriMesh};
 use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
 use archicraft_model::project::NameCounters;
@@ -487,7 +487,9 @@ pub(crate) fn element_data(e: &Element) -> Map<String, Value> {
 /// Emits an element node and then its sub-nodes: each body and the axis
 /// node is built and emitted in turn, so that only one of them is held at a
 /// time (NFR-SEC-003). The element node needs only their names and ids.
-/// The element's explicit relations go on its node (SRS 3.3, IFX-060).
+/// The element's explicit relations go on its node (SRS 3.3, IFX-060). A
+/// node that shows another name than the element's, a space's room name
+/// (SPC-001), keeps the element's own `name` in `archicraft::element`.
 fn write_element(
     e: &Element,
     relations: &RelationStore,
@@ -514,17 +516,22 @@ fn write_element(
             Message::new("ifcx-saved-without-body").text("name", e.name.clone()),
         )),
     }
+    let shown = CODECS.iter().find_map(|c| c.node_name(&e.kind));
     node.attributes
         .insert("bsi::ifc::class".into(), class(e.ifc_class.code()));
-    node.attributes.insert("bsi::ifc::prop::Name".into(), json!(e.name));
+    node.attributes
+        .insert("bsi::ifc::prop::Name".into(), json!(shown.unwrap_or(&e.name)));
     if let Some(external) = e.position.is_external() {
         node.attributes
             .insert("bsi::ifc::prop::IsExternal".into(), json!(external));
     }
     match element_attributes(e) {
         Some((key, value)) => {
-            node.attributes
-                .insert(schema::ELEMENT.into(), Value::Object(element_data(e)));
+            let mut data = element_data(e);
+            if shown.is_some_and(|name| name != e.name) {
+                data.insert("name".into(), json!(e.name));
+            }
+            node.attributes.insert(schema::ELEMENT.into(), Value::Object(data));
             node.attributes.insert(key.into(), value);
             if let Some(relations) = relations::write(relations, e.id) {
                 node.attributes.insert(relations::ATTRIBUTE.into(), relations);
@@ -544,14 +551,22 @@ fn write_element(
     let Some(g) = geometry else { return };
     for part in &g.parts {
         let mut body = Node::new(sub_node_id(e.id.uuid(), &part.name).to_string());
-        // A body without a material, like a space's (SPC-001), inherits
-        // none and adds none to the written material list.
         if let Some(material) = part.material {
             body.inherits.insert("material".into(), Some(material.to_string()));
             used_materials.insert(material);
         }
         body.attributes
             .insert("usd::usdgeom::mesh".into(), mesh_attribute(&part.mesh));
+        // A body without a material, like a space's (SPC-001), inherits
+        // none and adds none to the written material list: it carries its
+        // own presentation, the translucent appearance the 3D views draw it
+        // in, which viewers compose on the body as on a material.
+        if part.material.is_none() {
+            body.attributes
+                .insert("bsi::ifc::presentation::diffuseColor".into(), rgb(MATERIAL_LESS_COLOR));
+            body.attributes
+                .insert("bsi::ifc::presentation::opacity".into(), json!(MATERIAL_LESS_OPACITY));
+        }
         emit(body);
     }
     if !g.axis.is_empty() {

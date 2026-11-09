@@ -7,10 +7,13 @@
 
 export type TreeNode = { name: string; attributes?: { [key: string]: any }; children?: TreeNode[] };
 
-export type TreeSummary = { storeys: number; elements: number; bodies: number };
+// Spaces (IfcSpace, SRS SPC-001) are elements too, counted again on their own so that a file
+// with spaces shows them under their storeys.
+export type TreeSummary = { storeys: number; elements: number; spaces: number; bodies: number };
 
 export function describeTree(summary: TreeSummary): string {
-    return `${summary.storeys} storeys, ${summary.elements} elements, ${summary.bodies} bodies`;
+    const spaces = summary.spaces > 0 ? ` (${summary.spaces} spaces)` : "";
+    return `${summary.storeys} storeys, ${summary.elements} elements${spaces}, ${summary.bodies} bodies`;
 }
 
 function classOf(node: TreeNode): string | undefined {
@@ -33,12 +36,14 @@ export function checkSpatialTree(root: TreeNode): TreeSummary {
     const storeys = (buildings[0].children ?? []).filter((c) => classOf(c) === "IfcBuildingStorey");
     if (storeys.length === 0) fail(`the building ${buildings[0].name} has no storeys`);
     let elements = 0;
+    let spaces = 0;
     let bodies = 0;
     for (const storey of storeys) {
         if (!storey.attributes?.["usd::xformop::transform"]) fail(`${storey.name} has no usd::xformop placement`);
         for (const element of storey.children ?? []) {
             elements++;
             if (!classOf(element)) fail(`${element.name} has no IFC class`);
+            if (classOf(element) === "IfcSpace") spaces++;
             if (typeof element.attributes?.["bsi::ifc::prop::Name"] !== "string") fail(`${element.name} has no name`);
             const meshes = (element.children ?? []).filter((c) => c.attributes?.["usd::usdgeom::mesh::points"]);
             if (meshes.length === 0) fail(`${element.name} has no body`);
@@ -58,5 +63,5 @@ export function checkSpatialTree(root: TreeNode): TreeSummary {
             }
         }
     }
-    return { storeys: storeys.length, elements, bodies };
+    return { storeys: storeys.length, elements, spaces, bodies };
 }

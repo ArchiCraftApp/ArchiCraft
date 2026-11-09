@@ -17,7 +17,7 @@ failed. The steps:
 |---|---|---|
 | (a) `ifcx-core` | `check.ts`: the reference implementation (`src/ifcx-core`) builds the layer stack | Imports resolve, schema validation passes, composition has no cycles and one root |
 | (b1) `compose3` | `check.ts`: the viewer's composition (`src/viewer/compose-flattened.ts`) in Node | The spatial tree project → site → building → storeys → elements, each with a name and a mesh body that has a valid triangle list and a `diffuseColor` (`tree-check.ts`) |
-| (b2) `viewer` | `viewer.spec.ts`: the viewer itself (`src/viewer/render.ts`) in headless Chromium, driven by Playwright | The same tree as the viewer shows it, storey and element counts equal to the file's, a render with visible geometry, and every material colour of the file in that render |
+| (b2) `viewer` | `viewer.spec.ts`: the viewer itself (`src/viewer/render.ts`) in headless Chromium, driven by Playwright | The same tree as the viewer shows it, storey, element and space counts equal to the file's, a render with visible geometry, and every opaque colour of the file in that render |
 
 Step (b2) loads `viewer/harness.html`, whose `viewer/harness.ts` is bundled by esbuild with
 the viewer's modules and three.js. `window.loadIfcx(json)` calls the viewer's `addModel()`,
@@ -26,10 +26,16 @@ harness reads the tree back from the viewer's model tree and attribute table and
 of its logic. The test then screenshots the viewport and checks:
 
 - geometry: at least 2 % of the viewport differs from the empty viewport;
-- colours: each `diffuseColor` of the file explains at least 25 pixels best, within 3 levels
-  per channel, under the viewer's lighting (ambient light 0xddeeff plus a fitted directional
-  share; see `analyseRender`). Colours that differ only in brightness and render within a
-  level of each other on some face can trade pixels there.
+- colours: each opaque `diffuseColor` of the file explains at least 25 pixels best, within 3
+  levels per channel, under the viewer's lighting (ambient light 0xddeeff plus a fitted
+  directional share; see `analyseRender`). Colours that differ only in brightness and render
+  within a level of each other on some face can trade pixels there. A translucent colour
+  (`opacity` below 1, the body of a space) blends with what lies behind it, so no pixel shows
+  it as such: the manual release check looks at it in the screenshot.
+
+Spaces (`IfcSpace`) count as elements in (b1) and (b2), and again on their own, so a summary
+line such as `2 storeys, 14 elements (2 spaces), 14 bodies` shows them under their storeys and
+(b2) compares their number with the file's.
 
 The screenshots land in `test-results/` (one PNG per file) for the manual check of each
 release; CI uploads them as the `viewer-screenshots` artefact. Five broken copies of the

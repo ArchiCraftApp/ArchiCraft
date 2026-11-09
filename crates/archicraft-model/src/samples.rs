@@ -14,9 +14,9 @@ use uuid::Uuid;
 use crate::command::{Command, History};
 use crate::element::{Element, ElementKind, KindTag, Position, PredefinedType};
 use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
-use crate::kinds::ReferenceLine;
+use crate::kinds::{BoundarySource, ReferenceLine};
 use crate::layer::Layer;
-use crate::project::Project;
+use crate::project::{DefaultsSlot, Project};
 use crate::storey::Storey;
 use crate::template::default_metric_project_with;
 
@@ -185,6 +185,13 @@ impl FixtureBuilder {
         self.element(storey, slab)
     }
 
+    /// A space with the boundary `outer` and `holes` and the space tool's
+    /// defaults (SPC-001).
+    pub fn space(&mut self, storey: StoreyId, outer: Vec<DVec2>, holes: Vec<Vec<DVec2>>) -> ElementId {
+        let space = self.project.new_space(storey, outer, holes, 0).kind;
+        self.element(storey, space)
+    }
+
     /// Changes an element. An element not added yet is changed before it is
     /// added; an added one through `UpdateElements`.
     ///
@@ -219,6 +226,23 @@ impl FixtureBuilder {
         };
         change(&mut layer);
         execute(&mut self.project, &mut self.history, Command::UpdateLayer(layer));
+    }
+
+    /// Changes the tool defaults slot of `kind` (ELM-001) through
+    /// `SetToolDefaults`.
+    ///
+    /// # Panics
+    ///
+    /// If the project has no slot for `kind`.
+    pub fn edit_tool_defaults(&mut self, kind: KindTag, change: impl FnOnce(&mut DefaultsSlot)) {
+        self.commit();
+        let mut defaults = self.project.tool_defaults.clone();
+        let Some(mut slot) = defaults.get(kind).cloned() else {
+            panic!("edit_tool_defaults: the project has no {kind:?} slot");
+        };
+        change(&mut slot);
+        defaults.insert(slot);
+        execute(&mut self.project, &mut self.history, Command::SetToolDefaults(defaults));
     }
 
     /// Adds the elements created since the last commit with one
@@ -318,6 +342,63 @@ pub fn two_storey_shell_with_shaft() -> Project {
     b.finish()
 }
 
+/// [`two_storey_shell`] with a space on each storey (SPC-001), a reference
+/// model. On the ground storey "Living room", number 0.01: the region inside
+/// the walls' inner faces around the seed (2.5, 4.0), less the interior
+/// wall, detected and kept up to date with its walls. On the upper storey
+/// "Landing", number 1.01: drawn east of the interior wall, with a hole over
+/// the stair opening. The space tool names new spaces "Raum {n}".
+pub fn two_storey_shell_with_spaces() -> Project {
+    let mut b = FixtureBuilder::new("two-storey-shell-with-spaces").titled("Two-storey shell with spaces");
+    let [ground, upper] = add_two_storey_shell(&mut b);
+    // The exterior walls' inner faces lie 0.25 m inside the outline, the
+    // 11.5 cm interior wall stands centred on x = 5.0 up to y = 6.0.
+    let (inner, half) = (0.25, 0.115 / 2.0);
+    let (west, east, north) = (5.0 - half, 5.0 + half, 9.0 - inner);
+    let living = b.space(
+        ground,
+        vec![
+            DVec2::splat(inner),
+            DVec2::new(west, inner),
+            DVec2::new(west, 6.0),
+            DVec2::new(east, 6.0),
+            DVec2::new(east, inner),
+            DVec2::new(12.0 - inner, inner),
+            DVec2::new(12.0 - inner, north),
+            DVec2::new(inner, north),
+        ],
+        Vec::new(),
+    );
+    b.edit(living, |e| {
+        if let Some(space) = e.as_space_mut() {
+            space.long_name = "Living room".to_owned();
+            space.number = "0.01".to_owned();
+            space.source = BoundarySource::Detected {
+                seed: DVec2::new(2.5, 4.0),
+                auto_update: true,
+            };
+        }
+    });
+    let stair_hole = rectangle(DVec2::new(6.0, 1.0), DVec2::new(9.0, 2.2));
+    let landing = b.space(
+        upper,
+        rectangle(DVec2::new(east, inner), DVec2::new(12.0 - inner, north)),
+        vec![stair_hole],
+    );
+    b.edit(landing, |e| {
+        if let Some(space) = e.as_space_mut() {
+            space.long_name = "Landing".to_owned();
+            space.number = "1.01".to_owned();
+        }
+    });
+    b.edit_tool_defaults(KindTag::Space, |slot| {
+        if let ElementKind::Space(space) = &mut slot.kind {
+            space.long_name = "Raum {n}".to_owned();
+        }
+    });
+    b.finish()
+}
+
 /// Adds the storeys and elements of [`two_storey_shell`]; returns the
 /// ground and the upper storey.
 fn add_two_storey_shell(b: &mut FixtureBuilder) -> [StoreyId; 2] {
@@ -356,6 +437,7 @@ pub type CatalogueEntry = (&'static str, fn() -> Project);
 const CATALOGUE: &[CatalogueEntry] = &[
     ("walls-and-slab", storey_with_walls_and_slab),
     ("two-storey-shell", two_storey_shell),
+    ("two-storey-shell-with-spaces", two_storey_shell_with_spaces),
 ];
 
 /// The reference-model samples by file name, the single list behind the

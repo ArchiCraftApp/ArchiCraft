@@ -10,10 +10,12 @@
 //! file declares the current `archicraft::` schemas, so validation checks the
 //! migrated data against the shapes the reader expects.
 //!
-//! No migration is registered yet: format 1 is the only format ever written.
-//! Whenever a reader-visible shape changes, bump
-//! [`FORMAT_VERSION`](schema::FORMAT_VERSION) and add a step to
-//! [`MIGRATIONS`]; optional additions need neither.
+//! Whenever a reader-visible shape changes, or the format stores a new kind,
+//! bump [`FORMAT_VERSION`](schema::FORMAT_VERSION) and add a step to
+//! [`MIGRATIONS`]; other optional additions need neither. A new kind's step
+//! changes nothing, because older files hold no elements of the kind: it
+//! exists so that a reader of the older format flags the new files as newer
+//! (IFX-062) instead of skipping what it cannot read.
 //!
 //! A step works on [`Value`] trees, so a file opened with raw attribute
 //! values ([`crate::validate::parse_raw`]) is converted to trees before its
@@ -46,7 +48,16 @@ pub struct Migration {
 
 /// The migration chain up to [`FORMAT_VERSION`](schema::FORMAT_VERSION), one
 /// step per earlier format, in order.
-pub const MIGRATIONS: &[Migration] = &[];
+pub const MIGRATIONS: &[Migration] = &[Migration {
+    from: 1,
+    description: "ifcx-migration-adds-spaces",
+    apply: adds_spaces,
+}];
+
+/// Format 2 stores spaces (SPC-001) and, for a node that shows another name
+/// than its element's, the element's own `name` in `archicraft::element`.
+/// A format 1 file has neither, so nothing changes.
+fn adds_spaces(_: &mut IfcxFile, _: &mut Vec<Problem>) {}
 
 /// The format version of the file and the path of its project node: the last
 /// entry with `archicraft::project` wins, as when the file is composed. Of
@@ -165,6 +176,8 @@ fn present(file: &IfcxFile) -> Vec<KindTag> {
 #[cfg(test)]
 mod tests {
     use serde_json::value::RawValue;
+
+    use archicraft_model::samples;
 
     use super::*;
     use crate::alpha::reader;
@@ -454,21 +467,74 @@ mod tests {
         assert_eq!(outcome.project.elements.len(), 13);
     }
 
-    /// A file at the current format is read without copying or reporting,
+    /// A file at the target format is read without copying or reporting,
     /// with the test chain as with the registered one: `upgrade` returns no
     /// migrated copy, so the reader reads the file it was given.
     #[test]
     fn a_file_at_the_target_format_is_left_as_it_is() {
-        let file = format_1();
         let mut problems = Vec::new();
-        assert_eq!(upgrade(&file, TEST_MIGRATIONS, 1, &mut problems), None);
+        assert_eq!(upgrade(&format_1(), TEST_MIGRATIONS, 1, &mut problems), None);
         assert!(problems.is_empty());
+        let current = saved(&samples::two_storey_shell());
+        let file = validate::parse(&current).unwrap();
         assert_eq!(upgrade(&file, MIGRATIONS, FORMAT_VERSION, &mut problems), None);
         assert!(problems.is_empty());
-        let raw = format_1_raw();
+        let raw = validate::parse_raw(&current).unwrap();
         assert!(upgrade(&raw, MIGRATIONS, FORMAT_VERSION, &mut problems).is_none());
         assert!(problems.is_empty());
         assert_eq!(reader::read(&raw).unwrap().migrated_from, None);
+    }
+
+    /// `project` saved as this release writes it.
+    fn saved(project: &archicraft_model::Project) -> Vec<u8> {
+        let geometry = archicraft_geometry::ModelGeometry::evaluate(project);
+        let options = crate::WriteOptions {
+            author: "Test".into(),
+            timestamp: "2026-11-09T12:00:00Z".into(),
+            data_version: 1,
+        };
+        let (bytes, warnings) = crate::save(project, &geometry, &options, false);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        bytes
+    }
+
+    /// IFX-062, SPC-001: spaces came with one step that changes nothing,
+    /// because files of the formats before it hold no spaces; it exists so
+    /// that a reader of those formats sees a file with spaces as newer.
+    #[test]
+    fn the_spaces_step_changes_nothing() {
+        let steps: Vec<&Migration> = MIGRATIONS
+            .iter()
+            .filter(|m| m.description == "ifcx-migration-adds-spaces")
+            .collect();
+        assert_eq!(steps.len(), 1, "{MIGRATIONS:?}");
+        let mut file = format_1();
+        let mut problems = Vec::new();
+        (steps[0].apply)(&mut file, &mut problems);
+        assert_eq!(file, format_1());
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    /// IFX-062, SPC-001: a reader of the format before this one, the chain
+    /// without its last step, flags a file with spaces as written by a newer
+    /// version, so it is not overwritten without confirmation; this
+    /// release reads it as current.
+    #[test]
+    fn an_older_reader_flags_a_file_with_spaces_as_newer() {
+        let bytes = saved(&samples::two_storey_shell_with_spaces());
+        let file = validate::parse_raw(&bytes).unwrap();
+        let older = &MIGRATIONS[..MIGRATIONS.len() - 1];
+        let outcome = reader::read_with(&file, older, FORMAT_VERSION - 1).unwrap();
+        assert!(outcome.newer_format);
+        let version = usize::try_from(FORMAT_VERSION).unwrap();
+        assert!(
+            messages(&outcome.problems, Severity::Warning).contains(&format!("ifcx-newer-format(version={version})")),
+            "{:#?}",
+            outcome.problems
+        );
+        let current = reader::read(&file).unwrap();
+        assert!(!current.newer_format);
+        assert!(current.problems.is_empty(), "{:#?}", current.problems);
     }
 
     /// A format without a step is reported and read as it is; a file that
