@@ -12,6 +12,7 @@ pub mod mesh;
 pub mod message;
 pub mod plan;
 pub mod slice;
+pub mod space;
 pub mod triangulate;
 pub mod wall;
 
@@ -25,6 +26,7 @@ pub use evaluate::{
 pub use kinds::{EvalContext, GeometryKind};
 pub use mesh::{MeshIssue, TriMesh};
 pub use plan::{PlanDrawing, PlanStamp, ViewRange, plan_drawing};
+pub use space::{RegionError, SpaceRegions, space_region};
 
 /// Why an element has no geometry (UI-012). [`GeometryError::message`]
 /// gives the user-visible text as a message key (NFR-L10N-001); `Display`
