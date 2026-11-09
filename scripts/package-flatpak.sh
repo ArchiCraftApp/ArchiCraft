@@ -110,10 +110,13 @@ METAINFO
 # Permissions (finish-args):
 # - Wayland, with X11 only where there is no Wayland, and IPC for X11's shared memory;
 # - the GPU (dri) for wgpu's Vulkan or OpenGL;
-# - the home folder: a save writes a temporary file next to the project and keeps backups
-#   beside it (NFR-REL-001, NFR-REL-003), and the recent projects reopen by path (SW-001); the
-#   document portal grants a single file and neither. Files outside the home folder still open
-#   through the file dialogs, which are XDG portals.
+# - the home folder and the mount points of removable drives and other disks (/media,
+#   /run/media, /mnt): a save writes a temporary file next to the project and keeps backups
+#   beside it (NFR-REL-001, NFR-REL-003), and the recent projects reopen by path (SW-001). The
+#   document portal grants a single file and neither, so a project on a USB drive reached only
+#   through it would lose its backups; with these paths granted, the file dialogs (XDG portals)
+#   hand the real path to the app instead. Files elsewhere still open and save through the
+#   file dialogs, without backups.
 # No network: ArchiCraft makes no network requests.
 cat >"$out/$app_id.json" <<MANIFEST
 {
@@ -127,7 +130,10 @@ cat >"$out/$app_id.json" <<MANIFEST
     "--socket=fallback-x11",
     "--share=ipc",
     "--device=dri",
-    "--filesystem=home"
+    "--filesystem=home",
+    "--filesystem=/media",
+    "--filesystem=/run/media",
+    "--filesystem=/mnt"
   ],
   "modules": [
     {

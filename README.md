@@ -81,11 +81,11 @@ again. `scripts/package-flatpak.sh` builds it into
 cannot build against the current freedesktop SDK). Installing it fetches the freedesktop
 runtime from Flathub when it is missing, and the bundle has no update source. The sandbox
 gets Wayland (X11 where there is no Wayland, with shared memory for it), the GPU for Vulkan
-or OpenGL, and the home folder, because a save writes a temporary file and backups next to
-the project and the recent projects reopen by path. Projects outside the home folder open
-and save through the file dialogs, which grant access to the file alone, so their backups
-may be missing. It gets no network. Inside the sandbox ArchiCraft cannot register itself as
-the handler for `.ifcx` files.
+or OpenGL, the home folder and the mount points of USB drives and other disks (`/media`,
+`/run/media`, `/mnt`), because a save writes a temporary file and backups next to the project
+and the recent projects reopen by path. Projects anywhere else open and save through the file
+dialogs, which grant access to the file alone, so they keep no backups. It gets no network.
+Inside the sandbox ArchiCraft cannot register itself as the handler for `.ifcx` files.
 
 An in-between release for testers comes from the workflow
 [Preview release](.github/workflows/preview-release.yml): it packs a pushed commit into the
