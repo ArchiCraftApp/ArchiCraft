@@ -35,8 +35,10 @@ ARCHICRAFT_BLESS=1 cargo test -p archicraft-ifcx --test corrupt
 
 The files in `crates/archicraft-ifcx/tests/formats/` are not golden files: each is a copy of a
 golden file as an earlier format version wrote it (`format-1.ifcx`: two-storey-shell at
-FORMAT_VERSION 1), and every later release must keep loading it without problems
-(`cargo test -p archicraft-ifcx --test formats`, IFX-090, IFX-091). They are frozen: no bless
+FORMAT_VERSION 1; `format-2.ifcx`: two-storey-shell-with-spaces at FORMAT_VERSION 2, which
+added spaces), and every later release must keep loading it with no problem beyond the info
+reports of its migration steps (`cargo test -p archicraft-ifcx --test formats`, IFX-090,
+IFX-091). They are frozen: no bless
 loop writes them, and `frozen_format_fixtures_never_change` fails with “frozen format fixture
 changed” when their bytes change. A format bump adds a new frozen file and a migration step
 (crates/archicraft-ifcx/src/alpha/migrate.rs); it never regenerates an old one.

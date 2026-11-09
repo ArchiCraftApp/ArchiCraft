@@ -1,19 +1,14 @@
 //! `archicraft::slab`: the parameters of a slab (IFX-060; SLB-001…003): the
 //! rings, the defaults slot's members and the material.
 
-use archicraft_model::outline::Outline;
 use archicraft_model::{Slab, SlabReference};
 use serde_json::{Map, Value, json};
 
-use super::common::{point2_value, read_material};
+use super::common::{outline_schema, read_material, read_outline, write_outline};
 use super::{Fields, KindCodec, ReadContext};
 use crate::alpha::reader::{self, Object, Report};
 use crate::alpha::schema;
 use crate::message::Message;
-
-fn ring_value(ring: &[archicraft_model::glam::DVec2]) -> Value {
-    ring.iter().map(|p| point2_value(*p)).collect()
-}
 
 impl KindCodec for Slab {
     const ATTRIBUTE: &'static str = "archicraft::slab";
@@ -28,10 +23,7 @@ impl KindCodec for Slab {
     ];
 
     fn schema() -> Value {
-        let mut fields = vec![
-            ("outline", schema::array(schema::point2())),
-            ("holes", schema::array(schema::array(schema::point2()))),
-        ];
+        let mut fields = outline_schema().to_vec();
         fields.extend(Self::slot_schema());
         fields.push(("material", schema::reference()));
         schema::object(&fields)
@@ -39,9 +31,7 @@ impl KindCodec for Slab {
 
     fn write(&self) -> Map<String, Value> {
         let mut map = Map::new();
-        let (outline, holes) = self.outline.to_points();
-        map.insert("outline".into(), ring_value(&outline));
-        map.insert("holes".into(), holes.iter().map(|h| ring_value(h)).collect());
+        write_outline(&mut map, &self.outline);
         map.extend(self.write_slot());
         map.insert("material".into(), json!(self.material.to_string()));
         map
@@ -52,16 +42,8 @@ impl KindCodec for Slab {
     /// top at the storey elevation. The rings are kept as read; validation
     /// orients them.
     fn read(attr: &Object, context: &ReadContext<'_>, report: &mut Report<'_>) -> Result<Self, Message> {
-        let outline = reader::field(attr, "outline").and_then(reader::points)?;
-        let holes: Vec<_> = match reader::array(attr, "holes").and_then(|h| h.iter().map(reader::points).collect()) {
-            Ok(h) => h,
-            Err(e) => {
-                report.repaired(Message::new("ifcx-holes-left-out").nested("reason", e));
-                Vec::new()
-            }
-        };
         let fallback = Slab {
-            outline: Outline::from_point_rings(std::iter::once(outline).chain(holes)),
+            outline: read_outline(attr, report)?,
             thickness: 0.2,
             reference: SlabReference::Top,
             offset: 0.0,

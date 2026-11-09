@@ -19,7 +19,9 @@ use archicraft_model::KindTag;
 use message::Message;
 
 pub use contour::{Chain, ContourGraph, ContourOptions, PlanSegmentSource, Region};
-pub use evaluate::{BodyPart, ElementGeometry, ModelGeometry, PartGeometry};
+pub use evaluate::{
+    BodyPart, ElementGeometry, MATERIAL_LESS_COLOR, MATERIAL_LESS_OPACITY, ModelGeometry, PartGeometry,
+};
 pub use kinds::{EvalContext, GeometryKind};
 pub use mesh::{MeshIssue, TriMesh};
 pub use plan::{PlanDrawing, PlanStamp, ViewRange, plan_drawing};

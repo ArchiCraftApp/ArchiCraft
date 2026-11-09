@@ -24,7 +24,9 @@
 //! `groups`, a group's `parent`, an element's `group` and the `group`
 //! counter, written only for projects with groups (ELM-015), an element
 //! node's `archicraft::relations`, written only for an element with
-//! explicit relations (SRS 3.3, [`super::relations`]), and a storey node's
+//! explicit relations (SRS 3.3, [`super::relations`]), an element's `name`
+//! in `archicraft::element`, written only when its node shows another name
+//! (a space's room name, SPC-001), and a storey node's
 //! `archicraft::annotations`, written only for a storey with elements of the
 //! kinds that are not IFCX nodes (ANN-010, [`super::kinds::annotations`]),
 //! whose entries leave out the same optional members as an element node.
@@ -572,6 +574,8 @@ struct ProjectData {
     groups: IndexMap<GroupId, Group>,
     /// The `counters` object, read once the elements are known.
     counters: Result<Object, Message>,
+    /// The file's `formatVersion`, if it is readable.
+    format: Option<u32>,
     newer_format: bool,
 }
 
@@ -613,15 +617,16 @@ fn read_settings(map: &Object, report: &mut Report<'_>) -> ProjectSettings {
 fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec<Problem>) -> ProjectData {
     let mut newer_format = false;
     let mut report = Report::new(problems, path, Message::new("ifcx-record-project"));
-    match text(attr, "formatVersion").map(|v| v.parse::<u32>()) {
-        Ok(Ok(version)) if version > current => {
+    let format = text(attr, "formatVersion").ok().and_then(|v| v.parse::<u32>().ok());
+    match format {
+        Some(version) if version > current => {
             newer_format = true;
             report.warn(
                 Message::new("ifcx-newer-format").count("version", usize::try_from(version).unwrap_or(usize::MAX)),
             );
         }
-        Ok(Ok(_)) => {}
-        _ => report.warn(Message::new("ifcx-format-version-invalid")),
+        Some(_) => {}
+        None => report.warn(Message::new("ifcx-format-version-invalid")),
     }
     let settings_map = report.or(object(attr, "settings").cloned(), Object::new());
     let location_map = report.or(object(attr, "location").cloned(), Object::new());
@@ -704,6 +709,7 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
         views,
         groups,
         counters,
+        format,
         newer_format,
     }
 }
@@ -719,11 +725,13 @@ fn count_of(value: u32) -> usize {
 /// largest `u32` or equal to it, which leaves no number for the next element.
 /// A kind without a tool has no counter until it has named elements. Counters
 /// of kinds this build does not know are ignored: their elements are skipped
-/// and reported on their own. A kind whose codec is a placeholder has no
-/// counter in the file: it counts its elements without a report.
+/// and reported on their own. A kind the file's format `written` does not
+/// store, a placeholder or a kind of a later format, has no counter in the
+/// file: it counts its elements without a report.
 fn read_counters(
     map: Result<&Object, Message>,
     project: &Project,
+    written: u32,
     path: &str,
     problems: &mut Vec<Problem>,
 ) -> NameCounters {
@@ -753,7 +761,7 @@ fn read_counters(
     };
     for &kind in KindTag::ALL {
         let (key, existing) = (kind.code(), count(kind));
-        if kinds::placeholder(kind) {
+        if kinds::unstored(kind, written) {
             counters.set(kind, existing);
             continue;
         }
@@ -823,13 +831,15 @@ fn read_group_counter(map: Option<&Object>, project: &Project, path: &str, probl
 /// project data. The template's slots, with their material and layer found
 /// by name among `materials` and `layers`, stand in for missing tool
 /// defaults and missing slots, and their values for invalid fields. Members
-/// that name no kind with a tool are ignored and reported. A kind whose codec
-/// is a placeholder has no slot in the file: it gets the template's slot
-/// without a report.
+/// that name no kind with a tool are ignored and reported. A kind the file's
+/// format `written` does not store, a placeholder or a kind of a later
+/// format, has no slot in the file: it gets the template's slot without a
+/// report.
 fn read_tool_defaults(
     map: Option<&Object>,
     materials: &[Material],
     layers: &[Layer],
+    written: u32,
     path: &str,
     problems: &mut Vec<Problem>,
 ) -> ToolDefaults {
@@ -846,7 +856,7 @@ fn read_tool_defaults(
     template
         .iter()
         .map(|(kind, default)| {
-            if kinds::placeholder(kind) {
+            if kinds::unstored(kind, written) {
                 return default.clone();
             }
             match object(map, kind.code()) {
@@ -1075,10 +1085,13 @@ fn read_element<A: AttributeValue>(
         }
     };
     let id = ElementId::from_uuid(node_uuid(path, &mut report));
+    // A node that shows another name, a space's room name (SPC-001), keeps
+    // the element's own in `archicraft::element`.
+    let own_name = report.optional(common, "name", text);
     let record = ElementRecord {
         kind,
         id,
-        name: name(node),
+        name: own_name.or_else(|| name(node)),
         class: class_code(node),
         storey,
         common,
@@ -1293,10 +1306,14 @@ fn read_migrated<A: AttributeValue>(
             &mut Report::new(&mut problems, p, Message::new("ifcx-record-building")),
         ))
     });
+    // The format the file was written in, which says what it can lack
+    // (IFX-062): before its migration, else as it states it.
+    let written = migrated_from.or(data.format).unwrap_or(current);
     let tool_defaults = read_tool_defaults(
         data.tool_defaults.as_ref(),
         &data.materials,
         &data.layers,
+        written,
         root_path,
         &mut problems,
     );
@@ -1399,6 +1416,7 @@ fn read_migrated<A: AttributeValue>(
     project.counters = read_counters(
         data.counters.as_ref().map_err(Clone::clone),
         &project,
+        written,
         root_path,
         &mut problems,
     );

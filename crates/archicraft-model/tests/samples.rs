@@ -56,7 +56,10 @@ fn fixtures_are_deterministic() {
 #[test]
 fn the_catalogue_lists_the_reference_samples() {
     let names: Vec<&str> = samples::catalogue().iter().map(|(name, _)| *name).collect();
-    assert_eq!(names, ["walls-and-slab", "two-storey-shell"]);
+    assert_eq!(
+        names,
+        ["walls-and-slab", "two-storey-shell", "two-storey-shell-with-spaces"]
+    );
     let mut seen = HashSet::new();
     for (name, build) in samples::catalogue() {
         for id in identities(&build()) {

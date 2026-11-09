@@ -1,16 +1,18 @@
 //! What the kind codecs share, each with its schema, writing and reading
-//! side: plan points, the top link of vertical kinds (ELM-006), the wall
-//! reference line (WAL-003), the drafting view of 2D elements (ANN-002) and
-//! the repair of a material reference (PRJ-008).
+//! side: plan points, outlines with holes (SLB-001, SPC-001), the top link
+//! of vertical kinds (ELM-006), the wall reference line (WAL-003), the
+//! drafting view of 2D elements (ANN-002) and the repair of a material
+//! reference (PRJ-008).
 
 #[cfg(feature = "test-kinds")]
 use archicraft_model::DraftingView;
 use archicraft_model::glam::DVec2;
+use archicraft_model::outline::Outline;
 use archicraft_model::{MaterialId, ReferenceLine, StoreyId, TopLink};
 use serde_json::{Map, Value, json};
 
 use super::ReadContext;
-use crate::alpha::reader::{Object, Report, about, integer, real, text, uuid};
+use crate::alpha::reader::{Object, Report, about, array, field, integer, points, real, text, uuid};
 use crate::alpha::schema;
 use crate::message::Message;
 
@@ -55,6 +57,41 @@ pub(crate) fn read_drafting_view(map: &Object) -> Result<DraftingView, Message> 
 
 pub(crate) fn point2_value(p: DVec2) -> Value {
     json!([p.x, p.y])
+}
+
+/// The members of an outline with holes, a slab's or a space's boundary:
+/// ring 0 as `outline`, the other rings as `holes`, each a list of plan
+/// points.
+pub(crate) fn outline_schema() -> [(&'static str, Value); 2] {
+    [
+        ("outline", schema::array(schema::point2())),
+        ("holes", schema::array(schema::array(schema::point2()))),
+    ]
+}
+
+fn ring_value(ring: &[DVec2]) -> Value {
+    ring.iter().map(|p| point2_value(*p)).collect()
+}
+
+/// Adds `outline` and `holes`, at full precision (NFR-ACC-002).
+pub(crate) fn write_outline(map: &mut Map<String, Value>, outline: &Outline) {
+    let (outer, holes) = outline.to_points();
+    map.insert("outline".into(), ring_value(&outer));
+    map.insert("holes".into(), holes.iter().map(|h| ring_value(h)).collect());
+}
+
+/// The rings as read, without orienting them: `Err` without a valid
+/// `outline`; invalid `holes` are left out with a report (PRJ-008).
+pub(crate) fn read_outline(attr: &Object, report: &mut Report<'_>) -> Result<Outline, Message> {
+    let outline = field(attr, "outline").and_then(points)?;
+    let holes: Vec<_> = match array(attr, "holes").and_then(|h| h.iter().map(points).collect()) {
+        Ok(h) => h,
+        Err(e) => {
+            report.repaired(Message::new("ifcx-holes-left-out").nested("reason", e));
+            Vec::new()
+        }
+    };
+    Ok(Outline::from_point_rings(std::iter::once(outline).chain(holes)))
 }
 
 pub(crate) fn top_link_value(top: TopLink) -> Value {

@@ -2,9 +2,11 @@
 // line, set by run.sh) is loaded into buildingSMART's reference viewer (src/viewer at the
 // commit SRS R2 pins) in headless Chromium through viewer/harness.html. The test checks the
 // spatial tree the viewer shows (project → site → building → storeys → elements with bodies
-// and colours), compares its storey and element counts with the file, renders a frame and
-// finds visible geometry and every material colour of the file in it. The screenshot is
-// written to test-results/<path-of-the-file>.png for the manual release check.
+// and colours), compares its storey, element and space counts with the file, renders a frame
+// and finds visible geometry and every opaque colour of the file in it. A translucent colour
+// (opacity below 1, such as a space's body) blends with what lies behind it, so no pixel shows
+// it as such; it is left to the manual release check. The screenshot is written to
+// test-results/<path-of-the-file>.png for that check.
 //
 // Everything is served by page.route: the harness from this directory and the four schema
 // imports from crates/archicraft-ifcx/schemas. Any other request is aborted and fails the
@@ -53,7 +55,7 @@ function readIfcx(file: string): Ifcx {
     return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
-/** Storeys, elements and distinct material colours as the file states them. */
+/** Storeys, elements, spaces and distinct opaque colours as the file states them. */
 function expectedFromFile(ifcx: Ifcx) {
     const classes = new Map<string, string>();
     const colours = new Map<string, number[]>();
@@ -61,12 +63,15 @@ function expectedFromFile(ifcx: Ifcx) {
         const code = node.attributes?.["bsi::ifc::class"]?.code;
         if (typeof code === "string") classes.set(node.path, code);
         const colour = node.attributes?.["bsi::ifc::presentation::diffuseColor"];
-        if (Array.isArray(colour)) colours.set(JSON.stringify(colour), colour);
+        const opacity = node.attributes?.["bsi::ifc::presentation::opacity"];
+        const translucent = typeof opacity === "number" && opacity < 1;
+        if (Array.isArray(colour) && !translucent) colours.set(JSON.stringify(colour), colour);
     }
     const codes = [...classes.values()];
     return {
         storeys: codes.filter((c) => c === "IfcBuildingStorey").length,
         elements: codes.filter((c) => !SPATIAL.has(c)).length,
+        spaces: codes.filter((c) => c === "IfcSpace").length,
         colours: [...colours.values()],
     };
 }
@@ -195,9 +200,10 @@ async function checkInViewer(page: Page, ifcx: Ifcx, screenshot?: string): Promi
 
     const summary = checkSpatialTree(tree);
     const expected = expectedFromFile(ifcx);
-    if (summary.storeys !== expected.storeys || summary.elements !== expected.elements) {
+    if (summary.storeys !== expected.storeys || summary.elements !== expected.elements || summary.spaces !== expected.spaces) {
         throw new Error(
-            `the viewer shows ${summary.storeys} storeys and ${summary.elements} elements, the file has ${expected.storeys} and ${expected.elements}`,
+            `the viewer shows ${summary.storeys} storeys, ${summary.elements} elements and ${summary.spaces} spaces, ` +
+                `the file has ${expected.storeys}, ${expected.elements} and ${expected.spaces}`,
         );
     }
     const analysis = await page.evaluate(analyseRender, {
@@ -216,8 +222,9 @@ async function checkInViewer(page: Page, ifcx: Ifcx, screenshot?: string): Promi
     }
     checkOffline(session);
     if (session.console.length > 0) throw new Error(`the viewer logged errors: ${session.console.join("; ")}`);
+    const fileSpaces = expected.spaces > 0 ? ` (${expected.spaces} spaces)` : "";
     return (
-        `${describeTree(summary)} (file: ${expected.storeys} storeys, ${expected.elements} elements), ` +
+        `${describeTree(summary)} (file: ${expected.storeys} storeys, ${expected.elements} elements${fileSpaces}), ` +
         `${(analysis.geometry * 100).toFixed(0)} % geometry, ${expected.colours.length}/${expected.colours.length} colours`
     );
 }

@@ -5,7 +5,9 @@
 //! The files under tests/formats/ are never regenerated: unlike the golden
 //! files under tests/golden/, `ARCHICRAFT_BLESS` does not touch them, and a
 //! hash test fails when their bytes change. `format-1.ifcx` is a copy of the
-//! two-storey-shell golden as written at FORMAT_VERSION 1 in `ifcx_alpha`.
+//! two-storey-shell golden as written at FORMAT_VERSION 1 in `ifcx_alpha`,
+//! `format-2.ifcx` one of the two-storey-shell-with-spaces golden as written
+//! at FORMAT_VERSION 2, the format that added spaces (SPC-001).
 
 #![allow(clippy::unwrap_used)]
 
@@ -14,7 +16,9 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use archicraft_geometry::ModelGeometry;
-use archicraft_ifcx::{WRITTEN_VERSION, validate};
+use archicraft_ifcx::{Severity, WRITTEN_VERSION, validate};
+use archicraft_model::glam::DVec2;
+use archicraft_model::{BoundarySource, ElementKind, KindTag};
 
 use common::options;
 
@@ -38,7 +42,10 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// an earlier release really wrote.
 #[test]
 fn frozen_format_fixtures_never_change() {
-    let frozen: [(&str, usize, u64); 1] = [("format-1.ifcx", 36_786, 0x4b1c_2083_91de_01b8)];
+    let frozen: [(&str, usize, u64); 2] = [
+        ("format-1.ifcx", 36_786, 0x4b1c_2083_91de_01b8),
+        ("format-2.ifcx", 43_980, 0xf858_2581_17c9_fc49),
+    ];
     let mut found: Vec<String> = std::fs::read_dir(formats_dir())
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -58,16 +65,27 @@ fn frozen_format_fixtures_never_change() {
     }
 }
 
-/// IFX-091, IFX-062: a file written at format 1 loads with no problem at all
-/// into the project it holds, and reports the IFCX version it was read as;
-/// format 1 is the current format, so nothing was migrated.
+/// IFX-091, IFX-062: a file written at format 1 is migrated to the current
+/// format and loads into the project it holds, with no problem but one info
+/// per migration step, the step that adds spaces (SPC-001) among them, and
+/// reports the IFCX version it was read as.
 #[test]
-fn format_1_loads_without_problems_into_the_expected_project() {
+fn format_1_migrates_and_loads_into_the_expected_project() {
     let loaded = archicraft_ifcx::load(&format_1()).unwrap();
-    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    let steps: Vec<String> = loaded.problems.iter().map(|p| p.message.to_string()).collect();
+    assert!(
+        loaded.problems.iter().all(|p| p.severity == Severity::Info),
+        "{:#?}",
+        loaded.problems
+    );
+    assert!(steps.iter().all(|s| s.starts_with("ifcx-migrated(")), "{steps:#?}");
+    assert!(
+        steps.iter().any(|s| s.ends_with("change=ifcx-migration-adds-spaces)")),
+        "{steps:#?}"
+    );
     assert!(!loaded.newer_format);
     assert_eq!(loaded.source_version, "ifcx_alpha");
-    assert_eq!(loaded.migrated_from, None);
+    assert_eq!(loaded.migrated_from, Some(1));
 
     let project = &loaded.project;
     assert_eq!(project.info.name, "Two-storey shell");
@@ -86,6 +104,49 @@ fn format_1_loads_without_problems_into_the_expected_project() {
         found.sort_unstable();
         assert_eq!(found, names, "elements on {}", storey.name);
     }
+    assert!(project.integrity_problems().is_empty());
+}
+
+/// IFX-091, IFX-062, SPC-001: a file written at format 2 loads into the
+/// project it holds with no problem but the reports of later migration
+/// steps: its two spaces with their room names, numbers and boundary
+/// sources, and the space tool's default name.
+#[test]
+fn format_2_loads_its_spaces() {
+    let bytes = std::fs::read(formats_dir().join("format-2.ifcx")).unwrap();
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(
+        loaded.problems.iter().all(|p| p.severity == Severity::Info),
+        "{:#?}",
+        loaded.problems
+    );
+    let project = &loaded.project;
+    let mut spaces: Vec<(&str, &str, &str, BoundarySource)> = project
+        .elements
+        .values()
+        .filter_map(|e| {
+            let s = e.as_space()?;
+            Some((e.name.as_str(), s.long_name.as_str(), s.number.as_str(), s.source))
+        })
+        .collect();
+    spaces.sort_by_key(|s| s.0);
+    assert_eq!(
+        spaces,
+        [
+            (
+                "SP-001",
+                "Living room",
+                "0.01",
+                BoundarySource::Detected {
+                    seed: DVec2::new(2.5, 4.0),
+                    auto_update: true
+                }
+            ),
+            ("SP-002", "Landing", "1.01", BoundarySource::Drawn),
+        ]
+    );
+    let slot = project.tool_defaults.get(KindTag::Space).unwrap();
+    assert!(matches!(&slot.kind, ElementKind::Space(s) if s.long_name == "Raum {n}"));
     assert!(project.integrity_problems().is_empty());
 }
 

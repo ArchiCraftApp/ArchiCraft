@@ -9,7 +9,7 @@
 
 use std::collections::HashSet;
 
-use archicraft_geometry::ModelGeometry;
+use archicraft_geometry::{MATERIAL_LESS_COLOR, MATERIAL_LESS_OPACITY, ModelGeometry};
 use archicraft_model::glam::{DMat4, DVec3};
 use archicraft_model::{ElementId, Project};
 use bytemuck::{Pod, Zeroable};
@@ -104,8 +104,12 @@ impl SceneData {
 pub const SELECTION_COLOR: [f32; 4] = [0.15, 0.45, 0.95, 1.0];
 const HOVER_TINT: f32 = 0.35;
 /// The appearance of a body without a material, like a space (SPC-001):
-/// light blue-grey and translucent, so that it never hides what it holds.
-pub const MATERIAL_LESS_APPEARANCE: [f32; 4] = [0.72, 0.79, 0.86, 0.25];
+/// light blue-grey and translucent, so that it never hides what it holds;
+/// saved files give such a body the same presentation.
+pub const MATERIAL_LESS_APPEARANCE: [f32; 4] = {
+    let [r, g, b] = MATERIAL_LESS_COLOR.0;
+    [r as f32, g as f32, b as f32, MATERIAL_LESS_OPACITY as f32]
+};
 const EDGE_COLOR: [f32; 4] = [0.12, 0.12, 0.14, 1.0];
 
 fn mix(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {

@@ -140,7 +140,7 @@ fn a_dummy_element_is_written_through_its_codec_and_declared() {
         written
     );
     let kinds = &members(&declared["archicraft::element"]["value"])["kind"]["enumRestrictions"]["options"];
-    assert_eq!(kinds, &serde_json::json!(["wall", "slab", "dummy"]));
+    assert_eq!(kinds, &serde_json::json!(["wall", "slab", "space", "dummy"]));
     let counters = &members(project_declaration(&file))["counters"];
     assert_eq!(
         members(counters)["dummy"],
@@ -167,7 +167,7 @@ fn a_missing_counter_of_a_kind_without_a_tool_reads_as_zero() {
     let written = project_attribute(&file)["counters"].as_object().unwrap();
     assert!(!written.contains_key("dummy"), "{written:?}");
     let declared = members(&members(project_declaration(&file))["counters"]);
-    assert_eq!(declared.keys().collect::<Vec<_>>(), ["wall", "slab", "group"]);
+    assert_eq!(declared.keys().collect::<Vec<_>>(), ["wall", "slab", "space", "group"]);
     let loaded = archicraft_ifcx::load(&save(&p)).unwrap();
     assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
     assert_eq!(loaded.project.counters.get(KindTag::Dummy), 0);
@@ -219,7 +219,7 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     let bytes = save(&p);
     let file: Value = serde_json::from_slice(&bytes).unwrap();
     let slots = project_attribute(&file)["toolDefaults"].as_object().unwrap();
-    assert_eq!(slots.keys().collect::<Vec<_>>(), ["wall", "slab", "dummy"]);
+    assert_eq!(slots.keys().collect::<Vec<_>>(), ["wall", "slab", "space", "dummy"]);
     let slot = slots["dummy"].as_object().unwrap();
     assert_eq!(
         slot.keys().collect::<Vec<_>>(),
@@ -239,7 +239,7 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     assert_eq!(slot["panicOnEvaluate"], false);
     assert_eq!(slot["siteLevel"], true);
     let declared = members(&members(project_declaration(&file))["toolDefaults"]);
-    assert_eq!(declared.keys().collect::<Vec<_>>(), ["wall", "slab", "dummy"]);
+    assert_eq!(declared.keys().collect::<Vec<_>>(), ["wall", "slab", "space", "dummy"]);
     assert_eq!(
         members(&declared["dummy"]).keys().collect::<Vec<_>>(),
         slot.keys()
@@ -249,7 +249,10 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     // The slot makes the kind present: its counter is declared, optional,
     // and not written while it is zero.
     let counters = members(&members(project_declaration(&file))["counters"]);
-    assert_eq!(counters.keys().collect::<Vec<_>>(), ["wall", "slab", "dummy", "group"]);
+    assert_eq!(
+        counters.keys().collect::<Vec<_>>(),
+        ["wall", "slab", "space", "dummy", "group"]
+    );
     assert!(
         !project_attribute(&file)["counters"]
             .as_object()
@@ -283,22 +286,25 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     );
 }
 
-/// The ids of the material nodes in `file`: the nodes with a diffuse colour.
+/// The ids of the material nodes in `file`: the nodes with a diffuse colour
+/// and no mesh (a body without a material carries its own colour).
 fn material_nodes(file: &Value) -> Vec<String> {
     file["data"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|n| n["attributes"].get("bsi::ifc::presentation::diffuseColor").is_some())
+        .filter(|n| n["attributes"].get("usd::usdgeom::mesh").is_none())
         .map(|n| n["path"].as_str().unwrap().to_owned())
         .collect()
 }
 
 /// SPC-001, ANN-007 (preparation): a project with a test element and a
 /// defaults slot without a material round-trips its elements equal; the
-/// element's Body has no material inherit, its attribute and the slot no
-/// material member, the written material list equals that of the project
-/// without them and the file is valid. The only problem is the slot's
+/// element's Body has no material inherit but a translucent presentation of
+/// its own, its attribute and the slot no material member, the written
+/// material list equals that of the project without them and the file is
+/// valid. The only problem is the slot's
 /// unknown tool, as for any slot of a kind without template defaults; a
 /// material-less slot read through a template is tested in the reader.
 #[test]
@@ -341,6 +347,7 @@ fn a_material_less_dummy_round_trips_without_a_material() {
         body.get("inherits").is_none_or(|i| i.get("material").is_none()),
         "{body}"
     );
+    assert_eq!(body["attributes"]["bsi::ifc::presentation::opacity"], 0.25, "{body}");
     let plain_file: Value = serde_json::from_slice(&save(&plain)).unwrap();
     assert_eq!(material_nodes(&file), material_nodes(&plain_file));
     let slot = project_attribute(&file)["toolDefaults"]["dummy"].as_object().unwrap();

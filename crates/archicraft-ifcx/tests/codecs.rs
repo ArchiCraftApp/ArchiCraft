@@ -58,10 +58,9 @@ fn members(declaration: &Value) -> BTreeSet<&str> {
 /// A field added without a mapping, or a kind without a sample payload
 /// here, fails the test. A kind that is not an IFCX node (ANN-010) declares
 /// its members under its kind code in the entries of
-/// `archicraft::annotations`, not as an attribute of its own. The one
-/// exception is the space kind, whose codec is a placeholder until spaces
-/// are stored (SPC-001, archicraft-awj): it maps no field and declares
-/// nothing, and saving reports its elements (tests/spaces.rs).
+/// `archicraft::annotations`, not as an attribute of its own. A kind whose
+/// codec is a placeholder maps no field and declares nothing; no kind of
+/// this build is one.
 #[test]
 fn every_project_field_is_persisted() {
     let project = samples::storey_with_walls_and_slab();
@@ -105,7 +104,7 @@ fn every_project_field_is_persisted() {
         KindTag::ALL.iter().copied().collect(),
         "a sample payload of every kind"
     );
-    assert_eq!(placeholders(), [KindTag::Space], "the kinds that store nothing yet");
+    assert_eq!(placeholders(), [], "the kinds that store nothing yet");
     let tables = fields();
     assert_eq!(tables.len(), KindTag::ALL.len());
     for (tag, table) in tables {
@@ -209,8 +208,9 @@ fn declarations_cover_only_the_kinds_the_project_stores() {
         .collect();
     assert_eq!(counters, ["wall", "group"]);
 
-    // The samples store walls and slabs, so the goldens declare both and
-    // stay as they were (golden_files_are_reproduced).
+    // The samples store walls and slabs, and every project has the space
+    // tool's defaults slot, so the goldens declare all three
+    // (golden_files_are_reproduced).
     for sample in common::samples() {
         let file: Value = serde_json::from_slice(&save(&sample)).unwrap();
         let own: Vec<&String> = file["schemas"]
@@ -226,7 +226,8 @@ fn declarations_cover_only_the_kinds_the_project_stores() {
                 "archicraft::storey",
                 "archicraft::element",
                 "archicraft::wall",
-                "archicraft::slab"
+                "archicraft::slab",
+                "archicraft::space"
             ]
         );
     }
