@@ -6,7 +6,10 @@
 //! ([`kinds::present`]): a kind's attribute, its option in the kind
 //! enumeration, its defaults slot and its counter are declared only when the
 //! project has that kind, so a test build, which has the test kind's codec,
-//! writes a project without it exactly as a release build does. The
+//! writes a project without it exactly as a release build does. The kinds
+//! that are not IFCX nodes (ANN-010) have no attribute of their own: their
+//! members are declared inside `archicraft::annotations` ([`annotations`]),
+//! which is declared only when the project stores such a kind. The
 //! `formatVersion` in `archicraft::project` versions this schema (IFX-062).
 //! [`document`] puts the declarations of every kind a release stores into a
 //! standalone schema document that could be published on ifcx.dev (IFX-092).
@@ -18,7 +21,7 @@ use archicraft_model::material::{FillPattern, MaterialCategory};
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, VolumeUnit};
 use archicraft_model::{KindTag, Position, PredefinedType};
 
-use super::kinds::{self, Codec};
+use super::kinds::{self, Codec, annotations};
 use super::relations;
 use super::writer::IFCX_VERSION;
 use crate::container::{Header, IfcxFile};
@@ -137,6 +140,21 @@ fn predefined_type() -> Value {
 /// (INP-017). Optional: written only when set.
 fn snap_excluded() -> Value {
     optional(boolean())
+}
+
+/// The common data of an element (IFX-060), with its kind among `kinds`:
+/// `archicraft::element` of an element node, and part of the envelope of an
+/// annotation entry ([`annotations`]).
+pub(crate) fn element_data<'a>(kinds: impl IntoIterator<Item = &'a str>) -> Vec<(&'static str, Value)> {
+    vec![
+        ("kind", enumeration(kinds)),
+        ("layer", string()),
+        ("locked", boolean()),
+        ("position", positions()),
+        ("predefinedType", predefined_type()),
+        ("snapExcluded", snap_excluded()),
+        ("group", optional(string())),
+    ]
 }
 
 /// A tool's defaults slot (ELM-001): the kind's parameters from its codec,
@@ -280,7 +298,8 @@ fn project(present: &[&dyn Codec]) -> Value {
 /// The `schemas` section of a file that stores the kinds `present`, in
 /// registry order (IFX-061): the project, the storey, the common element
 /// data, the attribute of each present kind that has a codec other than a
-/// placeholder (IFX-060) and,
+/// placeholder and whose elements are nodes (IFX-060), the annotation
+/// entries when a present kind's elements are not nodes (ANN-010) and,
 /// with `relations`, the explicit relations between elements (SRS 3.3).
 /// The writer passes [`kinds::present`] and [`relations::present`] of the
 /// project; [`document`] passes [`kinds::published`] and declares the
@@ -291,6 +310,8 @@ pub fn declarations(present: &[KindTag], relations: bool) -> IndexMap<String, Va
         .filter_map(|&kind| kinds::codec(kind))
         .filter(|codec| !codec.placeholder())
         .collect();
+    let (entries, nodes): (Vec<&dyn Codec>, Vec<&dyn Codec>) =
+        present.iter().copied().partition(|c| annotations::entry_kind(c.tag()));
     let mut schemas = IndexMap::new();
     schemas.insert(PROJECT.to_owned(), json!({"value": project(&present)}));
     schemas.insert(
@@ -303,18 +324,16 @@ pub fn declarations(present: &[KindTag], relations: bool) -> IndexMap<String, Va
     );
     schemas.insert(
         ELEMENT.to_owned(),
-        json!({"value": object(&[
-            ("kind", enumeration(present.iter().map(|c| c.tag().code()))),
-            ("layer", string()),
-            ("locked", boolean()),
-            ("position", positions()),
-            ("predefinedType", predefined_type()),
-            ("snapExcluded", snap_excluded()),
-            ("group", optional(string())),
-        ])}),
+        json!({"value": object(&element_data(nodes.iter().map(|c| c.tag().code())))}),
     );
-    for codec in present {
+    for codec in &nodes {
         schemas.insert(codec.attribute().to_owned(), json!({"value": codec.schema()}));
+    }
+    if !entries.is_empty() {
+        schemas.insert(
+            annotations::ATTRIBUTE.to_owned(),
+            json!({"value": annotations::schema(&entries)}),
+        );
     }
     if relations {
         schemas.insert(relations::ATTRIBUTE.to_owned(), json!({"value": relations::schema()}));

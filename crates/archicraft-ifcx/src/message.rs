@@ -69,6 +69,7 @@ pub const ALL_KEYS: &[&str] = &[
     "ifcx-record-building",
     "ifcx-record-storey",
     "ifcx-record-element",
+    "ifcx-record-annotation",
     // ... why, and what was used instead.
     "ifcx-default-used",
     "ifcx-left-out",

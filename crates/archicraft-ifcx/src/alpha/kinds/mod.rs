@@ -13,7 +13,10 @@
 //! warning, and read as an unsupported node. A kind this format version
 //! cannot store yet has a placeholder codec ([`KindCodec::PLACEHOLDER`]):
 //! its elements, defaults slot and counter are left out of the file, with one
-//! warning per kind naming the elements (PRJ-008).
+//! warning per kind naming the elements (PRJ-008). The elements of a kind
+//! that is not an IFCX node (texts, markers, dimensions; ANN-010) are
+//! entries of the storey's `archicraft::annotations` instead ([`annotations`]),
+//! with the codec's members under the kind code.
 //!
 //! A file declares the attributes of the kinds the project stores
 //! ([`present`]), not of every codec this build has: the model's test kinds
@@ -33,6 +36,7 @@ use serde_json::{Map, Value};
 use super::reader::{Object, Report};
 use crate::message::Message;
 
+pub mod annotations;
 pub(crate) mod common;
 
 /// What the reader knows when it reads an element's parameters: the project
@@ -48,7 +52,10 @@ pub type Fields = &'static [(&'static str, &'static [&'static str])];
 /// The attribute of one element kind (IFX-060, IFX-061), implemented for
 /// the model's payload types (a local trait, so the orphan rule allows it).
 pub(crate) trait KindCodec: Sized {
-    /// The attribute holding the parameters, `archicraft::<kind code>`.
+    /// The attribute holding the parameters, `archicraft::<kind code>`. A
+    /// kind that is not an IFCX node has no attribute of its own: its
+    /// elements' annotation entries hold the members under the kind code
+    /// ([`annotations`]).
     const ATTRIBUTE: &'static str;
 
     /// Every serde field of the payload with the members of
@@ -278,11 +285,17 @@ pub enum Stored {
     /// The element nodes: `archicraft::element` and the attribute of the
     /// kind's codec, whose [`KindCodec::FIELDS`] map the payload.
     Elements,
+    /// The entries of `archicraft::annotations` on the storey nodes, for the
+    /// elements of the kinds that are not IFCX nodes (ANN-010): the envelope
+    /// and the codec's members under the kind code, which
+    /// [`KindCodec::FIELDS`] map ([`annotations`]).
+    Annotations,
     /// A member of `archicraft::project` on the project node, as a path such
     /// as `counters.group`.
     Member(&'static str),
     /// The element nodes' `archicraft::relations`, each explicit relation
-    /// on the node of its first end ([`super::relations`], SRS 3.3).
+    /// on the node of its first end ([`super::relations`], SRS 3.3), or in
+    /// the annotation entry of its first end under `relations`.
     Relations,
     /// A field of the file header.
     Header(&'static str),
@@ -301,7 +314,7 @@ pub const PROJECT_FIELDS: &[(&str, &[Stored])] = &[
     ("storeys", &[Stored::Node("Storey"), Stored::Member("groundStorey")]),
     ("layers", &[Stored::Member("layers")]),
     ("materials", &[Stored::Member("materials"), Stored::Node("Material")]),
-    ("elements", &[Stored::Elements]),
+    ("elements", &[Stored::Elements, Stored::Annotations]),
     ("groups", &[Stored::Member("groups")]),
     ("relations", &[Stored::Relations]),
     ("tool_defaults", &[Stored::Member("toolDefaults")]),

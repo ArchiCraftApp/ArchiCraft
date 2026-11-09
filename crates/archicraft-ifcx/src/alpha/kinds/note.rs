@@ -1,8 +1,10 @@
-//! `archicraft::note`: the parameters of the model's body-less test kind
-//! (IFX-060; ANN-002), behind the cargo feature `test-kinds` like the kind
-//! itself: the drafting view, the plan point at full precision and the text.
-//! The kind has no material and no tool, so its defaults slot has no members
-//! of its own.
+//! The parameters of the model's body-less test kind (IFX-060; ANN-002),
+//! behind the cargo feature `test-kinds` like the kind itself: the drafting
+//! view, the plan point at full precision and the text. A note is not an
+//! IFCX node (ANN-010), so they are the members `note` of its entry in its
+//! storey's `archicraft::annotations` ([`super::annotations`]), not an
+//! attribute of their own. The kind has no material and no tool, so its
+//! defaults slot has no members of its own.
 
 use archicraft_model::kinds::Note;
 use serde_json::{Map, Value, json};

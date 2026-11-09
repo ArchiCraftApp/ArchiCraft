@@ -25,6 +25,7 @@ use std::collections::HashSet;
 use archicraft_model::KindTag;
 use serde_json::Value;
 
+use super::kinds::annotations;
 use super::relations;
 use super::schema;
 use crate::container::{AttributeValue, IfcxFile};
@@ -133,8 +134,8 @@ pub(crate) fn upgrade<A: AttributeValue>(
 
 /// The kinds the migrated file stores, as [`super::kinds::present`] finds
 /// them in a project: a defaults slot, a non-zero counter or an element of
-/// the kind, in registry order. The migrated file declares these, like a
-/// file the writer writes (IFX-061).
+/// the kind, a node or an annotation entry, in registry order. The migrated
+/// file declares these, like a file the writer writes (IFX-061).
 fn present(file: &IfcxFile) -> Vec<KindTag> {
     let mut codes: HashSet<&str> = HashSet::new();
     for node in &file.data {
@@ -151,6 +152,8 @@ fn present(file: &IfcxFile) -> Vec<KindTag> {
         if let Some(kind) = node.attributes.get(schema::ELEMENT).and_then(|e| e["kind"].as_str()) {
             codes.insert(kind);
         }
+        let entries = node.attributes.get(annotations::ATTRIBUTE).and_then(Value::as_array);
+        codes.extend(entries.into_iter().flatten().filter_map(|entry| entry["kind"].as_str()));
     }
     KindTag::ALL
         .iter()
@@ -401,6 +404,54 @@ mod tests {
             element["kind"]["enumRestrictions"]["options"],
             serde_json::json!(["wall", "slab", "dummy"])
         );
+    }
+
+    /// ANN-010, IFX-062: a migrated file declares `archicraft::annotations`
+    /// when a storey node carries entries, the entry's kind found from the
+    /// entry itself without a counter, so the annotations of a file written
+    /// at the current format survive the first real migration: the file
+    /// validates, declares no attribute of the note's own and the note loads.
+    #[cfg(feature = "test-kinds")]
+    #[test]
+    fn a_migrated_file_with_annotations_keeps_declaring_them() {
+        let mut old = format_1();
+        let project = old.data.iter().find_map(|n| n.attributes.get(schema::PROJECT)).unwrap();
+        let layer = project["layers"][0]["id"].clone();
+        let storey = old
+            .data
+            .iter_mut()
+            .find(|n| n.attributes.contains_key(schema::STOREY))
+            .unwrap();
+        let id = uuid::Uuid::new_v4();
+        let entry = serde_json::json!({
+            "id": id.to_string(),
+            "name": "NT-001",
+            "ifcClass": "IfcAnnotation",
+            "kind": "note",
+            "layer": layer,
+            "locked": false,
+            "position": "undefined",
+            "note": {"view": {"type": "plan", "storey": storey.path}, "at": [1.0, 2.0], "text": "Hall"},
+        });
+        storey
+            .attributes
+            .insert(annotations::ATTRIBUTE.into(), serde_json::json!([entry]));
+        let (file, _) = upgrade(&old, TEST_MIGRATIONS, 2, &mut Vec::new()).unwrap();
+        assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
+        let declared = &file.schemas[annotations::ATTRIBUTE]["value"]["arrayRestrictions"]["value"];
+        assert!(
+            declared["objectRestrictions"]["values"]["note"].is_object(),
+            "{declared}"
+        );
+        assert!(!file.schemas.contains_key("archicraft::note"));
+
+        let outcome = reader::read_with(&old, TEST_MIGRATIONS, 2).unwrap();
+        let note = outcome
+            .project
+            .element(archicraft_model::ElementId::from_uuid(id))
+            .unwrap();
+        assert_eq!(note.name, "NT-001");
+        assert_eq!(outcome.project.elements.len(), 13);
     }
 
     /// A file at the current format is read without copying or reporting,

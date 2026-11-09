@@ -56,10 +56,12 @@ fn members(declaration: &Value) -> BTreeSet<&str> {
 /// `archicraft::` member or node that stores it, by the tables reachable
 /// from `alpha/kinds/mod.rs`, and every member the tables name is declared.
 /// A field added without a mapping, or a kind without a sample payload
-/// here, fails the test. The one exception is the space kind, whose codec
-/// is a placeholder until spaces are stored (SPC-001, archicraft-awj): it
-/// maps no field and declares nothing, and saving reports its elements
-/// (tests/spaces.rs).
+/// here, fails the test. A kind that is not an IFCX node (ANN-010) declares
+/// its members under its kind code in the entries of
+/// `archicraft::annotations`, not as an attribute of its own. The one
+/// exception is the space kind, whose codec is a placeholder until spaces
+/// are stored (SPC-001, archicraft-awj): it maps no field and declares
+/// nothing, and saving reports its elements (tests/spaces.rs).
 #[test]
 fn every_project_field_is_persisted() {
     let project = samples::storey_with_walls_and_slab();
@@ -118,7 +120,27 @@ fn every_project_field_is_persisted() {
         let mapped: BTreeSet<&str> = table.iter().map(|(field, _)| *field).collect();
         assert_eq!(fields_of_payload, mapped, "{tag:?}: the payload's fields and FIELDS");
         assert_eq!(table.len(), mapped.len(), "{tag:?}: each field once");
-        let declared = members(&declared[attribute_of(tag)]);
+        let declared = if tag.descriptor().ifcx_node {
+            assert!(
+                declared.get(attribute_of(tag)).is_some(),
+                "{tag:?}: a node kind declares its attribute"
+            );
+            members(&declared[attribute_of(tag)])
+        } else {
+            assert!(
+                declared.get(attribute_of(tag)).is_none(),
+                "{tag:?}: an annotation kind has no attribute of its own"
+            );
+            let entry = &declared["archicraft::annotations"]["value"]["arrayRestrictions"]["value"];
+            let member = &entry["objectRestrictions"]["values"][tag.code()];
+            assert_eq!(member["optional"], true, "{tag:?}: one kind's members per entry");
+            member["objectRestrictions"]["values"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect()
+        };
         for (field, stored) in table {
             assert!(!stored.is_empty(), "{tag:?}.{field} names a member");
             for member in *stored {
@@ -357,9 +379,10 @@ fn a_wall_without_thickness_loads_with_a_quarter_metre_and_one_warning() {
 }
 
 /// SRS 3.2, IFX-060: the format-level code has no per-kind arm. The schema,
-/// writer and reader reach a kind's parameters only through its codec under
-/// `alpha/kinds/`, so a new kind is one codec module plus one line in the
-/// codec list.
+/// writer and reader, and the annotation entries of the kinds that are not
+/// IFCX nodes (ANN-010), reach a kind's parameters only through its codec
+/// under `alpha/kinds/`, so a new kind is one codec module plus one line in
+/// the codec list.
 #[test]
 fn format_code_has_no_per_kind_arm() {
     let alpha = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/alpha");
@@ -370,6 +393,7 @@ fn format_code_has_no_per_kind_arm() {
         "kinds/slab.rs",
         "kinds/dummy.rs",
         "kinds/note.rs",
+        "kinds/annotations.rs",
     ] {
         assert!(alpha.join(file).is_file(), "src/alpha/{file} exists");
     }
@@ -380,8 +404,12 @@ fn format_code_has_no_per_kind_arm() {
         "KindTag::Slab",
         "\"archicraft::wall\"",
         "\"archicraft::slab\"",
+        "ElementKind::Note",
+        "KindTag::Note",
+        "\"archicraft::note\"",
+        "\"note\"",
     ];
-    for file in ["writer.rs", "reader.rs", "schema.rs"] {
+    for file in ["writer.rs", "reader.rs", "schema.rs", "kinds/annotations.rs"] {
         let text = fs::read_to_string(alpha.join(file)).unwrap();
         for (n, line) in text.lines().enumerate() {
             for pattern in patterns {
