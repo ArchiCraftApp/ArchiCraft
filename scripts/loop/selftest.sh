@@ -96,10 +96,13 @@ case "$1 $2" in
     "api repos/"*/rules/branches/main) echo "${FAKE_GH_REQUIRED:-[]}" ;;
     "pr create") echo "https://github.com/o/r/pull/9" ;;
     # setup-github.sh: the repository's kind from FAKE_GH_REPO_KIND ("<in an org> <visibility>"),
-    # the id of an existing ruleset from FAKE_GH_RULESET_ID, a classic protection unless
-    # FAKE_GH_NO_PROTECTION is set.
+    # the id of an existing ruleset from FAKE_GH_RULESET_ID and of an existing Actions policy from
+    # FAKE_GH_POLICY_ID, a classic protection unless FAKE_GH_NO_PROTECTION is set; writing the
+    # policy fails when FAKE_GH_POLICY_FAIL is set.
     "repo view") case "$*" in *isInOrganization*) echo "${FAKE_GH_REPO_KIND:-true PUBLIC}" ;; *) echo o/r ;; esac ;;
     "api repos/"*/rulesets\?*) echo "${FAKE_GH_RULESET_ID:-}" ;;
+    "api repos/"*/actions/policies\?*) echo "${FAKE_GH_POLICY_ID:-}" ;;
+    "api -X") case "$4" in repos/*/actions/policies*) [ -z "${FAKE_GH_POLICY_FAIL:-}" ] || exit 1 ;; esac ;;
     "api repos/"*/protection) [ -z "${FAKE_GH_NO_PROTECTION:-}" ] || exit 1 ;;
     "run list") case "$*" in *ci.yml*) echo "${FAKE_GH_CI_RUNS:-}" ;; *) echo "${FAKE_GH_RUNS:-}" ;; esac ;;
     "api graphql")
@@ -1321,6 +1324,24 @@ expect "the user-review workflow judges the PR's head or the merge group's" 2 \
 expect "the user-review workflow runs once per merge group, which has no PR number" 1 \
     "$(grep -c '^ *group: user-review-${{ github.event.pull_request.number || github.event.merge_group.head_ref }}$' "$wf")"
 expect "the user-review workflow runs the check" 1 "$(grep -c '^ *run: scripts/loop/ci-user-review\.sh$' "$wf")"
+# GitHub blocks pull_request_target in public repositories by default from 2026-12-02; the Actions
+# event policy of setup-github.sh allows it for user-review.yml (archicraft-x79i7). Its event rule
+# is an allowlist, so it must name every event the workflow runs on, or the merge queue waits for
+# the status, and it targets that workflow alone, so no other one may run on pull_request_target.
+policy="$(bash "$src/setup-github.sh" --print-policy)"
+expect "the Actions policy targets the user-review workflow alone" ".github/workflows/user-review.yml" \
+    "$(jq -r '.conditions.workflow_path | "\(.include | join(" "))\(.exclude | join(" "))"' <<<"$policy")"
+expect "the Actions policy names the workflow's path in the repository" yes \
+    "$([ "$src/../../$(jq -r '.conditions.workflow_path.include[0]' <<<"$policy")" -ef "$wf" ] && echo yes || echo no)"
+expect "the Actions policy allows exactly the events the user-review workflow runs on" \
+    "$(sed -n '/^on:/,/^[a-z]/p' "$wf" | sed -n 's/^  \([a-z_]*\):.*/\1/p' | sort | paste -sd ' ' -)" \
+    "$(jq -r '.rules[] | select(.type == "restrict_action_events") | .parameters.allowed_events[]' <<<"$policy" |
+        sort | paste -sd ' ' -)"
+expect "the Actions policy has its event rule alone, and enforces it" "restrict_action_events active" \
+    "$(jq -r '"\([.rules[].type] | join(" ")) \(.enforcement)"' <<<"$policy")"
+expect "no workflow but user-review.yml runs on pull_request_target" user-review.yml \
+    "$(grep -lE '^on:.*pull_request_target|^  pull_request_target:|^  - pull_request_target' \
+        "$src/../../.github/workflows/"*.yml | xargs -n 1 basename | paste -sd ' ' -)"
 rulesets="$(bash "$src/setup-github.sh" --print-rulesets)"
 ruleset="$(jq '.[] | select(.name == "main")' <<<"$rulesets")"
 required="$(jq -r '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' <<<"$ruleset")"
@@ -1373,6 +1394,21 @@ FAKE_GH_RULESET_ID=42 FAKE_GH_NO_PROTECTION=1 setup >/dev/null
 expect "setup updates existing rulesets and leaves an absent protection alone" \
     "$(printf '%s|' 'api repos/o/r/rulesets?includes_parents=false' 'api -X PUT repos/o/r/rulesets/42' \
         'api repos/o/r/rulesets?includes_parents=false' 'api -X PUT repos/o/r/rulesets/42')api repos/o/r/branches/main/protection" "$(api_calls)"
+policy_calls() { # the calls to the Actions policies, in order, and how many name the API version
+    grep -E '^api (-X [A-Z]+ )?repos/o/r/actions/policies' "$FAKE_GH_LOG" | sed 's/ -H .*//' | paste -sd '|' -
+    grep -cE -- ' -H X-GitHub-Api-Version: 2026-03-10( |$)' "$FAKE_GH_LOG"
+}
+out="$(setup)"
+expect "setup creates the Actions policy after the rulesets, through its API version" \
+    "api repos/o/r/actions/policies?has_parents=false|api -X POST repos/o/r/actions/policies 2 1" \
+    "$(policy_calls | paste -sd ' ' -) $(grep -c '^  Actions policy "User review on pull_request_target": ' <<<"$out")"
+expect "the Actions policy comes last" "api -X POST repos/o/r/actions/policies" "$(tail -n 1 "$FAKE_GH_LOG" | sed 's/ -H .*//')"
+FAKE_GH_POLICY_ID=7 setup >/dev/null
+expect "setup updates an existing Actions policy" \
+    "api repos/o/r/actions/policies?has_parents=false|api -X PUT repos/o/r/actions/policies/7" "$(policy_calls | head -n 1)"
+code=0 out="$(FAKE_GH_POLICY_FAIL=1 setup)" || code=$?
+expect "setup fails and says how to set the policy by hand when GitHub refuses it" "1 1" \
+    "$code $(grep -c 'Set it by hand under Settings → Actions' <<<"$out")"
 out="$(FAKE_GH_REPO_KIND="false PUBLIC" setup)"
 expect "setup changes nothing where GitHub offers no merge queue" "1 0" \
     "$(grep -c "The merge queue needs a public repository owned by an organization" <<<"$out") $(grep -c '^api -X' "$FAKE_GH_LOG")"
