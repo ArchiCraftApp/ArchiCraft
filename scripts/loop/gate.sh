@@ -97,7 +97,8 @@ loop_self_check() {
 step loop-guardrails loop_self_check
 
 # What CI's Implementation status job checks (docs/testing.md, "Implementation status"), on the
-# working tree before the PR exists: the generated tables match docs/status/requirements.json,
+# working tree before the PR exists: the rows of docs/status/requirements.json are valid and every
+# done row is traced, docs/implementation-status.md holds no generated block (archicraft-tvmtt),
 # and merge-check, against the fork point, finds a changed row for every ID of the SRS line that
 # land.sh writes into the PR body from the bead's notes, and no done row regressed (archicraft-erpe).
 if command -v python3 >/dev/null; then

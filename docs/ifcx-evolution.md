@@ -73,7 +73,7 @@ Call the new version `ifcx_beta` below; use the name buildingSMART publishes.
    (`ARCHICRAFT_BLESS=1 cargo test -p archicraft-ifcx --test roundtrip` and `--test corrupt`),
    review the diff through the review-view snapshots and run conformance on them (docs/testing.md).
 9. **Status.** Update the IFX-090, IFX-091 and NFR-MNT-004 rows of
-   `docs/implementation-status.md` and the extension point there.
+   `docs/status/requirements.json` and the extension point in `docs/implementation-status.md`.
 
 Check before merging: `cargo tree -p archicraft-model` and `cargo tree -p archicraft-geometry`
 are unchanged, and the diff touches neither crate (NFR-MNT-004).
@@ -124,7 +124,7 @@ declarations.
 5. **Publish.** ifcx.dev serves the repository buildingSMART/IFCx.dev; open a pull request there
    that adds the file under the namespace, following that repository's contribution rules.
 6. **Record.** Add the published URI to SRS R3 (an SRS change for the user) and update the IFX-092
-   row of `docs/implementation-status.md`. Bundling the published file in `schemas/` and
+   row of `docs/status/requirements.json`. Bundling the published file in `schemas/` and
    `registry.rs` is needed only if the writer or the tests start importing it.
 
 ### Versioning

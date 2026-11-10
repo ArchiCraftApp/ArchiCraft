@@ -8,7 +8,7 @@ sessions, remove finished worktrees and branches, run the sweep). Python 3 stand
 
 The Roadmap page (/roadmap) shows how far the roadmap has come: the epics of docs/roadmap.md
 placed by their dependencies with the share of their task estimates that is done, the
-increments with their exit criteria, the six demos of the showcase track, the SRS requirement status of docs/implementation-status.md
+increments with their exit criteria, the six demos of the showcase track, the SRS requirement status of docs/status/requirements.json
 and the pace of the last 7 days. The Code map page (/code) shows the Rust modules of origin/main as a component map and as a
 dependency graph, coloured by how recently or how much they changed, with the files that open
 PRs and running sessions are changing now.
@@ -1014,11 +1014,16 @@ STATES_TEXT = {"working": "working", "quiet": "quiet", "stale": "stale", "waitin
 
 
 # --- roadmap -----------------------------------------------------------------------------
-# docs/roadmap.md (epics, increments, dependencies, engineer-days) and
-# docs/implementation-status.md (one status per SRS requirement) as they are on origin/main,
-# joined with the live beads: how far each epic, each increment and the SRS have come.
+# docs/roadmap.md (epics, increments, dependencies, engineer-days), docs/status/requirements.json
+# (one status per SRS requirement) and the acceptance scenarios of docs/implementation-status.md
+# as they are on origin/main, joined with the live beads: how far each epic, each increment and
+# the SRS have come.
 
 ROADMAP = {"sha": None, "doc": None}
+# The only tracked copy of the requirement status since archicraft-tvmtt; from 2026-10-17 until
+# the JSON came on 2026-10-21, the requirement table of the document held it.
+STATUS_JSON = "docs/status/requirements.json"
+STATUS_DOC = "docs/implementation-status.md"
 REQ_ROW = re.compile(r"^\| ([A-Z]+-[A-Z0-9-]+) \| ([MSC]) \| ([a-z-]+) \|")
 AS_ROW = re.compile(r"^\| (AS-\d+) \| ([a-z-]+) \|")
 
@@ -1065,6 +1070,43 @@ def parse_status(text):
     return reqs, scenarios
 
 
+def json_status(text):
+    """{id: (priority, status)} of docs/status/requirements.json."""
+    return {r["id"]: (r["priority"], r["status"]) for r in json.loads(text)["requirements"]}
+
+
+def commit_log(rev, path):
+    """[(short sha, commit time)] of the commits reachable from rev that change path, newest first."""
+    try:
+        out = run(["git", "log", "--format=%h %ct", rev, "--", path])
+    except RuntimeError:  # rev^ of the root commit
+        return []
+    return [(h, int(ct)) for h, ct in (line.split() for line in out.splitlines())]
+
+
+def requirement_status(sha):
+    """Each requirement's (priority, status) at sha, and the done and partial counts per priority
+    after every commit that changed a status: from requirements.json, and before the commit that
+    added it from the requirement table of docs/implementation-status.md."""
+    json_log = commit_log(sha, STATUS_JSON)
+    if json_log:
+        reqs = json_status(run(["git", "show", f"{sha}:{STATUS_JSON}"]))
+        doc_log = commit_log(f"{json_log[-1][0]}^", STATUS_DOC)
+    else:
+        reqs, _ = parse_status(run(["git", "show", f"{sha}:{STATUS_DOC}"]))
+        doc_log = commit_log(sha, STATUS_DOC)
+    history = []
+    for log, path, parse in ((json_log, STATUS_JSON, json_status), (doc_log, STATUS_DOC, lambda t: parse_status(t)[0])):
+        for h, ct in log:
+            try:
+                c = status_counts(parse(run(["git", "show", f"{h}:{path}"])))
+            except (RuntimeError, ValueError, KeyError, TypeError):
+                continue
+            history.append({"t": ct, "sha": h,
+                            **{f"{s}_{p}": c.get(p, {}).get(s, 0) for p in "MSC" for s in ("done", "partial")}})
+    return reqs, sorted(history, key=lambda r: r["t"])
+
+
 def status_counts(reqs):
     out = {}
     for prio, status in reqs.values():
@@ -1075,19 +1117,9 @@ def status_counts(reqs):
 
 def build_roadmap_doc(sha):
     roadmap = parse_roadmap(run(["git", "show", f"{sha}:docs/roadmap.md"]))
-    reqs, scenarios = parse_status(run(["git", "show", f"{sha}:docs/implementation-status.md"]))
-    history = []
-    for line in run(["git", "log", "--format=%h %ct", sha, "--", "docs/implementation-status.md"]).splitlines():
-        h, ct = line.split()
-        try:
-            r, _ = parse_status(run(["git", "show", f"{h}:docs/implementation-status.md"]))
-        except RuntimeError:
-            continue
-        c = status_counts(r)
-        history.append({"t": int(ct), "sha": h,
-                        **{f"{s}_{p}": c.get(p, {}).get(s, 0) for p in "MSC" for s in ("done", "partial")}})
-    return {"sha": sha, **roadmap, "reqs": status_counts(reqs), "scenarios": scenarios,
-            "req_history": sorted(history, key=lambda r: r["t"])}
+    _, scenarios = parse_status(run(["git", "show", f"{sha}:{STATUS_DOC}"]))
+    reqs, history = requirement_status(sha)
+    return {"sha": sha, **roadmap, "reqs": status_counts(reqs), "scenarios": scenarios, "req_history": history}
 
 
 SHOWCASE_TITLE = re.compile(r"^Showcase (\d+): (.+)$")
@@ -2666,7 +2698,7 @@ function requirements() {
       <i style="width:${100 * (c.done || 0) / t}%;background:var(--ok)"></i><i style="width:${100 * (c.partial || 0) / t}%;background:var(--warn)"></i></div>
       <span class="small mute">${c.done || 0} done · ${c.partial || 0} partial · ${t}</span></div>`; }).join("");
   return sec("SRS requirements", `<div class="legend"><span><i style="background:var(--ok)"></i>done</span><span><i style="background:var(--warn)"></i>partial</span><span><i style="background:var(--chip)"></i>missing</span></div>${rows}
-    <h3>Done over time <span class="small mute">from docs/implementation-status.md on main</span></h3><div id="reqchart"></div>`);
+    <h3>Done over time <span class="small mute">from docs/status/requirements.json on main</span></h3><div id="reqchart"></div>`);
 }
 function reqChart(el) {
   const H = R.req_history; if (H.length < 2) { el.innerHTML = `<div class="empty small">Not enough history yet.</div>`; return; }

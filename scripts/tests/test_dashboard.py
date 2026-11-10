@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests of how scripts/dashboard.py reads open pull requests on their way through the merge queue,
-and how it groups the showcase beads into the roadmap's demos.
+how it groups the showcase beads into the roadmap's demos and how it counts the requirements.
 
 GitHub clears a PR's autoMergeRequest when the merge queue takes it in and again when the queue
 drops it, so auto-merge alone cannot tell a queued PR, a dropped one and one that waits for the
@@ -10,7 +10,10 @@ python3 scripts/tests/test_dashboard.py
 """
 
 import importlib.util
+import json
+import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -366,6 +369,52 @@ class ShowcaseDemos(unittest.TestCase):
         shown, = dashboard.showcase_demos(demo(1, [], verify_status="closed"))
         accepted, = dashboard.showcase_demos(demo(1, [], verify_status="closed", status="closed"))
         self.assertEqual((shown["state"], accepted["state"]), ("demo", "accepted"))
+
+
+class RequirementStatus(unittest.TestCase):
+    """The roadmap page counts the requirements from docs/status/requirements.json, which is their
+    only tracked copy since archicraft-tvmtt, and the commits from before the JSON existed through
+    the requirement table docs/implementation-status.md held then."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.git("init", "-q", "-b", "main")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def git(self, *args, when=None):
+        env = {**os.environ, "GIT_AUTHOR_DATE": f"@{when} +0000", "GIT_COMMITTER_DATE": f"@{when} +0000"} if when else None
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "core.hooksPath=/dev/null",
+                               "-c", "commit.gpgsign=false", *args], cwd=self.root, env=env, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def commit(self, when, files):
+        for path, text in files.items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text(text, encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", f"at {when}", when=when)
+        return self.git("rev-parse", "--short", "HEAD")
+
+    @staticmethod
+    def rows(*statuses):
+        return json.dumps({"requirements": [{"id": rid, "priority": "M", "status": s} for rid, s in statuses]})
+
+    def test_the_counts_come_from_requirements_json_and_older_commits_from_the_document(self):
+        table = "| ID | Pri | Status | Effort | Gap / evidence |\n|---|---|---|---|---|\n"
+        scenarios = "| AS-01 | partial | Notes. |\n"
+        self.commit(1000, {dashboard.STATUS_DOC: table + "| PRJ-001 | M | missing | M | Gap. |\n| STR-001 | M | done | none | Done. |\n"})
+        self.commit(2000, {dashboard.STATUS_JSON: self.rows(("PRJ-001", "partial"), ("STR-001", "done")),
+                           dashboard.STATUS_DOC: "# Status\n\n" + scenarios})
+        self.commit(3000, {dashboard.STATUS_JSON: self.rows(("PRJ-001", "done"), ("STR-001", "done"))})
+        head = self.commit(4000, {dashboard.STATUS_DOC: "# Status, edited by hand\n\n" + scenarios})
+        real_run = dashboard.run
+        with mock.patch.object(dashboard, "run", lambda cmd, **kw: real_run(cmd, cwd=self.root)):
+            reqs, history = dashboard.requirement_status(head)
+        self.assertEqual(dashboard.status_counts(reqs), {"M": {"done": 2}})
+        self.assertEqual([(h["t"], h["done_M"], h["partial_M"]) for h in history], [(1000, 1, 0), (2000, 1, 1), (3000, 2, 0)])
 
 
 class BeadsLock(unittest.TestCase):

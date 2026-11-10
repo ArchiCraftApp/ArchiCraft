@@ -17,7 +17,7 @@ read, run read-only commands and report. Hooks refuse edits and writing commands
 2. `bd show <id>`: description, acceptance criteria, design and notes. The notes line
    `SRS: …` lists the requirement IDs; read each requirement in `docs/SRS.md`
    (`grep -n '<ID>' docs/SRS.md`, then read the surrounding clause) and its row in
-   `docs/implementation-status.md`.
+   `docs/status/requirements.json` (`python3 scripts/status.py show <ID>...`).
 3. The change: `git diff $(git merge-base origin/main HEAD)` (falls back to `main`) plus
    `git status --short` for new files. Read every changed file where the diff alone does not
    show enough context.
@@ -46,7 +46,7 @@ read, run read-only commands and report. Hooks refuse edits and writing commands
 - **Scope.** Changes not needed for this bead's criteria are findings (they belong in their
   own bead), as are speculative abstractions and leftovers from abandoned approaches.
 - **Status.** When the change moves a requirement's status, its row in
-  `docs/implementation-status.md` says so.
+  `docs/status/requirements.json` says so.
 
 ## Report
 

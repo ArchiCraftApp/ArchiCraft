@@ -160,9 +160,7 @@ printf '## 3 Requirements\n\n### 3.1 Demo\n\n- **DEM-001** · M · A demo requir
 echo '# Testing' >docs/testing.md
 jq -n '{requirements: [{id: "DEM-001", priority: "M", section: "3.1", status: "missing", remaining_effort: "S",
     evidence: "", gap: "Not started.", depends_on: []}]}' >docs/status/requirements.json
-printf '<!-- status:begin %s -->\n<!-- status:end %s -->\n' counts counts sections sections requirements requirements \
-    >docs/implementation-status.md
-python3 scripts/status.py generate
+echo '# Implementation status' >docs/implementation-status.md
 git add -A && git commit -qm init
 # shellcheck source=lib.sh
 source scripts/loop/lib.sh
@@ -879,17 +877,19 @@ expect "gate on a feature bead without loop changes" pass "$got"
 
 # --- gate: the implementation status, as CI's Implementation status job checks it ---------------
 # A hand edit of the generated tables reached main because neither the gate nor a required check
-# ran the status script (archicraft-gkrd, archicraft-erpe).
+# ran the status script (archicraft-gkrd, archicraft-erpe). The tables are no longer kept in
+# docs/implementation-status.md (archicraft-tvmtt), but a rebase that keeps the old side of the
+# document brings a generated block back.
 reset_state
-sed -i.bak 's/| Not started\. |/| Done by hand. |/' docs/implementation-status.md && rm docs/implementation-status.md.bak
+printf '<!-- status:begin counts -->\n| done | 1 |\n<!-- status:end counts -->\n' >>docs/implementation-status.md
 out="$(gate "")" && got=pass || got=fail
-expect "gate on a hand edit of the generated status tables" fail "$got"
+expect "gate on a generated status block in the document" fail "$got"
 expect "gate fails only the status step" 1 "$(grep -c '^GATE FAIL: status$' <<<"$out")"
-expect "gate says the tables differ from requirements.json" 1 \
-    "$(grep -c '| status check: docs/implementation-status\.md: the generated tables differ from docs/status/requirements\.json' <<<"$out")"
-python3 scripts/status.py generate
+expect "gate says the document holds a generated block" 1 \
+    "$(grep -c "| status check: docs/implementation-status\.md: holds the generated status block 'counts'" <<<"$out")"
+git checkout -q -- docs/implementation-status.md
 out="$(gate "")" && got=pass || got=fail
-expect "gate after status.py generate" pass "$got"
+expect "gate without the generated block" pass "$got"
 # merge-check reads the SRS line that land.sh writes into the PR body from the bead's notes: the
 # IDs with a row, not the scenario ID AS-03.
 out="$(FAKE_BD_NOTES='SRS: DEM-001, AS-03. More notes.' gate "")" && got=pass || got=fail
@@ -898,7 +898,6 @@ expect "gate names the unchanged row, not the scenario without one" "1 0" \
     "$(grep -c '| status merge-check: DEM-001: listed on an SRS line but its row did not change$' <<<"$out") $(
         grep -c 'AS-03' <<<"$out")"
 sed -i.bak 's/"Not started\."/"Started."/' docs/status/requirements.json && rm docs/status/requirements.json.bak
-python3 scripts/status.py generate
 out="$(FAKE_BD_NOTES='SRS: DEM-001, AS-03. More notes.' gate "")" && got=pass || got=fail
 expect "gate on a bead that changes the row its SRS line names" pass "$got"
 reset_state

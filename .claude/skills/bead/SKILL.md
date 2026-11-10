@@ -75,7 +75,7 @@ lease only matters when two sessions might claim the same bead. Then read, in fu
   rule and left its unreviewed work there; the notes say what blocked it. Apply it as the
   starting point (`git apply --index <patch>`) or read it as a reference.
 - The text of every cited requirement in `docs/SRS.md` (`grep -n '<ID>' docs/SRS.md`) and its
-  row in `docs/implementation-status.md`.
+  row in `docs/status/requirements.json` (`python3 scripts/status.py show <ID>...`).
 - Every file and line the description names. If the notes name a `wip/…` branch from the
   stopped first run, read its diff as a reference only: it was never built or reviewed, so
   nothing from it lands without passing this loop.
@@ -142,9 +142,11 @@ it renders snapshots, they are part of the evidence the reviewer looks at.
   `bd create … --deps discovered-from:<id>`.
 - When the change moves a requirement's status, and for every ID on the bead's `SRS:` line that
   has a row (`land.sh` puts those on the PR's), change its row in
-  `docs/status/requirements.json` (status, effort, evidence or gap) and run
-  `python3 scripts/status.py generate`. Never edit the generated tables of
-  `docs/implementation-status.md` by hand (docs/testing.md, "Implementation status").
+  `docs/status/requirements.json` (status, effort, evidence or gap). That file is the only one a
+  status change touches: `docs/implementation-status.md` keeps no generated table, and
+  `python3 scripts/status.py report` prints the tables when you need them (docs/testing.md,
+  "Implementation status"). A rebase that brings a `<!-- status:begin … -->` block back into
+  that document fails the gate: delete the block.
 
 ## 5. Gate
 

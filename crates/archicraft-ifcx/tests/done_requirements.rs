@@ -603,7 +603,7 @@ fn ifx_020_classes_and_parents_follow_table_5_1() {
 /// user-visible names as `bsi::ifc::prop::Name`; the project description is
 /// written as `bsi::ifc::prop::Description`. Elements have no description in
 /// the model yet (the gap in the IFX-021 row of
-/// `docs/implementation-status.md`).
+/// `docs/status/requirements.json`).
 #[test]
 fn ifx_021_names_everywhere_and_the_project_description() {
     let mut project = samples::two_storey_shell();

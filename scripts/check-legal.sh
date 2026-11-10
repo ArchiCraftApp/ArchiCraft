@@ -5,7 +5,7 @@
 # - a tracked file names the maker or the product outside scripts/legal-allowlist.txt
 #   (docs/SRS.md, docs/technology-choices.md and docs/implementation-status.md cite the
 #   reference product nominatively throughout and are exempt; so are
-#   docs/status/requirements.json, from which docs/implementation-status.md is generated, and
+#   docs/status/requirements.json, which holds the per-requirement gap and evidence texts, and
 #   the beads export .beads/, whose task texts quote those documents);
 # - a tracked image (SVG, ICO, ICNS, WebP and TIFF included), library-part or template file is
 #   not listed with its origin and licence in scripts/asset-allowlist.txt.

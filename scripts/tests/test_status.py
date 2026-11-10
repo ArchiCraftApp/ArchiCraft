@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Tests of scripts/status.py, the generated implementation-status tables and their checks.
+"""Tests of scripts/status.py: the status tables it renders on demand and its checks.
 
 Each test builds a small repository in a temporary directory (an SRS with live and withdrawn
 requirements, docs/testing.md with a traceability table, a test file, a workflow and the
-status document with its markers) and runs generate, check or merge-check on it. The last
-tests run check and generate on this repository itself. Python 3 standard library only:
+hand-written status document) and runs report, show, check or merge-check on it. The last
+tests run check on this repository itself. Python 3 standard library only:
 python3 scripts/tests/test_status.py
 """
 
@@ -161,24 +161,22 @@ mod tests {
 }
 """
 
+# docs/implementation-status.md holds only the hand-written analysis (archicraft-tvmtt).
 DOC = """# Status
 
 _Intro._
 
-## Counts
+## Summary
 
-<!-- status:begin counts -->
-<!-- status:end counts -->
+Hand-written.
+"""
 
-## Per section
-
-<!-- status:begin sections -->
-<!-- status:end sections -->
-
-## Requirement table
-
-<!-- status:begin requirements -->
-<!-- status:end requirements -->
+# The document as it was before requirements.json existed: the requirement table by hand.
+DOC_BEFORE_THE_JSON = DOC + """
+| ID | Pri | Status | Effort | Gap / evidence |
+|---|---|---|---|---|
+| PRJ-001 | M | done | none | Done. |
+| STR-001 | M | done | none | Done. |
 """
 
 
@@ -276,8 +274,6 @@ class StatusTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Repo(self.tmp.name)
-        code, out = self.repo.run("generate")
-        self.assertEqual(code, 0, out)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -296,42 +292,58 @@ class StatusTest(unittest.TestCase):
             if r["id"] == rid:
                 r.update(changes)
         self.repo.set_rows(rows)
-        self.repo.run("generate")
 
 
-class GenerateTest(StatusTest):
-    def test_generate_writes_counts_sections_and_rows_between_the_markers(self):
-        doc = self.repo.read(status.DOC_PATH)
-        self.assertIn("| done | 2 | 0 | 1 | 3 |", doc)
-        self.assertIn("| partial | 0 | 1 | 0 | 1 |", doc)
-        self.assertIn("| **total** | 2 | 1 | 1 | 4 |", doc)
-        self.assertIn("Remaining effort of the 1 open requirements: S 1, M 0, L 0, XL 0.", doc)
-        self.assertIn("| 4.1 | Project and file management | 1/0/0 | 0/1/0 | 0/0/0 | 2 |", doc)
-        self.assertIn("| 6.10 | Legal | 0/0/0 | 0/0/0 | 1/0/0 | 1 |", doc)
-        self.assertIn("### 4.2 Storeys", doc)
+class ReportTest(StatusTest):
+    """The tables are rendered on demand, never written into the repository: two pull requests
+    that change different rows then never conflict over the counts (archicraft-tvmtt)."""
+
+    def report(self):
+        code, out = self.repo.run("report")
+        self.assertEqual(code, 0, out)
+        return out
+
+    def test_report_prints_the_counts_the_sections_and_the_rows(self):
+        out = self.report()
+        self.assertIn("| done | 2 | 0 | 1 | 3 |", out)
+        self.assertIn("| partial | 0 | 1 | 0 | 1 |", out)
+        self.assertIn("| **total** | 2 | 1 | 1 | 4 |", out)
+        self.assertIn("Remaining effort of the 1 open requirements: S 1, M 0, L 0, XL 0.", out)
+        self.assertIn("| 4.1 | Project and file management | 1/0/0 | 0/1/0 | 0/0/0 | 2 |", out)
+        self.assertIn("| 6.10 | Legal | 0/0/0 | 0/0/0 | 1/0/0 | 1 |", out)
+        self.assertIn("### 4.2 Storeys", out)
         # The gap column escapes pipes; done rows show their evidence.
-        self.assertIn("| PRJ-002 | S | partial | S | No template store \\| no choice. |", doc)
-        self.assertIn("| STR-001 | M | done | none | Done: str_001_storeys_are_ordered", doc)
-        self.assertIn("_Intro._", doc)
-        self.assertEqual(doc.count(status.GENERATED_NOTE), 3)
+        self.assertIn("| PRJ-002 | S | partial | S | No template store \\| no choice. |", out)
+        self.assertIn("| STR-001 | M | done | none | Done: str_001_storeys_are_ordered", out)
+        self.assertLess(out.index("## Counts by status and priority"), out.index("## Per-section status"))
+        self.assertLess(out.index("## Per-section status"), out.index("## Requirement table"))
+
+    def test_report_changes_no_file(self):
+        before = {p: p.read_bytes() for p in self.repo.root.rglob("*") if p.is_file()}
+        self.report()
+        self.assertEqual({p: p.read_bytes() for p in self.repo.root.rglob("*") if p.is_file()}, before)
 
     def test_rows_follow_the_srs_order_whatever_the_json_order(self):
         self.repo.set_rows(list(reversed(ROWS)))
-        self.repo.run("generate")
-        doc = self.repo.read(status.DOC_PATH)
-        self.assertLess(doc.index("| PRJ-001 |"), doc.index("| PRJ-002 |"))
-        self.assertLess(doc.index("| PRJ-002 |"), doc.index("| STR-001 |"))
+        out = self.report()
+        self.assertLess(out.index("| PRJ-001 |"), out.index("| PRJ-002 |"))
+        self.assertLess(out.index("| PRJ-002 |"), out.index("| STR-001 |"))
 
-    def test_generate_is_byte_stable(self):
-        before = self.repo.read(status.DOC_PATH)
-        self.repo.run("generate")
-        self.assertEqual(self.repo.read(status.DOC_PATH), before)
+    def test_report_is_byte_stable(self):
+        self.assertEqual(self.report(), self.report())
 
-    def test_a_missing_marker_is_an_error(self):
-        self.repo.write(status.DOC_PATH, DOC.replace("<!-- status:end sections -->\n", ""))
-        code, out = self.repo.run("generate")
-        self.assertEqual(code, 2, out)
-        self.assertIn("status:begin sections", out)
+
+class ShowTest(StatusTest):
+    def test_show_prints_the_rows_of_the_given_ids_as_json(self):
+        code, out = self.repo.run("show", "STR-001", "PRJ-002")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out), [ROWS[2], ROWS[1]])
+
+    def test_show_fails_on_an_id_without_a_row(self):
+        code, out = self.repo.run("show", "PRJ-001", "PRJ-099")
+        self.assertEqual(code, 1, out)
+        self.assertIn('"id": "PRJ-001"', out)
+        self.assertIn("status show: PRJ-099: no row in docs/status/requirements.json", out)
 
 
 class CheckTest(StatusTest):
@@ -341,7 +353,6 @@ class CheckTest(StatusTest):
 
     def test_check_fails_on_a_live_srs_id_without_a_row(self):
         self.repo.set_rows([r for r in ROWS if r["id"] != "PRJ-002"])
-        self.repo.run("generate")
         self.assert_check_fails("PRJ-002: live SRS requirement without a row")
 
     def test_check_fails_on_a_row_for_a_withdrawn_id(self):
@@ -526,7 +537,7 @@ class CheckTest(StatusTest):
         del rows[1]["gap"]
         self.repo.set_rows(rows)
         self.assert_check_fails("PRJ-002: fields must be exactly")
-        code, out = self.repo.run("generate")
+        code, out = self.repo.run("report")
         self.assertEqual(code, 2, out)
         self.assertIn("rows without exactly the fields", out)
 
@@ -542,20 +553,29 @@ class CheckTest(StatusTest):
         self.edit("PRJ-002", depends_on=["BEM-001"])
         self.assert_check_fails("PRJ-002: depends_on must list live SRS IDs")
 
-    def test_check_fails_on_a_hand_edit_inside_the_markers(self):
+    def test_a_status_change_edits_only_the_json(self):
         doc = self.repo.read(status.DOC_PATH)
-        self.repo.write(status.DOC_PATH, doc.replace("| PRJ-002 | S | partial | S |", "| PRJ-002 | S | done | none |"))
-        self.assert_check_fails("the generated tables differ")
+        self.edit("PRJ-002", status="done", remaining_effort="none", gap="",
+                  evidence="Done: test prj_001_a_project_comes_from_the_template")
+        self.assertEqual(self.check()[0], 0)
+        self.assertEqual(self.repo.read(status.DOC_PATH), doc)
 
-    def test_check_fails_on_a_json_edit_without_generate(self):
-        rows = self.repo.rows()
-        rows[1]["gap"] = "Changed."
-        self.repo.set_rows(rows)
-        self.assert_check_fails("run python3 scripts/status.py generate")
+    def test_check_fails_on_a_generated_block_left_in_the_document(self):
+        # A rebase that keeps the old side of the document brings a block back (archicraft-tvmtt).
+        old = "<!-- status:begin counts -->\n| done | 1 |\n<!-- status:end counts -->\n"
+        self.repo.write(status.DOC_PATH, DOC + old)
+        self.assert_check_fails(
+            "docs/implementation-status.md: holds the generated status block 'counts'; the status "
+            "tables are no longer kept there"
+        )
 
-    def test_edits_outside_the_markers_are_free(self):
+    def test_the_document_is_edited_by_hand(self):
         doc = self.repo.read(status.DOC_PATH)
         self.repo.write(status.DOC_PATH, doc.replace("_Intro._", "_Another intro._"))
+        self.assertEqual(self.check()[0], 0)
+
+    def test_check_passes_without_the_document(self):
+        (self.repo.root / status.DOC_PATH).unlink()
         self.assertEqual(self.check()[0], 0)
 
 
@@ -636,8 +656,10 @@ class MergeCheckTest(StatusTest):
 
     def test_without_a_base_json_a_regression_against_the_base_markdown_fails(self):
         (self.repo.root / status.JSON_PATH).rename(self.repo.root / "rows.json")
-        self.base = self.repo.commit("before the status file, with the generated Markdown table")
+        self.repo.write(status.DOC_PATH, DOC_BEFORE_THE_JSON)
+        self.base = self.repo.commit("before the status file, with the Markdown table")
         (self.repo.root / "rows.json").rename(self.repo.root / status.JSON_PATH)
+        self.repo.write(status.DOC_PATH, DOC)
         self.edit("STR-001", status="partial", remaining_effort="S", evidence="", gap="Lost in the import.")
         code, out = self.merge_check("SRS: PRJ-001 STR-001\n")
         self.assertEqual(code, 1, out)

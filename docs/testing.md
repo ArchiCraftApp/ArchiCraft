@@ -243,7 +243,7 @@ together.
 
 ## Done-requirement traceability
 
-Every requirement marked done in docs/implementation-status.md names the check that fails if it
+Every requirement marked done in docs/status/requirements.json names the check that fails if it
 regresses. Repository guards are scripts and policies that CI runs on every push and pull
 request; the CI step is the regression check.
 
@@ -353,7 +353,7 @@ The negative self-test (`scripts/guards-selftest.sh`) runs each guard on a canne
 tracked `*.gsm`, `*.png`, `*.svg`, `*.ico`, `*.icns`, `*.webp`, `*.tif` and `*.tiff` files) and
 fails if a guard lets it pass.
 
-Every requirement marked done in docs/implementation-status.md has a row here.
+Every requirement marked done in docs/status/requirements.json has a row here.
 
 ## Implementation status
 
@@ -361,20 +361,26 @@ Every requirement marked done in docs/implementation-status.md has a row here.
 docs/SRS.md: `id`, `priority` and `section` (as in the SRS), `status` (`done`, `partial` or
 `missing`), `remaining_effort` (`none` for done rows, else `S`, `M`, `L` or `XL`), `evidence`
 (done rows: what implements it and the test or guard that pins it), `gap` (the other rows: what
-is missing) and `depends_on` (SRS IDs). The counts, the per-section table and the requirement
-table of [docs/implementation-status.md](implementation-status.md) are generated from it between
-`<!-- status:begin … -->` and `<!-- status:end … -->` markers; the text outside the markers is
-edited by hand. `scripts/status.py` (Python 3 standard library) does the work:
+is missing) and `depends_on` (SRS IDs). It is the only tracked copy of the status: the counts by
+status and priority, the per-section table and the requirement table are rendered from it on
+demand and never committed. Kept in [docs/implementation-status.md](implementation-status.md)
+until 2026-11-10, they changed with nearly every status edit, so parallel pull requests conflicted
+there and the merge queue dropped them (archicraft-tvmtt); that document now holds only the
+hand-written analysis. `scripts/status.py` (Python 3 standard library) does the work:
 
-- `python3 scripts/status.py generate` rewrites the tables from the JSON and docs/SRS.md, in SRS
-  order, byte-stable.
+- `python3 scripts/status.py report` prints the three tables as Markdown, in SRS order,
+  byte-stable (`python3 scripts/status.py report > target/status.md` to read them in a viewer);
+  `python3 scripts/status.py show <ID>...` prints the rows of the given IDs as JSON. The
+  dashboard's roadmap page (`scripts/dashboard.py`) shows the counts per priority and how the done
+  and partial counts moved over time.
 - `python3 scripts/status.py check` fails on a live SRS ID without a row, a duplicate row, a row
   for a withdrawn or unknown ID, a priority or section that disagrees with the SRS, an evidence
   path (`crates/…`, `docs/…`, `scripts/…`, `conformance/…`, `fuzz/…`, `.github/…`; line numbers
-  are not checked) to a missing file, a done row that names no test or CI guard, and any
-  difference between the document and what generate writes, so a hand edit inside the markers
-  fails. A done row names a test or guard when its evidence or its row in the traceability table
-  above names a test function (a Rust `fn` marked `#[test]` or `#[<crate>::test]`, a Python
+  are not checked) to a missing file, a done row that names no test or CI guard, and a generated
+  block (`<!-- status:begin … -->`) left in docs/implementation-status.md, as a rebase that keeps
+  that document's side from before 2026-11-10 brings back. A done row names a test or guard when
+  its evidence or its row in the traceability table above names a test function (a Rust `fn`
+  marked `#[test]` or `#[<crate>::test]`, a Python
   `test_` method; helpers in `tests/` do not count), a test file (a file under a `tests/`
   directory that holds one), a script that a workflow's `run:` step calls, or the name of a CI
   step that calls such a script or a test command (`cargo test`, `nextest`, `clippy`, `fmt`,
@@ -407,9 +413,8 @@ To change a status (an epic's tasks and every bead):
 
 1. Edit the requirement's row in docs/status/requirements.json: status, remaining effort, the
    evidence with the test that pins it (and a traceability row above for a new done
-   requirement), or the remaining gap.
-2. Run `python3 scripts/status.py generate` and commit the JSON and the regenerated document
-   together; `python3 scripts/status.py check` passes.
+   requirement), or the remaining gap. Nothing else changes with it: no document is regenerated.
+2. `python3 scripts/status.py check` passes.
 3. List the IDs on the pull request's `SRS:` line. An epic's final pull request lists the
    epic's `srs_ids`. `scripts/loop/land.sh` writes the IDs of the bead's `SRS:` notes line that
    have a row onto every bead pull request's `SRS:` line (scenario, decision and open-question IDs
