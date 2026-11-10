@@ -8,9 +8,10 @@ use eframe::egui_wgpu;
 use egui::{Align2, Color32, CursorIcon, Event, FontId, PointerButton, Pos2, Rect, Sense, Ui};
 
 use super::camera::Camera3d;
-use super::plan::{modifiers, transfer_cursor, transfer_glyph};
+use super::plan::{modifiers, transfer_cursor, transfer_glyph, transfer_tooltip};
 use super::render3d::{DisplayMode, Renderer3d, Viewport, build_scene};
 use super::transfer;
+use crate::commands::view_keys;
 use crate::workspace::{Consumer, Pane, Request, SceneKey, Workspace};
 
 #[derive(Debug)]
@@ -198,6 +199,38 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
         .transfer
         .mode(held, &ws.keymap, true)
         .filter(|_| ws.tool.editor.is_none() && ws.active_consumer == Consumer::Tool);
+    // The candidate of a transfer under the pointer, tinted and previewed
+    // before the click (ELM-003, EDT-020).
+    let candidate = transfer_mode
+        .zip(response.hover_pos().filter(|_| !response.dragged()))
+        .and_then(|(_, p)| hit_at(&state, ws, p).map(|(id, _)| id));
+    match candidate {
+        Some(id) => ws.hover_3d = Some((view, id)),
+        None if ws.hover_3d.is_some_and(|(v, _)| v == view) => ws.hover_3d = None,
+        None => {}
+    }
+    // Esc ends a latched transfer mode here too, as in the plan (ELM-003);
+    // invoked another way, its command waits for the active view.
+    if ws.active_pane == Some(pane) && !ui.ctx().text_edit_focused() {
+        let pressed = ui.input(|i| {
+            i.events.iter().any(|event| match event {
+                Event::Key {
+                    key,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } => ws
+                    .keymap
+                    .matching(&[view_keys::CANCEL_STEP], *key, *modifiers)
+                    .is_some(),
+                _ => false,
+            })
+        });
+        let invoked = ws.view_commands.contains(&view_keys::CANCEL_STEP);
+        if pressed || invoked {
+            ws.transfer.cancel();
+        }
+    }
     if response.clicked_by(PointerButton::Primary)
         && let Some(p) = response.interact_pointer_pos()
     {
@@ -226,7 +259,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
             let renderer = ws.renderer.get_or_insert_with(|| Renderer3d::new(rs));
             if ws.scene.as_ref().is_none_or(|(k, _)| *k != key) {
                 let selection = ws.selection.clone();
-                let data = build_scene(&ws.doc.project, &geometry, &selection, None);
+                let data = build_scene(&ws.doc.project, &geometry, &selection, key.hover);
                 ws.scene = Some((key, renderer.upload_scene(&data)));
             }
             if let Some((_, scene)) = &ws.scene {
@@ -267,6 +300,9 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
     {
         ui.ctx().set_cursor_icon(transfer_cursor(mode));
         painter.extend(transfer_glyph(p, mode, ui.visuals().selection.stroke.color));
+        if let Some(preview) = candidate.and_then(|id| transfer::preview(ws, mode, id)) {
+            transfer_tooltip(&response, &preview);
+        }
     }
     let projection = match state.camera.projection {
         Projection::Perspective => crate::tr!("view-projection-perspective"),

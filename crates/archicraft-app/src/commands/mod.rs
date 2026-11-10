@@ -38,6 +38,7 @@ use egui::InputState;
 pub use keymap::Keymap;
 
 use crate::ArchiCraftApp;
+use crate::views::transfer::TransferMode;
 
 /// The stable id of a command, lower-case and dotted such as `file.save`.
 /// Ids are a public contract: keymaps and exported preferences store them.
@@ -337,6 +338,10 @@ pub struct CommandSpec {
     /// The icon of the command's toolbox or toolbar button, one of
     /// [`crate::ui::icons`] (UI-001).
     pub icon: Option<egui::ImageSource<'static>>,
+    /// The parameter transfer whose click gesture also runs the command's
+    /// operation (ELM-003, EDT-020): without a key binding, menus and
+    /// tooltips show that gesture from the [`Keymap`] as its shortcut.
+    pub gesture: Option<TransferMode>,
     pub handler: Run,
 }
 
@@ -369,6 +374,7 @@ impl CommandSpec {
             checked: None,
             dynamic_label: None,
             icon: None,
+            gesture: None,
             handler: Callback(Arc::new(handler)),
         }
     }
@@ -434,6 +440,13 @@ impl CommandSpec {
 
     pub fn icon(mut self, icon: egui::ImageSource<'static>) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// Shows the click gesture of `mode` as the command's shortcut (see
+    /// [`CommandSpec::gesture`]).
+    pub fn gesture(mut self, mode: TransferMode) -> Self {
+        self.gesture = Some(mode);
         self
     }
 

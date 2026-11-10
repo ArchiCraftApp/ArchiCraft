@@ -27,10 +27,14 @@ pub const SAVE: ImageSource<'static> = include_image!("../../assets/icons/save.s
 pub const GROUP: ImageSource<'static> = include_image!("../../assets/icons/group.svg");
 pub const UNGROUP: ImageSource<'static> = include_image!("../../assets/icons/ungroup.svg");
 pub const MEASURE: ImageSource<'static> = include_image!("../../assets/icons/measure.svg");
+/// The eyedropper of parameter pick-up and the syringe of inject (ELM-003,
+/// the glossary's terms).
+pub const PICK_UP: ImageSource<'static> = include_image!("../../assets/icons/pick-up.svg");
+pub const INJECT: ImageSource<'static> = include_image!("../../assets/icons/inject.svg");
 
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 14] = [
-    SELECT, WALL, SLAB, SPACE, TEXT, FIT, ORBIT, PLAN_3D, UNDO, REDO, SAVE, GROUP, UNGROUP, MEASURE,
+pub const ALL: [ImageSource<'static>; 16] = [
+    SELECT, WALL, SLAB, SPACE, TEXT, FIT, ORBIT, PLAN_3D, UNDO, REDO, SAVE, GROUP, UNGROUP, MEASURE, PICK_UP, INJECT,
 ];
 
 /// Installs the loader that rasterises the icons for the screen's pixels

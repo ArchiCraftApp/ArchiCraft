@@ -8,6 +8,7 @@
 use egui::{Atom, Atoms, Button, Image, Response, RichText, Ui, Vec2, WidgetInfo, WidgetType};
 
 use crate::commands::{Binding, CommandCtx, CommandSpec, Enabled, Keymap};
+use crate::input::Modifiers as Held;
 use crate::tr;
 
 /// The side of the toolbox's icons, in points.
@@ -15,16 +16,32 @@ const TOOLBOX_ICON: f32 = 20.0;
 /// The side of a toolbox button, which is square, in points.
 pub const TOOLBOX_BUTTON: f32 = 32.0;
 
+/// How a platform writes keys: a binding, and the modifiers held for a
+/// click gesture.
+pub trait KeyNames {
+    fn binding(&self, binding: Binding) -> String;
+    fn modifiers(&self, held: Held) -> String;
+}
+
 /// The text of the first binding that runs `spec` under `keymap`, written by
-/// `keys`, if it has one.
-pub fn shortcut_text(spec: &CommandSpec, keymap: &Keymap, keys: impl Fn(Binding) -> String) -> Option<String> {
-    keymap.effective_bindings(spec.id).first().map(|&b| keys(b))
+/// `keys`, if it has one; otherwise of the click gesture of its parameter
+/// transfer, such as "Alt-click" (ELM-003, EDT-020).
+pub fn shortcut_text(spec: &CommandSpec, keymap: &Keymap, keys: &impl KeyNames) -> Option<String> {
+    match keymap.effective_bindings(spec.id).first() {
+        Some(&binding) => Some(keys.binding(binding)),
+        None => spec.gesture.map(|mode| {
+            tr!(
+                "cmd-gesture-click",
+                modifiers = keys.modifiers(keymap.transfer_gesture(mode))
+            )
+        }),
+    }
 }
 
 /// The tooltip of a command (UI-011): its description and, when a key runs
 /// it, that key in brackets, such as "Measure distances along picked
 /// points and angles in working units, without changing the model (M)".
-pub fn tooltip_text(spec: &CommandSpec, keymap: &Keymap, keys: impl Fn(Binding) -> String) -> String {
+pub fn tooltip_text(spec: &CommandSpec, keymap: &Keymap, keys: &impl KeyNames) -> String {
     let description = spec.description();
     match shortcut_text(spec, keymap, keys) {
         Some(shortcut) => format!("{} ({shortcut})", description.trim_end_matches('.')),
@@ -39,7 +56,7 @@ pub fn titled_tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, title: &
     ui.set_max_width(ui.spacing().tooltip_width);
     ui.horizontal(|ui| {
         ui.strong(title);
-        if let Some(keys) = shortcut_text(spec, &cx.keymap, keys(ui)) {
+        if let Some(keys) = shortcut_text(spec, &cx.keymap, &UiKeys(ui)) {
             ui.weak(keys);
         }
     });
@@ -49,15 +66,29 @@ pub fn titled_tooltip(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, title: &
     }
 }
 
-/// The keys of `binding` as egui shows them on this platform.
-fn keys(ui: &Ui) -> impl Fn(Binding) -> String + '_ {
-    |binding| ui.ctx().format_shortcut(&binding.shortcut())
+/// The keys as egui shows them on this platform.
+struct UiKeys<'a>(&'a Ui);
+
+impl KeyNames for UiKeys<'_> {
+    fn binding(&self, binding: Binding) -> String {
+        self.0.ctx().format_shortcut(&binding.shortcut())
+    }
+
+    fn modifiers(&self, held: Held) -> String {
+        let modifiers = egui::Modifiers {
+            alt: held.alt,
+            shift: held.shift,
+            command: held.command,
+            ..egui::Modifiers::NONE
+        };
+        self.0.ctx().format_modifiers(modifiers)
+    }
 }
 
 /// Adds the command's tooltip to `response`; while the command cannot run,
 /// the tooltip also gives the reason from the catalogue.
 fn with_tooltip(response: Response, ui: &Ui, cx: &CommandCtx, spec: &CommandSpec) -> Response {
-    let text = tooltip_text(spec, &cx.keymap, keys(ui));
+    let text = tooltip_text(spec, &cx.keymap, &UiKeys(ui));
     match spec.enabled_in(cx) {
         Enabled::Yes => response.on_hover_text(text),
         Enabled::No(reason) => response.on_disabled_hover_text(format!("{text}\n{}", tr!(reason))),
@@ -81,7 +112,7 @@ pub fn icon_and_label<'a>(spec: &CommandSpec, size: f32, label: impl Into<Atom<'
 pub fn menu_item(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec) -> bool {
     let label = spec.label_in(cx);
     let enabled = spec.enabled_in(cx).is_yes();
-    let shortcut = shortcut_text(spec, &cx.keymap, keys(ui));
+    let shortcut = shortcut_text(spec, &cx.keymap, &UiKeys(ui));
     let response = if let Some(mut on) = spec.checked_in(cx) {
         let mut atoms = Atoms::new(label);
         if let Some(text) = shortcut {
@@ -157,25 +188,56 @@ mod tests {
     use crate::commands::{Registry, tools};
     use crate::i18n::{self, Localizer};
 
+    /// Keys written as on macOS, the modifiers of a gesture by their
+    /// debug form.
+    struct MacKeys;
+
+    impl KeyNames for MacKeys {
+        fn binding(&self, binding: Binding) -> String {
+            binding.display(OperatingSystem::Mac)
+        }
+
+        fn modifiers(&self, held: Held) -> String {
+            format!("{held:?}")
+        }
+    }
+
     /// UI-011: the tooltip of every command contains its English description
-    /// and, when a key runs it, that key's text; a rebound key shows instead
-    /// of the default.
+    /// and, when a key runs it, that key's text, or else the click gesture of
+    /// its parameter transfer (ELM-003); a rebound key or gesture shows
+    /// instead of the default.
     #[test]
     fn every_tooltip_has_the_description_and_the_effective_shortcut() {
         let english = std::rc::Rc::new(Localizer::english());
         let os = OperatingSystem::Mac;
-        let keys = |b: Binding| b.display(os);
+        let keys = &MacKeys;
         let defaults = Keymap::default();
         i18n::with(english, || {
             for spec in Registry::get().specs() {
                 let tip = tooltip_text(spec, &defaults, keys);
                 let description = spec.description();
                 assert!(tip.contains(description.trim_end_matches('.')), "{}: {tip}", spec.id);
-                match defaults.effective_bindings(spec.id).first() {
-                    Some(binding) => assert!(tip.contains(&binding.display(os)), "{}: {tip}", spec.id),
-                    None => assert_eq!(tip, description, "{}", spec.id),
+                match (defaults.effective_bindings(spec.id).first(), spec.gesture) {
+                    (Some(binding), _) => assert!(tip.contains(&binding.display(os)), "{}: {tip}", spec.id),
+                    (None, Some(mode)) => {
+                        let gesture = format!("{:?}-click", defaults.transfer_gesture(mode));
+                        assert!(tip.ends_with(&format!("({gesture})")), "{}: {tip}", spec.id);
+                    }
+                    (None, None) => assert_eq!(tip, description, "{}", spec.id),
                 }
             }
+            let pick_up = Registry::get().command(crate::commands::edit::PICK_UP_PARAMETERS);
+            let mut remapped = Keymap::default();
+            let shift_alt = Held {
+                shift: true,
+                command: false,
+                alt: true,
+            };
+            remapped.set_transfer_gesture(crate::views::transfer::TransferMode::PickUp, shift_alt);
+            assert!(
+                tooltip_text(pick_up, &remapped, keys).ends_with(&format!("({shift_alt:?}-click)")),
+                "a remapped gesture shows"
+            );
             let wall = Registry::get().command(tools::WALL);
             assert_eq!(
                 tooltip_text(wall, &defaults, keys),

@@ -15,6 +15,7 @@ use crate::input::InputMode;
 use crate::persistence::prefs::MAX_TOOLBOX_COLUMNS;
 use crate::tools::ToolKind;
 use crate::tr;
+use crate::views::transfer::TransferMode;
 use crate::workspace::{Consumer, Pane, Workspace};
 
 /// The registered command `id`. The ids this file uses are constants of
@@ -92,8 +93,9 @@ pub fn menu_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx) -> (Option<Command
 const TOOLBAR_ICON: f32 = 16.0;
 
 /// The toolbar below the menu bar (UI-011): Save at the far left (PRJ-003),
-/// a separator, Undo and Redo, a separator, the Measure tool (MEA-001), a
-/// separator, then Group and Ungroup (ELM-015), greyed out while they cannot
+/// a separator, Undo and Redo, a separator, Pick up and Inject parameters
+/// (ELM-003), a separator, the Measure tool (MEA-001), a separator, then
+/// Group and Ungroup (ELM-015), greyed out while they cannot
 /// run, with their icons, labels and tooltips from the registry. A command
 /// with a checked state, such as a tool, shows selected while it is on, as
 /// in the menus. Returns the command of the clicked button.
@@ -104,13 +106,16 @@ pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
             file::SAVE,
             edit::UNDO,
             edit::REDO,
+            edit::PICK_UP_PARAMETERS,
+            edit::INJECT_PARAMETERS,
             tools::MEASURE,
             edit::GROUP,
             edit::UNGROUP,
         ];
         for (i, id) in ids.into_iter().enumerate() {
-            // Save, the history, the measure tool and the groups stand apart.
-            if i == 1 || i == 3 || i == 4 {
+            // Save, the history, the parameter transfer, the measure tool
+            // and the groups stand apart.
+            if [1, 3, 5, 6].contains(&i) {
                 ui.separator();
             }
             let spec = spec(id);
@@ -233,20 +238,28 @@ fn problems_label(ws: &Workspace, count: usize) -> String {
 pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: usize) -> Option<CommandId> {
     let mut chosen = None;
     ui.horizontal(|ui| {
-        // The prompt of the step in progress (INP-001, NFR-USE-003).
-        let prompt = ws.consumer().step().map_or_else(
-            || tr!("status-prompt-select"),
-            |step| {
-                let mut line = step.status_line();
-                // INP-020: the prompts name clicks, which take points in both
-                // modes; press-drag-release adds the drag.
-                if ws.prefs.input_mode == InputMode::DragRelease {
-                    line.push_str(" · ");
-                    line.push_str(&tr!("status-prompt-press-drag-release"));
-                }
-                line
-            },
-        );
+        // The prompt of the step in progress (INP-001, NFR-USE-003); a
+        // latched parameter transfer takes the clicks first (ELM-003).
+        let prompt = match cx.transfer {
+            Some(TransferMode::PickUp) => Some(tr!("status-prompt-pick-up")),
+            Some(TransferMode::Inject) => Some(tr!("status-prompt-inject")),
+            None => None,
+        };
+        let prompt = prompt.unwrap_or_else(|| {
+            ws.consumer().step().map_or_else(
+                || tr!("status-prompt-select"),
+                |step| {
+                    let mut line = step.status_line();
+                    // INP-020: the prompts name clicks, which take points in both
+                    // modes; press-drag-release adds the drag.
+                    if ws.prefs.input_mode == InputMode::DragRelease {
+                        line.push_str(" · ");
+                        line.push_str(&tr!("status-prompt-press-drag-release"));
+                    }
+                    line
+                },
+            )
+        });
         ui.label(RichText::new(prompt).small());
         // MEA-001: the values of the measurement, in working units.
         if ws.tool.kind == ToolKind::Measure && ws.active_consumer == Consumer::Tool {

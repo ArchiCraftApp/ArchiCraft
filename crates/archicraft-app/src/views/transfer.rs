@@ -7,15 +7,17 @@
 //! [`Keymap`]) makes a click transfer instead of selecting or placing a
 //! point, and releasing the modifiers returns to the tool, whose input in
 //! progress stays. A latched mode stays without keys until Esc or a second
-//! latch of the same mode. [`click`] is the one handler every pane calls
-//! with the element under the cursor, so plan and 3D views transfer alike.
+//! latch of the same mode (the Pick up and Inject parameters commands,
+//! EDT-020). [`click`] is the one handler every pane calls with the element
+//! under the cursor, so plan and 3D views transfer alike, and [`preview`]
+//! says before the click what it would transfer and skip.
 //!
 //! On Linux, window managers may take Alt-click for moving windows; the
 //! latched modes are the dependable path there (docs/keymap.md).
 
 use archicraft_model::fields::fields_of;
 use archicraft_model::transfer::{SettingsSource, SkipReason, TransferReport, transfer_settings};
-use archicraft_model::{Command, Element, ElementId};
+use archicraft_model::{Command, Element, ElementId, KindTag};
 
 use crate::commands::Keymap;
 use crate::input::Modifiers;
@@ -123,18 +125,110 @@ pub fn click(ws: &mut Workspace, mode: TransferMode, hit: Option<ElementId>) {
     }
 }
 
-fn pick_up(ws: &mut Workspace, element: &Element) {
-    let project = &ws.doc.project;
-    let (into, switch_to) = match ws.tool.kind.element_kind() {
+/// The kind of the defaults a pick-up from `element` goes into: the active
+/// tool's, or with a tool that places nothing the element's own, whose tool
+/// the pick-up activates.
+fn pick_up_into(ws: &Workspace, element: &Element) -> (KindTag, Option<ToolKind>) {
+    match ws.tool.kind.element_kind() {
         Some(kind) => (kind, None),
         None => {
             let kind = element.tag();
             (kind, ToolKind::for_kind(kind))
         }
+    }
+}
+
+/// A rehearsal of `mode` on `element` with clones (ELM-003): the element the
+/// transfer would change as it would be afterwards (the defaults of the kind
+/// picked up into, or the injected element) with the report of what it took
+/// and skipped. `None` for an inject without a tool's defaults.
+fn rehearse(ws: &Workspace, mode: TransferMode, element: &Element) -> Option<(Element, TransferReport)> {
+    let project = &ws.doc.project;
+    match mode {
+        TransferMode::PickUp => {
+            let (into, _) = pick_up_into(ws, element);
+            let mut defaults = project.new_element(into, element.storey, 0)?;
+            let report = transfer_settings(element, &mut defaults, project);
+            Some((defaults, report))
+        }
+        TransferMode::Inject => {
+            let source = project.new_element(ws.tool.kind.element_kind()?, project.storeys.ground(), 0)?;
+            let mut target = element.clone();
+            let report = transfer_settings(&source, &mut target, project);
+            Some((target, report))
+        }
+    }
+}
+
+/// What a click in `mode` would do on an element, shown while it is hovered
+/// (ELM-003, EDT-020).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Preview {
+    /// What the click does, such as "Pick up from W-003".
+    pub title: String,
+    /// The labels of the settings that would transfer.
+    pub applied: Vec<String>,
+    /// The settings that would be skipped, each with its reason, such as
+    /// "IFC class not allowed"; those the target lacks altogether are left
+    /// out, as in the status line.
+    pub skipped: Vec<String>,
+    /// Why nothing would happen, instead of the lists: no tool's defaults
+    /// to inject, or a locked element.
+    pub refused: Option<String>,
+}
+
+/// The preview of a click in `mode` on the element `id`, from a rehearsal
+/// with clones: nothing changes until the click.
+pub fn preview(ws: &Workspace, mode: TransferMode, id: ElementId) -> Option<Preview> {
+    let project = &ws.doc.project;
+    let element = project.element(id)?;
+    let name = element.name.clone();
+    let title = match mode {
+        TransferMode::PickUp => tr!("view-transfer-preview-pick-up", name = name),
+        TransferMode::Inject => match ws.selection.len() {
+            n if n > 1 && ws.selection.contains(&id) => tr!(
+                "view-transfer-preview-inject-selection",
+                count = n,
+                count_text = ws.count_text(n),
+                name = name,
+            ),
+            _ => tr!("view-transfer-preview-inject", name = name),
+        },
     };
-    let applied = project.new_element(into, element.storey, 0).map_or(0, |mut prototype| {
-        transfer_settings(element, &mut prototype, project).applied.len()
-    });
+    let refused = |title, reason| Preview {
+        title,
+        applied: Vec::new(),
+        skipped: Vec::new(),
+        refused: Some(reason),
+    };
+    if mode == TransferMode::Inject && !project.is_editable(element) {
+        return Some(refused(title, tr!("view-transfer-preview-locked")));
+    }
+    let Some((target, report)) = rehearse(ws, mode, element) else {
+        return Some(refused(title, tr!("status-inject-no-defaults")));
+    };
+    let applied = report
+        .applied
+        .iter()
+        .filter_map(|key| fields_of(&target).find(|spec| spec.key == *key))
+        .map(|spec| tr!(spec.label))
+        .collect();
+    let skipped = report
+        .skipped
+        .iter()
+        .filter_map(|(key, reason)| skip_text(ws, &target, key, reason))
+        .collect();
+    Some(Preview {
+        title,
+        applied,
+        skipped,
+        refused: None,
+    })
+}
+
+fn pick_up(ws: &mut Workspace, element: &Element) {
+    let (into, switch_to) = pick_up_into(ws, element);
+    let applied = rehearse(ws, TransferMode::PickUp, element).map_or(0, |(_, report)| report.applied.len());
     let name = element.name.clone();
     let done = ws.run(Command::PickUpSettings {
         element: element.id,
@@ -182,12 +276,9 @@ fn inject(ws: &mut Workspace, element: &Element) {
         (vec![element.id], 0)
     };
     let preview = match targets.as_slice() {
-        [only] => project.element(*only).and_then(|target| {
-            let source = project.new_element(kind, project.storeys.ground(), 0)?;
-            let mut target = target.clone();
-            let report = transfer_settings(&source, &mut target, project);
-            Some((target, report))
-        }),
+        [only] => project
+            .element(*only)
+            .and_then(|target| rehearse(ws, TransferMode::Inject, target)),
         _ => None,
     };
     let count = targets.len();
@@ -234,22 +325,7 @@ fn injected_text(ws: &Workspace, target: &Element, report: &TransferReport) -> S
     let skipped: Vec<String> = report
         .skipped
         .iter()
-        .filter_map(|(key, reason)| {
-            let label = fields_of(target).find(|spec| spec.key == *key)?.label;
-            let field = tr!(label);
-            Some(match reason {
-                SkipReason::Absent => return None,
-                SkipReason::NotOffered => tr!("status-transfer-skip-not-offered", field = field),
-                SkipReason::Inapplicable => tr!("status-transfer-skip-inapplicable", field = field),
-                SkipReason::Invalid(message) => {
-                    tr!(
-                        "status-transfer-skip-invalid",
-                        field = field,
-                        reason = ws.render(message)
-                    )
-                }
-            })
-        })
+        .filter_map(|(key, reason)| skip_text(ws, target, key, reason))
         .collect();
     if skipped.is_empty() {
         injected
@@ -260,6 +336,23 @@ fn injected_text(ws: &Workspace, target: &Element, report: &TransferReport) -> S
             skipped = skipped.join(", ")
         )
     }
+}
+
+/// The setting `key` of `target` that a transfer skipped, with the reason,
+/// such as "IFC class not allowed"; `None` for one `target` lacks.
+fn skip_text(ws: &Workspace, target: &Element, key: &str, reason: &SkipReason) -> Option<String> {
+    let label = fields_of(target).find(|spec| spec.key == key)?.label;
+    let field = tr!(label);
+    Some(match reason {
+        SkipReason::Absent => return None,
+        SkipReason::NotOffered => tr!("status-transfer-skip-not-offered", field = field),
+        SkipReason::Inapplicable => tr!("status-transfer-skip-inapplicable", field = field),
+        SkipReason::Invalid(message) => tr!(
+            "status-transfer-skip-invalid",
+            field = field,
+            reason = ws.render(message)
+        ),
+    })
 }
 
 #[cfg(test)]

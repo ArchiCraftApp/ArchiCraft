@@ -134,6 +134,8 @@ fn command_ids_are_pinned() {
             "edit.ungroup",
             "edit.suspend-groups",
             "edit.settings",
+            "edit.pick-up-parameters",
+            "edit.inject-parameters",
             "view.zoom-in",
             "view.zoom-out",
             "view.fit-window",
@@ -652,7 +654,8 @@ fn menus_follow_group_and_order() {
     );
     assert_eq!(
         menu("edit"),
-        "edit.undo edit.redo | edit.delete edit.select-all | edit.group edit.ungroup edit.suspend-groups | edit.settings"
+        "edit.undo edit.redo | edit.delete edit.select-all | edit.group edit.ungroup edit.suspend-groups | \
+         edit.settings edit.pick-up-parameters edit.inject-parameters"
     );
     assert_eq!(
         menu("view"),
@@ -770,6 +773,8 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             "file::SAVE" => vec![file::SAVE],
             "edit::UNDO" => vec![edit::UNDO],
             "edit::REDO" => vec![edit::REDO],
+            "edit::PICK_UP_PARAMETERS" => vec![edit::PICK_UP_PARAMETERS],
+            "edit::INJECT_PARAMETERS" => vec![edit::INJECT_PARAMETERS],
             "edit::GROUP" => vec![edit::GROUP],
             "edit::UNGROUP" => vec![edit::UNGROUP],
             "tools::MEASURE" => vec![tools::MEASURE],
@@ -787,7 +792,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             }
         }
     }
-    assert_eq!(ids.len(), 14, "{ids:?}");
+    assert_eq!(ids.len(), 16, "{ids:?}");
     let mut icons = HashSet::new();
     for id in ids {
         let icon = spec(id.as_str())
@@ -956,6 +961,8 @@ fn assert_shell_names_no_command(source: &str) {
             "file::SAVE",
             "edit::UNDO",
             "edit::REDO",
+            "edit::PICK_UP_PARAMETERS",
+            "edit::INJECT_PARAMETERS",
             "tools::MEASURE",
             "edit::GROUP",
             "edit::UNGROUP"

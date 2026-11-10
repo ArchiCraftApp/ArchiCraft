@@ -100,6 +100,9 @@ impl Consumer {
 pub struct SceneKey {
     pub revision: u64,
     pub selection: Vec<ElementId>,
+    /// The element a parameter transfer would take in the 3D view under the
+    /// pointer, tinted as its candidate (ELM-003).
+    pub hover: Option<ElementId>,
 }
 
 impl SceneKey {
@@ -111,6 +114,7 @@ impl SceneKey {
         Self {
             revision: ws.doc.project.revision,
             selection,
+            hover: ws.hover_3d.map(|(_, id)| id),
         }
     }
 }
@@ -135,6 +139,10 @@ pub struct Workspace {
     /// Session state, not saved with the project.
     pub groups_suspended: bool,
     pub hover: Option<ElementId>,
+    /// The 3D view under the pointer and the element a click there would
+    /// transfer settings to or from (ELM-003); the view clears it when the
+    /// pointer leaves it or no transfer mode is on.
+    pub hover_3d: Option<(ViewId, ElementId)>,
     pub plan_views: HashMap<StoreyId, PlanViewState>,
     /// The snap targets of each storey, following the model's revisions
     /// (NFR-PERF-005).
@@ -174,6 +182,7 @@ impl Workspace {
             selection: HashSet::new(),
             groups_suspended: false,
             hover: None,
+            hover_3d: None,
             plan_views: HashMap::new(),
             snap_indexes: HashMap::new(),
             views_3d: HashMap::new(),
@@ -200,6 +209,7 @@ impl Workspace {
         self.frames = InputFrames::default();
         self.selection.clear();
         self.hover = None;
+        self.hover_3d = None;
         self.plan_views.clear();
         self.snap_indexes.clear();
         self.views_3d.clear();
@@ -448,6 +458,9 @@ impl Workspace {
             .retain(|id| project.element(*id).is_some_and(|e| project.is_visible(e)));
         if self.hover.is_some_and(|id| project.element(id).is_none()) {
             self.hover = None;
+        }
+        if self.hover_3d.is_some_and(|(_, id)| project.element(id).is_none()) {
+            self.hover_3d = None;
         }
         if project.storeys.get(self.active_storey).is_none() {
             self.active_storey = project.storeys.ground();

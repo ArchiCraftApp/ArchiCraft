@@ -44,6 +44,13 @@ cmd-edit-suspend-groups-label = Suspend groups
 cmd-edit-suspend-groups-desc = Select single members of groups with a click, for this session.
 cmd-edit-settings-label = Settings of tool or selection…
 cmd-edit-settings-desc = Edit the settings of the selected elements, or the defaults of the active tool.
+cmd-edit-pick-up-parameters-label = Pick up parameters
+cmd-edit-pick-up-parameters-desc = Pick up the settings of the elements you click into the active tool's defaults, until Esc.
+cmd-edit-inject-parameters-label = Inject parameters
+cmd-edit-inject-parameters-desc = Inject the active tool's settings into the elements you click, or into the selection, until Esc.
+# The shortcut of a command that a click with modifier keys held also runs,
+# such as Alt-click; $modifiers: the keys as the platform writes them.
+cmd-gesture-click = { $modifiers }-click
 
 ## View
 

@@ -14,8 +14,8 @@ use archicraft_model::units::{NumberFormat, UnitSettings};
 use archicraft_model::{AnchorPos, Command, DrawingScale, ElementId, Project, StoreyId, Text, TextAlign};
 use egui::epaint::Vertex;
 use egui::{
-    Align2, Color32, CursorIcon, Event, FontId, Key, Mesh, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
-    Ui,
+    Align2, Color32, CursorIcon, Event, FontId, Key, Mesh, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
+    StrokeKind, Ui,
 };
 
 use super::annotation_draw::{LaidOutText, TextBlock, layout_text, paint};
@@ -28,6 +28,7 @@ use crate::input::{
     TrackerMode, ViewSurface,
 };
 use crate::tools::{TextEditor, ToolKind, ToolState};
+use crate::tr;
 use crate::workspace::{Consumer, InputFrames, Pane, Request, Workspace};
 
 /// Per-view state of a plan view.
@@ -850,6 +851,35 @@ pub fn transfer_glyph(p: Pos2, mode: TransferMode, color: Color32) -> Vec<Shape>
     }
 }
 
+/// The tooltip of a parameter transfer's [`Preview`](transfer::Preview)
+/// beside the pointer, before the click (ELM-003, EDT-020): what the click
+/// does, the settings that would transfer and those that would be skipped,
+/// with the reasons. Plan and 3D views show it alike.
+pub fn transfer_tooltip(response: &Response, preview: &transfer::Preview) {
+    response.clone().on_hover_ui_at_pointer(|ui| {
+        ui.set_max_width(ui.spacing().tooltip_width);
+        ui.strong(&preview.title);
+        if let Some(reason) = &preview.refused {
+            ui.colored_label(ui.visuals().warn_fg_color, reason);
+            return;
+        }
+        if preview.applied.is_empty() {
+            ui.label(tr!("view-transfer-preview-nothing"));
+        } else {
+            ui.label(tr!(
+                "view-transfer-preview-applied",
+                fields = preview.applied.join(", ")
+            ));
+        }
+        if !preview.skipped.is_empty() {
+            ui.label(tr!(
+                "view-transfer-preview-skipped",
+                fields = preview.skipped.join(", ")
+            ));
+        }
+    });
+}
+
 /// The ticks of the hovered edge's division points (INP-010): a short
 /// stroke across the divided stretch at each point, 4 points to either
 /// side, `to_screen` mapping model to screen positions.
@@ -1295,6 +1325,10 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     {
         ui.ctx().set_cursor_icon(transfer_cursor(mode));
         painter.extend(transfer_glyph(p, mode, palette.selection));
+        // The hover highlights the candidate; the tooltip previews it.
+        if let Some(preview) = ws.hover.and_then(|id| transfer::preview(ws, mode, id)) {
+            transfer_tooltip(&response, &preview);
+        }
     }
     if let Some((r, fully)) = area.filter(|(r, _)| r.area() > 4.0) {
         let stroke = Stroke::new(1.0, palette.selection);
