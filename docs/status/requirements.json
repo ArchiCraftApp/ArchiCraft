@@ -5221,7 +5221,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Unmeasured, and the update is not incremental: ModelGeometry::evaluate re-extrudes and re-triangulates every element (crates/archicraft-geometry/src/evaluate.rs:95-122) and all plan caches are dropped (Document::geometry, crates/archicraft-app/src/document.rs:100). An RM-M stand-in exists (samples::stand_in(5_000): seeded, five storeys of 4 m rooms in L and T junctions; 20,000 as four blocks); no criterion target or CI timing gate yet",
+      "gap": "Unmeasured, and the update is not incremental: ModelGeometry::evaluate re-extrudes and re-triangulates every element (crates/archicraft-geometry/src/evaluate.rs:108) and all plan caches are dropped (Document::geometry, crates/archicraft-app/src/document.rs:113). The model records what each edit changed, for the caches to update only that: Project.changes (ChangeLog, crates/archicraft-model/src/changes.rs:44) keeps per-element stamps with tombstones for removed elements, the storeys an edit moved and a full invalidation for settings edits, stamped by Edit::apply in execute, undo and redo (stamp_changes, crates/archicraft-model/src/command.rs:1166); no consumer reads it yet (geometry: archicraft-dyau.3; plans and the 3D scene: archicraft-5a64). An RM-M stand-in exists (samples::stand_in(5_000): seeded, five storeys of 4 m rooms in L and T junctions; 20,000 as four blocks); no criterion target or CI timing gate yet",
       "depends_on": []
     },
     {

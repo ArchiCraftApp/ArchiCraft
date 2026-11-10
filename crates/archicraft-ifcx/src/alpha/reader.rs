@@ -49,6 +49,7 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
+use archicraft_model::changes::ChangeLog;
 use archicraft_model::glam::DVec2;
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use archicraft_model::project::{
@@ -1478,6 +1479,7 @@ fn read_migrated<A: AttributeValue>(
         group_counter: 0,
         data_version: 0,
         revision: 0,
+        changes: ChangeLog::default(),
     };
     project.data_version = file.header.data_version.parse().unwrap_or_else(|_| {
         problems.push(Problem::warning(None, Message::new("ifcx-data-version-invalid")));

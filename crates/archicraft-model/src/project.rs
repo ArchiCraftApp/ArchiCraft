@@ -6,6 +6,7 @@ use glam::DVec2;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+use crate::changes::ChangeLog;
 use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, StructuralFunction};
 use crate::group::Group;
 use crate::ids::{
@@ -355,6 +356,11 @@ pub struct Project {
     /// Incremented on every model change; used to invalidate caches. Not saved.
     #[serde(skip)]
     pub revision: u64,
+    /// What each edit changed, stamped with [`Project::revision`], so that
+    /// caches update only that (NFR-PERF-006). Not saved, and never part of
+    /// the project's equality.
+    #[serde(skip)]
+    pub changes: ChangeLog,
 }
 
 impl Project {

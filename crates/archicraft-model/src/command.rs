@@ -1017,7 +1017,9 @@ impl Edit {
     /// Applies the edit and returns its inverse. An edit that inserts,
     /// removes or replaces an element updates the relation store's index
     /// for that element (STR-006), so that the index stays exact through
-    /// undo and redo.
+    /// undo and redo. Every edit advances the project's revision and stamps
+    /// what it changed in the project's change log with the revision after
+    /// it (NFR-PERF-006), forward, in undo and in redo alike.
     pub fn apply(self, project: &mut Project) -> Result<Edit, CommandError> {
         let inverse = match self {
             Edit::InsertElement { index, element } => {
@@ -1147,7 +1149,63 @@ impl Edit {
             ),
         };
         project.revision += 1;
+        stamp_changes(project, &inverse);
         Ok(inverse)
+    }
+}
+
+/// Stamps in the project's change log what the edit undone by `inverse`
+/// changed, with the project's revision after it (NFR-PERF-006). The
+/// inverse names what changed: an inserted element is undone by removing
+/// it, a removed one by inserting it again, a replaced one by its old
+/// version, moved storeys by the old storey list. A relation decides what
+/// its ends depend on (SRS 3.3), so recording or removing one stamps the
+/// ends that are in the project. The settings hold the tessellation
+/// tolerances every body depends on (IFX-034): everything is stamped. The
+/// match names every edit, so that a new one decides what it stamps.
+fn stamp_changes(project: &mut Project, inverse: &Edit) {
+    let Project {
+        changes,
+        storeys,
+        elements,
+        relations,
+        revision,
+        ..
+    } = project;
+    let revision = *revision;
+    let mut stamp_ends = |relation: Option<&Relation>| {
+        let Some((first, second)) = relation.and_then(Relation::ends) else {
+            return;
+        };
+        for end in [first, second] {
+            if elements.contains_key(&end) {
+                changes.stamp_element(end, revision, false);
+            }
+        }
+    };
+    match inverse {
+        Edit::RemoveElement { id } => changes.stamp_element(*id, revision, false),
+        Edit::ReplaceElement(old) => changes.stamp_element(old.id, revision, false),
+        Edit::InsertElement { element, .. } => changes.stamp_element(element.id, revision, true),
+        Edit::SetStoreys(old) => changes.stamp_storeys(old, storeys, revision),
+        Edit::SetSettings(_) => changes.stamp_everything(revision),
+        Edit::RemoveRelation(id) => stamp_ends(relations.get(*id)),
+        Edit::InsertRelation(relation) => stamp_ends(Some(relation)),
+        Edit::InsertLayer { .. }
+        | Edit::RemoveLayer { .. }
+        | Edit::ReplaceLayer(_)
+        | Edit::InsertMaterial { .. }
+        | Edit::RemoveMaterial { .. }
+        | Edit::ReplaceMaterial(_)
+        | Edit::SetToolDefaults(_)
+        | Edit::SetInfo(_)
+        | Edit::SetSpatialNames { .. }
+        | Edit::SetLocation(_)
+        | Edit::SetCounters(_)
+        | Edit::InsertGroup { .. }
+        | Edit::RemoveGroup { .. }
+        | Edit::ReplaceGroup(_)
+        | Edit::SetGroupCounter(_) => {}
     }
 }
 
