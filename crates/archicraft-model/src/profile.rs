@@ -572,13 +572,18 @@ mod tests {
     /// The codes and label keys of the shapes and dimensions are distinct.
     #[test]
     fn codes_and_label_keys_are_distinct() {
-        let mut codes: Vec<_> = ParametricShape::ALL.iter().map(ParametricShape::code).collect();
-        codes.sort_unstable();
-        codes.dedup();
-        assert_eq!(codes.len(), ParametricShape::ALL.len());
-        let mut keys: Vec<_> = ProfileDimension::ALL.map(ProfileDimension::label_key).to_vec();
-        keys.sort_unstable();
-        keys.dedup();
-        assert_eq!(keys.len(), ProfileDimension::ALL.len());
+        fn distinct(mut items: Vec<&'static str>) -> bool {
+            let n = items.len();
+            items.sort_unstable();
+            items.dedup();
+            items.len() == n
+        }
+        let shapes = &ParametricShape::ALL;
+        assert!(distinct(shapes.iter().map(ParametricShape::code).collect()));
+        assert!(distinct(shapes.iter().map(ParametricShape::label_key).collect()));
+        assert!(distinct(ProfileDimension::ALL.map(ProfileDimension::code).to_vec()));
+        assert!(distinct(
+            ProfileDimension::ALL.map(ProfileDimension::label_key).to_vec()
+        ));
     }
 }

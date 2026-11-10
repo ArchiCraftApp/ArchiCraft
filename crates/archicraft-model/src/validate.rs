@@ -379,8 +379,10 @@ pub fn validate_profile(project: &Project, profile: &Profile) -> Result<Profile,
 /// space they lie in (two flanges than the height, a hollow section's wall
 /// than half its smaller side, a web than the width) and fillets fit
 /// between the plates they join (a root radius between the web and the
-/// flange tip, and between the flange and the middle or end of the web). The
-/// message names the dimension and its limit.
+/// flange tip, and between the flange and the middle or end of the web; an
+/// angle's root and toe radii together within the inner face of the shorter
+/// leg, the toe radius at most the thickness). The message names the
+/// dimension and its limit.
 pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
     use ProfileDimension as D;
     for (dimension, value) in shape.dimensions() {
@@ -484,7 +486,8 @@ pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
             let leg = height.min(width);
             below(D::Thickness, thickness, leg)?;
             at_most(D::RootRadius, root_radius, leg - thickness)?;
-            at_most(D::ToeRadius, toe_radius, thickness)
+            // Both fillets lie on the inner face of a leg, leg - t long.
+            at_most(D::ToeRadius, toe_radius, thickness.min(leg - thickness - root_radius))
         }
     }
 }
@@ -1398,6 +1401,13 @@ mod tests {
                 limit_error(with(l, D::ToeRadius, 11.0 * MM)),
                 (radius, D::ToeRadius.label_key())
             );
+            // L 100 × 100 × 10: r1 + r2 must fit on the 90 mm inner face, so
+            // r1 85 mm leaves room for an r2 of 5 mm, not 10 mm.
+            let tight = with(l, D::RootRadius, 85.0 * MM);
+            assert!(check(with(tight, D::ToeRadius, 5.0 * MM)).is_ok());
+            let error = check(with(tight, D::ToeRadius, 10.0 * MM)).unwrap_err();
+            assert_eq!(error.key(), radius);
+            assert_eq!(named_dimension(&error), D::ToeRadius.label_key());
         }
 
         /// PRF-004: a profile needs a name, its materials must exist and
