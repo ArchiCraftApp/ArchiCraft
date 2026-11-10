@@ -13,15 +13,17 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Arc;
 
 use archicraft_model::{Element, ElementId, MODEL_TOLERANCE, MaterialId, Project, Rgb};
 use glam::DVec3;
 
 use crate::GeometryError;
+use crate::contact::{ContactIndex, Junctions};
 use crate::kinds::{self, EvalContext};
 use crate::mesh::TriMesh;
 use crate::message::Message;
-use crate::wall::{Footprint, footprints};
+use crate::wall::Footprint;
 
 pub use crate::kinds::wall::wall_inputs;
 
@@ -96,17 +98,30 @@ impl ElementGeometry {
 pub struct ModelGeometry {
     /// The project revision this geometry was evaluated from.
     pub revision: u64,
-    pub elements: HashMap<ElementId, ElementGeometry>,
+    /// The geometry of every element without a problem. Shared, so that an
+    /// evaluation can keep the geometry of unchanged elements without copying
+    /// it, and consumers can tell it is unchanged by pointer.
+    pub elements: HashMap<ElementId, Arc<ElementGeometry>>,
     /// Elements whose geometry failed, with the reason as a `geometry-`
     /// message (UI-012, NFR-L10N-001).
     pub problems: BTreeMap<ElementId, Message>,
+    /// The walls of the evaluated project and their reference lines by
+    /// storey, kept for the next evaluation (NFR-PERF-006).
+    contacts: ContactIndex,
+    /// The candidate tests of the last junction pass.
+    junction_tests: usize,
 }
 
 impl ModelGeometry {
     /// Evaluates every element. A failing element is listed in `problems`
-    /// and does not stop the others (NFR-REL-006).
+    /// and does not stop the others (NFR-REL-006). Wall junctions are
+    /// resolved through a [`ContactIndex`] of the walls (NFR-PERF-006).
     pub fn evaluate(project: &Project) -> Self {
-        let wall_footprints = footprints(&wall_inputs(project));
+        let contacts = ContactIndex::new(wall_inputs(project));
+        let Junctions {
+            footprints: wall_footprints,
+            candidate_tests,
+        } = contacts.resolve_all();
         let mut elements = HashMap::with_capacity(project.elements.len());
         let mut problems = BTreeMap::new();
         for element in project.elements.values() {
@@ -115,7 +130,7 @@ impl ModelGeometry {
             }));
             match result {
                 Ok(Ok(geometry)) => {
-                    elements.insert(element.id, geometry);
+                    elements.insert(element.id, Arc::new(geometry));
                 }
                 Ok(Err(e)) => {
                     tracing::warn!(element = %element.id, name = %element.name, "geometry failed: {e}");
@@ -131,11 +146,25 @@ impl ModelGeometry {
             revision: project.revision,
             elements,
             problems,
+            contacts,
+            junction_tests: candidate_tests,
         }
     }
 
     pub fn get(&self, id: ElementId) -> Option<&ElementGeometry> {
-        self.elements.get(&id)
+        self.elements.get(&id).map(Arc::as_ref)
+    }
+
+    /// The walls this geometry was evaluated from, indexed for contact
+    /// queries.
+    pub fn contacts(&self) -> &ContactIndex {
+        &self.contacts
+    }
+
+    /// How often the junction pass of this evaluation tested a wall end
+    /// against another wall (see [`Junctions::candidate_tests`]).
+    pub fn junction_candidate_tests(&self) -> usize {
+        self.junction_tests
     }
 }
 

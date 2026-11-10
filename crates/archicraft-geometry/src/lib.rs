@@ -4,6 +4,7 @@
 //! junctions, and derives plan drawings from the same 3D bodies, so that plan,
 //! 3D view and IFCX agree (WAL-027).
 
+pub mod contact;
 pub mod contour;
 pub mod evaluate;
 pub mod extrude;

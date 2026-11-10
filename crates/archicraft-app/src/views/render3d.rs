@@ -633,7 +633,7 @@ mod tests {
         let triangles: usize = geometry
             .elements
             .values()
-            .flat_map(ElementGeometry::bodies)
+            .flat_map(|g| g.bodies())
             .map(|p| p.mesh.triangle_count())
             .sum();
         assert_eq!(scene.opaque.len() + scene.transparent.len(), triangles * 3);
@@ -734,6 +734,8 @@ mod tests {
     /// is drawn.
     #[test]
     fn the_scene_skips_kinds_without_a_body() {
+        use std::sync::Arc;
+
         use archicraft_model::glam::DVec2;
         use archicraft_model::kinds::{Dummy, Note};
         use archicraft_model::template::default_metric_project;
@@ -755,7 +757,7 @@ mod tests {
         assert!(!only_the_box.opaque.is_empty());
 
         let a_box = geometry.get(box_id).unwrap().clone();
-        geometry.elements.insert(note_id, a_box);
+        geometry.elements.insert(note_id, Arc::new(a_box));
         let scene = build_scene(&project, &geometry, &HashSet::from([note_id]), Some(note_id));
         assert_eq!(scene.opaque.len(), only_the_box.opaque.len());
         assert!(scene.transparent.is_empty());
