@@ -13,7 +13,9 @@ use archicraft_model::message::ALL_KEYS;
 use archicraft_model::units::{
     AngleUnit, AreaUnit, LengthUnit, NumberFormat, ParseError, SlopeFormat, UnitSettings, VolumeUnit, format_length,
 };
-use archicraft_model::{IfcClass, KindTag, Message, PredefinedType, ReferenceLine, StructuralFunction};
+use archicraft_model::{
+    IfcClass, KindTag, Message, ParametricShape, PredefinedType, ProfileDimension, ReferenceLine, StructuralFunction,
+};
 use catalogue_check::{assert_catalogue_matches, variables_of_pattern};
 use fluent_syntax::ast::Entry;
 use fluent_syntax::parser;
@@ -78,6 +80,8 @@ fn label_representatives() -> Vec<Message> {
     keys.extend(IfcClass::ALL.map(IfcClass::label_key));
     keys.extend(PredefinedType::ALL.map(PredefinedType::label_key));
     keys.extend(StructuralFunction::ALL.map(StructuralFunction::label_key));
+    keys.extend(ParametricShape::ALL.iter().map(ParametricShape::label_key));
+    keys.extend(ProfileDimension::ALL.map(ProfileDimension::label_key));
     keys.extend(
         [
             ReferenceLine::Outside,
@@ -245,6 +249,28 @@ fn error_representatives() -> Vec<Message> {
         Message::new("model-error-storey-cut-plane")
             .text("name", "00")
             .length("max", 100.0),
+        Message::new("model-problem-profile-material-missing").text("name", "IPE 200"),
+        Message::new("model-error-profile-name"),
+        max("model-error-profile-origin", 10.0),
+        Message::new("model-error-profile-material-missing"),
+        Message::new("model-error-profile-dimension-range")
+            .nested("dimension", Message::new(ProfileDimension::Web.label_key()))
+            .length("min", 0.0001)
+            .length("max", 10.0),
+        Message::new("model-error-profile-dimension-limit")
+            .nested("dimension", Message::new(ProfileDimension::Flange.label_key()))
+            .length("max", 0.1),
+        Message::new("model-error-profile-radius-limit")
+            .nested("dimension", Message::new(ProfileDimension::RootRadius.label_key()))
+            .length("max", 0.047),
+        Message::new("model-error-profile-no-regions"),
+        Message::new("model-error-profile-points").count("max", 10_000),
+        Message::new("model-error-profile-region")
+            .count("number", 2)
+            .nested("reason", Message::new("model-error-polygon-self-intersection")),
+        Message::new("model-error-profile-regions-overlap")
+            .count("first", 1)
+            .count("second", 2),
     ]);
     messages
 }

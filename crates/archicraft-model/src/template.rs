@@ -449,6 +449,7 @@ pub fn default_metric_project_with(ids: &mut dyn FnMut(&str) -> Uuid) -> Project
         storeys,
         layers,
         materials,
+        profiles: Vec::new(),
         text_styles: template_text_styles(),
         elements: IndexMap::new(),
         groups: IndexMap::new(),

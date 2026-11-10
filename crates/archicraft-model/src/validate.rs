@@ -12,6 +12,7 @@ use crate::element::{Element, TopLink};
 use crate::kinds::{BoundarySource, ReferenceLine, Slab, Space, VerticalLink, Wall};
 use crate::message::Message;
 use crate::outline::{Outline, Ring};
+use crate::profile::{ParametricShape, Profile, ProfileDimension, ProfileRegion, ProfileShape};
 use crate::project::Project;
 
 /// Geometric coincidence tolerance: 0.01 mm (NFR-ACC-003), defined in
@@ -45,6 +46,13 @@ pub const MAX_DECIMALS: u8 = 8;
 /// line), so a slab at the limit validates in milliseconds; the limit keeps a
 /// crafted file from loading one slab of millions of points (NFR-SEC-003).
 pub const MAX_SLAB_POINTS: usize = 10_000;
+
+/// Smallest dimension of a parametric profile other than a radius, and
+/// the shortest edge of a profile: 0.1 mm (PRF-005, EDT-019).
+pub const MIN_PROFILE_DIMENSION: f64 = MIN_EDGE_LENGTH;
+/// Largest dimension of a profile, and the largest distance of its origin
+/// from the profile's zero: 10 m (PRF-004, PRF-005).
+pub const MAX_PROFILE_DIMENSION: f64 = MAX_THICKNESS;
 
 /// Largest step or spacing of a drafting grid, in metres (INP-013).
 pub const MAX_GRID_SPACING: f64 = 1000.0;
@@ -325,6 +333,232 @@ pub fn validate_space(space: &Space) -> Result<Space, Message> {
         boundary: Outline::from_point_rings(std::iter::once(outer).chain(holes)),
         ..space.clone()
     })
+}
+
+/// Validates a profile against the project (PRF-004, PRF-005) and returns
+/// it normalised: the rings of custom regions as [`validate_slab_polygon`]
+/// returns them, outer rings counter-clockwise and holes clockwise.
+///
+/// The name must not be blank, the origin within
+/// [`MAX_PROFILE_DIMENSION`] of zero and every material must exist. A
+/// parametric shape's dimensions must lie in their ranges
+/// ([`MIN_PROFILE_DIMENSION`]..=[`MAX_PROFILE_DIMENSION`], radii from zero)
+/// and fit together ([`check_parametric_shape`]). A custom profile has at
+/// least one region, at most [`MAX_SLAB_POINTS`] points in all, and its
+/// regions do not overlap; they may touch, for example share an edge.
+pub fn validate_profile(project: &Project, profile: &Profile) -> Result<Profile, Message> {
+    if profile.name.trim().is_empty() {
+        return Err(Message::new("model-error-profile-name"));
+    }
+    if !profile.origin.is_finite() || profile.origin.abs().max_element() > MAX_PROFILE_DIMENSION {
+        return Err(Message::new("model-error-profile-origin").length("max", MAX_PROFILE_DIMENSION));
+    }
+    if profile.materials().iter().any(|&m| project.material(m).is_none()) {
+        return Err(Message::new("model-error-profile-material-missing"));
+    }
+    let shape = match &profile.shape {
+        ProfileShape::Parametric { shape, material } => {
+            check_parametric_shape(shape)?;
+            ProfileShape::Parametric {
+                shape: *shape,
+                material: *material,
+            }
+        }
+        ProfileShape::Custom { regions } => ProfileShape::Custom {
+            regions: validate_profile_regions(regions)?,
+        },
+    };
+    Ok(Profile {
+        shape,
+        ..profile.clone()
+    })
+}
+
+/// Checks the dimensions of a parametric shape (PRF-005): each in its
+/// range, then that they fit together. Thicknesses are smaller than the
+/// space they lie in (two flanges than the height, a hollow section's wall
+/// than half its smaller side, a web than the width) and fillets fit
+/// between the plates they join (a root radius between the web and the
+/// flange tip, and between the flange and the middle or end of the web). The
+/// message names the dimension and its limit.
+pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
+    use ProfileDimension as D;
+    for (dimension, value) in shape.dimensions() {
+        let min = if dimension.is_radius() {
+            0.0
+        } else {
+            MIN_PROFILE_DIMENSION
+        };
+        if !value.is_finite() || !(min..=MAX_PROFILE_DIMENSION).contains(&value) {
+            return Err(Message::new("model-error-profile-dimension-range")
+                .nested("dimension", Message::new(dimension.label_key()))
+                .length("min", min)
+                .length("max", MAX_PROFILE_DIMENSION));
+        }
+    }
+    // A plate thickness below its limit, a fillet radius at most its limit.
+    let below = |dimension: D, value: f64, limit: f64| {
+        if value < limit {
+            Ok(())
+        } else {
+            Err(Message::new("model-error-profile-dimension-limit")
+                .nested("dimension", Message::new(dimension.label_key()))
+                .length("max", limit))
+        }
+    };
+    let at_most = |dimension: D, value: f64, limit: f64| {
+        if value <= limit {
+            Ok(())
+        } else {
+            Err(Message::new("model-error-profile-radius-limit")
+                .nested("dimension", Message::new(dimension.label_key()))
+                .length("max", limit))
+        }
+    };
+    match *shape {
+        ParametricShape::Rectangle { .. } | ParametricShape::Circle { .. } => Ok(()),
+        ParametricShape::RectangularHollow {
+            width,
+            height,
+            thickness,
+            outer_radius,
+        } => {
+            let half = width.min(height) / 2.0;
+            below(D::Thickness, thickness, half)?;
+            at_most(D::OuterRadius, outer_radius, half)
+        }
+        ParametricShape::CircularHollow { diameter, thickness } => below(D::Thickness, thickness, diameter / 2.0),
+        ParametricShape::IShape {
+            height,
+            width,
+            web,
+            flange,
+            root_radius,
+        } => {
+            below(D::Flange, flange, height / 2.0)?;
+            below(D::Web, web, width)?;
+            at_most(
+                D::RootRadius,
+                root_radius,
+                ((width - web) / 2.0).min(height / 2.0 - flange),
+            )
+        }
+        ParametricShape::TShape {
+            height,
+            width,
+            web,
+            flange,
+            root_radius,
+        } => {
+            below(D::Flange, flange, height)?;
+            below(D::Web, web, width)?;
+            at_most(D::RootRadius, root_radius, ((width - web) / 2.0).min(height - flange))
+        }
+        ParametricShape::UShape {
+            height,
+            width,
+            web,
+            flange,
+            root_radius,
+        } => {
+            below(D::Flange, flange, height / 2.0)?;
+            below(D::Web, web, width)?;
+            at_most(D::RootRadius, root_radius, (width - web).min(height / 2.0 - flange))
+        }
+        ParametricShape::ZShape {
+            height,
+            width,
+            web,
+            flange,
+        } => {
+            below(D::Flange, flange, height / 2.0)?;
+            below(D::Web, web, width)
+        }
+        ParametricShape::LShape {
+            height,
+            width,
+            thickness,
+            root_radius,
+            toe_radius,
+        } => {
+            let leg = height.min(width);
+            below(D::Thickness, thickness, leg)?;
+            at_most(D::RootRadius, root_radius, leg - thickness)?;
+            at_most(D::ToeRadius, toe_radius, thickness)
+        }
+    }
+}
+
+/// The regions of a custom profile, each validated by
+/// [`validate_slab_polygon`] and checked against the others (PRF-004).
+fn validate_profile_regions(regions: &[ProfileRegion]) -> Result<Vec<ProfileRegion>, Message> {
+    if regions.is_empty() {
+        return Err(Message::new("model-error-profile-no-regions"));
+    }
+    let points: usize = regions
+        .iter()
+        .map(|r| r.outer.len() + r.holes.iter().map(Vec::len).sum::<usize>())
+        .sum();
+    if points > MAX_SLAB_POINTS {
+        return Err(Message::new("model-error-profile-points").count("max", MAX_SLAB_POINTS));
+    }
+    let regions = regions
+        .iter()
+        .enumerate()
+        .map(|(i, region)| {
+            let (outer, holes) = validate_slab_polygon(&region.outer, &region.holes).map_err(|e| {
+                Message::new("model-error-profile-region")
+                    .count("number", i + 1)
+                    .nested("reason", e)
+            })?;
+            Ok(ProfileRegion {
+                outer,
+                holes,
+                material: region.material,
+            })
+        })
+        .collect::<Result<Vec<_>, Message>>()?;
+    for (i, a) in regions.iter().enumerate() {
+        for (j, b) in regions.iter().enumerate().skip(i + 1) {
+            if regions_overlap(a, b) {
+                return Err(Message::new("model-error-profile-regions-overlap")
+                    .count("first", i + 1)
+                    .count("second", j + 1));
+            }
+        }
+    }
+    Ok(regions)
+}
+
+/// Whether two valid regions overlap (PRF-004): their intersection is more
+/// than a strip [`MODEL_TOLERANCE`] wide along the shorter boundary. Regions
+/// that only touch, sharing an edge or a point or lying in the other's hole,
+/// do not overlap.
+fn regions_overlap(a: &ProfileRegion, b: &ProfileRegion) -> bool {
+    use geo::{Area, BooleanOps, Euclidean, Length};
+    let polygon = |r: &ProfileRegion| {
+        Outline::<()>::from_point_rings(
+            std::iter::once(&r.outer)
+                .chain(&r.holes)
+                .map(|ring| ring.iter().copied()),
+        )
+        .to_geo()
+    };
+    let bounds = |r: &ProfileRegion| {
+        r.outer
+            .iter()
+            .fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(min, max), &p| {
+                (min.min(p), max.max(p))
+            })
+    };
+    let ((a_min, a_max), (b_min, b_max)) = (bounds(a), bounds(b));
+    if a_max.cmplt(b_min).any() || b_max.cmplt(a_min).any() {
+        return false;
+    }
+    let (a, b) = (polygon(a), polygon(b));
+    let boundary = |p: &geo::Polygon<f64>| Euclidean.length(p.exterior());
+    let strip = MODEL_TOLERANCE * boundary(&a).min(boundary(&b));
+    a.intersection(&b).unsigned_area() > strip
 }
 
 /// Validates an element against the project it is placed in: references to
@@ -982,5 +1216,351 @@ mod tests {
         }
         assert!(valid > 500 && invalid > 500, "{valid} valid, {invalid} invalid");
         assert!(apart > 500 && touching > 500, "{apart} apart, {touching} touching");
+    }
+
+    mod profiles {
+        use super::*;
+        use crate::Arg;
+        use crate::ids::MaterialId;
+        use crate::profile::{ParametricShape, Profile, ProfileDimension as D, ProfileRegion, ProfileShape};
+        use crate::template::default_metric_project;
+
+        const MM: f64 = 0.001;
+
+        fn ipe_200() -> ParametricShape {
+            ParametricShape::IShape {
+                height: 200.0 * MM,
+                width: 100.0 * MM,
+                web: 5.6 * MM,
+                flange: 8.5 * MM,
+                root_radius: 12.0 * MM,
+            }
+        }
+
+        /// The project and a parametric profile of `shape` made of its
+        /// first material.
+        fn parametric(shape: ParametricShape) -> (Project, Profile) {
+            let project = default_metric_project();
+            let material = project.materials[0].id;
+            (project, Profile::parametric("P", shape, material))
+        }
+
+        fn check(shape: ParametricShape) -> Result<Profile, Message> {
+            let (project, profile) = parametric(shape);
+            validate_profile(&project, &profile)
+        }
+
+        /// `shape` with `dimension` set to `value`.
+        fn with(mut shape: ParametricShape, dimension: D, value: f64) -> ParametricShape {
+            *shape.dimension_mut(dimension).unwrap() = value;
+            shape
+        }
+
+        /// The dimension a message names.
+        fn named_dimension(message: &Message) -> &'static str {
+            match message.arg("dimension") {
+                Some(Arg::Nested(name)) => name.key(),
+                other => panic!("{message} names no dimension: {other:?}"),
+            }
+        }
+
+        /// PRF-005: every standard shape accepts typical dimensions: IPE 200
+        /// (h 200, b 100, tw 5.6, tf 8.5, r 12 mm), CHS 168.3 × 8, L 100 ×
+        /// 100 × 10 with r1 12 and r2 6 mm, and the defaults of each
+        /// variant. A parametric profile comes back unchanged.
+        #[test]
+        fn parametric_shapes_accept_typical_dimensions() {
+            let typical = [
+                ipe_200(),
+                ParametricShape::CircularHollow {
+                    diameter: 168.3 * MM,
+                    thickness: 8.0 * MM,
+                },
+                ParametricShape::LShape {
+                    height: 100.0 * MM,
+                    width: 100.0 * MM,
+                    thickness: 10.0 * MM,
+                    root_radius: 12.0 * MM,
+                    toe_radius: 6.0 * MM,
+                },
+            ];
+            for shape in typical.into_iter().chain(ParametricShape::ALL) {
+                let (project, profile) = parametric(shape);
+                assert_eq!(validate_profile(&project, &profile), Ok(profile), "{}", shape.code());
+            }
+        }
+
+        /// PRF-005: a dimension that is zero, negative, NaN or above
+        /// MAX_PROFILE_DIMENSION is rejected with a message naming it; a
+        /// radius may be zero.
+        #[test]
+        fn out_of_range_dimensions_are_rejected_naming_the_dimension() {
+            for shape in ParametricShape::ALL {
+                for (dimension, _) in shape.dimensions() {
+                    let mut bad = vec![-MM, f64::NAN, MAX_PROFILE_DIMENSION * 1.01, f64::INFINITY];
+                    if dimension.is_radius() {
+                        assert!(
+                            check(with(shape, dimension, 0.0)).is_ok(),
+                            "{} {:?} 0",
+                            shape.code(),
+                            dimension
+                        );
+                    } else {
+                        bad.push(0.0);
+                    }
+                    for value in bad {
+                        let error = check(with(shape, dimension, value)).unwrap_err();
+                        assert_eq!(
+                            error.key(),
+                            "model-error-profile-dimension-range",
+                            "{} {dimension:?} {value}",
+                            shape.code()
+                        );
+                        assert_eq!(named_dimension(&error), dimension.label_key());
+                    }
+                }
+            }
+        }
+
+        /// The key and the named dimension of the error for `shape`.
+        fn limit_error(shape: ParametricShape) -> (&'static str, &'static str) {
+            let error = check(shape).unwrap_err();
+            (error.key(), named_dimension(&error))
+        }
+
+        /// PRF-005: dimensions that do not fit together are rejected naming
+        /// the dimension: two flanges as deep as the height, a hollow
+        /// section's wall of half its smaller side, a web as wide as the
+        /// flange, and a root radius that does not fit between the web and
+        /// the flange tip.
+        #[test]
+        fn inconsistent_dimensions_are_rejected_naming_the_dimension() {
+            let limit = "model-error-profile-dimension-limit";
+            let radius = "model-error-profile-radius-limit";
+            // 2 × flange >= height, also for the channel and the Z.
+            for shape in [
+                ParametricShape::ALL[4],
+                ParametricShape::ALL[7],
+                ParametricShape::ALL[8],
+            ] {
+                let half_height = shape.size().y / 2.0;
+                assert_eq!(
+                    limit_error(with(shape, D::Flange, half_height)),
+                    (limit, D::Flange.label_key()),
+                    "{}",
+                    shape.code()
+                );
+                let width = shape.size().x;
+                assert_eq!(limit_error(with(shape, D::Web, width)), (limit, D::Web.label_key()));
+            }
+            // A T's flange as deep as the whole height.
+            let t = ParametricShape::ALL[5];
+            assert_eq!(
+                limit_error(with(t, D::Flange, t.size().y)),
+                (limit, D::Flange.label_key())
+            );
+            // RHS 200 × 100: the wall must be thinner than 50 mm.
+            let rhs = ParametricShape::ALL[2];
+            assert!(check(with(with(rhs, D::OuterRadius, 0.0), D::Thickness, 49.0 * MM)).is_ok());
+            assert_eq!(
+                limit_error(with(with(rhs, D::OuterRadius, 0.0), D::Thickness, 50.0 * MM)),
+                (limit, D::Thickness.label_key())
+            );
+            assert_eq!(
+                limit_error(with(rhs, D::OuterRadius, 51.0 * MM)),
+                (radius, D::OuterRadius.label_key())
+            );
+            // CHS 168.3: the wall must be thinner than half the diameter.
+            let chs = ParametricShape::ALL[3];
+            assert_eq!(
+                limit_error(with(chs, D::Thickness, 168.3 * MM / 2.0)),
+                (limit, D::Thickness.label_key())
+            );
+            // IPE 200: the root radius fits in (100 - 5.6) / 2 = 47.2 mm.
+            assert!(check(with(ipe_200(), D::RootRadius, 47.2 * MM)).is_ok());
+            let error = check(with(ipe_200(), D::RootRadius, 47.3 * MM)).unwrap_err();
+            assert_eq!(error.key(), radius);
+            assert_eq!(named_dimension(&error), D::RootRadius.label_key());
+            assert_eq!(error.arg("max"), Some(&Arg::Length((100.0 * MM - 5.6 * MM) / 2.0)));
+            // The angle's legs: thickness below the shorter leg, the root
+            // radius in the leg beyond the other leg, the toe radius at most
+            // the thickness.
+            let l = ParametricShape::ALL[6];
+            assert_eq!(
+                limit_error(with(l, D::Thickness, 100.0 * MM)),
+                (limit, D::Thickness.label_key())
+            );
+            assert_eq!(
+                limit_error(with(l, D::RootRadius, 91.0 * MM)),
+                (radius, D::RootRadius.label_key())
+            );
+            assert_eq!(
+                limit_error(with(l, D::ToeRadius, 11.0 * MM)),
+                (radius, D::ToeRadius.label_key())
+            );
+        }
+
+        /// PRF-004: a profile needs a name, its materials must exist and
+        /// its origin must lie within MAX_PROFILE_DIMENSION of zero.
+        #[test]
+        fn names_materials_and_origins_are_checked() {
+            let (project, profile) = parametric(ipe_200());
+            let blank = Profile {
+                name: "  ".into(),
+                ..profile.clone()
+            };
+            assert_eq!(
+                validate_profile(&project, &blank).unwrap_err().key(),
+                "model-error-profile-name"
+            );
+            let missing = Profile {
+                shape: ProfileShape::Parametric {
+                    shape: ipe_200(),
+                    material: MaterialId::new(),
+                },
+                ..profile.clone()
+            };
+            assert_eq!(
+                validate_profile(&project, &missing).unwrap_err().key(),
+                "model-error-profile-material-missing"
+            );
+            let offset = Profile {
+                origin: DVec2::new(0.05, -0.1),
+                ..profile.clone()
+            };
+            assert!(validate_profile(&project, &offset).is_ok());
+            for origin in [DVec2::new(MAX_PROFILE_DIMENSION * 1.01, 0.0), DVec2::new(0.0, f64::NAN)] {
+                let far = Profile {
+                    origin,
+                    ..profile.clone()
+                };
+                assert_eq!(
+                    validate_profile(&project, &far).unwrap_err().key(),
+                    "model-error-profile-origin"
+                );
+            }
+        }
+
+        fn rect(min: DVec2, size: DVec2) -> Vec<DVec2> {
+            vec![
+                min,
+                min + DVec2::new(size.x, 0.0),
+                min + size,
+                min + DVec2::new(0.0, size.y),
+            ]
+        }
+
+        /// The project and a custom profile of `regions` (outer ring and
+        /// holes), each of the project's first material.
+        fn custom(regions: Vec<(Vec<DVec2>, Vec<Vec<DVec2>>)>) -> (Project, Profile) {
+            let project = default_metric_project();
+            let material = project.materials[0].id;
+            let regions = regions
+                .into_iter()
+                .map(|(outer, holes)| ProfileRegion { outer, holes, material })
+                .collect();
+            (project, Profile::custom("Custom", regions))
+        }
+
+        fn check_custom(regions: Vec<(Vec<DVec2>, Vec<Vec<DVec2>>)>) -> Result<Profile, Message> {
+            let (project, profile) = custom(regions);
+            validate_profile(&project, &profile)
+        }
+
+        /// The nested reason of a region error, after checking its number.
+        fn region_reason(error: &Message, number: usize) -> &'static str {
+            assert_eq!(error.key(), "model-error-profile-region");
+            assert_eq!(error.arg("number"), Some(&Arg::Count(number as u64)));
+            match error.arg("reason") {
+                Some(Arg::Nested(reason)) => reason.key(),
+                other => panic!("no reason: {other:?}"),
+            }
+        }
+
+        /// PRF-004: a custom profile without regions, with a
+        /// self-intersecting ring, with a hole outside its region or with
+        /// two overlapping regions is rejected.
+        #[test]
+        fn invalid_custom_profiles_are_rejected() {
+            assert_eq!(
+                check_custom(Vec::new()).unwrap_err().key(),
+                "model-error-profile-no-regions"
+            );
+            let block = rect(DVec2::ZERO, DVec2::splat(0.2));
+            // A figure eight with lobes of different sizes.
+            let bow_tie = vec![
+                DVec2::new(0.0, 0.0),
+                DVec2::new(0.2, 0.2),
+                DVec2::new(0.2, 0.0),
+                DVec2::new(0.0, 0.1),
+            ];
+            let error = check_custom(vec![(block.clone(), Vec::new()), (bow_tie, Vec::new())]).unwrap_err();
+            assert_eq!(region_reason(&error, 2), "model-error-polygon-self-intersection");
+            let outside = rect(DVec2::splat(0.3), DVec2::splat(0.05));
+            let error = check_custom(vec![(block.clone(), vec![outside])]).unwrap_err();
+            assert_eq!(region_reason(&error, 1), "model-error-hole-outside");
+            let overlapping = rect(DVec2::splat(0.1), DVec2::splat(0.2));
+            let error = check_custom(vec![(block.clone(), Vec::new()), (overlapping, Vec::new())]).unwrap_err();
+            assert_eq!(error.key(), "model-error-profile-regions-overlap");
+            assert_eq!(error.arg("first"), Some(&Arg::Count(1)));
+            assert_eq!(error.arg("second"), Some(&Arg::Count(2)));
+            // The same region twice, and one inside another, overlap too.
+            let error = check_custom(vec![(block.clone(), Vec::new()), (block.clone(), Vec::new())]).unwrap_err();
+            assert_eq!(error.key(), "model-error-profile-regions-overlap");
+            let inner = rect(DVec2::splat(0.05), DVec2::splat(0.1));
+            let error = check_custom(vec![(block, Vec::new()), (inner, Vec::new())]).unwrap_err();
+            assert_eq!(error.key(), "model-error-profile-regions-overlap");
+        }
+
+        /// PRF-004: regions may touch: two sharing an edge, one sharing
+        /// part of an edge or a corner, and a core filling another's hole
+        /// are accepted.
+        #[test]
+        fn touching_regions_are_accepted() {
+            let block = rect(DVec2::ZERO, DVec2::splat(0.2));
+            let beside = rect(DVec2::new(0.2, 0.0), DVec2::splat(0.2));
+            let partly = rect(DVec2::new(0.2, 0.1), DVec2::new(0.1, 0.3));
+            let corner = rect(DVec2::splat(0.2), DVec2::splat(0.1));
+            let regions = vec![(block.clone(), Vec::new()), (beside, Vec::new()), (corner, Vec::new())];
+            assert!(check_custom(regions).is_ok());
+            assert!(check_custom(vec![(block.clone(), Vec::new()), (partly, Vec::new())]).is_ok());
+            // A tube with a core of another material in its hole.
+            let hole = rect(DVec2::splat(0.05), DVec2::splat(0.1));
+            assert!(check_custom(vec![(block, vec![hole.clone()]), (hole, Vec::new())]).is_ok());
+        }
+
+        /// PRF-004: valid custom regions come back with their outer rings
+        /// counter-clockwise and their holes clockwise, whatever the input.
+        #[test]
+        fn custom_rings_are_normalised() {
+            let mut outer = rect(DVec2::ZERO, DVec2::splat(0.2));
+            outer.reverse();
+            let hole = rect(DVec2::splat(0.05), DVec2::splat(0.1));
+            let second = rect(DVec2::new(0.2, 0.0), DVec2::splat(0.2));
+            let profile = check_custom(vec![(outer, vec![hole]), (second, Vec::new())]).unwrap();
+            let ProfileShape::Custom { regions } = &profile.shape else {
+                panic!("custom");
+            };
+            for region in regions {
+                assert!(signed_area(&region.outer) > 0.0);
+                for hole in &region.holes {
+                    assert!(signed_area(hole) < 0.0);
+                }
+            }
+            assert_eq!(regions[0].holes.len(), 1);
+        }
+
+        /// PRF-004: a custom profile has at most MAX_SLAB_POINTS points in
+        /// all its regions.
+        #[test]
+        fn custom_profiles_are_limited_in_points() {
+            let comb = comb((MAX_SLAB_POINTS - 3) / 4);
+            let far = moved(&square(1.0), DVec2::new(0.0, -10.0));
+            let error = check_custom(vec![(comb, Vec::new()), (far, Vec::new())]).unwrap_err();
+            assert_eq!(
+                error,
+                Message::new("model-error-profile-points").count("max", MAX_SLAB_POINTS)
+            );
+        }
     }
 }

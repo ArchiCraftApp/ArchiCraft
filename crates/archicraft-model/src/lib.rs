@@ -17,6 +17,7 @@ pub mod layer;
 pub mod material;
 pub mod message;
 pub mod outline;
+pub mod profile;
 pub mod project;
 pub mod relations;
 pub mod samples;
@@ -36,12 +37,14 @@ pub use element::{
 };
 pub use group::Group;
 pub use ids::{
-    BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, RelationId, SiteId, StoreyId, TextStyleId, ViewId,
+    BuildingId, ElementId, GroupId, LayerId, MaterialId, ProfileId, ProjectId, RelationId, SiteId, StoreyId,
+    TextStyleId, ViewId,
 };
 pub use kinds::{BoundarySource, ReferenceLine, Slab, SlabReference, Space, Text, Wall};
 pub use layer::Layer;
 pub use material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 pub use message::{Arg, Message};
+pub use profile::{ParametricShape, Profile, ProfileDimension, ProfileRegion, ProfileShape, ProfileUsage};
 pub use project::{IntegrityProblem, PlanGrid, Project, ProjectInfo, ProjectSettings};
 pub use relations::{Relation, RelationStore, StoreyRole};
 pub use storey::{Storey, StoreyList};

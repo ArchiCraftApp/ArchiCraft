@@ -217,6 +217,42 @@ model-problem-material-missing = { $name }: the material is missing.
 model-problem-text-style-missing = { $name }: the text style is missing.
 model-problem-relation-end-missing = { $name }: its { $relation } relation refers to a missing element.
 model-problem-relation-ends-missing = A { $relation } relation refers to two missing elements.
+model-problem-profile-material-missing = Profile “{ $name }”: a material is missing.
+
+## Profiles (PRF-004, PRF-005), from validate_profile. $dimension is a
+## dimension name below, $number, $first and $second count regions from 1.
+
+model-error-profile-name = A profile needs a name.
+model-error-profile-origin = The profile origin must be within { $max } of the profile's zero point.
+model-error-profile-material-missing = The profile uses a material that does not exist.
+model-error-profile-dimension-range = { $dimension } must be between { $min } and { $max }.
+model-error-profile-dimension-limit = { $dimension } must be less than { $max }.
+model-error-profile-radius-limit = { $dimension } must be at most { $max }.
+model-error-profile-no-regions = A custom profile needs at least one region.
+model-error-profile-points = A profile may have at most { $max_text } points in all its regions.
+model-error-profile-region = Region { $number_text }: { $reason }
+model-error-profile-regions-overlap = Regions { $first_text } and { $second_text } overlap; regions may only touch.
+
+## Parametric profile shapes and their dimensions (PRF-005), from label_key
+
+model-profile-shape-rectangle = Rectangle
+model-profile-shape-circle = Circle
+model-profile-shape-rectangular-hollow = Rectangular hollow section
+model-profile-shape-circular-hollow = Circular hollow section
+model-profile-shape-i = I/H section
+model-profile-shape-t = T section
+model-profile-shape-l = Angle (L)
+model-profile-shape-u = Channel (U/C)
+model-profile-shape-z = Z section
+model-profile-dimension-width = Width
+model-profile-dimension-height = Height
+model-profile-dimension-diameter = Diameter
+model-profile-dimension-thickness = Thickness
+model-profile-dimension-outer-radius = Outer radius
+model-profile-dimension-web = Web thickness
+model-profile-dimension-flange = Flange thickness
+model-profile-dimension-root-radius = Root radius
+model-profile-dimension-toe-radius = Toe radius
 
 ## Relations (SRS 3.3), from Relation::label_key
 

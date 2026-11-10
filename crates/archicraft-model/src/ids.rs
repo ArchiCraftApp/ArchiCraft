@@ -70,6 +70,10 @@ id_type!(
     MaterialId
 );
 id_type!(
+    /// Identity of a profile resource (PRF-004).
+    ProfileId
+);
+id_type!(
     /// Identity of a view definition.
     ViewId
 );

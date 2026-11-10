@@ -9,11 +9,13 @@ use serde::{Deserialize, Serialize};
 use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, StructuralFunction};
 use crate::group::Group;
 use crate::ids::{
-    BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, RelationId, SiteId, StoreyId, TextStyleId, ViewId,
+    BuildingId, ElementId, GroupId, LayerId, MaterialId, ProfileId, ProjectId, RelationId, SiteId, StoreyId,
+    TextStyleId, ViewId,
 };
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
+use crate::profile::Profile;
 use crate::relations::RelationStore;
 use crate::storey::StoreyList;
 use crate::template::TemplateContext;
@@ -320,6 +322,13 @@ pub struct Project {
     pub storeys: StoreyList,
     pub layers: Vec<Layer>,
     pub materials: Vec<Material>,
+    /// The profiles columns and beams use, in list order (SRS 3.4,
+    /// PRF-004). Not stored in IFCX yet: archicraft-jrtb adds them to
+    /// `archicraft::project`. Until then nothing creates a profile in a
+    /// saved project, and an empty list is left out of the serde form, so
+    /// that the form keeps matching what a file stores.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<Profile>,
     /// The text styles the project's texts refer to, in list order
     /// (ANN-007); valid together by [`crate::text::check_text_styles`]. A
     /// project from the template has its presets.
@@ -355,6 +364,11 @@ impl Project {
 
     pub fn material(&self, id: MaterialId) -> Option<&Material> {
         self.materials.iter().find(|m| m.id == id)
+    }
+
+    /// The profile `id` (PRF-004).
+    pub fn profile(&self, id: ProfileId) -> Option<&Profile> {
+        self.profiles.iter().find(|p| p.id == id)
     }
 
     /// The text style `id` (ANN-007).
@@ -464,7 +478,8 @@ impl Project {
 
     /// The dangling references of the project (NFR-REL-004): an element's
     /// storey, layer, material or text style (ANN-007) that does not exist,
-    /// and an explicit relation whose end names no element. Each problem
+    /// an explicit relation whose end names no element, and a profile
+    /// material that does not exist (PRF-004). Each problem
     /// carries what a problems panel needs to select it (UI-012) and its
     /// message (NFR-L10N-001).
     pub fn integrity_problems(&self) -> Vec<IntegrityProblem> {
@@ -488,6 +503,15 @@ impl Project {
             }
             if e.kind.text_style().is_some_and(|s| self.text_style(s).is_none()) {
                 problem("model-problem-text-style-missing");
+            }
+        }
+        for profile in &self.profiles {
+            if profile.materials().iter().any(|&m| self.material(m).is_none()) {
+                problems.push(IntegrityProblem {
+                    element: None,
+                    relation: None,
+                    message: Message::new("model-problem-profile-material-missing").text("name", &profile.name),
+                });
             }
         }
         for (id, relation) in self.relations.iter() {
