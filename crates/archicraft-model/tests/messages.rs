@@ -13,7 +13,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::KINDS;
 use archicraft_model::message::{ALL_KEYS, ARG_NAMES};
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Arg, Command, GroupId, History, KindTag, Layer, Message, Project, Storey};
+use archicraft_model::{Arg, Command, ElementId, GroupId, History, KindTag, Layer, Message, Project, Relation, Storey};
 use common::{ground, wall};
 
 /// NFR-MNT-002, NFR-L10N-001: the catalogue lives in the application; the
@@ -61,6 +61,8 @@ const VARIANTS: &[&str] = &[
     "Group",
     "Ungroup",
     "RenameGroup",
+    "InsertRelation",
+    "RemoveRelation",
 ];
 
 fn variant(command: &Command) -> &'static str {
@@ -89,6 +91,8 @@ fn variant(command: &Command) -> &'static str {
         Command::Group { .. } => "Group",
         Command::Ungroup { .. } => "Ungroup",
         Command::RenameGroup { .. } => "RenameGroup",
+        Command::InsertRelation(_) => "InsertRelation",
+        Command::RemoveRelation(_) => "RemoveRelation",
     }
 }
 
@@ -99,6 +103,10 @@ fn one_of_each(p: &Project) -> Vec<Command> {
     let w = wall(p, (0.0, 0.0), (5.0, 0.0));
     let layer = p.layers[0].clone();
     let material = p.materials[0].clone();
+    let host = Relation::Host {
+        hosted: w.id,
+        host: ElementId::new(),
+    };
     vec![
         Command::AddElements(vec![w.clone()]),
         Command::AddElements(vec![w.clone(), wall(p, (0.0, 1.0), (5.0, 1.0))]),
@@ -164,6 +172,8 @@ fn one_of_each(p: &Project) -> Vec<Command> {
             group: GroupId::new(),
             name: "Core".into(),
         },
+        Command::InsertRelation(host),
+        Command::RemoveRelation(host.id()),
     ]
 }
 

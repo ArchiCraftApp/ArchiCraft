@@ -48,6 +48,8 @@ pub const ALL_KEYS: &[&str] = &[
     "model-label-group",
     "model-label-ungroup",
     "model-label-rename-group",
+    "model-label-insert-relation",
+    "model-label-remove-relation",
     // Element kinds (KindDescriptor::label_key and noun_key).
     "model-kind-wall",
     "model-kind-wall-noun",
@@ -96,6 +98,14 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-group-not-found",
     "model-error-group-name",
     "model-error-group-change",
+    // Relation commands (check_relation; SRS 3.3).
+    "model-error-relation-derived",
+    "model-error-relation-not-found",
+    "model-error-relation-end-missing",
+    "model-error-relation-self",
+    "model-error-relation-duplicate",
+    "model-error-host-twice",
+    "model-error-host-cycle",
     // Element validation (validate.rs, Kind::validate).
     "model-error-coordinates-range",
     "model-error-polygon-points",

@@ -421,6 +421,14 @@ impl Project {
         element.kind.vertical_extent(element.storey, &self.storeys)
     }
 
+    /// Builds what the project derives from its data from scratch: the
+    /// relation store's index of relation ends and storey links (SRS 3.3,
+    /// STR-006). A reader calls it once, after the elements and relations
+    /// are read; from then on the edits keep the index up to date.
+    pub fn rebuild_indexes(&mut self) {
+        self.relations.rebuild(self.elements.values());
+    }
+
     /// Number of elements per layer, for the layer manager (LAY-002).
     pub fn element_count_on_layer(&self, layer: LayerId) -> usize {
         self.elements.values().filter(|e| e.layer == layer).count()

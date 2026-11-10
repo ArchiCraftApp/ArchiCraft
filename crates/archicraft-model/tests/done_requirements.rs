@@ -20,8 +20,8 @@ use archicraft_model::units::{LengthUnit, NumberFormat, format_angle, format_len
 use archicraft_model::validate::validate_element;
 use archicraft_model::{
     Command, CommandError, Element, ElementKind, GroupId, History, IfcClass, KindTag, Layer, LayerId, MaterialId,
-    Message, Position, Project, ReferenceLine, Slab, SlabReference, Storey, StoreyId, StructuralFunction, TopLink,
-    Wall,
+    Message, Position, Project, ReferenceLine, Relation, Slab, SlabReference, Storey, StoreyId, StructuralFunction,
+    TopLink, Wall,
 };
 use common::{ground, wall};
 
@@ -694,10 +694,12 @@ fn variant(command: &Command) -> usize {
         Command::Group { .. } => 21,
         Command::Ungroup { .. } => 22,
         Command::RenameGroup { .. } => 23,
+        Command::InsertRelation(_) => 24,
+        Command::RemoveRelation(_) => 25,
     }
 }
 
-const VARIANTS: usize = 24;
+const VARIANTS: usize = 26;
 
 /// A recorded session that executes every command variant at least once.
 struct Session {
@@ -867,6 +869,17 @@ fn scripted_session() -> Session {
         },
     );
     run(&mut p, Command::Ungroup { group });
+    // SRS 3.3: a relation recorded and removed again, and one that stays.
+    let host = Relation::Host {
+        hosted: partner_id,
+        host: wid,
+    };
+    run(&mut p, Command::InsertRelation(host));
+    run(&mut p, Command::RemoveRelation(host.id()));
+    run(
+        &mut p,
+        Command::InsertRelation(Relation::Junction { a: wid, b: partner_id }),
+    );
 
     Session {
         start,
