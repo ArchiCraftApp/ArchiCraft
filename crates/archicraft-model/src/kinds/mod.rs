@@ -39,9 +39,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, IfcClass, PredefinedType};
 use crate::fields::FieldSpec;
-use crate::ids::{MaterialId, StoreyId, TextStyleId};
+use crate::ids::{MaterialId, ProfileId, StoreyId, TextStyleId};
 use crate::message::Message;
 use crate::outline::Outline;
+use crate::profile::ProfileUsage;
 use crate::project::DefaultsSlot;
 use crate::storey::StoreyList;
 use crate::template::TemplateContext;
@@ -186,6 +187,29 @@ pub trait Kind: Sized {
 
     /// Replaces the text style; does nothing for a kind without one.
     fn set_text_style(&mut self, _style: TextStyleId) {}
+
+    /// The profiles the element refers to by ID (PRF-004), for example a
+    /// column's cross-section, each once; empty for a kind without profiles.
+    /// [`crate::project::Project::profile_users`] and the profile commands
+    /// find an element's profiles only through this hook.
+    fn profiles(&self) -> Vec<ProfileId> {
+        Vec::new()
+    }
+
+    /// Replaces every reference to the profile `from` by `to`, as deleting
+    /// `from` with a replacement does (PRF-004). Returns whether anything
+    /// changed; does nothing for a kind without profiles.
+    fn replace_profile(&mut self, _from: ProfileId, _to: ProfileId) -> bool {
+        false
+    }
+
+    /// Whether the element may use a profile with the usage flags `usage`
+    /// (PRF-004), for example a column one that allows columns.
+    /// [`crate::validate::validate_prototype`] checks it for every profile
+    /// of [`Kind::profiles`]. A kind without profiles accepts every usage.
+    fn accepts_profile(&self, _usage: ProfileUsage) -> bool {
+        true
+    }
 
     /// Range checks (ELM-017, NFR-REL-005) and references to storeys, for
     /// an element on `home`, such as the binding of a 2D element to a view
@@ -400,6 +424,27 @@ macro_rules! kinds {
             pub fn set_text_style(&mut self, style: TextStyleId) {
                 match self {
                     $($(#[$meta])* ElementKind::$Payload(k) => k.set_text_style(style),)+
+                }
+            }
+
+            /// See [`Kind::profiles`].
+            pub fn profiles(&self) -> Vec<ProfileId> {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.profiles(),)+
+                }
+            }
+
+            /// See [`Kind::replace_profile`].
+            pub fn replace_profile(&mut self, from: ProfileId, to: ProfileId) -> bool {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.replace_profile(from, to),)+
+                }
+            }
+
+            /// See [`Kind::accepts_profile`].
+            pub fn accepts_profile(&self, usage: ProfileUsage) -> bool {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.accepts_profile(usage),)+
                 }
             }
 

@@ -377,6 +377,12 @@ impl Project {
         self.profiles.iter().find(|p| p.id == id)
     }
 
+    /// The elements that use the profile `id` (PRF-004), in element
+    /// order: those whose [`crate::kinds::Kind::profiles`] contains it.
+    pub fn profile_users(&self, id: ProfileId) -> impl Iterator<Item = &Element> + '_ {
+        self.elements.values().filter(move |e| e.kind.profiles().contains(&id))
+    }
+
     /// The text style `id` (ANN-007).
     pub fn text_style(&self, id: TextStyleId) -> Option<&TextStyle> {
         self.text_styles.iter().find(|s| s.id == id)

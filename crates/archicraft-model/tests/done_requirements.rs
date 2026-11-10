@@ -20,8 +20,8 @@ use archicraft_model::units::{LengthUnit, NumberFormat, format_angle, format_len
 use archicraft_model::validate::validate_element;
 use archicraft_model::{
     Command, CommandError, Element, ElementKind, GroupId, History, IfcClass, KindTag, Layer, LayerId, MaterialId,
-    Message, Position, Project, ReferenceLine, Relation, Slab, SlabReference, Storey, StoreyId, StructuralFunction,
-    TopLink, Wall,
+    Message, ParametricShape, Position, Profile, Project, ReferenceLine, Relation, Slab, SlabReference, Storey,
+    StoreyId, StructuralFunction, TopLink, Wall,
 };
 use common::{ground, wall};
 
@@ -696,10 +696,13 @@ fn variant(command: &Command) -> usize {
         Command::RenameGroup { .. } => 23,
         Command::InsertRelation(_) => 24,
         Command::RemoveRelation(_) => 25,
+        Command::AddProfile(_) => 26,
+        Command::UpdateProfile(_) => 27,
+        Command::DeleteProfile { .. } => 28,
     }
 }
 
-const VARIANTS: usize = 26;
+const VARIANTS: usize = 29;
 
 /// A recorded session that executes every command variant at least once.
 struct Session {
@@ -823,6 +826,24 @@ fn scripted_session() -> Session {
         Command::DeleteMaterial {
             material: earth_id,
             replacement: concrete,
+        },
+    );
+    // PRF-004: a profile added, changed and deleted again.
+    let pier = Profile::parametric("Pier", ParametricShape::ALL[0], concrete);
+    let pier_id = pier.id;
+    run(&mut p, Command::AddProfile(pier.clone()));
+    run(
+        &mut p,
+        Command::UpdateProfile(Profile {
+            name: "Pier 30".into(),
+            ..pier
+        }),
+    );
+    run(
+        &mut p,
+        Command::DeleteProfile {
+            profile: pier_id,
+            replacement: None,
         },
     );
     let mut defaults = p.tool_defaults.clone();

@@ -565,9 +565,9 @@ fn regions_overlap(a: &ProfileRegion, b: &ProfileRegion) -> bool {
 }
 
 /// Validates an element against the project it is placed in: references to
-/// storey, layer, material and text style, its parameters, what placing it
-/// adds to its tool's defaults ([`crate::kinds::Kind::check_complete`]) and
-/// its vertical extent. On success, returns the element with normalised
+/// storey, layer, material, text style and profiles (PRF-004), its
+/// parameters, what placing it adds to its tool's defaults
+/// ([`crate::kinds::Kind::check_complete`]) and its vertical extent. On success, returns the element with normalised
 /// geometry. An element without a body has no height to check: its extent
 /// is flat by design (ANN-002).
 pub fn validate_element(project: &Project, element: &Element) -> Result<Element, Message> {
@@ -605,6 +605,17 @@ pub fn validate_prototype(project: &Project, element: &Element) -> Result<Elemen
         .is_some_and(|s| project.text_style(s).is_none())
     {
         return Err(Message::new("model-error-text-style-missing"));
+    }
+    // PRF-004: every profile exists and allows the element's kind.
+    for id in element.kind.profiles() {
+        let Some(profile) = project.profile(id) else {
+            return Err(Message::new("model-error-element-profile-missing"));
+        };
+        if !element.kind.accepts_profile(profile.usage) {
+            return Err(Message::new("model-error-profile-usage")
+                .text("name", &profile.name)
+                .kind("kind", element.tag()));
+        }
     }
     // ELM-011: the class must be one of the kind's selectable classes.
     let descriptor = element.kind.descriptor();

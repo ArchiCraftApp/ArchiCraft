@@ -13,7 +13,10 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::KINDS;
 use archicraft_model::message::{ALL_KEYS, ARG_NAMES};
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Arg, Command, ElementId, GroupId, History, KindTag, Layer, Message, Project, Relation, Storey};
+use archicraft_model::{
+    Arg, Command, ElementId, GroupId, History, KindTag, Layer, Message, ParametricShape, Profile, Project, Relation,
+    Storey,
+};
 use common::{ground, wall};
 
 /// NFR-MNT-002, NFR-L10N-001: the catalogue lives in the application; the
@@ -53,6 +56,9 @@ const VARIANTS: &[&str] = &[
     "AddMaterial",
     "UpdateMaterial",
     "DeleteMaterial",
+    "AddProfile",
+    "UpdateProfile",
+    "DeleteProfile",
     "SetToolDefaults",
     "SetSettings",
     "SetInfo",
@@ -83,6 +89,9 @@ fn variant(command: &Command) -> &'static str {
         Command::AddMaterial(_) => "AddMaterial",
         Command::UpdateMaterial(_) => "UpdateMaterial",
         Command::DeleteMaterial { .. } => "DeleteMaterial",
+        Command::AddProfile(_) => "AddProfile",
+        Command::UpdateProfile(_) => "UpdateProfile",
+        Command::DeleteProfile { .. } => "DeleteProfile",
         Command::SetToolDefaults(_) => "SetToolDefaults",
         Command::SetSettings(_) => "SetSettings",
         Command::SetInfo(_) => "SetInfo",
@@ -103,6 +112,7 @@ fn one_of_each(p: &Project) -> Vec<Command> {
     let w = wall(p, (0.0, 0.0), (5.0, 0.0));
     let layer = p.layers[0].clone();
     let material = p.materials[0].clone();
+    let profile = Profile::parametric("IPE 200", ParametricShape::ALL[4], material.id);
     let host = Relation::Host {
         hosted: w.id,
         host: ElementId::new(),
@@ -154,6 +164,12 @@ fn one_of_each(p: &Project) -> Vec<Command> {
         Command::DeleteMaterial {
             material: material.id,
             replacement: p.materials[1].id,
+        },
+        Command::AddProfile(profile.clone()),
+        Command::UpdateProfile(profile.clone()),
+        Command::DeleteProfile {
+            profile: profile.id,
+            replacement: None,
         },
         Command::SetToolDefaults(p.tool_defaults.clone()),
         Command::SetSettings(p.settings.clone()),

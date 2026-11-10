@@ -36,6 +36,9 @@ model-label-delete-layer = Delete layer
 model-label-new-material = New material
 model-label-change-material = Change material
 model-label-delete-material = Delete material
+model-label-new-profile = New profile
+model-label-change-profile = Change profile
+model-label-delete-profile = Delete profile
 model-label-tool-settings = Change tool settings
 model-label-project-settings = Change project settings
 model-label-project-info = Change project information
@@ -118,6 +121,14 @@ model-error-reassign-layer = Choose another layer for the elements.
 model-error-duplicate-material-id = A material with this ID already exists.
 model-error-material-not-found = The material does not exist.
 model-error-replacement-material = Choose a replacement material.
+model-error-duplicate-profile-id = A profile with this ID already exists.
+model-error-profile-not-found = The profile does not exist.
+model-error-replacement-profile = Choose another existing profile as the replacement.
+model-error-profile-in-use = { $count ->
+        [0] Profile “{ $name }” is used by tool defaults; choose a replacement.
+        [one] Profile “{ $name }” is used by { $count_text } element; choose a replacement.
+       *[other] Profile “{ $name }” is used by { $count_text } elements; choose a replacement.
+    }
 model-error-default-missing = The { $kind } tool has no defaults.
 model-error-default-invalid = The { $kind } tool defaults are invalid: { $reason }
 model-error-cut-plane-range = The cut-plane height must be within ±{ $max }.
@@ -167,6 +178,8 @@ model-error-element-name = An element needs a name.
 model-error-home-storey-missing = The element's home storey does not exist.
 model-error-element-layer-missing = The element's layer does not exist.
 model-error-element-material-missing = The element's material does not exist.
+model-error-element-profile-missing = The element's profile does not exist.
+model-error-profile-usage = Profile “{ $name }” may not be used by a { $kind }.
 model-error-ifc-class-not-allowed = { $class } is not an allowed IFC class for a { $kind }.
 model-error-predefined-type-not-allowed = { $type } is not a predefined type of { $class }.
 model-error-vertical-extent = The element's vertical extent cannot be determined.

@@ -449,6 +449,25 @@ impl Profile {
         }
     }
 
+    /// Replaces the material `from` by `to` wherever the profile uses it:
+    /// the parametric shape's material or that of every region made of it
+    /// (deleting a material with a replacement, DSP-003). Returns whether
+    /// anything changed.
+    pub fn replace_material(&mut self, from: MaterialId, to: MaterialId) -> bool {
+        let mut changed = false;
+        let mut replace = |material: &mut MaterialId| {
+            if *material == from {
+                *material = to;
+                changed = true;
+            }
+        };
+        match &mut self.shape {
+            ProfileShape::Parametric { material, .. } => replace(material),
+            ProfileShape::Custom { regions } => regions.iter_mut().for_each(|r| replace(&mut r.material)),
+        }
+        changed
+    }
+
     /// The materials the profile is made of, each once, in region order.
     pub fn materials(&self) -> Vec<MaterialId> {
         match &self.shape {
