@@ -11,7 +11,7 @@ use std::sync::Arc;
 use archicraft_geometry::plan::{FillMesh, PlanDrawing, polygon_rings};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{NumberFormat, UnitSettings};
-use archicraft_model::{AnchorPos, DrawingScale, ElementId, Project, StoreyId, TextAlign};
+use archicraft_model::{AnchorPos, DrawingScale, ElementId, Project, StoreyId, Text, TextAlign};
 use egui::epaint::Vertex;
 use egui::{
     Align2, Color32, CursorIcon, Event, FontId, Key, Mesh, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
@@ -70,6 +70,12 @@ pub struct PlanViewState {
     pub cursor: Option<DVec2>,
     /// The stamps of the spaces laid out this frame, in plan order (SPC-001).
     pub stamps: Vec<(ElementId, LaidOutText)>,
+    /// The texts of the storey laid out this frame, in model order
+    /// (ANN-007). Texts too small to read are left out.
+    pub texts: Vec<(ElementId, LaidOutText)>,
+    /// The quads of the selected texts drawn highlighted last frame
+    /// (ANN-007, SEL-001).
+    pub selected_texts: Vec<[Pos2; 4]>,
 }
 
 impl Default for PlanViewState {
@@ -93,6 +99,8 @@ impl Default for PlanViewState {
             measure: Vec::new(),
             cursor: None,
             stamps: Vec::new(),
+            texts: Vec::new(),
+            selected_texts: Vec::new(),
         }
     }
 }
@@ -311,11 +319,15 @@ struct Palette {
     snap: Color32,
     /// The light tint of a space's area (SPC-001).
     space_tint: Color32,
+    /// The colour of texts (ANN-007): the theme's text colour until pens
+    /// give texts their own.
+    text: Color32,
 }
 
 impl Palette {
-    fn new(dark: bool) -> Self {
-        if dark {
+    fn new(visuals: &egui::Visuals) -> Self {
+        let text = visuals.text_color();
+        if visuals.dark_mode {
             Self {
                 paper: Color32::from_gray(30),
                 grid_minor: Color32::from_gray(40),
@@ -329,6 +341,7 @@ impl Palette {
                 preview: Color32::from_rgb(255, 150, 50),
                 snap: Color32::from_rgb(40, 200, 120),
                 space_tint: Color32::from_rgba_unmultiplied(110, 160, 230, 24),
+                text,
             }
         } else {
             Self {
@@ -344,6 +357,7 @@ impl Palette {
                 preview: Color32::from_rgb(230, 120, 30),
                 snap: Color32::from_rgb(20, 160, 90),
                 space_tint: Color32::from_rgba_unmultiplied(70, 130, 220, 22),
+                text,
             }
         }
     }
@@ -396,19 +410,91 @@ fn layout_stamps(
         .collect()
 }
 
+/// Annotation text laid out this frame with the element it belongs to:
+/// space stamps or texts (SPC-001, ANN-007).
+type LaidOutTexts = [(ElementId, LaidOutText)];
+
+/// The visible texts of the plan view of `storey` in model order (ANN-007,
+/// SEL-007).
+fn storey_texts(project: &Project, storey: StoreyId) -> impl Iterator<Item = (ElementId, &Text)> {
+    project
+        .elements
+        .values()
+        .filter(move |e| project.is_visible(e))
+        .filter_map(move |e| {
+            let text = e.as_text()?;
+            (text.view.plan_storey() == Some(storey)).then_some((e.id, text))
+        })
+}
+
+/// A text as a block to lay out (ANN-007): its content at its size, the
+/// override or else its style's, with its style's alignment and line
+/// spacing, placed by its anchor, anchor position and angle. `None` if the
+/// style is missing.
+fn text_block(project: &Project, text: &Text) -> Option<TextBlock> {
+    let style = project.text_style(text.style)?;
+    Some(TextBlock {
+        content: text.content.clone(),
+        size_mm: text.effective_size_mm(style),
+        line_spacing: style.line_spacing,
+        align: style.align,
+        anchor: text.anchor,
+        anchor_pos: text.anchor_pos,
+        angle: text.angle,
+    })
+}
+
+/// Lays out the texts of `storey`'s plan view for this frame at paper size
+/// at the view's drawing scale (ANN-007, VIEW-013). Texts too small to read
+/// are left out.
+fn layout_texts(
+    ctx: &egui::Context,
+    project: &Project,
+    storey: StoreyId,
+    state: &PlanViewState,
+) -> Vec<(ElementId, LaidOutText)> {
+    storey_texts(project, storey)
+        .filter_map(|(id, text)| Some((id, state.layout_text(ctx, &text_block(project, text)?)?)))
+        .collect()
+}
+
+/// The texts of `storey`'s plan an area selection over the screen
+/// rectangle `area` catches (ANN-007, SEL-003): a laid-out text by its quad
+/// ([`LaidOutText::in_rect`]), one too small to be laid out by its anchor
+/// within the plan rectangle `min`..`max`.
+fn texts_in_rect(
+    project: &Project,
+    storey: StoreyId,
+    texts: &[(ElementId, LaidOutText)],
+    area: Rect,
+    (min, max): (DVec2, DVec2),
+    fully: bool,
+) -> Vec<ElementId> {
+    storey_texts(project, storey)
+        .filter(|(id, text)| match texts.iter().find(|(t, _)| t == id) {
+            Some((_, laid_out)) => laid_out.in_rect(area, fully),
+            None => text.anchor.cmpge(min).all() && text.anchor.cmple(max).all(),
+        })
+        .map(|(id, _)| id)
+        .collect()
+}
+
 /// Elements under the plan point `world` at the screen point `pos`, topmost
-/// first (SEL-001): the space whose stamp is under the pointer, as the
-/// stamps are drawn on top, then [`PlanDrawing::pick`].
+/// first (SEL-001): the text under the pointer, then the space whose stamp
+/// is under it, as texts and stamps are drawn on top in that order, then
+/// [`PlanDrawing::pick`].
 fn pick(
     plan: &PlanDrawing,
+    texts: &[(ElementId, LaidOutText)],
     stamps: &[(ElementId, LaidOutText)],
     world: DVec2,
     pos: Pos2,
     tolerance: f64,
 ) -> Vec<ElementId> {
-    let mut candidates: Vec<ElementId> = stamps
+    let mut candidates: Vec<ElementId> = texts
         .iter()
         .rev()
+        .chain(stamps.iter().rev())
         .filter(|(_, text)| text.hit(pos))
         .map(|(id, _)| *id)
         .collect();
@@ -508,23 +594,29 @@ fn draw_user_origin(painter: &egui::Painter, rect: Rect, camera: &Camera2d, fram
     painter.circle_stroke(o, 4.0, Stroke::new(1.2, Color32::from_rgb(210, 60, 60)));
 }
 
+/// Draws the outline of element `id` highlighted with `stroke`: a text's
+/// quad (ANN-007), a space's boundary (SPC-001), an element's cut outline
+/// and lines. Returns the quad of a text.
 fn element_outline(
     painter: &egui::Painter,
     rect: Rect,
     camera: &Camera2d,
     plan: &PlanDrawing,
+    texts: &[(ElementId, LaidOutText)],
     id: ElementId,
     stroke: Stroke,
-) {
+) -> Option<[Pos2; 4]> {
+    if let Some((_, text)) = texts.iter().find(|(t, _)| *t == id) {
+        painter.add(Shape::closed_line(text.quad.to_vec(), stroke));
+        return Some(text.quad);
+    }
     if let Some(stamp) = plan.stamp(id) {
         for ring in &stamp.boundary {
             let points: Vec<Pos2> = ring.iter().map(|p| camera.to_screen(rect, *p)).collect();
             painter.add(Shape::closed_line(points, stroke));
         }
     }
-    let Some(element) = plan.element(id) else {
-        return;
-    };
+    let element = plan.element(id)?;
     for polygon in &element.cut {
         for ring in polygon_rings(polygon) {
             let points: Vec<Pos2> = ring.iter().map(|p| camera.to_screen(rect, *p)).collect();
@@ -534,6 +626,7 @@ fn element_outline(
     for [a, b] in element.projected.iter().chain(&element.overhead) {
         painter.line_segment([camera.to_screen(rect, *a), camera.to_screen(rect, *b)], stroke);
     }
+    None
 }
 
 fn reference_line(painter: &egui::Painter, a: Pos2, b: Pos2, color: Color32) {
@@ -548,15 +641,18 @@ fn reference_line(painter: &egui::Painter, a: Pos2, b: Pos2, color: Color32) {
     }
 }
 
+/// Draws the plan with its stamps and texts and the highlights of the
+/// hovered and selected elements; returns the quads of the selected texts
+/// (ANN-007).
 fn draw_plan(
     painter: &egui::Painter,
     rect: Rect,
     camera: &Camera2d,
     plan: &PlanDrawing,
-    stamps: &[(ElementId, LaidOutText)],
+    (stamps, texts): (&LaidOutTexts, &LaidOutTexts),
     ws: &Workspace,
     palette: &Palette,
-) {
+) -> Vec<[Pos2; 4]> {
     let project = &ws.doc.project;
     // Spaces below the construction elements: a light tint and a thin
     // boundary (SPC-001).
@@ -603,6 +699,10 @@ fn draw_plan(
     for (_, text) in stamps {
         paint(painter, text, palette.cut);
     }
+    // The texts over the stamps (ANN-007).
+    for (_, text) in texts {
+        paint(painter, text, palette.text);
+    }
     for element in &plan.elements {
         let selected = ws.selection.contains(&element.id);
         if let Some([a, b]) = element.reference_line
@@ -618,24 +718,28 @@ fn draw_plan(
             rect,
             camera,
             plan,
+            texts,
             id,
             Stroke::new(HIGHLIGHT_WIDTH, palette.hover),
         );
     }
+    let mut selected_texts = Vec::new();
     for id in &ws.selection {
-        element_outline(
+        selected_texts.extend(element_outline(
             painter,
             rect,
             camera,
             plan,
+            texts,
             *id,
             Stroke::new(HIGHLIGHT_WIDTH, palette.selection),
-        );
+        ));
     }
     // The user origin next to the project origin (INP-014).
     if ws.frames.user_origin.is_placed() {
         draw_user_origin(painter, rect, camera, ws.frames.user_origin);
     }
+    selected_texts
 }
 
 /// The glyph of a snap of kind `snap` at its point `p` (INP-008, INP-024):
@@ -861,7 +965,8 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         &ws.doc.project.settings.units,
         &ws.prefs.number_format(),
     );
-    let palette = Palette::new(ui.visuals().dark_mode);
+    state.texts = layout_texts(ui.ctx(), &ws.doc.project, storey, &state);
+    let palette = Palette::new(ui.visuals());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, palette.paper);
     draw_grid(&painter, rect, &camera, &palette);
@@ -890,6 +995,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         if selecting && !ws.tool.is_drawing() {
             let candidates = pick(
                 &plan,
+                &state.texts,
                 &state.stamps,
                 world,
                 camera.to_screen(rect, world),
@@ -934,6 +1040,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         let shift = ui.input(|i| i.modifiers.shift);
         let candidates = pick(
             &plan,
+            &state.texts,
             &state.stamps,
             world,
             camera.to_screen(rect, world),
@@ -1029,7 +1136,15 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         let a = camera.to_world(rect, r.left_bottom());
         let b = camera.to_world(rect, r.right_top());
         let shift = ui.input(|i| i.modifiers.shift);
-        let caught = plan.in_rect(a.min(b), a.max(b), fully);
+        let mut caught = plan.in_rect(a.min(b), a.max(b), fully);
+        caught.extend(texts_in_rect(
+            &ws.doc.project,
+            storey,
+            &state.texts,
+            r,
+            (a.min(b), a.max(b)),
+            fully,
+        ));
         ws.select_area(&caught, shift);
     }
     if !response.dragged_by(PointerButton::Primary) {
@@ -1037,7 +1152,15 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     }
 
     // Drawing.
-    draw_plan(&painter, rect, &camera, &plan, &state.stamps, ws, &palette);
+    state.selected_texts = draw_plan(
+        &painter,
+        rect,
+        &camera,
+        &plan,
+        (&state.stamps, &state.texts),
+        ws,
+        &palette,
+    );
     state.measure = draw_measurement(&painter, rect, &camera, ws, storey, &palette);
     if let Some((r, fully)) = area.filter(|(r, _)| r.area() > 4.0) {
         let stroke = Stroke::new(1.0, palette.selection);

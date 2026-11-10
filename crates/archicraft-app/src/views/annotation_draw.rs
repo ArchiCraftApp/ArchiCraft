@@ -78,6 +78,40 @@ impl LaidOutText {
         let local = Rot2::from_angle(self.angle).inverse() * (pos - self.quad[0]);
         (0.0..=self.extent.x).contains(&local.x) && (0.0..=self.extent.y).contains(&local.y)
     }
+
+    /// Whether an area selection over the screen rectangle `area` catches
+    /// the block (SEL-003, ANN-007): with `fully` when all four corners of
+    /// its quad lie inside the area, otherwise when the quad and the area
+    /// overlap.
+    pub fn in_rect(&self, area: Rect, fully: bool) -> bool {
+        if fully {
+            return self.quad.iter().all(|p| area.contains(*p));
+        }
+        let corners = [
+            area.left_top(),
+            area.right_top(),
+            area.right_bottom(),
+            area.left_bottom(),
+        ];
+        let edges = |points: [Pos2; 4]| (0..4).map(move |i| (points[i], points[(i + 1) % 4]));
+        self.quad.iter().any(|p| area.contains(*p))
+            || corners.iter().any(|p| self.hit(*p))
+            || edges(self.quad).any(|a| edges(corners).any(|b| segments_cross(a, b)))
+    }
+}
+
+/// Whether the segments `a` and `b` cross or touch; collinear segments
+/// touch only where they share a point.
+fn segments_cross((p, q): (Pos2, Pos2), (r, s): (Pos2, Pos2)) -> bool {
+    let side = |a: Pos2, b: Pos2, c: Pos2| (b - a).x * (c - a).y - (b - a).y * (c - a).x;
+    let (d1, d2) = (side(r, s, p), side(r, s, q));
+    let (d3, d4) = (side(p, q, r), side(p, q, s));
+    if d1 * d2 < 0.0 && d3 * d4 < 0.0 {
+        return true;
+    }
+    // `c`, on the line through `a` and `b` (`d` is zero), within the segment.
+    let on = |a: Pos2, b: Pos2, c: Pos2, d: f32| d == 0.0 && Rect::from_two_pos(a, b).contains(c);
+    on(r, s, p, d1) || on(r, s, q, d2) || on(p, q, r, d3) || on(p, q, s, d4)
 }
 
 /// The reading direction a text is drawn at: never upside down, vertical
@@ -442,6 +476,54 @@ mod tests {
         let bounds = Rect::from_points(&laid.quad);
         assert!(!laid.hit(bounds.right_top() + Vec2::new(-1.0, 1.0)));
         assert!(!laid.hit(bounds.left_bottom() + Vec2::new(1.0, -1.0)));
+    }
+
+    /// SEL-003, ANN-007: an area selection from left to right catches a
+    /// text only with its whole quad inside, one from right to left as soon
+    /// as the area overlaps the quad, also a rotated quad whose corners all
+    /// lie outside the area.
+    #[test]
+    fn in_rect_catches_the_quad_fully_or_by_overlap() {
+        let ctx = context();
+        let laid = lay_out(&ctx, &block("Living room"), 100, 100.0);
+        let bounds = Rect::from_points(&laid.quad);
+        assert!(laid.in_rect(bounds.expand(1.0), true));
+        assert!(laid.in_rect(bounds.expand(1.0), false));
+        let left_half = Rect::from_min_max(
+            bounds.min - Vec2::splat(1.0),
+            Pos2::new(bounds.center().x, bounds.max.y + 1.0),
+        );
+        assert!(!laid.in_rect(left_half, true));
+        assert!(laid.in_rect(left_half, false));
+        // Beside the quad, its edges collinear with the quad's.
+        let beside = bounds.translate(Vec2::new(bounds.width() + 5.0, 0.0));
+        assert!(!laid.in_rect(beside, false));
+        assert!(!segments_cross(
+            (Pos2::new(0.0, 0.0), Pos2::new(1.0, 0.0)),
+            (Pos2::new(2.0, 0.0), Pos2::new(3.0, 0.0))
+        ));
+        assert!(segments_cross(
+            (Pos2::new(0.0, 0.0), Pos2::new(2.0, 0.0)),
+            (Pos2::new(1.0, 0.0), Pos2::new(3.0, 0.0))
+        ));
+
+        // A rotated quad crossed by a thin area that holds none of its
+        // corners, and holds no corner of the area.
+        let turned = lay_out(
+            &ctx,
+            &TextBlock {
+                angle: 30f64.to_radians(),
+                ..block("Living room")
+            },
+            100,
+            100.0,
+        );
+        let [a, _, c, _] = turned.quad;
+        let centre = a + (c - a) / 2.0;
+        let strip = Rect::from_center_size(centre, Vec2::new(1.0, 400.0));
+        assert!(turned.quad.iter().all(|p| !strip.contains(*p)));
+        assert!(turned.in_rect(strip, false));
+        assert!(!turned.in_rect(strip, true));
     }
 
     /// ANN-007: text smaller than 1 pt on screen is not laid out and draws
