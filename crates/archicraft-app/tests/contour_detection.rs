@@ -1,7 +1,7 @@
 //! Contour detection in the application (INP-018, EDT-020): the Contour
 //! detection command of the Design menu, its status-bar indicator, the key
 //! held for it, the preview and the click in the plan view, and the cached
-//! contour graph.
+//! contour graph; the space tool's detection of rooms (SPC-001).
 
 #![allow(clippy::unwrap_used)]
 
@@ -330,4 +330,52 @@ fn an_alt_click_in_the_plan_creates_one_wall_along_the_edge() {
     let ws = harness.state_mut().workspace();
     let wall = ws.doc.project.elements.values().last().unwrap().as_wall().unwrap();
     assert_eq!(vec![wall.start, wall.end], preview[0].0);
+}
+
+/// SPC-001, INP-018, NFR-USE-003: A selects the space tool, which detects
+/// rooms at once. Hovering inside the ground-floor room previews the
+/// boundary the storey's regions give at the cursor, and the click creates
+/// that space; outside the building the status line says the region is
+/// open and a click creates nothing.
+#[test]
+fn the_space_tool_detects_the_room_under_the_cursor_in_the_plan() {
+    let mut harness = shaft_sample_with("space-detect", ToolKind::Select);
+    harness.key_press(Key::A);
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Space);
+    assert!(detecting(&mut harness));
+
+    let outside = DVec2::new(6.0, -0.3);
+    hover(&mut harness, outside);
+    hover(&mut harness, outside);
+    let prompt = harness.state_mut().workspace().consumer().step().unwrap().prompt;
+    assert!(
+        harness.query_all_by_label_contains("Region is open").next().is_some(),
+        "the status line says why: {prompt}"
+    );
+    let before = element_count(&mut harness);
+    click(&mut harness, outside);
+    assert_eq!(element_count(&mut harness), before, "nothing outside the building");
+
+    let p = DVec2::new(2.0, 3.0);
+    hover(&mut harness, p);
+    hover(&mut harness, p);
+    let (preview, storey) = {
+        let ws = harness.state_mut().workspace();
+        (ws.plan_views[&ws.active_storey].preview.clone(), ws.active_storey)
+    };
+    let room = archicraft_geometry::space_region(&harness.state_mut().workspace().doc.project, storey, p).unwrap();
+    assert_eq!(preview, [(room.to_points().0, true)], "the room's boundary");
+    assert!(harness.query_all_by_label_contains("Region is open").next().is_none());
+
+    click(&mut harness, p);
+    assert_eq!(element_count(&mut harness), before + 1);
+    let ws = harness.state_mut().workspace();
+    let space = ws.doc.project.elements.values().last().unwrap().as_space().unwrap();
+    assert_eq!(space.boundary.to_points().0, preview[0].0, "the previewed boundary");
+    let archicraft_model::BoundarySource::Detected { seed, auto_update } = space.source else {
+        panic!("a detected boundary")
+    };
+    assert!(auto_update && seed.distance(p) < 0.05, "{seed}");
+    assert_eq!(space.long_name, "Room 1");
 }

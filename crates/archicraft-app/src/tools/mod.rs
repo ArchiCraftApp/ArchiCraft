@@ -6,17 +6,19 @@
 //! reaches the tool. When a tool has enough points, it produces a command.
 //! Tools are point-input consumers (`InputConsumer`, INP-001). With contour
 //! detection on, the wall and slab tools create their elements from a picked
-//! contour instead (INP-018).
+//! contour instead (INP-018); the space tool detects rooms bounded by walls
+//! (SPC-001).
 
 mod contour;
 mod measure;
 mod slab;
+mod space;
 mod user_origin;
 mod wall;
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::tolerance::coincident;
-use archicraft_model::{Command, Element, ElementKind, KindTag, Project, StoreyId};
+use archicraft_model::{BoundarySource, Command, Element, ElementKind, KindTag, Project, StoreyId};
 
 use crate::input::{Expect, InputConsumer, KeyHint, Outcome, Preview, Resolved, StepSpec};
 use crate::tr;
@@ -24,6 +26,7 @@ use crate::tr;
 pub use contour::{Accepts, Contour, ContourDetection};
 pub use measure::{MeasureMode, MeasureTool, Measurement};
 pub use slab::SlabMode;
+pub use space::{SpaceDetection, SpaceMode};
 pub use user_origin::UserOriginTool;
 pub use wall::WallMode;
 
@@ -33,18 +36,27 @@ pub enum ToolKind {
     Select,
     Wall,
     Slab,
+    /// Spaces, detected inside walls or drawn (SPC-001).
+    Space,
     /// Measures distances and angles, creating nothing (MEA-001).
     Measure,
 }
 
 impl ToolKind {
-    pub const ALL: [ToolKind; 4] = [ToolKind::Select, ToolKind::Wall, ToolKind::Slab, ToolKind::Measure];
+    pub const ALL: [ToolKind; 5] = [
+        ToolKind::Select,
+        ToolKind::Wall,
+        ToolKind::Slab,
+        ToolKind::Space,
+        ToolKind::Measure,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             ToolKind::Select => "Select",
             ToolKind::Wall => "Wall",
             ToolKind::Slab => "Slab",
+            ToolKind::Space => "Space",
             ToolKind::Measure => "Measure",
         }
     }
@@ -58,12 +70,15 @@ pub struct ToolState {
     pub kind: ToolKind,
     pub wall_mode: WallMode,
     pub slab_mode: SlabMode,
+    pub space_mode: SpaceMode,
     pub points: Vec<DVec2>,
     /// The storey the input started on.
     pub storey: Option<StoreyId>,
     pub measure: MeasureTool,
-    /// Contour detection of the wall and slab tools (INP-018).
+    /// Contour detection of the wall, slab and space tools (INP-018).
     pub detection: ContourDetection,
+    /// The rooms the space tool detects (SPC-001).
+    pub space: SpaceDetection,
 }
 
 impl Default for ToolState {
@@ -72,10 +87,12 @@ impl Default for ToolState {
             kind: ToolKind::Select,
             wall_mode: WallMode::Chain,
             slab_mode: SlabMode::Polygon,
+            space_mode: SpaceMode::Detect,
             points: Vec::new(),
             storey: None,
             measure: MeasureTool::default(),
             detection: ContourDetection::default(),
+            space: SpaceDetection::default(),
         }
     }
 }
@@ -143,6 +160,13 @@ enum Trace {
     /// Joined walls along the line, closed back to its first point if
     /// `closed` (WAL-001).
     Walls { line: Vec<DVec2>, closed: bool },
+    /// A space on the room around `seed`, the outer ring with the holes
+    /// (SPC-001), detected and kept up to date with its walls.
+    Space {
+        outer: Vec<DVec2>,
+        holes: Vec<Vec<DVec2>>,
+        seed: DVec2,
+    },
 }
 
 impl Trace {
@@ -152,14 +176,24 @@ impl Trace {
         match self {
             Trace::Slab { outer, holes } => vec![project.new_slab(storey, outer, holes, 0)],
             Trace::Walls { line, closed } => walls_along(project, storey, &line, closed),
+            Trace::Space { outer, holes, seed } => vec![space::new_space(
+                project,
+                storey,
+                outer,
+                holes,
+                BoundarySource::Detected {
+                    seed,
+                    auto_update: true,
+                },
+            )],
         }
     }
 
-    /// The preview: a slab's rings, or the walls' reference line with the
-    /// outline of every wall, as the wall chain previews them.
+    /// The preview: a slab's or a space's rings, or the walls' reference
+    /// line with the outline of every wall, as the wall chain previews them.
     fn outlines(&self, project: &Project) -> Vec<(Vec<DVec2>, bool)> {
         match self {
-            Trace::Slab { outer, holes } => std::iter::once(outer)
+            Trace::Slab { outer, holes } | Trace::Space { outer, holes, .. } => std::iter::once(outer)
                 .chain(holes)
                 .map(|ring| (ring.clone(), true))
                 .collect(),
@@ -213,7 +247,7 @@ impl ToolState {
                 WallMode::RotatedRectangle => Some(3),
                 WallMode::Chain => None,
             },
-            ToolKind::Slab => match self.slab_mode {
+            ToolKind::Slab | ToolKind::Space => match self.outline_mode()? {
                 SlabMode::Rectangle => Some(2),
                 SlabMode::RotatedRectangle => Some(3),
                 SlabMode::Polygon => None,
@@ -221,10 +255,36 @@ impl ToolState {
         }
     }
 
-    /// Whether a click picks a contour (INP-018): detection is on, the wall
-    /// or slab tool is active and no points are pending.
+    /// The slab tool's method an outline is drawn with (SLB-001): the slab
+    /// tool's, or the space tool's polygon or rectangle (SPC-001). `None`
+    /// for the other tools and for detecting spaces.
+    fn outline_mode(&self) -> Option<SlabMode> {
+        match self.kind {
+            ToolKind::Slab => Some(self.slab_mode),
+            ToolKind::Space => self.space_mode.outline(),
+            _ => None,
+        }
+    }
+
+    /// The element on a drawn outline: a slab, or a space with a drawn
+    /// boundary (SLB-001, SPC-001).
+    fn outline_element(&self, project: &Project, storey: StoreyId, outer: Vec<DVec2>) -> Element {
+        match self.kind {
+            ToolKind::Space => space::new_space(project, storey, outer, Vec::new(), BoundarySource::Drawn),
+            _ => project.new_slab(storey, outer, Vec::new(), 0),
+        }
+    }
+
+    /// Whether a click picks a contour (INP-018) and no points are pending:
+    /// detection is on with the wall, slab or space tool, or the space tool
+    /// detects rooms, its default method (SPC-001).
     pub fn detecting(&self) -> bool {
-        matches!(self.kind, ToolKind::Wall | ToolKind::Slab) && self.detection.is_on() && self.points.is_empty()
+        let on = match self.kind {
+            ToolKind::Wall | ToolKind::Slab => self.detection.is_on(),
+            ToolKind::Space => self.space_mode == SpaceMode::Detect || self.detection.is_on(),
+            ToolKind::Select | ToolKind::Measure => false,
+        };
+        on && self.points.is_empty()
     }
 
     /// The contours the tool creates its elements from (INP-018): walls run
@@ -266,6 +326,20 @@ impl ToolState {
         }
     }
 
+    /// The space on the room around `p` on `storey` that the space tool
+    /// creates (SPC-001, INP-018): the room's outer ring with the walls
+    /// standing free in it as holes. `None` where `p` lies outside every
+    /// room or in a wall, or without regions of `storey`. The preview and
+    /// the click both take it, so they agree.
+    fn room(&self, storey: StoreyId, p: DVec2) -> Option<Trace> {
+        let region = self.space.pick(storey, p)?.ok()?;
+        Some(Trace::Space {
+            outer: region.outer,
+            holes: region.islands,
+            seed: p,
+        })
+    }
+
     fn is_chain(&self) -> bool {
         self.kind == ToolKind::Wall && self.wall_mode == WallMode::Chain
     }
@@ -298,7 +372,9 @@ impl ToolState {
     /// Backspace and Esc remove them without touching the project (UND-003);
     /// a click on another storey ends the open chain and starts a new one.
     fn add_point(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
-        if matches!(self.kind, ToolKind::Select | ToolKind::Measure) {
+        if matches!(self.kind, ToolKind::Select | ToolKind::Measure)
+            || (self.kind == ToolKind::Space && self.outline_mode().is_none())
+        {
             return Outcome::Continue;
         }
         if self.storey.is_some_and(|s| s != storey) {
@@ -324,7 +400,7 @@ impl ToolState {
                 self.points.push(point);
                 Outcome::Continue
             }
-            ToolKind::Slab if self.slab_mode == SlabMode::Polygon => {
+            ToolKind::Slab | ToolKind::Space if self.outline_mode() == Some(SlabMode::Polygon) => {
                 if self.points.len() >= 3 && coincident(self.points[0], point) {
                     return self.close(project);
                 }
@@ -347,15 +423,13 @@ impl ToolState {
     fn complete(&self, project: &Project, storey: StoreyId) -> Outcome {
         let p = &self.points;
         let walls_around = |ring: Vec<DVec2>| walls_along(project, storey, &ring, true);
-        let elements = match (self.kind, self.wall_mode, self.slab_mode) {
+        let elements = match (self.kind, self.wall_mode, self.outline_mode()) {
             (ToolKind::Wall, WallMode::Single, _) => vec![project.new_wall(storey, p[0], p[1], 0)],
             (ToolKind::Wall, WallMode::Rectangle, _) => walls_around(rectangle(p[0], p[1])),
             (ToolKind::Wall, WallMode::RotatedRectangle, _) => walls_around(rotated_rectangle(p[0], p[1], p[2])),
-            (ToolKind::Slab, _, SlabMode::Rectangle) => {
-                vec![project.new_slab(storey, rectangle(p[0], p[1]), Vec::new(), 0)]
-            }
-            (ToolKind::Slab, _, SlabMode::RotatedRectangle) => {
-                vec![project.new_slab(storey, rotated_rectangle(p[0], p[1], p[2]), Vec::new(), 0)]
+            (_, _, Some(SlabMode::Rectangle)) => vec![self.outline_element(project, storey, rectangle(p[0], p[1]))],
+            (_, _, Some(SlabMode::RotatedRectangle)) => {
+                vec![self.outline_element(project, storey, rotated_rectangle(p[0], p[1], p[2]))]
             }
             _ => return Outcome::Continue,
         };
@@ -367,13 +441,12 @@ impl ToolState {
         if self.is_chain() {
             return self.end_chain(project).map_or(Outcome::Continue, Outcome::Execute);
         }
-        let outcome = match (self.kind, self.storey) {
-            (ToolKind::Slab, Some(storey)) if self.slab_mode == SlabMode::Polygon && self.points.len() >= 3 => {
-                Outcome::Execute(Command::AddElements(vec![project.new_slab(
+        let outcome = match self.storey {
+            Some(storey) if self.outline_mode() == Some(SlabMode::Polygon) && self.points.len() >= 3 => {
+                Outcome::Execute(Command::AddElements(vec![self.outline_element(
+                    project,
                     storey,
                     counter_clockwise(self.points.clone()),
-                    Vec::new(),
-                    0,
                 )]))
             }
             _ => Outcome::Continue,
@@ -400,7 +473,7 @@ impl ToolState {
         if p.is_empty() {
             return Vec::new();
         }
-        match (self.kind, self.wall_mode, self.slab_mode, p.len()) {
+        match (self.kind, self.wall_mode, self.outline_mode(), p.len()) {
             (ToolKind::Wall, WallMode::Single, _, _) => vec![(vec![p[p.len() - 1], cursor], false)],
             (ToolKind::Wall, WallMode::Chain, _, _) => {
                 let mut line = p.clone();
@@ -408,16 +481,16 @@ impl ToolState {
                 let faces = wall_faces(project, &line, false);
                 std::iter::once((line, false)).chain(faces).collect()
             }
-            (ToolKind::Wall, WallMode::Rectangle, _, _) | (ToolKind::Slab, _, SlabMode::Rectangle, _) => {
+            (ToolKind::Wall, WallMode::Rectangle, _, _) | (_, _, Some(SlabMode::Rectangle), _) => {
                 vec![(rectangle(p[0], cursor), true)]
             }
-            (ToolKind::Wall, WallMode::RotatedRectangle, _, 1) | (ToolKind::Slab, _, SlabMode::RotatedRectangle, 1) => {
+            (ToolKind::Wall, WallMode::RotatedRectangle, _, 1) | (_, _, Some(SlabMode::RotatedRectangle), 1) => {
                 vec![(vec![p[0], cursor], false)]
             }
-            (ToolKind::Wall, WallMode::RotatedRectangle, _, _) | (ToolKind::Slab, _, SlabMode::RotatedRectangle, _) => {
+            (ToolKind::Wall, WallMode::RotatedRectangle, _, _) | (_, _, Some(SlabMode::RotatedRectangle), _) => {
                 vec![(rotated_rectangle(p[0], p[1], cursor), true)]
             }
-            (ToolKind::Slab, _, SlabMode::Polygon, _) => {
+            (_, _, Some(SlabMode::Polygon), _) => {
                 let mut ring = p.clone();
                 ring.push(cursor);
                 vec![(ring, true)]
@@ -433,16 +506,26 @@ impl InputConsumer for ToolState {
     fn step(&self) -> Option<StepSpec> {
         let n = self.points.len();
         if self.detecting() {
+            if self.kind == ToolKind::Space {
+                return Some(self.space.step(self.detection.is_on()));
+            }
             let prompt = match self.kind {
                 ToolKind::Slab => tr!("prompt-contour-slab"),
                 _ => tr!("prompt-contour-wall"),
             };
             return Some(self.detection.step(prompt, self.accepts()));
         }
-        let (prompt, repeat) = match self.kind {
+        let owned = |(prompt, repeat): (&str, bool)| (prompt.to_owned(), repeat);
+        let (prompt, repeat): (String, bool) = match self.kind {
             ToolKind::Select => return None,
             ToolKind::Measure => return self.measure.step(),
-            ToolKind::Wall => match (self.wall_mode, n) {
+            ToolKind::Space => match (self.space_mode, n) {
+                (SpaceMode::Rectangle, 0) => (tr!("prompt-space-rectangle-first"), false),
+                (SpaceMode::Rectangle, _) => (tr!("prompt-space-rectangle-next"), false),
+                (_, 0) => (tr!("prompt-space-polygon-first"), false),
+                (_, _) => (tr!("prompt-space-polygon-next"), true),
+            },
+            ToolKind::Wall => owned(match (self.wall_mode, n) {
                 (WallMode::Rectangle, 0) => ("Wall rectangle: click the first corner", false),
                 (WallMode::Rectangle, _) => ("Wall rectangle: click the opposite corner or type a distance", false),
                 (WallMode::RotatedRectangle, 0) => ("Rotated wall rectangle: click the start of the base edge", false),
@@ -454,8 +537,8 @@ impl InputConsumer for ToolState {
                 (_, 0) => ("Wall: click the start point of the reference line", false),
                 (WallMode::Chain, _) => ("Wall chain: click the next point or type a distance", true),
                 (_, _) => ("Wall: click the end point or type a distance", false),
-            },
-            ToolKind::Slab => match (self.slab_mode, n) {
+            }),
+            ToolKind::Slab => owned(match (self.slab_mode, n) {
                 (SlabMode::Polygon, 0) => ("Slab: click the first corner of the outline", false),
                 (SlabMode::Polygon, _) => ("Slab: click the next corner or type a distance", true),
                 (SlabMode::Rectangle, 0) => ("Slab rectangle: click the first corner", false),
@@ -466,7 +549,7 @@ impl InputConsumer for ToolState {
                     false,
                 ),
                 (SlabMode::RotatedRectangle, _) => ("Rotated slab rectangle: click to set the width", false),
-            },
+            }),
         };
         let mut hints = Vec::new();
         let expects = match self.points.last() {
@@ -486,11 +569,11 @@ impl InputConsumer for ToolState {
                 hints.push(KeyHint::new("P", "switches polar and Cartesian"));
                 hints.push(KeyHint::new("Shift+P", "switches relative and absolute"));
                 hints.push(KeyHint::new("Shift", "constrains angles"));
-                match (self.kind, self.wall_mode, self.slab_mode) {
+                match (self.kind, self.wall_mode, self.outline_mode()) {
                     (ToolKind::Wall, WallMode::Chain, _) => {
                         hints.push(KeyHint::new("Enter", "or double-click ends the chain"));
                     }
-                    (ToolKind::Slab, _, SlabMode::Polygon) => {
+                    (_, _, Some(SlabMode::Polygon)) => {
                         hints.push(KeyHint::new(
                             "Enter",
                             "or double-click closes the outline, as does a click on the first corner",
@@ -520,6 +603,14 @@ impl InputConsumer for ToolState {
     fn preview(&self, project: &Project, resolved: &Resolved) -> Preview {
         match self.kind {
             ToolKind::Measure => self.measure.preview(project, resolved),
+            ToolKind::Space if self.detecting() => Preview {
+                outlines: self
+                    .space
+                    .storey()
+                    .and_then(|storey| self.room(storey, resolved.point))
+                    .map_or_else(Vec::new, |trace| trace.outlines(project)),
+                ..Preview::default()
+            },
             _ if self.detecting() => Preview {
                 outlines: self
                     .detection
@@ -538,6 +629,9 @@ impl InputConsumer for ToolState {
     fn commit(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
         match self.kind {
             ToolKind::Measure => self.measure.commit(project, storey, point),
+            ToolKind::Space if self.detecting() => self.room(storey, point).map_or(Outcome::Continue, |trace| {
+                Outcome::Execute(Command::AddElements(trace.elements(project, storey)))
+            }),
             _ if self.detecting() => self
                 .detection
                 .pick(storey, point, self.accepts())
@@ -1134,5 +1228,163 @@ mod tests {
             Outcome::Continue
         );
         assert_eq!(tool.points, [DVec2::new(2.0, 3.0)]);
+    }
+
+    /// The space tool on the storey at `index` of
+    /// two_storey_shell_with_shaft in its default method, detecting rooms
+    /// from the storey's cached regions with the cursor at `cursor`
+    /// (SPC-001).
+    fn space_tool_on_the_shaft_sample(index: usize, cursor: DVec2) -> (Document, StoreyId, ToolState) {
+        let mut doc = Document::new(samples::two_storey_shell_with_shaft(), 100);
+        let storey = doc.project.storeys.as_slice()[index].id;
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Space);
+        assert_eq!(tool.space_mode, SpaceMode::Detect, "detection is the default method");
+        assert!(tool.detecting());
+        let regions = doc.space_regions(storey);
+        tool.space.set_source(regions, cursor);
+        (doc, storey, tool)
+    }
+
+    /// The space a command creates, the last element of the project.
+    fn last_space(doc: &Document) -> (&Element, &archicraft_model::Space) {
+        let element = doc.project.elements.values().last().unwrap();
+        (element, element.as_space().expect("a space"))
+    }
+
+    /// SPC-001, INP-018, NFR-USE-003: in its default method the space tool
+    /// previews the boundary space_region gives around a point in the
+    /// ground-floor room, holes included, and a click there creates one
+    /// space with that boundary, detected from the click and kept up to date
+    /// with its walls, named "Room 1" without a number, as one undo step.
+    /// The regions are built once per revision.
+    #[test]
+    fn a_click_inside_a_room_creates_a_detected_space_of_its_boundary() {
+        let p = DVec2::new(2.0, 3.0);
+        let (mut doc, storey, mut tool) = space_tool_on_the_shaft_sample(0, p);
+        let step = tool.step().unwrap();
+        assert_eq!(step.expects, Expect::Pick);
+        assert_eq!(step.prompt, "Space: click inside a room bounded by walls");
+        assert!(step.hints.is_empty(), "Esc returns to the selection: {:?}", step.hints);
+
+        let expected = archicraft_geometry::space_region(&doc.project, storey, p).unwrap();
+        let (outer, holes) = expected.to_points();
+        let rings: Vec<(Vec<DVec2>, bool)> = std::iter::once(&outer)
+            .chain(&holes)
+            .map(|ring| (ring.clone(), true))
+            .collect();
+        assert_eq!(
+            preview_at(&tool, &doc.project, p),
+            rings,
+            "the preview shows the boundary"
+        );
+
+        let Outcome::Execute(command) = tool.commit(&doc.project, storey, p) else {
+            panic!("the click creates the space")
+        };
+        let before = doc.project.elements.len();
+        doc.execute(command).unwrap();
+        assert_eq!(doc.project.elements.len(), before + 1, "one space");
+        assert_eq!(doc.history.undo_len(), 1, "one undo step");
+        let (element, space) = last_space(&doc);
+        assert_eq!(element.storey, storey);
+        assert_eq!(element.name, "SP-001");
+        assert_eq!(
+            space.source,
+            archicraft_model::BoundarySource::Detected {
+                seed: p,
+                auto_update: true
+            }
+        );
+        assert_eq!(space.boundary.to_points(), (outer, holes), "the detected boundary");
+        assert_eq!(space.long_name, "Room 1");
+        assert!(space.number.is_empty());
+        assert!(tool.detecting(), "the tool stays ready for the next room");
+
+        assert_eq!(doc.space_region_builds(), 1);
+        doc.space_regions(storey);
+        assert_eq!(doc.space_region_builds(), 2, "the space changed the revision");
+        doc.space_regions(storey);
+        assert_eq!(doc.space_region_builds(), 2, "cached for the revision");
+    }
+
+    /// SPC-001, NFR-USE-003: a click outside the building or inside a wall
+    /// creates nothing, previews nothing, and the prompt says why.
+    #[test]
+    fn a_click_outside_the_rooms_creates_nothing_and_the_prompt_says_why() {
+        for (p, prompt) in [
+            (DVec2::new(-3.0, -3.0), "Region is open"),
+            (DVec2::new(0.1, 3.0), "The point lies in a wall"),
+        ] {
+            let (doc, storey, mut tool) = space_tool_on_the_shaft_sample(0, p);
+            let step = tool.step().unwrap();
+            assert!(step.prompt.starts_with(prompt), "{p}: {}", step.prompt);
+            assert!(preview_at(&tool, &doc.project, p).is_empty(), "{p}");
+            let revision = doc.project.revision;
+            assert_eq!(tool.commit(&doc.project, storey, p), Outcome::Continue, "{p}");
+            assert_eq!(doc.project.revision, revision);
+        }
+    }
+
+    /// SPC-001, ELM-019: new spaces are named from the space counter, "Room
+    /// 1" then "Room 2"; with a long name "Raum {n}" in the space defaults
+    /// slot and one space in the project, the next is named "Raum 2". The
+    /// English message takes the placeable $n.
+    #[test]
+    fn new_spaces_are_named_from_the_counter_and_the_defaults() {
+        let p = DVec2::new(2.0, 3.0);
+        let (mut doc, storey, mut tool) = space_tool_on_the_shaft_sample(0, p);
+        let click = |doc: &mut Document, tool: &mut ToolState| {
+            let regions = doc.space_regions(storey);
+            tool.space.set_source(regions, p);
+            let Outcome::Execute(command) = tool.commit(&doc.project, storey, p) else {
+                panic!("the click creates a space")
+            };
+            doc.execute(command).unwrap();
+            last_space(doc).1.long_name.clone()
+        };
+        assert_eq!(click(&mut doc, &mut tool), "Room 1");
+        assert_eq!(click(&mut doc, &mut tool), "Room 2");
+
+        let (mut doc, _, mut tool) = space_tool_on_the_shaft_sample(0, p);
+        assert_eq!(click(&mut doc, &mut tool), "Room 1");
+        let Some(ElementKind::Space(defaults)) = doc.project.tool_defaults.get_mut(KindTag::Space).map(|s| &mut s.kind)
+        else {
+            panic!("the template has a space slot")
+        };
+        defaults.long_name = "Raum {n}".to_owned();
+        assert_eq!(click(&mut doc, &mut tool), "Raum 2");
+
+        assert!(crate::i18n::Localizer::english().has("tool-space-default-name"));
+        assert_eq!(tr!("tool-space-default-name", n = "7"), "Room 7");
+    }
+
+    /// SPC-001, SLB-001: the space tool's rectangle method creates a space
+    /// on the drawn rectangle with a drawn boundary, as one undo step; Esc
+    /// in its first step turns nothing off and leaves the tool.
+    #[test]
+    fn the_rectangle_method_creates_a_drawn_space() {
+        let mut doc = Document::new(default_metric_project(), 100);
+        let storey = doc.project.storeys.ground();
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Space);
+        tool.space_mode = SpaceMode::Rectangle;
+        assert!(!tool.detecting());
+        assert_eq!(tool.step().unwrap().expects, Expect::Point);
+        assert_eq!(tool.commit(&doc.project, storey, DVec2::ZERO), Outcome::Continue);
+        assert_eq!(
+            preview_at(&tool, &doc.project, DVec2::new(4.0, 3.0)),
+            [(rectangle(DVec2::ZERO, DVec2::new(4.0, 3.0)), true)]
+        );
+        let Outcome::Execute(command) = tool.commit(&doc.project, storey, DVec2::new(4.0, 3.0)) else {
+            panic!("the second corner creates the space")
+        };
+        doc.execute(command).unwrap();
+        assert_eq!(doc.history.undo_len(), 1);
+        let (_, space) = last_space(&doc);
+        assert_eq!(space.source, archicraft_model::BoundarySource::Drawn);
+        assert!((space.net_area() - 12.0).abs() < 1e-9);
+        assert_eq!(space.long_name, "Room 1");
+        assert!(!tool.cancel_step(), "nothing left to cancel");
     }
 }
