@@ -94,6 +94,15 @@ pub struct Segment<'a, E = ()> {
     pub edge: &'a Edge<E>,
 }
 
+/// The smallest and largest corner of the axis-aligned bounding box of
+/// `points`, or `None` for no points.
+pub fn point_bounds(points: impl IntoIterator<Item = DVec2>) -> Option<(DVec2, DVec2)> {
+    points
+        .into_iter()
+        .map(|p| (p, p))
+        .reduce(|(lo, hi), (l, h)| (lo.min(l), hi.max(h)))
+}
+
 /// A closed ring of nodes, without repeating the first node at the end.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Ring<E = ()> {
@@ -191,9 +200,7 @@ impl<E: EdgeData> Ring<E> {
     /// The smallest and largest corner of the axis-aligned bounding box, or
     /// `None` for an empty ring.
     pub fn bounds(&self) -> Option<(DVec2, DVec2)> {
-        self.points()
-            .map(|p| (p, p))
-            .reduce(|(lo, hi), (l, h)| (lo.min(l), hi.max(h)))
+        point_bounds(self.points())
     }
 
     /// Reverses the order of the nodes, as [`slice::reverse`] does, and keeps

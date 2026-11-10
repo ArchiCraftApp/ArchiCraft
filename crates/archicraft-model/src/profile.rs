@@ -17,6 +17,7 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{MaterialId, ProfileId};
+use crate::outline::point_bounds;
 
 /// Which element kinds may use a profile (PRF-004). Walls and railings are
 /// stored for PRF-010 but not enforced yet.
@@ -440,12 +441,7 @@ impl Profile {
                 let half = shape.size() / 2.0;
                 Some((-half, half))
             }
-            ProfileShape::Custom { regions } => regions.iter().flat_map(|r| r.outer.iter()).fold(None, |b, &p| {
-                Some(match b {
-                    None => (p, p),
-                    Some((min, max)) => (min.min(p), max.max(p)),
-                })
-            }),
+            ProfileShape::Custom { regions } => point_bounds(regions.iter().flat_map(|r| r.outer.iter().copied())),
         }
     }
 

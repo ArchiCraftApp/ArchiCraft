@@ -301,6 +301,8 @@ fn error_representatives() -> Vec<Message> {
             .length("max", 0.047),
         Message::new("model-error-profile-no-regions"),
         Message::new("model-error-profile-points").count("max", 10_000),
+        Message::new("model-error-profile-regions").count("max", 32),
+        max("model-error-profile-size", 10.0),
         Message::new("model-error-profile-region")
             .count("number", 2)
             .nested("reason", Message::new("model-error-polygon-self-intersection")),
