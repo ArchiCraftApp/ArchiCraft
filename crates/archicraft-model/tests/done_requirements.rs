@@ -20,7 +20,8 @@ use archicraft_model::units::{LengthUnit, NumberFormat, format_angle, format_len
 use archicraft_model::validate::validate_element;
 use archicraft_model::{
     Command, CommandError, Element, ElementKind, GroupId, History, IfcClass, KindTag, Layer, LayerId, MaterialId,
-    Message, Position, Project, ReferenceLine, Slab, SlabReference, Storey, StoreyId, TopLink, Wall,
+    Message, Position, Project, ReferenceLine, Slab, SlabReference, Storey, StoreyId, StructuralFunction, TopLink,
+    Wall,
 };
 use common::{ground, wall};
 
@@ -496,6 +497,7 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
     defaults.insert(DefaultsSlot {
         layer: structure,
         position: Position::Interior,
+        structural: StructuralFunction::LoadBearing,
         ifc_class: IfcClass::Footing,
         predefined_type: None,
         kind: Wall {
@@ -512,6 +514,7 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
     defaults.insert(DefaultsSlot {
         layer: structure,
         position: Position::Exterior,
+        structural: StructuralFunction::NonLoadBearing,
         ifc_class: IfcClass::Covering,
         predefined_type: None,
         kind: Slab {
@@ -541,8 +544,13 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
         )
     );
     assert_eq!(
-        (w.layer, w.position, w.ifc_class),
-        (structure, Position::Interior, IfcClass::Footing)
+        (w.layer, w.position, w.structural, w.ifc_class),
+        (
+            structure,
+            Position::Interior,
+            StructuralFunction::LoadBearing,
+            IfcClass::Footing
+        )
     );
     let s = p.new_slab(ground(&p), rectangle(DVec2::ZERO, DVec2::splat(4.0)), Vec::new(), 0);
     let ss = s.as_slab().unwrap();
@@ -551,8 +559,13 @@ fn elm_001_tool_defaults_live_in_the_project_and_apply_to_new_elements() {
         (0.18, SlabReference::Bottom, 0.02, material)
     );
     assert_eq!(
-        (s.layer, s.position, s.ifc_class),
-        (structure, Position::Exterior, IfcClass::Covering)
+        (s.layer, s.position, s.structural, s.ifc_class),
+        (
+            structure,
+            Position::Exterior,
+            StructuralFunction::NonLoadBearing,
+            IfcClass::Covering
+        )
     );
     h.execute(&mut p, Command::AddElements(vec![w, s])).unwrap();
     assert_eq!(p.element(old_id).unwrap(), &old, "existing elements keep their values");

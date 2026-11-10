@@ -16,7 +16,9 @@ use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
 use archicraft_model::project::NameCounters;
 use archicraft_model::relations::RelationStore;
-use archicraft_model::{Element, Group, KindTag, Layer, MaterialId, PredefinedType, Project, TextStyle};
+use archicraft_model::{
+    Element, Group, KindTag, Layer, MaterialId, PredefinedType, Project, StructuralFunction, TextStyle,
+};
 use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -113,6 +115,7 @@ fn tool_defaults(p: &Project, warnings: &mut Vec<Problem>) -> Value {
         }
         members.insert("layer".into(), json!(slot.layer.to_string()));
         members.insert("position".into(), json!(slot.position.code()));
+        structural_function(&mut members, slot.structural);
         members.insert("ifcClass".into(), json!(slot.ifc_class.code()));
         let mut value = Value::Object(members);
         predefined_type(&mut value, slot.predefined_type);
@@ -474,16 +477,29 @@ fn nodes(project: &Project, geometry: &ModelGeometry, warnings: &mut Vec<Problem
     }
 }
 
+/// The structural function of an element or a tool's defaults (ELM-020),
+/// only when it is stated, so files of projects without one stay as they
+/// were. `bsi::ifc::prop::LoadBearing` is not declared by the bundled
+/// schemas (IFX-061), so the function is kept in `archicraft::` only; once a
+/// bundled schema declares it, write it like `IsExternal`.
+fn structural_function(members: &mut Map<String, Value>, function: StructuralFunction) {
+    if function != StructuralFunction::Undefined {
+        members.insert("structuralFunction".into(), json!(function.code()));
+    }
+}
+
 /// The common data of an element (IFX-060): `archicraft::element` of its
-/// node, and part of the envelope of its annotation entry. The predefined
-/// type, the snap exclusion (INP-017) and the group (ELM-015) only when set,
-/// so files of projects without them stay as they were.
+/// node, and part of the envelope of its annotation entry. The structural
+/// function (ELM-020), the predefined type, the snap exclusion (INP-017) and
+/// the group (ELM-015) only when set, so files of projects without them stay
+/// as they were.
 pub(crate) fn element_data(e: &Element) -> Map<String, Value> {
     let mut common = Map::new();
     common.insert("kind".into(), json!(e.tag().code()));
     common.insert("layer".into(), json!(e.layer.to_string()));
     common.insert("locked".into(), json!(e.locked));
     common.insert("position".into(), json!(e.position.code()));
+    structural_function(&mut common, e.structural);
     if let Some(predefined) = e.predefined_type {
         common.insert("predefinedType".into(), json!(predefined.code()));
     }

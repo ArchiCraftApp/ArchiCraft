@@ -887,6 +887,7 @@ fn deleting_a_material_leaves_material_less_elements_and_slots_untouched() {
     defaults.insert(DefaultsSlot {
         layer: p.layers[0].id,
         position: archicraft_model::Position::Undefined,
+        structural: archicraft_model::StructuralFunction::Undefined,
         ifc_class: KindTag::Dummy.descriptor().default_class,
         predefined_type: None,
         kind: Dummy::without_material(DVec2::ZERO, DVec2::ONE).into(),
@@ -947,6 +948,7 @@ fn deleting_a_storey_unlinks_every_defaults_slot() {
     defaults.insert(DefaultsSlot {
         layer: p.layers[0].id,
         position: archicraft_model::Position::Undefined,
+        structural: archicraft_model::StructuralFunction::Undefined,
         ifc_class: KindTag::Dummy.descriptor().default_class,
         predefined_type: None,
         kind: dummy.into(),
@@ -1025,6 +1027,7 @@ fn deleting_a_storey_resets_only_an_invalid_defaults_top() {
     defaults.insert(DefaultsSlot {
         layer: p.layers[1].id,
         position: archicraft_model::Position::Undefined,
+        structural: archicraft_model::StructuralFunction::Undefined,
         ifc_class: KindTag::Dummy.descriptor().default_class,
         predefined_type: None,
         kind: dummy.into(),
@@ -1094,6 +1097,49 @@ fn history_is_bounded_and_replayable() {
     replay(&mut replayed, &commands).unwrap();
     assert_eq!(replayed.elements.len(), 5);
     assert_eq!(h.journal().count(), 5);
+}
+
+/// Removes every member named `key` from `value`, at any depth, and returns
+/// how many it removed.
+fn remove_members(value: &mut serde_json::Value, key: &str) -> usize {
+    match value {
+        serde_json::Value::Object(map) => {
+            let own = usize::from(map.remove(key).is_some());
+            own + map.values_mut().map(|v| remove_members(v, key)).sum::<usize>()
+        }
+        serde_json::Value::Array(items) => items.iter_mut().map(|v| remove_members(v, key)).sum(),
+        _ => 0,
+    }
+}
+
+/// ELM-020: a command log written before elements and tool defaults had a
+/// structural function, so without any `structural` field, still loads and
+/// replays (journals, autosave recovery), and its elements and slots read
+/// as undefined.
+#[test]
+fn a_log_without_structural_functions_replays_as_undefined() {
+    let mut p = default_metric_project();
+    let start = p.clone();
+    let mut h = History::default();
+    let w = p.new_wall(p.storeys.ground(), DVec2::ZERO, DVec2::new(4.0, 0.0), 0);
+    h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    let mut defaults = p.tool_defaults.clone();
+    defaults.get_mut(KindTag::Wall).unwrap().position = archicraft_model::Position::Interior;
+    h.execute(&mut p, Command::SetToolDefaults(defaults)).unwrap();
+
+    let mut log = serde_json::to_value(h.applied_commands().collect::<Vec<_>>()).unwrap();
+    assert!(remove_members(&mut log, "structural") >= 2, "{log}");
+    let commands: Vec<Command> = serde_json::from_value(log).unwrap();
+    let mut replayed = start;
+    replay(&mut replayed, &commands).unwrap();
+    assert_eq!(replayed.elements, p.elements);
+    assert_eq!(replayed.tool_defaults, p.tool_defaults);
+    assert!(
+        replayed
+            .elements
+            .values()
+            .all(|e| e.structural == archicraft_model::StructuralFunction::Undefined)
+    );
 }
 
 #[test]

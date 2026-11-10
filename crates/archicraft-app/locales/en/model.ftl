@@ -302,3 +302,9 @@ model-predefined-type-landing = Landing
 model-predefined-type-base-slab = Base slab
 model-predefined-type-pad-footing = Pad footing
 model-predefined-type-strip-footing = Strip footing
+
+## Structural functions of elements (ELM-020).
+
+model-structural-function-undefined = Undefined
+model-structural-function-load-bearing = Load-bearing
+model-structural-function-non-load-bearing = Non-load-bearing

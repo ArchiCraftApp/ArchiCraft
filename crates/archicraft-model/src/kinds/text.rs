@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Kind, KindDescriptor, KindTag, plan_bounds_of};
 use crate::drafting_view::{DraftingView, zero_height_extent};
-use crate::element::{Element, IfcClass, Position, PredefinedType};
+use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction};
 use crate::ids::{StoreyId, TextStyleId};
 use crate::message::Message;
 use crate::project::{DefaultsSlot, Project};
@@ -61,6 +61,7 @@ fn template_defaults(context: &TemplateContext<'_>) -> DefaultsSlot {
     DefaultsSlot {
         layer: context.layer("2D construction"),
         position: Position::Undefined,
+        structural: StructuralFunction::Undefined,
         ifc_class: Text::DESCRIPTOR.default_class,
         predefined_type: None,
         kind: Text {

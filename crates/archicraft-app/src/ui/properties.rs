@@ -11,7 +11,7 @@ use archicraft_model::project::DefaultsSlot;
 use archicraft_model::units::{NumberFormat, UnitSettings, format_area, format_length, format_volume};
 use archicraft_model::{
     AnchorPos, Command, Element, ElementKind, GroupId, IfcClass, KindTag, LayerId, MaterialId, Position,
-    PredefinedType, Project, ReferenceLine, SlabReference, StoreyId, TextStyleId, TopLink,
+    PredefinedType, Project, ReferenceLine, SlabReference, StoreyId, StructuralFunction, TextStyleId, TopLink,
 };
 use egui::{Id, Ui};
 
@@ -93,6 +93,7 @@ fn apply(ws: &mut Workspace, editing: Editing) {
             defaults.insert(DefaultsSlot {
                 layer: e.layer,
                 position: e.position,
+                structural: e.structural,
                 ifc_class: e.ifc_class,
                 predefined_type: e.predefined_type,
                 kind: e.kind,
@@ -766,6 +767,19 @@ fn classification_fields(ui: &mut Ui, f: &mut Fields<'_>) {
         &positions,
         |e| Some(e.position),
         |e, p| e.position = *p,
+    );
+    // ELM-020: an envelope flag like the position, for every kind.
+    let functions: Vec<(StructuralFunction, String)> = StructuralFunction::ALL
+        .iter()
+        .map(|s| (*s, tr!(s.label_key())))
+        .collect();
+    f.choice(
+        ui,
+        "Structural function",
+        "structural-function",
+        &functions,
+        |e| Some(e.structural),
+        |e, s| e.structural = *s,
     );
 }
 

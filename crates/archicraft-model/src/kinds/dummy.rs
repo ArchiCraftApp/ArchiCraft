@@ -12,7 +12,7 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
 use super::{Container, Kind, KindDescriptor, KindTag, PartSpec, StoreyLinkRef, VerticalLink, plan_bounds_of};
-use crate::element::{Element, IfcClass, Position, PredefinedType, TopLink};
+use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
 use crate::ids::{ElementId, MaterialId, StoreyId};
 use crate::message::Message;
 use crate::project::Project;
@@ -79,6 +79,7 @@ impl Dummy {
             ifc_class: Self::DESCRIPTOR.default_class,
             predefined_type: None,
             position: Position::Undefined,
+            structural: StructuralFunction::Undefined,
             locked: false,
             snap_excluded: false,
             group: None,

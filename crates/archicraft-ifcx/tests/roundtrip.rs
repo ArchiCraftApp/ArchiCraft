@@ -1278,3 +1278,183 @@ fn a_slab_with_two_holes_round_trips() {
     expected.data_version = 7;
     assert_eq!(loaded.project, expected);
 }
+
+/// The element named `name` in `project`, mutably.
+fn element_named_mut<'p>(project: &'p mut archicraft_model::Project, name: &str) -> &'p mut archicraft_model::Element {
+    project.elements.values_mut().find(|e| e.name == name).unwrap()
+}
+
+/// ELM-012, ELM-020, IFX-022: three walls (exterior and load-bearing,
+/// interior and non-load-bearing, both undefined) and a slab keep their
+/// position and structural function through a save and a load. The wall
+/// nodes carry `bsi::ifc::prop::IsExternal` true, false and none, and
+/// `archicraft::element` keeps its members in the order kind, layer,
+/// locked, position, structuralFunction; an undefined function is not
+/// written.
+#[test]
+fn position_and_structural_function_round_trip() {
+    use archicraft_model::{Position, StructuralFunction};
+
+    let mut project = samples::storey_with_walls_and_slab();
+    let flags = [
+        ("W-001", Position::Exterior, StructuralFunction::LoadBearing),
+        ("W-002", Position::Interior, StructuralFunction::NonLoadBearing),
+        ("W-003", Position::Undefined, StructuralFunction::Undefined),
+        ("SL-001", Position::Interior, StructuralFunction::LoadBearing),
+    ];
+    for (name, position, structural) in flags {
+        let e = element_named_mut(&mut project, name);
+        e.position = position;
+        e.structural = structural;
+    }
+    let bytes = save(&project);
+    let problems = validate::validate(&validate::parse(&bytes).unwrap());
+    assert!(problems.is_empty(), "{problems:#?}");
+
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    let node = |name: &str| &value["data"][node_index(&value, name)]["attributes"];
+    assert_eq!(node("W-001")["bsi::ifc::prop::IsExternal"], Value::Bool(true));
+    assert_eq!(node("W-002")["bsi::ifc::prop::IsExternal"], Value::Bool(false));
+    assert!(node("W-003").get("bsi::ifc::prop::IsExternal").is_none());
+    let written = |name: &str| node(name)["archicraft::element"].get("structuralFunction").cloned();
+    assert_eq!(written("W-001"), Some("load-bearing".into()));
+    assert_eq!(written("W-002"), Some("non-load-bearing".into()));
+    assert_eq!(written("W-003"), None, "an undefined function is not written");
+    assert_eq!(written("SL-001"), Some("load-bearing".into()));
+    let keys: Vec<&str> = node("W-001")["archicraft::element"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys[..5], ["kind", "layer", "locked", "position", "structuralFunction"]);
+
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    for (name, position, structural) in flags {
+        let e = element_named(&loaded.project, name);
+        assert_eq!((e.position, e.structural), (position, structural), "{name}");
+    }
+    let mut expected = project.clone();
+    expected.revision = 0;
+    expected.data_version = 7;
+    assert_eq!(loaded.project, expected);
+}
+
+/// ELM-020, ELM-001: a tool's default structural function is saved with its
+/// slot when set and read back; the template's undefined one is not written.
+#[test]
+fn a_default_structural_function_round_trips_with_its_slot() {
+    use archicraft_model::{KindTag, StructuralFunction};
+
+    let mut project = samples::storey_with_walls_and_slab();
+    let slots = |value: &Value| value["data"][0]["attributes"]["archicraft::project"]["toolDefaults"].clone();
+    let untouched: Value = serde_json::from_slice(&save(&project)).unwrap();
+    assert!(slots(&untouched)["wall"].get("structuralFunction").is_none());
+
+    project.tool_defaults.get_mut(KindTag::Wall).unwrap().structural = StructuralFunction::LoadBearing;
+    let bytes = save(&project);
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(slots(&value)["wall"]["structuralFunction"], "load-bearing");
+    assert!(slots(&value)["slab"].get("structuralFunction").is_none());
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert_eq!(loaded.project.tool_defaults, project.tool_defaults);
+}
+
+/// ELM-020, PRJ-008: an unknown structural function breaks its declaration,
+/// which validation reports, and the reader loads the element with an
+/// undefined function and exactly one warning naming the element.
+#[test]
+fn an_unknown_structural_function_loads_as_undefined_with_one_warning() {
+    use archicraft_model::StructuralFunction;
+
+    let project = samples::storey_with_walls_and_slab();
+    let bytes = edit(&project, |v| {
+        let i = node_index(v, "W-001");
+        v["data"][i]["attributes"]["archicraft::element"]["structuralFunction"] = "bogus".into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert_eq!(
+        element_named(&loaded.project, "W-001").structural,
+        StructuralFunction::Undefined
+    );
+    let naming: Vec<_> = loaded
+        .problems
+        .iter()
+        .filter(|p| p.message.to_string().contains(r#"name="W-001""#))
+        .collect();
+    assert_eq!(naming.len(), 1, "{:#?}", loaded.problems);
+    assert_eq!(naming[0].severity, Severity::Warning);
+    let text = naming[0].message.to_string();
+    assert!(
+        text.contains(r#"key="structuralFunction""#) && text.contains(r#"value="bogus""#),
+        "{text}"
+    );
+    // The other report is the schema check's (IFX-061), at the same node.
+    let others: Vec<String> = loaded
+        .problems
+        .iter()
+        .filter(|p| !p.message.to_string().contains(r#"name="W-001""#))
+        .map(|p| p.message.to_string())
+        .collect();
+    assert!(
+        others.len() == 1 && others[0].contains("ifcx-attribute-invalid") && others[0].contains("structuralFunction"),
+        "{others:#?}"
+    );
+}
+
+/// ELM-020: a file without the member, like every file written before it
+/// existed and every element whose function is undefined, loads without
+/// any problem and with undefined functions.
+#[test]
+fn a_missing_structural_function_reads_as_undefined_without_problems() {
+    use archicraft_model::StructuralFunction;
+
+    let mut project = samples::storey_with_walls_and_slab();
+    element_named_mut(&mut project, "W-001").structural = StructuralFunction::LoadBearing;
+    let bytes = edit(&project, |v| {
+        let i = node_index(v, "W-001");
+        let element = v["data"][i]["attributes"]["archicraft::element"]
+            .as_object_mut()
+            .unwrap();
+        assert!(element.remove("structuralFunction").is_some());
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert!(
+        loaded
+            .project
+            .elements
+            .values()
+            .all(|e| e.structural == StructuralFunction::Undefined)
+    );
+    for project in samples() {
+        let value: Value = serde_json::from_slice(&save(&project)).unwrap();
+        assert!(
+            !value["data"].to_string().contains("structuralFunction"),
+            "{}",
+            project.info.name
+        );
+    }
+}
+
+/// ELM-020, IFX-061: the embedded schemas declare `structuralFunction` of
+/// `archicraft::element` and of every tool's defaults slot as an optional
+/// enumeration of the codes, so files with and without it validate.
+#[test]
+fn the_structural_function_is_declared_as_an_optional_enumeration() {
+    use archicraft_model::StructuralFunction;
+
+    let value: Value = serde_json::from_slice(&save(&samples::storey_with_walls_and_slab())).unwrap();
+    let codes: Vec<&str> = StructuralFunction::ALL.map(StructuralFunction::code).to_vec();
+    let declared = serde_json::json!({"dataType": "Enum", "enumRestrictions": {"options": codes}, "optional": true});
+    let members = |desc: &Value| desc["objectRestrictions"]["values"].clone();
+    let element = members(&value["schemas"]["archicraft::element"]["value"]);
+    assert_eq!(element["structuralFunction"], declared);
+    let project = members(&value["schemas"]["archicraft::project"]["value"]);
+    let slots = members(&project["toolDefaults"]);
+    for kind in ["wall", "slab"] {
+        assert_eq!(members(&slots[kind])["structuralFunction"], declared, "{kind}");
+    }
+}

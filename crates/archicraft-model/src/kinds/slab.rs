@@ -4,7 +4,7 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
 use super::{Kind, KindDescriptor, KindTag, transform_outline};
-use crate::element::{Element, IfcClass, Position, PredefinedType};
+use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
 use crate::outline::Outline;
@@ -68,6 +68,7 @@ fn template_defaults(context: &TemplateContext<'_>) -> DefaultsSlot {
     DefaultsSlot {
         layer: context.layer("Slabs"),
         position: Position::Undefined,
+        structural: StructuralFunction::Undefined,
         ifc_class: Slab::DESCRIPTOR.default_class,
         predefined_type: None,
         kind: Slab {

@@ -440,6 +440,17 @@ expression: review_view(&bytes)
                             ]
                           }
                         },
+                        "structuralFunction": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "undefined",
+                              "load-bearing",
+                              "non-load-bearing"
+                            ]
+                          },
+                          "optional": true
+                        },
                         "ifcClass": {
                           "dataType": "String"
                         },
@@ -496,6 +507,17 @@ expression: review_view(&bytes)
                               "interior"
                             ]
                           }
+                        },
+                        "structuralFunction": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "undefined",
+                              "load-bearing",
+                              "non-load-bearing"
+                            ]
+                          },
+                          "optional": true
                         },
                         "ifcClass": {
                           "dataType": "String"
@@ -577,6 +599,17 @@ expression: review_view(&bytes)
                             ]
                           }
                         },
+                        "structuralFunction": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "undefined",
+                              "load-bearing",
+                              "non-load-bearing"
+                            ]
+                          },
+                          "optional": true
+                        },
                         "ifcClass": {
                           "dataType": "String"
                         },
@@ -644,6 +677,17 @@ expression: review_view(&bytes)
                               "interior"
                             ]
                           }
+                        },
+                        "structuralFunction": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "undefined",
+                              "load-bearing",
+                              "non-load-bearing"
+                            ]
+                          },
+                          "optional": true
                         },
                         "ifcClass": {
                           "dataType": "String"
@@ -797,6 +841,17 @@ expression: review_view(&bytes)
                   "interior"
                 ]
               }
+            },
+            "structuralFunction": {
+              "dataType": "Enum",
+              "enumRestrictions": {
+                "options": [
+                  "undefined",
+                  "load-bearing",
+                  "non-load-bearing"
+                ]
+              },
+              "optional": true
             },
             "predefinedType": {
               "dataType": "Enum",
@@ -1133,6 +1188,17 @@ expression: review_view(&bytes)
                       "interior"
                     ]
                   }
+                },
+                "structuralFunction": {
+                  "dataType": "Enum",
+                  "enumRestrictions": {
+                    "options": [
+                      "undefined",
+                      "load-bearing",
+                      "non-load-bearing"
+                    ]
+                  },
+                  "optional": true
                 },
                 "predefinedType": {
                   "dataType": "Enum",

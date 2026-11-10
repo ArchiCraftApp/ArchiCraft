@@ -327,6 +327,48 @@ impl Position {
     }
 }
 
+/// Structural function of an element (ELM-020): load-bearing or not, or
+/// not stated. Like [`Position`] it is part of the envelope, so display
+/// overrides and selection criteria can match its code for any kind.
+/// Appendix D gives no default, so every kind starts undefined.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum StructuralFunction {
+    #[default]
+    Undefined,
+    LoadBearing,
+    NonLoadBearing,
+}
+
+impl StructuralFunction {
+    pub const ALL: [StructuralFunction; 3] = [
+        StructuralFunction::Undefined,
+        StructuralFunction::LoadBearing,
+        StructuralFunction::NonLoadBearing,
+    ];
+
+    /// The stable code, written as `archicraft::element.structuralFunction`.
+    pub fn code(self) -> &'static str {
+        match self {
+            StructuralFunction::Undefined => "undefined",
+            StructuralFunction::LoadBearing => "load-bearing",
+            StructuralFunction::NonLoadBearing => "non-load-bearing",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|f| f.code() == code)
+    }
+
+    /// Message key of the function's name in choices (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
+        match self {
+            StructuralFunction::Undefined => "model-structural-function-undefined",
+            StructuralFunction::LoadBearing => "model-structural-function-load-bearing",
+            StructuralFunction::NonLoadBearing => "model-structural-function-non-load-bearing",
+        }
+    }
+}
+
 /// Where the top of a vertical element is (ELM-006).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TopLink {
@@ -376,6 +418,10 @@ pub struct Element {
     #[serde(default)]
     pub predefined_type: Option<PredefinedType>,
     pub position: Position,
+    /// Load-bearing or not (ELM-020). Defaulted, so journals and autosaves
+    /// of sessions from before the flag existed replay.
+    #[serde(default)]
+    pub structural: StructuralFunction,
     /// Locked elements reject edits (ELM-013).
     pub locked: bool,
     /// Excluded elements are drawn but provide no snap targets (INP-017).
@@ -391,5 +437,60 @@ pub struct Element {
 impl Element {
     pub fn tag(&self) -> KindTag {
         self.kind.tag()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ELM-020: every structural function reads back from its stable code,
+    /// and an unknown code reads as none.
+    #[test]
+    fn structural_function_codes_round_trip() {
+        for function in StructuralFunction::ALL {
+            assert_eq!(
+                StructuralFunction::from_code(function.code()),
+                Some(function),
+                "{function:?}"
+            );
+        }
+        let codes: Vec<&str> = StructuralFunction::ALL.map(StructuralFunction::code).to_vec();
+        assert_eq!(codes, ["undefined", "load-bearing", "non-load-bearing"]);
+        assert_eq!(StructuralFunction::from_code("bogus"), None);
+    }
+
+    /// ELM-020: an element whose structural function nobody set has none
+    /// (Appendix D gives no default).
+    #[test]
+    fn the_default_structural_function_is_undefined() {
+        assert_eq!(StructuralFunction::default(), StructuralFunction::Undefined);
+    }
+
+    /// ELM-012, IFX-022: only a known position says whether the element is
+    /// external.
+    #[test]
+    fn is_external_follows_the_position() {
+        let external: Vec<Option<bool>> = Position::ALL.map(Position::is_external).to_vec();
+        assert_eq!(external, [None, Some(true), Some(false)]);
+        for position in Position::ALL {
+            assert_eq!(Position::from_code(position.code()), Some(position));
+        }
+    }
+
+    /// ELM-020, NFR-L10N-001: each structural function has a message key of
+    /// its own for its name in choices.
+    #[test]
+    fn structural_functions_have_distinct_label_keys() {
+        let keys: Vec<&str> = StructuralFunction::ALL.map(StructuralFunction::label_key).to_vec();
+        assert_eq!(
+            keys,
+            [
+                "model-structural-function-undefined",
+                "model-structural-function-load-bearing",
+                "model-structural-function-non-load-bearing",
+            ]
+        );
+        assert!(keys.iter().all(|k| crate::message::ALL_KEYS.contains(k)));
     }
 }

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Kind, KindDescriptor, KindTag, plan_bounds_of};
 use crate::drafting_view::{DraftingView, zero_height_extent};
-use crate::element::{Element, IfcClass, Position, PredefinedType};
+use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction};
 use crate::ids::{ElementId, StoreyId};
 use crate::message::Message;
 use crate::project::Project;
@@ -51,6 +51,7 @@ impl Note {
             ifc_class: Self::DESCRIPTOR.default_class,
             predefined_type: None,
             position: Position::Undefined,
+            structural: StructuralFunction::Undefined,
             locked: false,
             snap_excluded: false,
             group: None,

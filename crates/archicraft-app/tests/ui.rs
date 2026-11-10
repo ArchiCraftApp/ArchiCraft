@@ -26,7 +26,7 @@ use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_area, fo
 use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{
     Command, ElementId, ElementKind, IfcClass, KindTag, Material, PredefinedType, ProjectSettings, ReferenceLine,
-    StoreyId,
+    StoreyId, StructuralFunction,
 };
 use common::{assert_present, data_dir, harness, harness_at, harness_in};
 use egui::accesskit::{Role, Toggled};
@@ -2181,6 +2181,91 @@ fn a_predefined_type_in_the_strip_updates_the_slab_defaults_slot() {
         .project
         .new_slab(storey, vec![DVec2::ZERO, DVec2::X, DVec2::ONE], Vec::new(), 0);
     assert_eq!(slab.predefined_type, Some(PredefinedType::Roof));
+}
+
+/// ELM-020: a selected wall shows a "Structural function" choice; choosing
+/// "Load-bearing" is one UpdateElements that sets the flag, and one undo
+/// restores Undefined. Two selected walls with different functions show
+/// "Mixed".
+#[test]
+fn the_structural_function_choice_sets_the_flag_undoably() {
+    let mut harness = harness("structural-function");
+    let (wall, _) = add_wall_and_slab(&mut harness, None);
+    select_only(&mut harness, wall);
+    harness.get_by_label("Structural function");
+    let commands = choose_in_combo(&mut harness, "Undefined", "Load-bearing");
+    assert!(
+        matches!(commands.as_slice(), [Command::UpdateElements(e)] if e.len() == 1 && e[0].id == wall),
+        "{commands:?}"
+    );
+    let structural = |harness: &mut Harness<'static, ArchiCraftApp>, id: ElementId| {
+        harness
+            .state_mut()
+            .workspace()
+            .doc
+            .project
+            .element(id)
+            .unwrap()
+            .structural
+    };
+    assert_eq!(structural(&mut harness, wall), StructuralFunction::LoadBearing);
+    harness.get(By::new().role(Role::ComboBox).value("Load-bearing"));
+    harness.state_mut().workspace().undo();
+    harness.run_steps(2);
+    assert_eq!(structural(&mut harness, wall), StructuralFunction::Undefined);
+    harness.get(By::new().role(Role::ComboBox).value("Undefined"));
+
+    let other = {
+        let ws = harness.state_mut().workspace();
+        let storey = ws.doc.project.storeys.ground();
+        let mut other = ws
+            .doc
+            .project
+            .new_wall(storey, DVec2::new(0.0, 6.0), DVec2::new(4.0, 6.0), 0);
+        other.structural = StructuralFunction::NonLoadBearing;
+        let id = other.id;
+        assert!(ws.execute(Command::AddElements(vec![other])));
+        ws.selection.clear();
+        ws.selection.extend([wall, id]);
+        id
+    };
+    harness.run_steps(2);
+    assert_eq!(structural(&mut harness, other), StructuralFunction::NonLoadBearing);
+    harness.get_by_label("Structural function");
+    harness.get(By::new().role(Role::ComboBox).value("Mixed"));
+}
+
+/// ELM-020, ELM-001: with the wall tool active and nothing selected, a
+/// structural function chosen in the strip goes into the wall tool's
+/// defaults slot through SetToolDefaults, so the next wall is load-bearing.
+#[test]
+fn a_structural_function_in_the_strip_updates_the_wall_defaults_slot() {
+    let mut harness = harness("structural-function-defaults");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    harness.get_by_label("Wall tool defaults");
+    let commands = choose_in_combo(&mut harness, "Undefined", "Load-bearing");
+    assert!(
+        matches!(commands.as_slice(), [Command::SetToolDefaults(_)]),
+        "{commands:?}"
+    );
+    let ws = harness.state_mut().workspace();
+    let slot = ws.doc.project.tool_defaults.get(KindTag::Wall).unwrap();
+    assert_eq!(slot.structural, StructuralFunction::LoadBearing);
+    let storey = ws.doc.project.storeys.ground();
+    let prototype = ws.doc.project.new_element(KindTag::Wall, storey, 0).unwrap();
+    assert_eq!(prototype.structural, StructuralFunction::LoadBearing);
+    let wall = ws.doc.project.new_wall(storey, DVec2::ZERO, DVec2::X, 0);
+    assert_eq!(wall.structural, StructuralFunction::LoadBearing);
+    let slab = ws
+        .doc
+        .project
+        .new_slab(storey, vec![DVec2::ZERO, DVec2::X, DVec2::ONE], Vec::new(), 0);
+    assert_eq!(
+        slab.structural,
+        StructuralFunction::Undefined,
+        "the slab slot is unchanged"
+    );
 }
 
 /// NFR-L10N-001: a value the model rejects reports the localized message in

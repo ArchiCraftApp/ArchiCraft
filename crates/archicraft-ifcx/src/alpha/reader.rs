@@ -61,8 +61,8 @@ use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, Unit
 use archicraft_model::validate::{MAX_DECIMALS, valid_grid_origin, valid_grid_spacing, validate_element};
 use archicraft_model::{
     BuildingId, Element, ElementId, Group, GroupId, IfcClass, KindTag, Layer, LayerId, MaterialId, PlanGrid, Position,
-    PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, SiteId, Storey, StoreyId, StoreyList, TextAlign,
-    TextStyle, TextStyleId, ViewId,
+    PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, SiteId, Storey, StoreyId, StoreyList,
+    StructuralFunction, TextAlign, TextStyle, TextStyleId, ViewId,
 };
 use indexmap::IndexMap;
 use serde_json::value::RawValue;
@@ -274,6 +274,18 @@ fn rgb(map: &Object, key: &str) -> Result<Rgb, Message> {
         [r, g, b] if values.iter().all(|c| (0.0..=1.0).contains(c)) => Ok(Rgb([*r, *g, *b])),
         _ => Err(about("ifcx-field-not-colour", key)),
     }
+}
+
+/// The optional `structuralFunction` of an element or a tool's defaults
+/// (ELM-020): the writer leaves an undefined one out, so a missing member is
+/// undefined without a report; a code this version does not know is
+/// reported and read as undefined.
+fn structural_function(map: &Object, report: &mut Report<'_>) -> StructuralFunction {
+    report
+        .optional(map, "structuralFunction", |m, key| {
+            code(m, key, StructuralFunction::from_code)
+        })
+        .unwrap_or_default()
 }
 
 /// The optional `predefinedType` of an element or a tool's defaults
@@ -1028,6 +1040,7 @@ fn read_defaults_slot(
     DefaultsSlot {
         layer,
         position: report.or(code(map, "position", Position::from_code), default.position),
+        structural: structural_function(map, report),
         ifc_class,
         predefined_type,
         kind: payload,
@@ -1221,10 +1234,11 @@ pub(crate) struct ElementRecord<'a> {
 }
 
 /// Reads the element of `record` (IFX-060): a missing name, layer, class,
-/// predefined type, group, position or flag is repaired as reported on
-/// `report`, and the parameters, which `parameters` finds for the kind's
-/// codec, are read through the codec. Without a codec or parameters, or
-/// when they or the element are invalid, the element is skipped.
+/// predefined type, group, position or flag, or an unknown structural
+/// function (ELM-020), is repaired as reported on `report`, and the
+/// parameters, which `parameters` finds for the kind's codec, are read
+/// through the codec. Without a codec or parameters, or when they or the
+/// element are invalid, the element is skipped.
 pub(crate) fn read_element_record<'v>(
     project: &Project,
     record: ElementRecord<'_>,
@@ -1295,6 +1309,7 @@ pub(crate) fn read_element_record<'v>(
         ifc_class,
         predefined_type,
         position: report.or(code(common, "position", Position::from_code), Position::default()),
+        structural: structural_function(common, report),
         locked: report.or(boolean(common, "locked"), false),
         snap_excluded: report.optional(common, "snapExcluded", boolean).unwrap_or(false),
         group,
@@ -1555,6 +1570,9 @@ mod tests {
         }
         map.insert("layer".into(), json!(slot.layer.to_string()));
         map.insert("position".into(), json!(slot.position.code()));
+        if slot.structural != StructuralFunction::Undefined {
+            map.insert("structuralFunction".into(), json!(slot.structural.code()));
+        }
         map.insert("ifcClass".into(), json!(slot.ifc_class.code()));
         map
     }
@@ -1573,6 +1591,7 @@ mod tests {
         let slot = DefaultsSlot {
             layer: p.layers[1].id,
             position: Position::Undefined,
+            structural: StructuralFunction::Undefined,
             ifc_class: KindTag::Dummy.descriptor().default_class,
             predefined_type: None,
             kind: Dummy::without_material(DVec2::ZERO, DVec2::ONE).into(),

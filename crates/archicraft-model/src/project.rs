@@ -6,7 +6,7 @@ use glam::DVec2;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, PredefinedType};
+use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, StructuralFunction};
 use crate::group::Group;
 use crate::ids::{
     BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, RelationId, SiteId, StoreyId, TextStyleId, ViewId,
@@ -196,14 +196,18 @@ pub struct View3d {
     pub projection: Projection,
 }
 
-/// The defaults of one tool (ELM-001): the layer, position, IFC class and
-/// predefined type a new element gets, and a prototype payload whose parameters it copies.
+/// The defaults of one tool (ELM-001): the layer, position, structural
+/// function, IFC class and predefined type a new element gets, and a
+/// prototype payload whose parameters it copies.
 /// The payload's geometry is a placeholder that the tool replaces (a wall
 /// from the origin to X, a slab over the unit square).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DefaultsSlot {
     pub layer: LayerId,
     pub position: Position,
+    /// ELM-020; defaulted, so journals of older sessions replay.
+    #[serde(default)]
+    pub structural: StructuralFunction,
     /// One of the kind's selectable classes (ELM-011).
     pub ifc_class: IfcClass,
     /// One of the types the kind offers for `ifc_class`, or none (IFX-024).
@@ -450,6 +454,7 @@ impl Project {
             ifc_class: slot.ifc_class,
             predefined_type: slot.predefined_type,
             position: slot.position,
+            structural: slot.structural,
             locked: false,
             snap_excluded: false,
             group: None,
