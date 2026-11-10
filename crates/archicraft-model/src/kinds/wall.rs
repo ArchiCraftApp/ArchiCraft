@@ -3,8 +3,9 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, VerticalLink, plan_bounds_of};
+use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, Vertical, VerticalLink, plan_bounds_of, vertical};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
+use crate::fields::{self, FieldSpec, FieldType, FieldValue, Section};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
 use crate::project::{DefaultsSlot, Project};
@@ -48,6 +49,16 @@ impl ReferenceLine {
             ReferenceLine::Center => "model-reference-line-center",
             ReferenceLine::Inside => "model-reference-line-inside",
             ReferenceLine::Custom(_) => "model-reference-line-custom",
+        }
+    }
+
+    /// The location's code in the `reference_line` field, as in files.
+    pub fn code(self) -> &'static str {
+        match self {
+            ReferenceLine::Outside => "outside",
+            ReferenceLine::Center => "center",
+            ReferenceLine::Inside => "inside",
+            ReferenceLine::Custom(_) => "custom",
         }
     }
 
@@ -147,6 +158,98 @@ impl Project {
     }
 }
 
+impl Vertical for Wall {
+    fn link_of(element: &Element) -> Option<VerticalLink> {
+        element.as_wall().map(Wall::link)
+    }
+
+    fn set_link_of(element: &mut Element, link: VerticalLink) {
+        if let Some(wall) = element.as_wall_mut() {
+            wall.set_link(link);
+        }
+    }
+}
+
+/// The reference line locations the `reference_line` field offers.
+const REFERENCE_LINES: [ReferenceLine; 4] = [
+    ReferenceLine::Outside,
+    ReferenceLine::Center,
+    ReferenceLine::Inside,
+    ReferenceLine::Custom(0.0),
+];
+
+const HEIGHT_FIELDS: [FieldSpec; 6] = vertical::fields::<Wall>("model-error-wall-height-range");
+
+/// The wall's parameters (WAL-001, WAL-003, ELM-006), ranged as
+/// [`validate::validate_wall`] checks them (ELM-017).
+const FIELDS: &[FieldSpec] = &[
+    FieldSpec::new(
+        "thickness",
+        "model-field-thickness",
+        Section::Geometry,
+        FieldType::Length,
+        |e, _| e.as_wall().map(|w| FieldValue::Length(w.thickness)),
+        |e, v, _| {
+            if let (Some(w), Some(v)) = (e.as_wall_mut(), fields::length(v)) {
+                w.thickness = v;
+            }
+        },
+    )
+    .ranged(validate::MIN_THICKNESS, validate::MAX_THICKNESS, "model-error-thickness-range"),
+    FieldSpec::choice(
+        "reference_line",
+        "model-field-reference-line",
+        Section::Geometry,
+        |e, _| e.as_wall().map(|w| FieldValue::Code(w.reference_line.code())),
+        |e, v, _| {
+            let Some(w) = e.as_wall_mut() else { return };
+            w.reference_line = match fields::code(v) {
+                Some("outside") => ReferenceLine::Outside,
+                Some("center") => ReferenceLine::Center,
+                Some("inside") => ReferenceLine::Inside,
+                // A custom offset starts where the line is, so it does not
+                // move the wall.
+                Some("custom") => ReferenceLine::Custom(-w.reference_line.face_offsets(w.thickness).0),
+                _ => w.reference_line,
+            };
+        },
+        |_, _| {
+            REFERENCE_LINES
+                .iter()
+                .map(|r| (FieldValue::Code(r.code()), fields::message(r.label_key())))
+                .collect()
+        },
+    ),
+    FieldSpec::new(
+        "reference_offset",
+        "model-field-reference-offset",
+        Section::Geometry,
+        FieldType::Elevation,
+        |e, _| match e.as_wall()?.reference_line {
+            ReferenceLine::Custom(offset) => Some(FieldValue::Length(offset)),
+            _ => None,
+        },
+        |e, v, _| {
+            if let (Some(w), Some(v)) = (e.as_wall_mut(), fields::length(v))
+                && let ReferenceLine::Custom(_) = w.reference_line
+            {
+                w.reference_line = ReferenceLine::Custom(v);
+            }
+        },
+    )
+    .ranged(
+        -validate::MAX_THICKNESS,
+        validate::MAX_THICKNESS,
+        "model-error-reference-line-range",
+    ),
+    HEIGHT_FIELDS[0],
+    HEIGHT_FIELDS[1],
+    HEIGHT_FIELDS[2],
+    HEIGHT_FIELDS[3],
+    HEIGHT_FIELDS[4],
+    HEIGHT_FIELDS[5],
+];
+
 impl Kind for Wall {
     /// ELM-011: `IfcWall` by default, `IfcFooting` selectable; ELM-019:
     /// names `W-001`, `W-002`, …
@@ -164,6 +267,7 @@ impl Kind for Wall {
         ifcx_node: true,
         construction: true,
         template_defaults: Some(template_defaults),
+        fields: FIELDS,
     };
 
     fn material(&self) -> Option<MaterialId> {

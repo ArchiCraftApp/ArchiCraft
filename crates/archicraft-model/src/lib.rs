@@ -9,6 +9,7 @@ pub mod command;
 pub mod drafting_view;
 pub mod drawing;
 pub mod element;
+pub mod fields;
 pub mod fixtures;
 pub mod group;
 pub mod ids;

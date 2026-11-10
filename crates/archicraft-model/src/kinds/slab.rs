@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Kind, KindDescriptor, KindTag, transform_outline};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction};
+use crate::fields::{self, FieldSpec, FieldType, FieldValue, Section};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
 use crate::outline::Outline;
@@ -96,6 +97,54 @@ impl Project {
     }
 }
 
+/// The slab's parameters (SLB-001, SLB-002), ranged as
+/// [`validate::validate_slab`] checks them (ELM-017).
+const FIELDS: &[FieldSpec] = &[
+    FieldSpec::new(
+        "thickness",
+        "model-field-thickness",
+        Section::Geometry,
+        FieldType::Length,
+        |e, _| e.as_slab().map(|s| FieldValue::Length(s.thickness)),
+        |e, v, _| {
+            if let (Some(s), Some(v)) = (e.as_slab_mut(), fields::length(v)) {
+                s.thickness = v;
+            }
+        },
+    )
+    .ranged(validate::MIN_THICKNESS, validate::MAX_THICKNESS, "model-error-thickness-range"),
+    FieldSpec::choice(
+        "slab_reference",
+        "model-field-slab-reference",
+        Section::Geometry,
+        |e, _| e.as_slab().map(|s| FieldValue::Code(s.reference.code())),
+        |e, v, _| {
+            if let (Some(s), Some(r)) = (e.as_slab_mut(), fields::code(v).and_then(SlabReference::from_code)) {
+                s.reference = r;
+            }
+        },
+        |_, _| {
+            vec![
+                (FieldValue::Code("top"), fields::message("model-slab-reference-top")),
+                (FieldValue::Code("bottom"), fields::message("model-slab-reference-bottom")),
+            ]
+        },
+    ),
+    FieldSpec::new(
+        "elevation_offset",
+        "model-field-elevation-offset",
+        Section::Geometry,
+        FieldType::Elevation,
+        |e, _| e.as_slab().map(|s| FieldValue::Length(s.offset)),
+        |e, v, _| {
+            if let (Some(s), Some(v)) = (e.as_slab_mut(), fields::length(v)) {
+                s.offset = v;
+            }
+        },
+    )
+    .ranged(-validate::MAX_OFFSET, validate::MAX_OFFSET, "model-error-slab-offset-range"),
+];
+
 impl Kind for Slab {
     /// ELM-011: `IfcSlab` by default, `IfcFooting` and `IfcCovering`
     /// selectable; ELM-019: names `SL-001`, `SL-002`, …
@@ -113,6 +162,7 @@ impl Kind for Slab {
         ifcx_node: true,
         construction: true,
         template_defaults: Some(template_defaults),
+        fields: FIELDS,
     };
 
     fn material(&self) -> Option<MaterialId> {

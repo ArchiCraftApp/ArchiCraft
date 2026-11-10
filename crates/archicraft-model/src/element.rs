@@ -318,6 +318,15 @@ impl Position {
         Self::ALL.into_iter().find(|p| p.code() == code)
     }
 
+    /// Message key of the position's name (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Position::Undefined => "model-position-undefined",
+            Position::Exterior => "model-position-exterior",
+            Position::Interior => "model-position-interior",
+        }
+    }
+
     pub fn is_external(self) -> Option<bool> {
         match self {
             Position::Undefined => None,

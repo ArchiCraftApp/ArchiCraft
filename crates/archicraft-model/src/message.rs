@@ -289,6 +289,34 @@ pub const ALL_KEYS: &[&str] = &[
     "model-structural-function-undefined",
     "model-structural-function-load-bearing",
     "model-structural-function-non-load-bearing",
+    // Field labels and option labels (fields.rs, KindDescriptor::fields).
+    "model-field-material",
+    "model-field-layer",
+    "model-field-ifc-class",
+    "model-field-predefined-type",
+    "model-field-position",
+    "model-field-structural-function",
+    "model-field-thickness",
+    "model-field-reference-line",
+    "model-field-reference-offset",
+    "model-field-base-offset",
+    "model-field-top-mode",
+    "model-field-height",
+    "model-field-top-storey",
+    "model-field-linked-storey",
+    "model-field-top-offset",
+    "model-field-slab-reference",
+    "model-field-elevation-offset",
+    "model-predefined-type-none",
+    "model-position-undefined",
+    "model-position-exterior",
+    "model-position-interior",
+    "model-top-mode-fixed",
+    "model-top-mode-storey",
+    "model-top-mode-relative",
+    "model-top-linked-storey",
+    "model-slab-reference-top",
+    "model-slab-reference-bottom",
 ];
 
 /// Every argument name a [`Message`] of this crate uses. Names are
@@ -296,6 +324,7 @@ pub const ALL_KEYS: &[&str] = &[
 /// maps the name onto this list.
 pub const ARG_NAMES: &[&str] = &[
     "count", "kind", "min", "max", "name", "reason", "class", "lower", "upper", "layer", "text", "type", "relation",
+    "storeys",
 ];
 
 /// A typed argument of a [`Message`].

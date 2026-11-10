@@ -112,6 +112,7 @@ impl Kind for Text {
         ifcx_node: false,
         construction: false,
         template_defaults: Some(template_defaults),
+        fields: &[],
     };
 
     fn text_style(&self) -> Option<TextStyleId> {
