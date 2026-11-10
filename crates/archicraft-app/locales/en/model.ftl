@@ -214,6 +214,7 @@ model-error-layer-locked = { $name } is on the locked layer “{ $layer }”.
 model-problem-home-storey-missing = { $name }: the home storey is missing.
 model-problem-layer-missing = { $name }: the layer is missing.
 model-problem-material-missing = { $name }: the material is missing.
+model-problem-text-style-missing = { $name }: the text style is missing.
 model-problem-relation-end-missing = { $name }: its { $relation } relation refers to a missing element.
 model-problem-relation-ends-missing = A { $relation } relation refers to two missing elements.
 

@@ -475,7 +475,9 @@ fn each_element_node_comes_right_before_its_sub_nodes_in_child_order() {
             assert_eq!(following, children, "{}: {}", project.info.name, node.path);
             checked += 1;
         }
-        assert_eq!(checked, project.elements.len(), "{}", project.info.name);
+        // The elements that are nodes: annotations are entries (ANN-010).
+        let nodes = project.elements.values().filter(|e| e.kind.descriptor().ifcx_node);
+        assert_eq!(checked, nodes.count(), "{}", project.info.name);
     }
 }
 

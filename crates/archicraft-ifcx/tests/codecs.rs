@@ -58,12 +58,9 @@ fn members(declaration: &Value) -> BTreeSet<&str> {
 /// A field added without a mapping, or a kind without a sample payload
 /// here, fails the test. A kind that is not an IFCX node (ANN-010) declares
 /// its members under its kind code in the entries of
-/// `archicraft::annotations`, not as an attribute of its own. The one
-/// exception is the text kind, whose codec is a placeholder until texts are
-/// stored (ANN-007, archicraft-u4vm.2.2): it maps no field and declares
-/// nothing, and saving reports its elements (tests/texts.rs). A project
-/// field the file does not hold yet is `Stored::Template`: the reader takes
-/// the template's value (the text styles, which no command changes yet).
+/// `archicraft::annotations`, not as an attribute of its own. No kind's
+/// codec is a placeholder, and the text styles are `textStyles` of
+/// `archicraft::project` (ANN-007).
 #[test]
 fn every_project_field_is_persisted() {
     let project = samples::storey_with_walls_and_slab();
@@ -84,16 +81,8 @@ fn every_project_field_is_persisted() {
             }
         }
     }
-    let from_template: Vec<&str> = PROJECT_FIELDS
-        .iter()
-        .filter(|(_, stored)| stored.contains(&Stored::Template))
-        .map(|(field, _)| *field)
-        .collect();
-    assert_eq!(
-        from_template,
-        ["text_styles"],
-        "the fields the reader takes from the template"
-    );
+    let text_styles = PROJECT_FIELDS.iter().find(|(field, _)| *field == "text_styles");
+    assert_eq!(text_styles, Some(&("text_styles", &[Stored::Member("textStyles")][..])));
 
     let mut payloads: BTreeMap<KindTag, Value> = BTreeMap::new();
     for element in project.elements.values() {
@@ -119,7 +108,7 @@ fn every_project_field_is_persisted() {
         KindTag::ALL.iter().copied().collect(),
         "a sample payload of every kind"
     );
-    assert_eq!(placeholders(), [KindTag::Text], "the kinds that store nothing yet");
+    assert_eq!(placeholders(), [], "the kinds that store nothing yet");
     let tables = fields();
     assert_eq!(tables.len(), KindTag::ALL.len());
     for (tag, table) in tables {
@@ -224,8 +213,8 @@ fn declarations_cover_only_the_kinds_the_project_stores() {
     assert_eq!(counters, ["wall", "group"]);
 
     // The samples store walls and slabs, and every project has the space
-    // tool's defaults slot, so the goldens declare all three
-    // (golden_files_are_reproduced).
+    // and text tools' defaults slots, so the goldens declare all four, the
+    // texts' members in the annotation entries (golden_files_are_reproduced).
     for sample in common::samples() {
         let file: Value = serde_json::from_slice(&save(&sample)).unwrap();
         let own: Vec<&String> = file["schemas"]
@@ -242,7 +231,8 @@ fn declarations_cover_only_the_kinds_the_project_stores() {
                 "archicraft::element",
                 "archicraft::wall",
                 "archicraft::slab",
-                "archicraft::space"
+                "archicraft::space",
+                "archicraft::annotations"
             ]
         );
     }

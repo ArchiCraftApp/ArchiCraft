@@ -190,7 +190,9 @@ fn notes_are_entries_of_one_annotations_attribute_on_their_storey() {
     let problems = validate::validate(&parsed);
     assert!(problems.is_empty(), "{problems:#?}");
 
-    // A storey without notes, and every sample, carries and declares none.
+    // A storey without notes, and every storey of a sample without
+    // annotations, carries none; the text tool's defaults of every project
+    // declare the attribute all the same (ANN-007).
     let mut one_storey = project.clone();
     one_storey
         .elements
@@ -199,8 +201,14 @@ fn notes_are_entries_of_one_annotations_attribute_on_their_storey() {
     assert!(annotations_of(&file, ground).is_some());
     assert!(annotations_of(&file, upper).is_none());
     for sample in common::samples() {
-        let text = String::from_utf8(save(&sample)).unwrap();
-        assert!(!text.contains(ANNOTATIONS), "{}", sample.info.name);
+        let file: Value = serde_json::from_slice(&save(&sample)).unwrap();
+        assert!(file["schemas"].get(ANNOTATIONS).is_some(), "{}", sample.info.name);
+        let entries = sample.elements.values().any(|e| !e.kind.descriptor().ifcx_node);
+        for storey in sample.storeys.iter() {
+            let carried = annotations_of(&file, storey.id).is_some();
+            let expected = entries && sample.elements_on(storey.id).any(|e| !e.kind.descriptor().ifcx_node);
+            assert_eq!(carried, expected, "{} {}", sample.info.name, storey.name);
+        }
     }
 }
 
@@ -531,16 +539,16 @@ fn annotation_entries_are_read_after_every_element_node() {
 }
 
 /// IFX-062: storing notes as entries is no change of the ArchiCraft format:
-/// no release kind writes the attribute yet, so the format version stays
-/// the one of the release kinds, 2 since spaces (the golden files and the
+/// the format version is the one of the release kinds, 3 since texts, the
+/// first release kind whose elements are entries (the golden files and the
 /// conformance run pin the release content).
 #[test]
 fn notes_as_entries_keep_the_format_version() {
-    assert_eq!(FORMAT_VERSION, 2);
+    assert_eq!(FORMAT_VERSION, 3);
     let (project, _) = shell_with_notes();
     let file: Value = serde_json::from_slice(&save(&project)).unwrap();
     assert_eq!(
         file["data"][0]["attributes"]["archicraft::project"]["formatVersion"],
-        "2"
+        "3"
     );
 }

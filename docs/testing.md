@@ -36,7 +36,8 @@ ARCHICRAFT_BLESS=1 cargo test -p archicraft-ifcx --test corrupt
 The files in `crates/archicraft-ifcx/tests/formats/` are not golden files: each is a copy of a
 golden file as an earlier format version wrote it (`format-1.ifcx`: two-storey-shell at
 FORMAT_VERSION 1; `format-2.ifcx`: two-storey-shell-with-spaces at FORMAT_VERSION 2, which
-added spaces), and every later release must keep loading it with no problem beyond the info
+added spaces; `format-3.ifcx`: annotations at FORMAT_VERSION 3, which added texts and the
+project's text styles), and every later release must keep loading it with no problem beyond the info
 reports of its migration steps (`cargo test -p archicraft-ifcx --test formats`, IFX-090,
 IFX-091). They are frozen: no bless
 loop writes them, and `frozen_format_fixtures_never_change` fails with “frozen format fixture
@@ -671,7 +672,9 @@ held the file as JSON trees needed 51 times to load it and 29 times to reject it
 bound holds for a file whose one attribute has more than 20 MB of text (`memory large <file>
 mesh`: the golden file with a body mesh of 450,000 points, 22.5 MB). It loads in 0.4 MB beyond
 its bytes, where the tree of the mesh took 394 MB: validation reads it without a tree, and the
-reader never reads it. Validating it needs a hundredth of the file at most. A slab attribute
+reader never reads it. Validating it needs at most a hundredth of the file beyond what
+validating the golden file without the mesh needs (about 0.23 MB since format 3, the file's
+declarations and nodes, which grow with the `archicraft::` schema and not with the mesh). A slab attribute
 is still read as a tree before the point limit rejects it (archicraft-k9w2.2).
 
 The reader's container parser, `validate::parse_raw`, accepts exactly the files that

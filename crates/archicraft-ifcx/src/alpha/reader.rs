@@ -26,7 +26,8 @@
 //! node's `archicraft::relations`, written only for an element with
 //! explicit relations (SRS 3.3, [`super::relations`]), an element's `name`
 //! in `archicraft::element`, written only when its node shows another name
-//! (a space's room name, SPC-001), and a storey node's
+//! (a space's room name, SPC-001), a text's and the text tool's `sizeMm`,
+//! written only for a size override (ANN-007), and a storey node's
 //! `archicraft::annotations`, written only for a storey with elements of the
 //! kinds that are not IFCX nodes (ANN-010, [`super::kinds::annotations`]),
 //! whose entries leave out the same optional members as an element node.
@@ -54,12 +55,14 @@ use archicraft_model::project::{
 use archicraft_model::relations::RelationStore;
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::{TemplateContext, template_text_styles, template_tool_defaults};
+use archicraft_model::text::text_style_problems;
 use archicraft_model::tolerance::MODEL_TOLERANCE;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit};
 use archicraft_model::validate::{MAX_DECIMALS, valid_grid_origin, valid_grid_spacing, validate_element};
 use archicraft_model::{
     BuildingId, Element, ElementId, Group, GroupId, IfcClass, KindTag, Layer, LayerId, MaterialId, PlanGrid, Position,
-    PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, SiteId, Storey, StoreyId, StoreyList, ViewId,
+    PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, SiteId, Storey, StoreyId, StoreyList, TextAlign,
+    TextStyle, TextStyleId, ViewId,
 };
 use indexmap::IndexMap;
 use serde_json::value::RawValue;
@@ -148,7 +151,7 @@ impl<'a> Report<'a> {
 
     /// An optional field the writer may leave out: absent is `None`, present
     /// but invalid is reported and left out.
-    fn optional<T>(
+    pub(crate) fn optional<T>(
         &mut self,
         map: &Object,
         key: &str,
@@ -404,6 +407,86 @@ fn read_layer(index: usize, value: &Value, path: &str, problems: &mut Vec<Proble
     })
 }
 
+/// Text style record `index` of the project at `path` (ANN-007), before
+/// the rules of the list are checked. A record that is not an object or has
+/// no identity or name is skipped; an unreadable size, alignment or line
+/// spacing is repaired to the value of `fallback`, the first preset.
+fn read_text_style(
+    index: usize,
+    value: &Value,
+    fallback: &TextStyle,
+    path: &str,
+    problems: &mut Vec<Problem>,
+) -> Option<TextStyle> {
+    let mut report = Report::new(problems, path, record("ifcx-record-text-style", index));
+    let Some(map) = value.as_object() else {
+        report.skipped(Message::new("ifcx-not-object"));
+        return None;
+    };
+    let identity = uuid(map, "id").and_then(|id| Ok((TextStyleId::from_uuid(id), text(map, "name")?)));
+    let (id, name) = match identity {
+        Ok(identity) => identity,
+        Err(e) => {
+            report.skipped(e);
+            return None;
+        }
+    };
+    Some(TextStyle {
+        id,
+        name,
+        size_mm: report.or(real(map, "sizeMm"), fallback.size_mm),
+        align: report.or(code(map, "align", TextAlign::from_code), fallback.align),
+        line_spacing: report.or(real(map, "lineSpacing"), fallback.line_spacing),
+    })
+}
+
+/// The text styles of the project at `path` (ANN-007, PRJ-008): every
+/// record read, without those that break a rule of the list
+/// ([`text_style_problems`]: a size or line spacing that is not positive, a
+/// blank name, the name or identity of an earlier style), each skipped with
+/// the model's reason. Without readable styles, or when none is left, the
+/// project gets the template's, reported, so that it always has a style
+/// for its texts and the text tool.
+fn read_text_styles(records: Result<&Vec<Value>, Message>, path: &str, problems: &mut Vec<Problem>) -> Vec<TextStyle> {
+    let template = template_text_styles();
+    let records = match records {
+        Ok(records) => records,
+        Err(e) => return templates_used(template, e, path, problems),
+    };
+    let (indices, read): (Vec<usize>, Vec<TextStyle>) = records
+        .iter()
+        .enumerate()
+        .filter_map(|(i, value)| Some((i, read_text_style(i, value, &template[0], path, problems)?)))
+        .unzip();
+    let mut broken = HashSet::new();
+    for (at, reason) in text_style_problems(&read) {
+        Report::new(problems, path, record("ifcx-record-text-style", indices[at])).skipped(reason);
+        broken.insert(at);
+    }
+    let styles: Vec<TextStyle> = read
+        .into_iter()
+        .enumerate()
+        .filter_map(|(at, style)| (!broken.contains(&at)).then_some(style))
+        .collect();
+    if styles.is_empty() {
+        return templates_used(template, Message::new("ifcx-text-styles-none"), path, problems);
+    }
+    styles
+}
+
+/// The template's text styles for a project without readable ones, reported
+/// with `reason` (PRJ-008).
+fn templates_used(
+    template: Vec<TextStyle>,
+    reason: Message,
+    path: &str,
+    problems: &mut Vec<Problem>,
+) -> Vec<TextStyle> {
+    Report::new(problems, path, Message::new("ifcx-record-project"))
+        .repaired(Message::new("ifcx-text-styles-template-used").nested("reason", reason));
+    template
+}
+
 /// View record `index` of the project at `path`. A view has no field with a
 /// sensible default, so an invalid one skips the view.
 fn read_view(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem>) -> Option<View3d> {
@@ -568,6 +651,8 @@ struct ProjectData {
     ground_repaired: bool,
     layers: Vec<Layer>,
     materials: Vec<Material>,
+    /// The text styles (ANN-007), never empty.
+    text_styles: Vec<TextStyle>,
     tool_defaults: Option<Object>,
     views: Vec<View3d>,
     /// The element groups (ELM-015), repaired into a tree.
@@ -697,6 +782,7 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
         .filter_map(|(i, v)| read_view(i, v, path, problems))
         .collect();
     let groups = read_groups(&group_records, path, problems);
+    let text_styles = read_text_styles(array(attr, "textStyles"), path, problems);
     ProjectData {
         settings,
         location,
@@ -705,6 +791,7 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
         ground_repaired,
         layers,
         materials,
+        text_styles,
         tool_defaults,
         views,
         groups,
@@ -834,20 +921,24 @@ fn read_group_counter(map: Option<&Object>, project: &Project, path: &str, probl
 /// that name no kind with a tool are ignored and reported. A kind the file's
 /// format `written` does not store, a placeholder or a kind of a later
 /// format, has no slot in the file: it gets the template's slot without a
-/// report.
+/// report. A slot whose text style is not one of `text_styles` gets the
+/// first of them, reported (ANN-007).
 fn read_tool_defaults(
     map: Option<&Object>,
-    materials: &[Material],
-    layers: &[Layer],
+    resources: (&[Material], &[Layer], &[TextStyle]),
     written: u32,
     path: &str,
     problems: &mut Vec<Problem>,
 ) -> ToolDefaults {
+    let (materials, layers, text_styles) = resources;
     let template = template_tool_defaults(&TemplateContext::new(materials, layers));
-    let Some(map) = map else {
-        return template;
-    };
     let mut report = Report::new(problems, path, Message::new("ifcx-record-tool-defaults"));
+    let Some(map) = map else {
+        return template
+            .iter()
+            .map(|(_, slot)| with_text_style(slot.clone(), text_styles, &mut report))
+            .collect();
+    };
     for key in map.keys() {
         if !template.iter().any(|(kind, _)| kind.code() == key) {
             report.repaired(about("ifcx-tool-unknown", key));
@@ -856,18 +947,34 @@ fn read_tool_defaults(
     template
         .iter()
         .map(|(kind, default)| {
-            if kinds::unstored(kind, written) {
-                return default.clone();
-            }
-            match object(map, kind.code()) {
-                Ok(slot) => read_defaults_slot(slot, default, materials, layers, &mut report),
-                Err(e) => {
-                    report.repaired(Message::new("ifcx-tool-template-used").nested("reason", e));
-                    default.clone()
+            let slot = if kinds::unstored(kind, written) {
+                default.clone()
+            } else {
+                match object(map, kind.code()) {
+                    Ok(slot) => read_defaults_slot(slot, default, materials, layers, &mut report),
+                    Err(e) => {
+                        report.repaired(Message::new("ifcx-tool-template-used").nested("reason", e));
+                        default.clone()
+                    }
                 }
-            }
+            };
+            with_text_style(slot, text_styles, &mut report)
         })
         .collect()
+}
+
+/// `slot` with a text style among `text_styles`: a slot whose style is not
+/// one of them gets the first, reported (ANN-007, PRJ-008).
+fn with_text_style(mut slot: DefaultsSlot, text_styles: &[TextStyle], report: &mut Report<'_>) -> DefaultsSlot {
+    let missing = slot
+        .kind
+        .text_style()
+        .is_some_and(|style| !text_styles.iter().any(|s| s.id == style));
+    if let Some(first) = text_styles.first().filter(|_| missing) {
+        report.repaired(Message::new("ifcx-tool-text-style-missing").text("name", first.name.clone()));
+        slot.kind.set_text_style(first.id);
+    }
+    slot
 }
 
 /// One tool's defaults, with `default`'s values for invalid fields and its
@@ -1311,8 +1418,7 @@ fn read_migrated<A: AttributeValue>(
     let written = migrated_from.or(data.format).unwrap_or(current);
     let tool_defaults = read_tool_defaults(
         data.tool_defaults.as_ref(),
-        &data.materials,
-        &data.layers,
+        (&data.materials, &data.layers, &data.text_styles),
         written,
         root_path,
         &mut problems,
@@ -1344,8 +1450,7 @@ fn read_migrated<A: AttributeValue>(
         storeys,
         layers: data.layers,
         materials: data.materials,
-        // Not stored by this format version (kinds::Stored::Template).
-        text_styles: template_text_styles(),
+        text_styles: data.text_styles,
         elements: IndexMap::new(),
         groups: data.groups,
         relations: RelationStore::default(),

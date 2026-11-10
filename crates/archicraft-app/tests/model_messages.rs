@@ -214,6 +214,7 @@ fn error_representatives() -> Vec<Message> {
         named("model-problem-home-storey-missing"),
         named("model-problem-layer-missing"),
         named("model-problem-material-missing"),
+        named("model-problem-text-style-missing"),
         named("model-problem-relation-end-missing").nested("relation", Message::new("model-relation-host")),
         Message::new("model-problem-relation-ends-missing").nested("relation", Message::new("model-relation-trim")),
         Message::new("model-relation-storey-link"),

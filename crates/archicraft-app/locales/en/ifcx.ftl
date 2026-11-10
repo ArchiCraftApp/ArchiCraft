@@ -51,6 +51,7 @@ ifcx-migration-unknown = no migration from ArchiCraft format { $version_text } i
 ifcx-migration-failed = the file cannot be migrated from ArchiCraft format { $version_text }: { $detail }; it is read as it is
 ifcx-migrated = migrated from format { $from_text } to format { $to_text }: { $change }
 ifcx-migration-adds-spaces = adds space elements
+ifcx-migration-adds-texts = adds texts and the template's text styles
 
 ## The load report (PRJ-008): “<record> skipped: <reason>” and
 ## “<record> repaired: <reason>”.
@@ -68,6 +69,7 @@ ifcx-record-material = material record { $index_text }
 ifcx-record-layer = layer record { $index_text }
 ifcx-record-view = view record { $index_text }
 ifcx-record-group = group record { $index_text }
+ifcx-record-text-style = text style record { $index_text }
 ifcx-record-tool-defaults = tool defaults
 ifcx-record-counters = counters
 ifcx-record-site = site
@@ -117,6 +119,7 @@ ifcx-tool-unknown = “{ $key }” is not a tool this version knows; it is ignor
 ifcx-tool-template-used = { $reason }; the template defaults of the tool are used
 ifcx-tool-material-missing = a tool's default material does not exist; the template default is used
 ifcx-tool-layer-missing = a tool's default layer does not exist; the template default is used
+ifcx-tool-text-style-missing = the text tool's default style does not exist; “{ $name }” is used
 ifcx-tool-class-not-allowed = { $class } is not an allowed class for the { $kind } tool; { $default } is used
 ifcx-group-listed-twice = the project lists a group of the same ID before it
 ifcx-group-parent-missing = its parent group does not exist; it is an outermost group now
@@ -134,6 +137,9 @@ ifcx-element-layer-missing = the layer does not exist; the first layer is used
 ifcx-element-class-unsupported = unsupported IFC class; { $default } is used
 ifcx-predefined-type-not-offered = { $type } is not a predefined type of { $class }; it is left out
 ifcx-element-material-missing = the material does not exist; “{ $name }” is used
+ifcx-text-style-missing = the text style does not exist; “{ $name }” is used
+ifcx-text-styles-template-used = { $reason }; the template's text styles are used
+ifcx-text-styles-none = the project has no valid text style
 ifcx-element-group-missing = its group does not exist; it is ungrouped
 ifcx-relation-target-missing = its { $relation } relation to { $text } names no element; it is dropped
 ifcx-relation-listed-twice = its { $relation } relation is listed twice; it is read once

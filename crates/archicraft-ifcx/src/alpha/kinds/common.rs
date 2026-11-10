@@ -1,14 +1,12 @@
 //! What the kind codecs share, each with its schema, writing and reading
 //! side: plan points, outlines with holes (SLB-001, SPC-001), the top link
 //! of vertical kinds (ELM-006), the wall reference line (WAL-003), the
-//! drafting view of 2D elements (ANN-002) and the repair of a material
-//! reference (PRJ-008).
+//! drafting view of 2D elements (ANN-002) and the repair of a material or
+//! text style reference (PRJ-008).
 
-#[cfg(feature = "test-kinds")]
-use archicraft_model::DraftingView;
 use archicraft_model::glam::DVec2;
 use archicraft_model::outline::Outline;
-use archicraft_model::{MaterialId, ReferenceLine, StoreyId, TopLink};
+use archicraft_model::{DraftingView, MaterialId, ReferenceLine, StoreyId, TextStyleId, TopLink};
 use serde_json::{Map, Value, json};
 
 use super::ReadContext;
@@ -29,25 +27,19 @@ pub(crate) fn reference_line_schema() -> Value {
     schema::enumeration(["outside", "center", "inside", "custom"])
 }
 
-// Only the test kinds have a drafting view so far, so the view's helpers are
-// compiled with them; the first release kind with a view drops the cfg.
-
 /// The drafting view of a 2D element (ANN-002): its type and, for a plan
 /// view, the storey.
-#[cfg(feature = "test-kinds")]
 pub(crate) fn drafting_view_schema() -> Value {
     schema::object(&[("type", schema::enumeration(["plan"])), ("storey", schema::reference())])
 }
 
 /// The view in the model's own form, `{"type": "plan", "storey": "<uuid>"}`.
-#[cfg(feature = "test-kinds")]
 pub(crate) fn drafting_view_value(view: DraftingView) -> Value {
     json!(view)
 }
 
 /// The view from its members. Whether it belongs to the element's home
 /// storey is checked with the element (ANN-002).
-#[cfg(feature = "test-kinds")]
 pub(crate) fn read_drafting_view(map: &Object) -> Result<DraftingView, Message> {
     match text(map, "type")?.as_str() {
         "plan" => Ok(DraftingView::plan(StoreyId::from_uuid(uuid(map, "storey")?))),
@@ -157,4 +149,24 @@ pub(crate) fn read_material(attr: &Object, context: &ReadContext<'_>, report: &m
         report.repaired(Message::new("ifcx-element-material-missing").text("name", project.materials[0].name.clone()));
         project.materials[0].id
     }
+}
+
+/// The text's `style` (ANN-007): the project's first text style, reported,
+/// when the reference is no identity or names no style of the project
+/// (PRJ-008). The reader gives every project at least one style.
+pub(crate) fn read_text_style(attr: &Object, context: &ReadContext<'_>, report: &mut Report<'_>) -> TextStyleId {
+    let project = context.project;
+    let read = uuid(attr, "style").map(TextStyleId::from_uuid);
+    if let Ok(id) = read
+        && project.text_style(id).is_some()
+    {
+        return id;
+    }
+    let Some(first) = project.text_styles.first() else {
+        // Unreachable for a project the reader built; the text is then
+        // skipped by the model's check.
+        return read.unwrap_or_else(|_| TextStyleId::from_uuid(uuid::Uuid::nil()));
+    };
+    report.repaired(Message::new("ifcx-text-style-missing").text("name", first.name.clone()));
+    first.id
 }

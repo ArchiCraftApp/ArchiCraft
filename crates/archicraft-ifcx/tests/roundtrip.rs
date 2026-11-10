@@ -117,7 +117,9 @@ fn written_meshes_are_closed_bodies() {
     for project in samples() {
         let file = validate::parse(&save(&project)).unwrap();
         let meshes = meshes(&file);
-        assert_eq!(meshes.len(), project.elements.len());
+        // A body-less element, like a text (ANN-007), has no mesh.
+        let bodies = project.elements.values().filter(|e| e.kind.descriptor().has_body);
+        assert_eq!(meshes.len(), bodies.count());
         for (path, mesh) in meshes {
             assert_eq!(mesh.check_closed(), Ok(()), "IFX-032 for {path}");
         }

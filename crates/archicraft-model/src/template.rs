@@ -277,7 +277,9 @@ pub const LAYERS: [&str; 11] = [
 /// Name and size in paper millimetres of the template's text styles
 /// (ANN-007), each left-aligned with [`TEXT_LINE_SPACING`]. The SRS gives no
 /// values; these are proposals (archicraft-h4d7). The first is the text
-/// tool's default.
+/// tool's default and, as the first of a project's styles, the style that
+/// the reader gives a text or the tool's defaults of a file whose style is
+/// missing (PRJ-008).
 pub const TEXT_STYLES: [(&str, f64); 4] = [
     ("Standard 2.5 mm", 2.5),
     ("Dimension 2.5 mm", 2.5),
