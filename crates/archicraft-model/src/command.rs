@@ -28,6 +28,7 @@ use crate::project::{DefaultsSlot, Location, NameCounters, Project, ProjectInfo,
 use crate::relations::Relation;
 use crate::storey::{MAX_CUT_PLANE_HEIGHT, Storey, StoreyList};
 use crate::tolerance::near_zero;
+use crate::transfer::{SettingsSource, transfer_settings};
 use crate::transform::{PlanTransform, TransformError};
 use crate::validate::{self, MAX_DECIMALS};
 
@@ -137,6 +138,25 @@ pub enum Command {
     /// Removes the explicit relation with this identity (SRS 3.3). A derived
     /// storey link is refused.
     RemoveRelation(RelationId),
+    /// Copies the compatible settings of `source` into each of `targets`
+    /// (ELM-003, [`transfer_settings`]), as one undo step. Locked targets
+    /// are refused (ELM-013) and the results are validated as by
+    /// [`Command::UpdateElements`]; targets that already have the source's
+    /// settings change nothing, and the command is refused when no target
+    /// accepts any field of the source.
+    InjectSettings {
+        source: SettingsSource,
+        targets: Vec<ElementId>,
+    },
+    /// Copies the compatible settings of `element` into the defaults slot
+    /// of the tool for `into` (ELM-003, ELM-001), as
+    /// [`Command::SetToolDefaults`] would: every transferable field from an
+    /// element of that kind, the compatible ones from another kind. The
+    /// slot's layer follows the element.
+    PickUpSettings {
+        element: ElementId,
+        into: KindTag,
+    },
 }
 
 /// Why a command was rejected. Each variant carries a message key with its
@@ -213,6 +233,11 @@ impl Command {
             Command::RenameGroup { .. } => Message::new("model-label-rename-group"),
             Command::InsertRelation(_) => Message::new("model-label-insert-relation"),
             Command::RemoveRelation(_) => Message::new("model-label-remove-relation"),
+            Command::InjectSettings { targets, .. } => {
+                let distinct: HashSet<ElementId> = targets.iter().copied().collect();
+                elements("model-label-inject-settings", distinct.len())
+            }
+            Command::PickUpSettings { .. } => Message::new("model-label-pick-up-settings"),
         }
     }
 
@@ -412,6 +437,8 @@ impl Command {
                     Err(not_found("model-error-relation-not-found"))
                 }
             }
+            Command::InjectSettings { source, targets } => plan_inject_settings(project, *source, targets),
+            Command::PickUpSettings { element, into } => plan_pick_up_settings(project, *element, *into),
         }
     }
 }
@@ -761,6 +788,81 @@ fn plan_update_elements(project: &Project, elements: &[Element]) -> Result<Vec<E
         return Err(CommandError::NoChange);
     }
     Ok(edits)
+}
+
+/// The element settings come from (ELM-003): a placed element, or the
+/// prototype of a tool's defaults on the ground storey (ELM-001).
+fn settings_source(project: &Project, source: SettingsSource) -> Result<Element, CommandError> {
+    match source {
+        SettingsSource::Element(id) => find_element(project, id).cloned(),
+        SettingsSource::Defaults(kind) => project
+            .new_element(kind, project.storeys.ground(), 0)
+            .ok_or_else(|| CommandError::Invalid(Message::new("model-error-default-missing").kind("kind", kind))),
+    }
+}
+
+/// Plans [`Command::InjectSettings`] through [`plan_update_elements`], which
+/// checks locks (ELM-013) and validates, and reports a command that changes
+/// nothing as [`CommandError::NoChange`] (ELM-003).
+/// Every target takes at least its envelope fields (layer, position), so
+/// the command is refused as unsupported only when no target passes its
+/// validator with any of the source's settings, such as a target linked to
+/// a storey that is gone.
+fn plan_inject_settings(
+    project: &Project,
+    source: SettingsSource,
+    targets: &[ElementId],
+) -> Result<Vec<Edit>, CommandError> {
+    let source = settings_source(project, source)?;
+    let mut seen = HashSet::new();
+    let mut updated = Vec::with_capacity(targets.len());
+    let mut accepted = false;
+    for id in targets {
+        if !seen.insert(*id) {
+            continue;
+        }
+        let mut target = find_element(project, *id)?.clone();
+        accepted |= !transfer_settings(&source, &mut target, project).applied.is_empty();
+        updated.push(target);
+    }
+    if updated.is_empty() {
+        return Err(CommandError::NoChange);
+    }
+    if !accepted {
+        return Err(invalid("model-error-transfer-unsupported"));
+    }
+    plan_update_elements(project, &updated)
+}
+
+/// Plans [`Command::PickUpSettings`] as [`Command::SetToolDefaults`] on the
+/// slot of `into` (ELM-003, ELM-001). The slot's prototype is made on the
+/// element's storey, so that storey links resolve as they do for the
+/// element, and stored on the ground storey, like the properties panel
+/// stores an edited prototype.
+fn plan_pick_up_settings(project: &Project, element: ElementId, into: KindTag) -> Result<Vec<Edit>, CommandError> {
+    let source = find_element(project, element)?;
+    let before = project
+        .new_element(into, source.storey, 0)
+        .ok_or_else(|| CommandError::Invalid(Message::new("model-error-default-missing").kind("kind", into)))?;
+    let mut prototype = before.clone();
+    if transfer_settings(source, &mut prototype, project).applied.is_empty() {
+        return Err(invalid("model-error-transfer-unsupported"));
+    }
+    if prototype == before {
+        return Err(CommandError::NoChange);
+    }
+    let mut kind = prototype.kind;
+    kind.place_on(project.storeys.ground());
+    let mut defaults = project.tool_defaults.clone();
+    defaults.insert(DefaultsSlot {
+        layer: prototype.layer,
+        position: prototype.position,
+        structural: prototype.structural,
+        ifc_class: prototype.ifc_class,
+        predefined_type: prototype.predefined_type,
+        kind,
+    });
+    Command::SetToolDefaults(defaults).plan(project)
 }
 
 /// Moves, rotates or mirrors elements through their kinds' transform hooks

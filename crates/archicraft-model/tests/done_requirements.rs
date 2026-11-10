@@ -16,6 +16,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::outline::Outline;
 use archicraft_model::project::{Building, DefaultsSlot, Location, ProjectInfo, Site};
 use archicraft_model::template::default_metric_project;
+use archicraft_model::transfer::SettingsSource;
 use archicraft_model::units::{LengthUnit, NumberFormat, format_angle, format_length, parse_length};
 use archicraft_model::validate::validate_element;
 use archicraft_model::{
@@ -699,10 +700,12 @@ fn variant(command: &Command) -> usize {
         Command::AddProfile(_) => 26,
         Command::UpdateProfile(_) => 27,
         Command::DeleteProfile { .. } => 28,
+        Command::InjectSettings { .. } => 29,
+        Command::PickUpSettings { .. } => 30,
     }
 }
 
-const VARIANTS: usize = 29;
+const VARIANTS: usize = 31;
 
 /// A recorded session that executes every command variant at least once.
 struct Session {
@@ -874,6 +877,22 @@ fn scripted_session() -> Session {
     let partner = wall(&p, (0.0, 6.0), (5.0, 6.0));
     let partner_id = partner.id;
     run(&mut p, Command::AddElements(vec![partner]));
+    // ELM-003: the slab tool's settings into the wall, then the wall's into
+    // the wall tool.
+    run(
+        &mut p,
+        Command::InjectSettings {
+            source: SettingsSource::Defaults(KindTag::Slab),
+            targets: vec![partner_id],
+        },
+    );
+    run(
+        &mut p,
+        Command::PickUpSettings {
+            element: partner_id,
+            into: KindTag::Wall,
+        },
+    );
     let group = GroupId::new();
     run(
         &mut p,

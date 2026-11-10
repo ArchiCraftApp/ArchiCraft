@@ -13,6 +13,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::KINDS;
 use archicraft_model::message::{ALL_KEYS, ARG_NAMES};
 use archicraft_model::template::default_metric_project;
+use archicraft_model::transfer::SettingsSource;
 use archicraft_model::{
     Arg, Command, ElementId, GroupId, History, KindTag, Layer, Message, ParametricShape, Profile, Project, Relation,
     Storey,
@@ -69,6 +70,8 @@ const VARIANTS: &[&str] = &[
     "RenameGroup",
     "InsertRelation",
     "RemoveRelation",
+    "InjectSettings",
+    "PickUpSettings",
 ];
 
 fn variant(command: &Command) -> &'static str {
@@ -102,6 +105,8 @@ fn variant(command: &Command) -> &'static str {
         Command::RenameGroup { .. } => "RenameGroup",
         Command::InsertRelation(_) => "InsertRelation",
         Command::RemoveRelation(_) => "RemoveRelation",
+        Command::InjectSettings { .. } => "InjectSettings",
+        Command::PickUpSettings { .. } => "PickUpSettings",
     }
 }
 
@@ -190,6 +195,14 @@ fn one_of_each(p: &Project) -> Vec<Command> {
         },
         Command::InsertRelation(host),
         Command::RemoveRelation(host.id()),
+        Command::InjectSettings {
+            source: SettingsSource::Element(w.id),
+            targets: vec![w.id, w.id],
+        },
+        Command::PickUpSettings {
+            element: w.id,
+            into: KindTag::Slab,
+        },
     ]
 }
 

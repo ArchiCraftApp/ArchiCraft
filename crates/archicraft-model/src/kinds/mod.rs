@@ -49,6 +49,7 @@ use crate::template::TemplateContext;
 use crate::transform::{PlanTransform, TransformError};
 
 mod vertical;
+pub(crate) use vertical::FIELD_KEYS as VERTICAL_FIELD_KEYS;
 
 pub use self::slab::SlabReference;
 pub use self::space::BoundarySource;

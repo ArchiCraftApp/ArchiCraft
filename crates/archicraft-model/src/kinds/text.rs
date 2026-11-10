@@ -112,7 +112,9 @@ const FIELDS: &[FieldSpec] = &[
             }
         },
     )
-    .placed_only(),
+    .placed_only()
+    // ELM-003: each text keeps its own content.
+    .not_transferred(),
     FieldSpec::choice(
         "text_style",
         "model-field-text-style",

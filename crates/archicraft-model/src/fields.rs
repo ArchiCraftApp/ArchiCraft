@@ -15,6 +15,27 @@
 //!
 //! A getter returning `None` hides the field for that element, for example
 //! the height of a wall whose top is linked to a storey.
+//!
+//! # Key vocabulary
+//!
+//! A key two kinds share names the same parameter, with the same
+//! [`FieldType`], so that settings transfer between kinds
+//! ([`crate::transfer`], ELM-003) and selection criteria match fields
+//! without a table per pair of kinds. Keys are stable: they are part of
+//! journals of transfers and of saved criteria. The shared keys are:
+//!
+//! - envelope ([`COMMON_FIELDS`]): `material`, `layer`, `ifc_class`,
+//!   `predefined_type`, `position`, `structural_function`;
+//! - construction: `thickness` (walls, slabs; `layer_structure` joins it
+//!   with layer structures, PRF-001);
+//! - vertical kinds ([`crate::kinds`]' base and top fields, ELM-005,
+//!   ELM-006): `base_offset`, `top_mode`, `height`, `top_storey`,
+//!   `linked_storey`, `top_offset`;
+//! - kind-specific keys, such as `reference_line` and `reference_offset`
+//!   (walls), `slab_reference` and `elevation_offset` (slabs), `long_name`
+//!   and `number` (spaces), `content`, `text_style`, `size`,
+//!   `anchor_position` and `angle` (texts), `x` and `y` (notes). A stair's
+//!   rule set joins as one composite field, `rules`.
 
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction};
 use crate::ids::{LayerId, MaterialId, StoreyId, TextStyleId};
@@ -109,6 +130,19 @@ pub type Setter = fn(&mut Element, &FieldValue, &Project);
 /// The options of a choice field for an element, in display order.
 pub type Options = fn(&Project, &Element) -> Vec<(FieldValue, OptionLabel)>;
 
+/// Whether settings transfer copies a field (ELM-003, [`crate::transfer`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Transfer {
+    /// Copied wherever the target has the field.
+    Always,
+    /// Never copied: the element's own identity or placement, such as a
+    /// room's name and number, a text's content or a note's position.
+    Never,
+    /// Copied only together with the field of this key, which it
+    /// qualifies: the predefined type goes with the IFC class (IFX-024).
+    With(&'static str),
+}
+
 /// One declared parameter (UI-002, UI-003, ELM-017).
 #[derive(Clone, Copy, Debug)]
 pub struct FieldSpec {
@@ -129,6 +163,8 @@ pub struct FieldSpec {
     /// each element gets when placed, like a text's content
     /// ([`crate::kinds::Kind::check_complete`]).
     pub placed_only: bool,
+    /// Whether settings transfer copies the field (ELM-003).
+    pub transfer: Transfer,
     pub get: Getter,
     pub set: Setter,
     /// The options of a [`FieldType::Choice`] field; `None` for others.
@@ -154,6 +190,7 @@ impl FieldSpec {
             range: None,
             in_strip: true,
             placed_only: false,
+            transfer: Transfer::Always,
             get,
             set,
             options: None,
@@ -198,6 +235,23 @@ impl FieldSpec {
     pub const fn placed_only(self) -> Self {
         Self {
             placed_only: true,
+            ..self
+        }
+    }
+
+    /// The field that settings transfer never copies ([`Transfer::Never`]).
+    pub const fn not_transferred(self) -> Self {
+        Self {
+            transfer: Transfer::Never,
+            ..self
+        }
+    }
+
+    /// The field that settings transfer copies only together with the field
+    /// `key` ([`Transfer::With`]).
+    pub const fn transferred_with(self, key: &'static str) -> Self {
+        Self {
+            transfer: Transfer::With(key),
             ..self
         }
     }
@@ -323,7 +377,8 @@ pub static COMMON_FIELDS: &[FieldSpec] = &[
             )
             .collect()
         },
-    ),
+    )
+    .transferred_with("ifc_class"),
     FieldSpec::choice(
         "position",
         "model-field-position",

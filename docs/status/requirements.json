@@ -1607,7 +1607,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Contour detection (INP-018) has its explicit command: Design ▸ Contour detection (tool.contour-detection, crates/archicraft-app/src/commands/tools.rs) switches the wall and slab tools to the pick step with its preview, besides the held key, and the status bar shows its state. None of trim (EDT-011), extend (EDT-012), split (EDT-013) or parameter pick-up/inject (ELM-003) exist, neither as modifier gestures nor as explicit commands. Live previews run through the point-input framework (InputConsumer with Preview, crates/archicraft-app/src/input/consumer.rs); move, rotate and stretch exist only as test stubs (TransformStub, crates/archicraft-app/src/input/mod.rs). Effort here is wiring each operation, once it exists under its own requirement, as a menu command that runs as an InputConsumer with a preview, besides its gesture.",
+      "gap": "Contour detection (INP-018) has its explicit command: Design ▸ Contour detection (tool.contour-detection, crates/archicraft-app/src/commands/tools.rs) switches the wall and slab tools to the pick step with its preview, besides the held key, and the status bar shows its state. None of trim (EDT-011), extend (EDT-012) or split (EDT-013) exist, neither as modifier gestures nor as explicit commands. Parameter pick-up and inject (ELM-003) exist as model commands (Command::PickUpSettings, Command::InjectSettings, crates/archicraft-model/src/command.rs) but not yet as menu commands with previews or as gestures. Live previews run through the point-input framework (InputConsumer with Preview, crates/archicraft-app/src/input/consumer.rs); move, rotate and stretch exist only as test stubs (TransformStub, crates/archicraft-app/src/input/mod.rs). Effort here is wiring each operation, once it exists under its own requirement, as a menu command that runs as an InputConsumer with a preview, besides its gesture.",
       "depends_on": []
     },
     {
@@ -1637,17 +1637,17 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No Preset resource, no storage in project/template/IFCX, no preset management (rename, delete, reorder, search), no preset selector in the settings dialog, no apply-to-selection including layer.",
+      "gap": "No Preset resource, no storage in project/template/IFCX, no preset management (rename, delete, reorder, search), no preset selector in the settings dialog. Applying a preset to selected elements, layer included, is to reuse the settings transfer of ELM-003 (transfer_settings and Command::InjectSettings, crates/archicraft-model/src/transfer.rs) with a preset as a new SettingsSource; not wired yet.",
       "depends_on": []
     },
     {
       "id": "ELM-003",
       "priority": "S",
       "section": "4.9",
-      "status": "missing",
+      "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No pick-up or inject commands, no latch mode, no compatibility filter between kinds. Building blocks exist: an element of a kind maps onto its tool defaults slot (DefaultsSlot, crates/archicraft-model/src/project.rs:200: layer, position, IFC class, kind parameters), the properties panel's apply (crates/archicraft-app/src/ui/properties.rs:76) already writes an edited prototype back with SetToolDefaults, and elements can be picked in plan (PlanDrawing::pick, crates/archicraft-geometry/src/plan.rs:270) and 3D (pick, crates/archicraft-app/src/views/view3d.rs:75). Missing: pick-up of a picked element's settings (not its geometry) into the active tool's slot, inject of the slot into clicked elements via UpdateElements (locked ones refused, ELM-013), latch mode, transfer of only the compatible settings between kinds (for example layer and material from a wall to a slab), and section views (none exist).",
+      "gap": "The model half exists: transfer_settings (crates/archicraft-model/src/transfer.rs) copies the compatible settings between kinds through the FieldSpecs (same key and type, value accepted by the target, identity and placement fields marked Transfer::Never), Command::InjectSettings injects an element's or a tool's settings into elements (locked ones refused, ELM-013) and Command::PickUpSettings picks an element up into a tool's defaults slot (tests: transfer.rs unit tests, crates/archicraft-model/tests/commands.rs inject_settings_* and pick_up_settings_into_the_same_and_another_kind). Missing: the gestures and explicit commands in plan and 3D (pick-up and inject on clicked elements), the latch mode, the previews (EDT-020), and section views (none exist).",
       "depends_on": []
     },
     {

@@ -20,6 +20,11 @@ model-label-edit-elements = Edit { $count ->
         [one] { $count_text } element
        *[other] { $count_text } elements
     }
+model-label-inject-settings = Inject settings into { $count ->
+        [one] { $count_text } element
+       *[other] { $count_text } elements
+    }
+model-label-pick-up-settings = Pick up settings
 model-label-move-elements = Move { $count ->
         [one] { $count_text } element
        *[other] { $count_text } elements
@@ -101,6 +106,7 @@ model-error-element-invalid = { $name }: { $reason }
 model-error-kind-change = An element cannot change its kind.
 model-error-element-not-movable = { $name } cannot be moved.
 model-error-transform-unsupported = { $name } cannot be transformed like this.
+model-error-transfer-unsupported = None of these settings apply here.
 model-error-duplicate-storey-id = A storey with this ID already exists.
 model-error-move-target-same = Choose another storey to move the elements to.
 model-error-target-storey-not-found = The target storey does not exist.

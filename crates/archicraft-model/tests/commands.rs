@@ -10,6 +10,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::project::{DefaultsSlot, ToolDefaults};
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::default_metric_project;
+use archicraft_model::transfer::SettingsSource;
 use archicraft_model::validate::{MAX_GRID_SPACING, MAX_HEIGHT, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
 use archicraft_model::{
     AnchorPos, Arg, Command, CommandError, DraftingView, Element, ElementId, ElementKind, Group, GroupId, History,
@@ -2761,4 +2762,242 @@ fn mirroring_a_text_keeps_it_readable() {
             }
         }
     }
+}
+
+/// A project with a 0.30 m footing wall on the interior walls layer, of
+/// the second material, centre-lined, 0.10 m up and with a fixed 2.4 m top
+/// (the source), a default wall and a default slab, all added by command.
+fn transfer_project() -> (Project, History, [ElementId; 3]) {
+    use archicraft_model::{Position, PredefinedType, ReferenceLine};
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let mut source = wall(&p, (0.0, 0.0), (4.0, 0.0));
+    let w = source.as_wall_mut().unwrap();
+    w.thickness = 0.30;
+    w.reference_line = ReferenceLine::Center;
+    w.base_offset = 0.10;
+    w.top = TopLink::Fixed { height: 2.4 };
+    w.material = p.materials[1].id;
+    source.layer = p.layers.iter().find(|l| l.name == "Interior walls").unwrap().id;
+    source.position = Position::Interior;
+    source.ifc_class = IfcClass::Footing;
+    source.predefined_type = Some(PredefinedType::StripFooting);
+    let target = wall(&p, (0.0, 3.0), (2.0, 5.0));
+    let slab = p.new_slab(
+        ground(&p),
+        vec![DVec2::ZERO, DVec2::X, DVec2::ONE, DVec2::Y],
+        Vec::new(),
+        0,
+    );
+    let ids = [source.id, target.id, slab.id];
+    h.execute(&mut p, Command::AddElements(vec![source, target, slab]))
+        .unwrap();
+    (p, h, ids)
+}
+
+/// ELM-003, UND-001: injecting a wall's settings into a wall and a slab is
+/// one undo step, labelled with the number of targets, that undoes and
+/// redoes to the exact project; the wall gets every setting, the slab the
+/// compatible ones, and both keep their geometry and names.
+#[test]
+fn inject_settings_undoes_and_redoes_to_the_exact_project() {
+    let (mut p, mut h, [source, target, slab]) = transfer_project();
+    let before = p.clone();
+    let command = Command::InjectSettings {
+        source: SettingsSource::Element(source),
+        targets: vec![target, slab, target],
+    };
+    let label = command.label();
+    assert_eq!(
+        (label.key(), label.arg("count")),
+        ("model-label-inject-settings", Some(&Arg::Count(2)))
+    );
+    assert_undo_redo_exact(&mut p, &mut h, command);
+    let (s, w, sl) = (
+        p.element(source).unwrap(),
+        p.element(target).unwrap(),
+        p.element(slab).unwrap(),
+    );
+    let mut expected = Element {
+        id: w.id,
+        name: w.name.clone(),
+        ..s.clone()
+    };
+    if let (Some(e), Some(old)) = (expected.as_wall_mut(), before.element(target).unwrap().as_wall()) {
+        (e.start, e.end) = (old.start, old.end);
+    }
+    assert_eq!(*w, expected);
+    assert_eq!(sl.as_slab().unwrap().thickness, 0.30);
+    assert_eq!(sl.as_slab().unwrap().material, s.as_wall().unwrap().material);
+    assert_eq!((sl.layer, sl.position), (s.layer, s.position));
+    assert_eq!(
+        sl.as_slab().unwrap().outline,
+        before.element(slab).unwrap().as_slab().unwrap().outline
+    );
+    assert_eq!(sl.name, before.element(slab).unwrap().name);
+    assert_eq!(h.undo_label().unwrap().key(), "model-label-inject-settings");
+}
+
+/// ELM-003, ELM-013: injecting into a locked element is refused with the
+/// lock reason, and a target that already has the source's settings changes
+/// nothing.
+#[test]
+fn inject_settings_refuses_locked_targets_and_reports_no_change() {
+    let (mut p, mut h, [source, target, _]) = transfer_project();
+    let locked = Element {
+        locked: true,
+        ..p.element(target).unwrap().clone()
+    };
+    h.execute(&mut p, Command::UpdateElements(vec![locked])).unwrap();
+    let inject = |targets: Vec<ElementId>| Command::InjectSettings {
+        source: SettingsSource::Element(source),
+        targets,
+    };
+    let (variant, message) = rejection(h.execute(&mut p, inject(vec![target])));
+    assert_eq!((variant, message.key()), ("Locked", "model-error-element-locked"));
+    let name = p.element(target).unwrap().name.clone();
+    assert_eq!(message.arg("name"), Some(&Arg::Text(name)));
+
+    let unlocked = Element {
+        locked: false,
+        ..p.element(target).unwrap().clone()
+    };
+    h.execute(&mut p, Command::UpdateElements(vec![unlocked])).unwrap();
+    h.execute(&mut p, inject(vec![target])).unwrap();
+    let unchanged = p.clone();
+    assert_eq!(h.execute(&mut p, inject(vec![target])), Err(CommandError::NoChange));
+    assert_eq!(h.execute(&mut p, inject(vec![source])), Err(CommandError::NoChange));
+    assert_eq!(p, unchanged);
+}
+
+/// ELM-003, ELM-001: injecting a tool's defaults gives an element the
+/// slot's settings.
+#[test]
+fn inject_settings_from_the_tool_defaults() {
+    let (mut p, mut h, [source, _, _]) = transfer_project();
+    h.execute(
+        &mut p,
+        Command::InjectSettings {
+            source: SettingsSource::Defaults(KindTag::Wall),
+            targets: vec![source],
+        },
+    )
+    .unwrap();
+    let slot = p.tool_defaults.get(KindTag::Wall).unwrap();
+    let w = p.element(source).unwrap();
+    assert_eq!(
+        (w.layer, w.ifc_class, w.position),
+        (slot.layer, slot.ifc_class, slot.position)
+    );
+    let (ElementKind::Wall(defaults), Some(wall)) = (&slot.kind, w.as_wall()) else {
+        panic!("a wall slot")
+    };
+    assert_eq!(
+        (wall.thickness, wall.top, wall.material),
+        (defaults.thickness, defaults.top, defaults.material)
+    );
+}
+
+/// ELM-003, UND-001: picking up a wall into the wall slot makes the slot's
+/// prototype carry the wall's settings and layer; into the slab slot only
+/// the compatible fields change. Both undo and redo to the exact project.
+#[test]
+fn pick_up_settings_into_the_same_and_another_kind() {
+    let (mut p, mut h, [source, _, _]) = transfer_project();
+    let before = p.clone();
+    let command = Command::PickUpSettings {
+        element: source,
+        into: KindTag::Wall,
+    };
+    assert_eq!(command.label().key(), "model-label-pick-up-settings");
+    assert_undo_redo_exact(&mut p, &mut h, command);
+    let s = p.element(source).unwrap().clone();
+    let slot = p.tool_defaults.get(KindTag::Wall).unwrap();
+    assert_eq!(
+        (slot.layer, slot.position, slot.ifc_class, slot.predefined_type),
+        (s.layer, s.position, s.ifc_class, s.predefined_type)
+    );
+    let (ElementKind::Wall(proto), Some(wall)) = (&slot.kind, s.as_wall()) else {
+        panic!("a wall slot")
+    };
+    assert_eq!(
+        (
+            proto.thickness,
+            proto.reference_line,
+            proto.base_offset,
+            proto.top,
+            proto.material
+        ),
+        (
+            wall.thickness,
+            wall.reference_line,
+            wall.base_offset,
+            wall.top,
+            wall.material
+        )
+    );
+    let ElementKind::Wall(old) = &before.tool_defaults.get(KindTag::Wall).unwrap().kind else {
+        panic!("a wall slot")
+    };
+    assert_eq!((proto.start, proto.end), (old.start, old.end));
+    assert_eq!(
+        h.execute(
+            &mut p,
+            Command::PickUpSettings {
+                element: source,
+                into: KindTag::Wall,
+            }
+        ),
+        Err(CommandError::NoChange)
+    );
+
+    let old_slab = p.tool_defaults.get(KindTag::Slab).unwrap().clone();
+    assert_undo_redo_exact(
+        &mut p,
+        &mut h,
+        Command::PickUpSettings {
+            element: source,
+            into: KindTag::Slab,
+        },
+    );
+    let slot = p.tool_defaults.get(KindTag::Slab).unwrap();
+    let mut expected = old_slab.clone();
+    expected.layer = s.layer;
+    expected.position = s.position;
+    // IfcFooting is a slab class too, with its predefined type (ELM-011).
+    expected.ifc_class = s.ifc_class;
+    expected.predefined_type = s.predefined_type;
+    if let ElementKind::Slab(slab) = &mut expected.kind {
+        slab.thickness = 0.30;
+        slab.material = wall.material;
+    }
+    assert_eq!(*slot, expected);
+}
+
+/// ELM-003: when no target takes any field of the source, the command is
+/// refused. Here the only target's top is linked to a storey that is gone,
+/// so the target fails validation whatever a slab gives it.
+#[test]
+fn inject_settings_is_refused_when_no_target_takes_any_setting() {
+    let (mut p, _, [_, target, slab]) = transfer_project();
+    let first = p.storeys.relative(ground(&p), 1).unwrap().id;
+    if let Some(w) = p.elements.get_mut(&target).and_then(Element::as_wall_mut) {
+        w.top = TopLink::Storey {
+            storey: first,
+            offset: 0.0,
+        };
+    }
+    p.storeys = p.storeys.remove(first).unwrap();
+    let mut h = History::default();
+    let (variant, message) = rejection(h.execute(
+        &mut p,
+        Command::InjectSettings {
+            source: SettingsSource::Element(slab),
+            targets: vec![target],
+        },
+    ));
+    assert_eq!(
+        (variant, message.key()),
+        ("Invalid", "model-error-transfer-unsupported")
+    );
 }

@@ -156,7 +156,9 @@ const FIELDS: &[FieldSpec] = &[
             }
         },
     )
-    .with_defaults_label("model-field-default-name"),
+    .with_defaults_label("model-field-default-name")
+    // ELM-003: a room keeps its own name and number.
+    .not_transferred(),
     FieldSpec::new(
         "number",
         "model-field-number",
@@ -168,7 +170,8 @@ const FIELDS: &[FieldSpec] = &[
                 s.number.clone_from(v);
             }
         },
-    ),
+    )
+    .not_transferred(),
     HEIGHT_FIELDS[0],
     HEIGHT_FIELDS[1],
     HEIGHT_FIELDS[2],
