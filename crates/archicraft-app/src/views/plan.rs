@@ -11,7 +11,7 @@ use std::sync::Arc;
 use archicraft_geometry::plan::{FillMesh, PlanDrawing, polygon_rings};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{NumberFormat, UnitSettings};
-use archicraft_model::{AnchorPos, DrawingScale, ElementId, Project, StoreyId, Text, TextAlign};
+use archicraft_model::{AnchorPos, Command, DrawingScale, ElementId, Project, StoreyId, Text, TextAlign};
 use egui::epaint::Vertex;
 use egui::{
     Align2, Color32, CursorIcon, Event, FontId, Key, Mesh, PointerButton, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
@@ -1293,6 +1293,21 @@ fn draw_measurement(
     lines
 }
 
+/// Runs a command of the drawing tool. The spaces the space tool creates
+/// become the selection, so that one click into a room shows its name and
+/// area in the properties, ready to be edited (SPC-001, UI-002); the tool
+/// stays active for the next room.
+fn execute_tool_command(ws: &mut Workspace, command: Command) {
+    let created: Vec<ElementId> = match &command {
+        Command::AddElements(elements) if ws.tool.kind == ToolKind::Space => elements.iter().map(|e| e.id).collect(),
+        _ => Vec::new(),
+    };
+    if ws.execute(command) && !created.is_empty() {
+        ws.selection.clear();
+        ws.selection.extend(created);
+    }
+}
+
 /// Runs what a key, click or double-click asks for. Esc that found nothing
 /// to cancel goes on down the ladder: a transient consumer, the selection,
 /// then the drawing tool (INP-003). A transient consumer that is done hands
@@ -1301,6 +1316,7 @@ fn apply(ws: &mut Workspace, effect: Effect) {
     match effect {
         Effect::NothingToCancel if ws.active_consumer != Consumer::Tool => ws.end_consumer(),
         Effect::None => {}
+        Effect::Execute(command) if ws.active_consumer == Consumer::Tool => execute_tool_command(ws, command),
         Effect::Execute(command) => {
             ws.execute(command);
         }
@@ -1468,7 +1484,7 @@ fn context_menu(ui: &mut Ui, ws: &mut Workspace) {
             ws.input = PointInput::default();
             let outcome = ws.tool.finish(&ws.doc.project);
             if let Outcome::Execute(command) = outcome {
-                ws.execute(command);
+                execute_tool_command(ws, command);
             }
             ui.close();
         }

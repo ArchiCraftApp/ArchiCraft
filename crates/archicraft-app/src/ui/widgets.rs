@@ -305,6 +305,19 @@ pub fn text(ui: &mut Ui, id: Id, value: Option<&str>, width: f32) -> Edited<Stri
     result
 }
 
+/// [`text`] showing `hint` while the value is empty, for example the
+/// suggested number of a space without one (SPC-001).
+pub fn hinted_text(ui: &mut Ui, id: Id, value: Option<&str>, hint: &str, width: f32) -> Edited<String> {
+    let kind = FieldKind {
+        hint,
+        ..FieldKind::default()
+    };
+    let (_, result) = committed(ui, id, value.map(str::to_owned), width, kind, |t| {
+        Ok(t.trim().to_owned())
+    });
+    result
+}
+
 /// Edits text of several lines (ANN-007): Enter starts a new line, and the
 /// text is committed, without trailing white space, on Ctrl/Cmd+Enter or
 /// when the field loses focus. `None` shows a mixed value.
