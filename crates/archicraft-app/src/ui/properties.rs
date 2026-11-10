@@ -10,8 +10,8 @@ use archicraft_model::command::relink_to_storey;
 use archicraft_model::project::DefaultsSlot;
 use archicraft_model::units::{NumberFormat, UnitSettings, format_area, format_length, format_volume};
 use archicraft_model::{
-    Command, Element, ElementKind, GroupId, IfcClass, KindTag, LayerId, MaterialId, Position, PredefinedType, Project,
-    ReferenceLine, SlabReference, StoreyId, TopLink,
+    AnchorPos, Command, Element, ElementKind, GroupId, IfcClass, KindTag, LayerId, MaterialId, Position,
+    PredefinedType, Project, ReferenceLine, SlabReference, StoreyId, TextStyleId, TopLink,
 };
 use egui::{Id, Ui};
 
@@ -122,17 +122,24 @@ impl Fields<'_> {
     }
 
     fn row(&mut self, ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui, &mut Self)) {
+        self.row_of(ui, label, |ui, f| {
+            add(ui, f);
+            None
+        });
+    }
+
+    /// A row whose label names the widget whose id `add` returns, for
+    /// screen readers.
+    fn row_of(&mut self, ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui, &mut Self) -> Option<Id>) {
+        let label = ui.label(label);
+        if let Some(field) = add(ui, self) {
+            ui.ctx().accesskit_node_builder(field, |node| {
+                node.push_labelled_by(label.id.accesskit_id());
+            });
+        }
         match self.layout {
-            Layout::Strip => {
-                ui.label(label);
-                add(ui, self);
-                ui.add_space(8.0);
-            }
-            Layout::Grid => {
-                ui.label(label);
-                add(ui, self);
-                ui.end_row();
-            }
+            Layout::Strip => ui.add_space(8.0),
+            Layout::Grid => ui.end_row(),
         }
     }
 
@@ -175,15 +182,17 @@ impl Fields<'_> {
         if !self.targets.iter().any(|e| get(e).is_some()) {
             return;
         }
-        self.row(ui, label, |ui, f| {
+        self.row_of(ui, label, |ui, f| {
             let value = common(f.targets.iter().filter_map(&get));
             let width = f.width(110.0);
-            if let Some(picked) = widgets::choice(ui, f.id.with(key), value.as_ref(), options, width) {
+            let (response, picked) = widgets::choice_response(ui, f.id.with(key), value.as_ref(), options, width);
+            if let Some(picked) = picked {
                 for e in f.targets.iter_mut().filter(|e| get(e).is_some()) {
                     set(e, &picked);
                 }
                 f.changed = true;
             }
+            Some(response.id)
         });
     }
 }
@@ -429,6 +438,120 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
             }
         },
     );
+}
+
+fn text_mut(e: &mut Element) -> Option<&mut archicraft_model::Text> {
+    e.as_text_mut()
+}
+
+/// The name of an anchor position (ANN-007).
+fn anchor_pos_label(pos: AnchorPos) -> String {
+    match pos {
+        AnchorPos::TopLeft => tr!("dlg-properties-anchor-top-left"),
+        AnchorPos::TopCenter => tr!("dlg-properties-anchor-top-center"),
+        AnchorPos::TopRight => tr!("dlg-properties-anchor-top-right"),
+        AnchorPos::MiddleLeft => tr!("dlg-properties-anchor-middle-left"),
+        AnchorPos::Center => tr!("dlg-properties-anchor-center"),
+        AnchorPos::MiddleRight => tr!("dlg-properties-anchor-middle-right"),
+        AnchorPos::BottomLeft => tr!("dlg-properties-anchor-bottom-left"),
+        AnchorPos::BottomCenter => tr!("dlg-properties-anchor-bottom-center"),
+        AnchorPos::BottomRight => tr!("dlg-properties-anchor-bottom-right"),
+    }
+}
+
+/// The fields of texts (ANN-007): the content (several lines), the style,
+/// the size in millimetres (empty for the style's size), the anchor
+/// position and the angle. Each committed change is one step (ELM-001).
+fn text_fields(ui: &mut Ui, f: &mut Fields<'_>) {
+    if !f.targets.iter().any(|e| e.as_text().is_some()) {
+        return;
+    }
+    let texts = |targets: &[Element]| -> Vec<archicraft_model::Text> {
+        targets.iter().filter_map(Element::as_text).cloned().collect()
+    };
+    let field = f.id.with("text-content");
+    f.row_of(ui, "Content", |ui, f| {
+        let value = common(texts(f.targets).into_iter().map(|t| t.content));
+        match widgets::multiline_text(ui, field, value.as_deref(), f.width(140.0)).1 {
+            Edited::Changed(content) => {
+                for t in f.targets.iter_mut().filter_map(text_mut) {
+                    t.content.clone_from(&content);
+                }
+                f.changed = true;
+            }
+            Edited::Invalid(e) => f.error = Some(e),
+            Edited::Unchanged => {}
+        }
+        Some(field)
+    });
+    let project = f.project;
+    let styles: Vec<(TextStyleId, String)> = project.text_styles.iter().map(|s| (s.id, s.name.clone())).collect();
+    f.choice(
+        ui,
+        "Text style",
+        "text-style",
+        &styles,
+        |e| e.as_text().map(|t| t.style),
+        |e, style| {
+            if let Some(t) = text_mut(e) {
+                t.style = *style;
+            }
+        },
+    );
+    let field = f.id.with("text-size");
+    f.row_of(ui, "Size (mm)", |ui, f| {
+        let targets = texts(f.targets);
+        let value = common(targets.iter().map(|t| t.size_mm));
+        let style_size = common(
+            targets
+                .iter()
+                .filter_map(|t| project.text_style(t.style))
+                .map(|s| s.size_mm.to_bits()),
+        );
+        let hint = style_size.map_or_else(String::new, |bits| {
+            let size = widgets::format_trimmed(&f.nf, f64::from_bits(bits), 3);
+            tr!("dlg-properties-text-style-size", size = size.as_str())
+        });
+        match widgets::optional_positive(ui, field, value, &hint, &f.nf, f.width(64.0)).1 {
+            Edited::Changed(size) => {
+                for t in f.targets.iter_mut().filter_map(text_mut) {
+                    t.size_mm = size;
+                }
+                f.changed = true;
+            }
+            Edited::Invalid(e) => f.error = Some(e),
+            Edited::Unchanged => {}
+        }
+        Some(field)
+    });
+    let positions: Vec<(AnchorPos, String)> = AnchorPos::ALL.iter().map(|p| (*p, anchor_pos_label(*p))).collect();
+    f.choice(
+        ui,
+        "Anchor position",
+        "text-anchor-pos",
+        &positions,
+        |e| e.as_text().map(|t| t.anchor_pos),
+        |e, pos| {
+            if let Some(t) = text_mut(e) {
+                t.anchor_pos = *pos;
+            }
+        },
+    );
+    let field = f.id.with("text-angle");
+    f.row_of(ui, "Angle", |ui, f| {
+        let value = common(texts(f.targets).into_iter().map(|t| t.angle.to_bits())).map(f64::from_bits);
+        match widgets::angle(ui, field, value, &f.units, &f.nf, f.width(64.0)) {
+            Edited::Changed(angle) => {
+                for t in f.targets.iter_mut().filter_map(text_mut) {
+                    t.angle = angle;
+                }
+                f.changed = true;
+            }
+            Edited::Invalid(e) => f.error = Some(e),
+            Edited::Unchanged => {}
+        }
+        Some(field)
+    });
 }
 
 /// True if every target has a material: a kind without one, like a space
@@ -774,11 +897,15 @@ fn edit_fields(ui: &mut Ui, ws: &mut Workspace, editing: &mut Editing, layout: L
     match layout {
         Layout::Strip => {
             geometry_fields(ui, &mut f);
+            text_fields(ui, &mut f);
             appearance_fields(ui, &mut f);
             classification_fields(ui, &mut f);
         }
         Layout::Grid => {
             section(ui, "Geometry and positioning", |ui| geometry_fields(ui, &mut f));
+            if f.targets.iter().any(|e| e.as_text().is_some()) {
+                section(ui, "Text", |ui| text_fields(ui, &mut f));
+            }
             // Without a material both sections would be empty (SPC-001).
             if all_have_material(&f) {
                 section(ui, "Model and appearance", |ui| appearance_fields(ui, &mut f));

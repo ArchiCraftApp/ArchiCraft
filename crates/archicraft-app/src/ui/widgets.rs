@@ -18,6 +18,19 @@ pub enum Edited<T> {
     Invalid(String),
 }
 
+/// How a [`committed`] field behaves beyond the defaults of
+/// [`committed_text`].
+#[derive(Clone, Copy, Default)]
+struct FieldKind<'a> {
+    /// Several lines: Enter starts a new line, Ctrl/Cmd+Enter commits.
+    multiline: bool,
+    /// Clearing the field commits the empty text instead of keeping the
+    /// value.
+    empty_commits: bool,
+    /// Shown in an empty field that is not a mixed value.
+    hint: &'a str,
+}
+
 /// A text field that keeps the user's text while it has focus and commits
 /// it when focus is lost or Enter is pressed. `None` shows a mixed value
 /// (UI-002).
@@ -28,15 +41,39 @@ fn committed_text<T>(
     width: f32,
     parse: impl FnOnce(&str) -> Result<T, String>,
 ) -> (Response, Edited<T>) {
+    committed(ui, id, shown, width, FieldKind::default(), parse)
+}
+
+/// [`committed_text`] as `kind` says.
+fn committed<T>(
+    ui: &mut Ui,
+    id: Id,
+    shown: Option<String>,
+    width: f32,
+    kind: FieldKind<'_>,
+    parse: impl FnOnce(&str) -> Result<T, String>,
+) -> (Response, Edited<T>) {
     let mut text: String = ui
         .data_mut(|d| d.get_temp::<String>(id))
         .unwrap_or_else(|| shown.clone().unwrap_or_default());
-    let response = ui.add(
+    // Ctrl/Cmd+Enter ends a multi-line edit; taken before the field sees it.
+    let commit_key = kind.multiline
+        && ui.memory(|m| m.has_focus(id))
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter));
+    let edit = if kind.multiline {
+        TextEdit::multiline(&mut text).desired_rows(1)
+    } else {
         TextEdit::singleline(&mut text)
-            .id(id)
-            .desired_width(width)
-            .hint_text(if shown.is_none() { "Mixed" } else { "" }),
-    );
+    };
+    let response =
+        ui.add(
+            edit.id(id)
+                .desired_width(width)
+                .hint_text(if shown.is_none() { "Mixed" } else { kind.hint }),
+        );
+    if commit_key {
+        response.surrender_focus();
+    }
     if response.gained_focus() {
         // Select the whole value, so that typing replaces it.
         let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
@@ -56,7 +93,12 @@ fn committed_text<T>(
         }
     } else {
         ui.data_mut(|d| d.remove::<String>(id));
-        if response.lost_focus() && Some(&text) != shown.as_ref() && !text.trim().is_empty() {
+        if (response.lost_focus() || commit_key)
+            && Some(&text) != shown.as_ref()
+            // A mixed field left empty keeps the values, also where clearing
+            // commits.
+            && ((kind.empty_commits && shown.is_some()) || !text.trim().is_empty())
+        {
             result = match parse(&text) {
                 Ok(v) => Edited::Changed(v),
                 Err(e) => Edited::Invalid(e),
@@ -247,7 +289,7 @@ pub fn slider(
 }
 
 /// `value` with `decimals` decimals, without trailing zeros in the fraction.
-fn format_trimmed(nf: &NumberFormat, value: f64, decimals: usize) -> String {
+pub fn format_trimmed(nf: &NumberFormat, value: f64, decimals: usize) -> String {
     let text = nf.format_decimal(value, decimals);
     if decimals == 0 {
         return text;
@@ -263,6 +305,48 @@ pub fn text(ui: &mut Ui, id: Id, value: Option<&str>, width: f32) -> Edited<Stri
     result
 }
 
+/// Edits text of several lines (ANN-007): Enter starts a new line, and the
+/// text is committed, without trailing white space, on Ctrl/Cmd+Enter or
+/// when the field loses focus. `None` shows a mixed value.
+pub fn multiline_text(ui: &mut Ui, id: Id, value: Option<&str>, width: f32) -> (Response, Edited<String>) {
+    let kind = FieldKind {
+        multiline: true,
+        ..FieldKind::default()
+    };
+    committed(ui, id, value.map(str::to_owned), width, kind, |t| {
+        Ok(t.trim_end().to_owned())
+    })
+}
+
+/// Edits an optional positive number typed with `nf` (NFR-L10N-004), such
+/// as a size that overrides a style's (ANN-007): `Some(None)` shows an empty
+/// field with `hint`, and clearing the field commits `None`; `None` shows a
+/// mixed value.
+pub fn optional_positive(
+    ui: &mut Ui,
+    id: Id,
+    value: Option<Option<f64>>,
+    hint: &str,
+    nf: &NumberFormat,
+    width: f32,
+) -> (Response, Edited<Option<f64>>) {
+    let shown = value.map(|v| v.map_or_else(String::new, |v| format_trimmed(nf, v, 3)));
+    let kind = FieldKind {
+        empty_commits: true,
+        hint,
+        ..FieldKind::default()
+    };
+    committed(ui, id, shown, width, kind, |text| {
+        if text.trim().is_empty() {
+            return Ok(None);
+        }
+        nf.parse_decimal(text)
+            .filter(|v| *v > 0.0)
+            .map(Some)
+            .ok_or_else(|| tr!("dlg-properties-error-positive-number"))
+    })
+}
+
 /// A combo box over `options`; `current` is `None` for a mixed value.
 pub fn choice<T: Clone + PartialEq>(
     ui: &mut Ui,
@@ -271,11 +355,22 @@ pub fn choice<T: Clone + PartialEq>(
     options: &[(T, String)],
     width: f32,
 ) -> Option<T> {
+    choice_response(ui, id, current, options, width).1
+}
+
+/// [`choice`] with the combo box's response, for labelling it.
+pub fn choice_response<T: Clone + PartialEq>(
+    ui: &mut Ui,
+    id: Id,
+    current: Option<&T>,
+    options: &[(T, String)],
+    width: f32,
+) -> (Response, Option<T>) {
     let selected_text = current
         .and_then(|c| options.iter().find(|(v, _)| v == c))
         .map_or_else(|| "Mixed".to_owned(), |(_, label)| label.clone());
     let mut picked = None;
-    egui::ComboBox::from_id_salt(id)
+    let response = egui::ComboBox::from_id_salt(id)
         .selected_text(selected_text)
         .width(width)
         .show_ui(ui, |ui| {
@@ -284,8 +379,9 @@ pub fn choice<T: Clone + PartialEq>(
                     picked = Some(value.clone());
                 }
             }
-        });
-    picked.filter(|p| current != Some(p))
+        })
+        .response;
+    (response, picked.filter(|p| current != Some(p)))
 }
 
 /// The common value of all items, or `None` if they differ or there are

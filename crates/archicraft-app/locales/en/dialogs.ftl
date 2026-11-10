@@ -45,3 +45,19 @@ dlg-properties-group =
         [one] Group: { $name } ({ $count_text } element)
        *[other] Group: { $name } ({ $count_text } elements)
     }
+
+# The text's style size in an empty Size field (ANN-007); $size: the size in
+# millimetres.
+dlg-properties-text-style-size = { $size } (style)
+# The point of a text block that sits on its anchor (ANN-007).
+dlg-properties-anchor-top-left = Top left
+dlg-properties-anchor-top-center = Top centre
+dlg-properties-anchor-top-right = Top right
+dlg-properties-anchor-middle-left = Middle left
+dlg-properties-anchor-center = Centre
+dlg-properties-anchor-middle-right = Middle right
+dlg-properties-anchor-bottom-left = Bottom left
+dlg-properties-anchor-bottom-center = Bottom centre
+dlg-properties-anchor-bottom-right = Bottom right
+# A number field that takes a positive number (ANN-007).
+dlg-properties-error-positive-number = Type a positive number.
