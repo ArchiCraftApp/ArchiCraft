@@ -3,7 +3,7 @@
 //! axis.
 
 use archicraft_model::validate::validate_ring;
-use archicraft_model::{Project, Wall};
+use archicraft_model::{Element, Project, Wall};
 use glam::DVec2;
 
 use super::{EvalContext, GeometryKind};
@@ -19,21 +19,25 @@ pub fn wall_inputs(project: &Project) -> Vec<WallInput> {
     project
         .elements
         .values()
-        .filter_map(|e| {
-            let wall = e.as_wall()?;
-            let (bottom, top) = project.vertical_extent(e)?;
-            Some(WallInput {
-                id: e.id,
-                storey: e.storey,
-                start: wall.start,
-                end: wall.end,
-                thickness: wall.thickness,
-                reference_line: wall.reference_line,
-                bottom,
-                top,
-            })
-        })
+        .filter_map(|e| wall_input(project, e))
         .collect()
+}
+
+/// The junction input of `element`: `None` unless it is a wall whose home
+/// and linked storeys are in the project.
+pub fn wall_input(project: &Project, element: &Element) -> Option<WallInput> {
+    let wall = element.as_wall()?;
+    let (bottom, top) = project.vertical_extent(element)?;
+    Some(WallInput {
+        id: element.id,
+        storey: element.storey,
+        start: wall.start,
+        end: wall.end,
+        thickness: wall.thickness,
+        reference_line: wall.reference_line,
+        bottom,
+        top,
+    })
 }
 
 fn square_footprint(start: DVec2, end: DVec2, offsets: (f64, f64)) -> Footprint {

@@ -88,6 +88,11 @@ impl ContactIndex {
         self.walls.get(&id)
     }
 
+    /// Every wall, in no particular order.
+    pub fn walls(&self) -> impl Iterator<Item = &WallInput> {
+        self.walls.values()
+    }
+
     /// Adds `wall`, or replaces the wall with its id and returns that one.
     pub fn insert(&mut self, wall: WallInput) -> Option<WallInput> {
         let old = self.remove(wall.id);

@@ -457,7 +457,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Plan and 3D views, picking and bounds read every body of the one evaluated model, the parts of compound elements included (ElementGeometry::bodies, crates/archicraft-geometry/src/evaluate.rs:64; plan_drawing, crates/archicraft-geometry/src/plan.rs:111; build_scene, crates/archicraft-app/src/views/render3d.rs:115; pick, crates/archicraft-app/src/views/view3d.rs:88). Propagation is correct but not within a verified NFR-PERF-006 budget: every revision re-evaluates all elements, drops all plan caches and rebuilds/re-uploads the whole GPU scene (Document::geometry, crates/archicraft-app/src/document.rs:97-103; view3d::ui, crates/archicraft-app/src/views/view3d.rs:193-208). The seeded stand-ins samples::stand_in(n) for n in STAND_IN_SIZES (1,000/5,000/20,000 elements) make the budget measurable; no benchmark or timing gate yet",
+      "gap": "Plan and 3D views, picking and bounds read every body of the one evaluated model, the parts of compound elements included (ElementGeometry::bodies, crates/archicraft-geometry/src/evaluate.rs:84; plan_drawing, crates/archicraft-geometry/src/plan.rs:197; build_scene, crates/archicraft-app/src/views/render3d.rs:123; pick, crates/archicraft-app/src/views/view3d.rs:89). The evaluated model follows an edit incrementally: ModelGeometry::evaluate_incremental (crates/archicraft-geometry/src/evaluate.rs:177) evaluates again only what the edits dirtied (dirty_set, crates/archicraft-geometry/src/dirty.rs:78), equal to a full evaluation bit for bit, keeps the Arc of every other element and lists the changed elements and storeys. Propagation is correct but not within a verified NFR-PERF-006 budget, as the views do not use that yet: every revision re-evaluates all elements, drops all plan caches and rebuilds and re-uploads the whole GPU scene (Document::geometry, crates/archicraft-app/src/document.rs:113; view3d::ui, crates/archicraft-app/src/views/view3d.rs:120), until archicraft-5a64. The seeded stand-ins samples::stand_in(n) for n in STAND_IN_SIZES (1,000/5,000/20,000 elements) make the budget measurable; no benchmark or timing gate yet",
       "depends_on": []
     },
     {
@@ -2121,7 +2121,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Sections and solid operations do not exist, so agreement there cannot be exercised. Plan cuts, 3D views and the IFCX export do derive from the same evaluated bodies (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:95). But the plan merges all cut polygons of one material by union regardless of joins (plan_drawing, crates/archicraft-geometry/src/plan.rs:111, union at line 156), so two overlapping unjoined walls of the same material show as one region in plan although 3D and IFCX keep two separate overlapping bodies. Material-priority cleanup (WAL-023) exists in no view.",
+      "gap": "Sections and solid operations do not exist, so agreement there cannot be exercised. Plan cuts, 3D views and the IFCX export do derive from the same evaluated bodies (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:157). But the plan merges all cut polygons of one material by union regardless of joins (plan_drawing, crates/archicraft-geometry/src/plan.rs:111, union at line 156), so two overlapping unjoined walls of the same material show as one region in plan although 3D and IFCX keep two separate overlapping bodies. Material-priority cleanup (WAL-023) exists in no view.",
       "depends_on": []
     },
     {
@@ -2431,7 +2431,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No layer structures: Project (crates/archicraft-model/src/project.rs:306) holds visibility layers (LAY-001) and materials only, and Command (crates/archicraft-model/src/command.rs:39) and Edit (crates/archicraft-model/src/command.rs:724) have add/update/delete only for those. Missing: a named layer structure resource with ordered skins (material, thickness, role core/finish/other; at least one core skin; 48 or more skins), its Add/Update/Delete commands and edits, an editor dialog, a choice of thickness or structure on Wall (crates/archicraft-model/src/kinds/wall.rs:66) and Slab (crates/archicraft-model/src/kinds/slab.rs:44) (roofs need ROF-001), multi-part bodies with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:30; IFX-017 Skin_n), IFCX schema/writer/reader, and update propagation (PRF-002).",
+      "gap": "No layer structures: Project (crates/archicraft-model/src/project.rs:306) holds visibility layers (LAY-001) and materials only, and Command (crates/archicraft-model/src/command.rs:39) and Edit (crates/archicraft-model/src/command.rs:724) have add/update/delete only for those. Missing: a named layer structure resource with ordered skins (material, thickness, role core/finish/other; at least one core skin; 48 or more skins), its Add/Update/Delete commands and edits, an editor dialog, a choice of thickness or structure on Wall (crates/archicraft-model/src/kinds/wall.rs:66) and Slab (crates/archicraft-model/src/kinds/slab.rs:44) (roofs need ROF-001), multi-part bodies with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:47; IFX-017 Skin_n), IFCX schema/writer/reader, and update propagation (PRF-002).",
       "depends_on": []
     },
     {
@@ -2601,7 +2601,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No roofs and no layer structures (needs ROF-001 and PRF-001). Missing: skins measured perpendicular to the roof plane, a selectable reference surface (bottom, top, or top of the core skin) for the pivot elevation, and a multi-part body with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:30). The IFCX writer already emits one child per BodyPart (write_element, crates/archicraft-ifcx/src/alpha/writer.rs:504), so skins need only names per IFX-017 (Skin_1 to Skin_n).",
+      "gap": "No roofs and no layer structures (needs ROF-001 and PRF-001). Missing: skins measured perpendicular to the roof plane, a selectable reference surface (bottom, top, or top of the core skin) for the pivot elevation, and a multi-part body with one BodyPart per skin (crates/archicraft-geometry/src/evaluate.rs:47). The IFCX writer already emits one child per BodyPart (write_element, crates/archicraft-ifcx/src/alpha/writer.rs:504), so skins need only names per IFX-017 (Skin_1 to Skin_n).",
       "depends_on": []
     },
     {
@@ -2771,7 +2771,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No opening element exists (OPN-001 missing), so no reveal or end faces are generated. Bodies are single-material parts (BodyPart, crates/archicraft-geometry/src/evaluate.rs:30; walls and slabs get one part named Body in their generators, crates/archicraft-geometry/src/kinds/wall.rs:57 and crates/archicraft-geometry/src/kinds/slab.rs:12), Material has no per-face override (crates/archicraft-model/src/material.rs:143), and no layer structures or skins exist (PRF-001). Needs the faces an opening cuts emitted as separate parts or tagged faces whose material defaults to the cut element's (or cut skin's) material, a per-opening override for reveal and end faces, and handling of faces that coincide with a skin boundary.",
+      "gap": "No opening element exists (OPN-001 missing), so no reveal or end faces are generated. Bodies are single-material parts (BodyPart, crates/archicraft-geometry/src/evaluate.rs:47; walls and slabs get one part named Body in their generators, crates/archicraft-geometry/src/kinds/wall.rs:61 and crates/archicraft-geometry/src/kinds/slab.rs:12), Material has no per-face override (crates/archicraft-model/src/material.rs:143), and no layer structures or skins exist (PRF-001). Needs the faces an opening cuts emitted as separate parts or tagged faces whose material defaults to the cut element's (or cut skin's) material, a per-opening override for reveal and end faces, and handling of faces that coincide with a skin boundary.",
       "depends_on": []
     },
     {
@@ -2901,7 +2901,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No host cutting at all: walls are one extruded prism with one material (Wall.material, crates/archicraft-model/src/kinds/wall.rs:74; Wall::evaluate, crates/archicraft-geometry/src/kinds/wall.rs:57), there are no skins (PRF-001) and archicraft-geometry has no 3D Boolean operations. Needs a void solid per unit subtracted from every skin part of the host, re-evaluation of the host when the unit or the host changes (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:95, evaluates each element on its own and would need the hosted units of each wall), and the host restored when the unit is deleted.",
+      "gap": "No host cutting at all: walls are one extruded prism with one material (Wall.material, crates/archicraft-model/src/kinds/wall.rs:74; Wall::evaluate, crates/archicraft-geometry/src/kinds/wall.rs:61), there are no skins (PRF-001) and archicraft-geometry has no 3D Boolean operations. Needs a void solid per unit subtracted from every skin part of the host, re-evaluation of the host when the unit or the host changes (ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:157, evaluates each element on its own and would need the hosted units of each wall), and the host restored when the unit is deleted.",
       "depends_on": []
     },
     {
@@ -3041,7 +3041,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No curtain wall kind (the kinds! registry lists wall and slab, crates/archicraft-model/src/kinds/mod.rs:432) and no tool; IfcClass already has CurtainWall, Member and Plate (crates/archicraft-model/src/element.rs:16) and COMPOUND_PART_CLASSES (crates/archicraft-model/src/element.rs:131) the curtain wall's part classes. Compound support exists: Kind::parts with PartSpec (crates/archicraft-model/src/kinds/mod.rs:205 and crates/archicraft-model/src/kinds/mod.rs:104) and per-element BodyPart lists (crates/archicraft-geometry/src/evaluate.rs:30), usable for frames and panels. Needs a base path of straight segments (arcs C), a base elevation and a fixed or storey-linked top (VerticalLink, crates/archicraft-model/src/kinds/vertical.rs:21), boundary-frame placement inside, centred on or outside the path, and the grid, frame and panel classes of CW-002 to CW-004.",
+      "gap": "No curtain wall kind (the kinds! registry lists wall and slab, crates/archicraft-model/src/kinds/mod.rs:432) and no tool; IfcClass already has CurtainWall, Member and Plate (crates/archicraft-model/src/element.rs:16) and COMPOUND_PART_CLASSES (crates/archicraft-model/src/element.rs:131) the curtain wall's part classes. Compound support exists: Kind::parts with PartSpec (crates/archicraft-model/src/kinds/mod.rs:205 and crates/archicraft-model/src/kinds/mod.rs:104) and per-element BodyPart lists (crates/archicraft-geometry/src/evaluate.rs:47), usable for frames and panels. Needs a base path of straight segments (arcs C), a base elevation and a fixed or storey-linked top (VerticalLink, crates/archicraft-model/src/kinds/vertical.rs:21), boundary-frame placement inside, centred on or outside the path, and the grid, frame and panel classes of CW-002 to CW-004.",
       "depends_on": []
     },
     {
@@ -3261,7 +3261,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No conflict detection, no naming of conflicting rules, no alternatives and no keep-last-valid behaviour. ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:95) records only an error string in ModelGeometry::problems (:58) and keeps no body for a failing element; ElementGeometry (:32) holds no last valid result. Needs the solver (STA-004 to STA-008) to return the violated rules with actual and limit values, a dialog that offers the alternatives (change N, relax a bound, unlock the baseline STA-029, change an offset) and storage of the last valid stair while the conflict lasts.",
+      "gap": "No conflict detection, no naming of conflicting rules, no alternatives and no keep-last-valid behaviour. ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:157) records only an error string in ModelGeometry::problems (:118) and keeps no body for a failing element; ElementGeometry (:72) holds no last valid result. Needs the solver (STA-004 to STA-008) to return the violated rules with actual and limit values, a dialog that offers the alternatives (change N, relax a bound, unlock the baseline STA-029, change an offset) and storage of the last valid stair while the conflict lasts.",
       "depends_on": []
     },
     {
@@ -3381,7 +3381,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No flight/landing structure choice (none, or monolithic with smooth or stepped underside, stepped with separate vertical and horizontal thickness), each with a material; the D.2 default (monolithic, smooth) is pending in ROWS, crates/archicraft-model/tests/defaults.rs:153. Per-part materials are supported by BodyPart (crates/archicraft-geometry/src/evaluate.rs:30), but Kind::material and Kind::set_material expose one main material per element (crates/archicraft-model/src/kinds/mod.rs:131), so separate flight and landing structure materials need their own parameters and editing. Needs the STA-001 stair kind.",
+      "gap": "No flight/landing structure choice (none, or monolithic with smooth or stepped underside, stepped with separate vertical and horizontal thickness), each with a material; the D.2 default (monolithic, smooth) is pending in ROWS, crates/archicraft-model/tests/defaults.rs:153. Per-part materials are supported by BodyPart (crates/archicraft-geometry/src/evaluate.rs:47), but Kind::material and Kind::set_material expose one main material per element (crates/archicraft-model/src/kinds/mod.rs:131), so separate flight and landing structure materials need their own parameters and editing. Needs the STA-001 stair kind.",
       "depends_on": []
     },
     {
@@ -3411,7 +3411,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "No part-level failure reporting with fallback; ElementGeometry has no per-part warnings (crates/archicraft-geometry/src/evaluate.rs:52).",
+      "gap": "No part-level failure reporting with fallback; ElementGeometry has no per-part warnings (crates/archicraft-geometry/src/evaluate.rs:72).",
       "depends_on": []
     },
     {
@@ -3511,7 +3511,7 @@
       "status": "missing",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "No edge picking, no host relation or associativity (Project has no relations; geometry evaluates each element on its own except for the wall-junction pass, which resolves the footprints of walls in contact before the elements are evaluated, ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:95), no static mode, no stair-to-slab continuation.",
+      "gap": "No edge picking, no host relation or associativity (Project has no relations; geometry evaluates each element on its own except for the wall-junction pass, which resolves the footprints of walls in contact before the elements are evaluated, ModelGeometry::evaluate, crates/archicraft-geometry/src/evaluate.rs:157), no static mode, no stair-to-slab continuation.",
       "depends_on": []
     },
     {
@@ -3711,7 +3711,7 @@
       "status": "missing",
       "remaining_effort": "XL",
       "evidence": "",
-      "gap": "No solid operations. Missing: integration of a Boolean engine (Manifold planned, General 3D Booleans item, docs/technology-choices.md:196; it must use MODEL_TOLERANCE as merge tolerance, crates/archicraft-model/src/tolerance.rs:41), a relation model of operations (targets, operators, subtract/intersect/add), commands and UI to create them, application of the operations in ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:95) with every operator acting with its unmodified body (SOL-024), terrain (TER-001) and free-form solids (SOL-001) as participants, failure handling that keeps the unmodified body and reports the element (NFR-REL-006), and persistence in IFCX (SOL-022).",
+      "gap": "No solid operations. Missing: integration of a Boolean engine (Manifold planned, General 3D Booleans item, docs/technology-choices.md:196; it must use MODEL_TOLERANCE as merge tolerance, crates/archicraft-model/src/tolerance.rs:41), a relation model of operations (targets, operators, subtract/intersect/add), commands and UI to create them, application of the operations in ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:157) with every operator acting with its unmodified body (SOL-024), terrain (TER-001) and free-form solids (SOL-001) as participants, failure handling that keeps the unmodified body and reports the element (NFR-REL-006), and persistence in IFCX (SOL-022).",
       "depends_on": []
     },
     {
@@ -4641,7 +4641,7 @@
       "status": "missing",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "Stairs, railings, curtain walls and multi-plane roofs do not exist. The model declares a compound kind's parts with their classes (Kind::parts and PartSpec, crates/archicraft-model/src/kinds/mod.rs:104), and the geometry crate evaluates one set of bodies per declared part, by role (ElementGeometry.children and PartGeometry, crates/archicraft-geometry/src/evaluate.rs:39; the generator registry, crates/archicraft-geometry/src/kinds/mod.rs), drawn and picked in plan and 3D like the element's own body; the test kind stands in for a compound element (part_body_roles_equal_the_kinds_parts, crates/archicraft-geometry/tests/kinds.rs). Missing: the writer must write the parts as child nodes with their own IfcStairFlight/IfcSlab/IfcMember/IfcPlate classes and v5 ids, and the reader must restore them.",
+      "gap": "Stairs, railings, curtain walls and multi-plane roofs do not exist. The model declares a compound kind's parts with their classes (Kind::parts and PartSpec, crates/archicraft-model/src/kinds/mod.rs:104), and the geometry crate evaluates one set of bodies per declared part, by role (ElementGeometry.children and PartGeometry, crates/archicraft-geometry/src/evaluate.rs:60; the generator registry, crates/archicraft-geometry/src/kinds/mod.rs), drawn and picked in plan and 3D like the element's own body; the test kind stands in for a compound element (part_body_roles_equal_the_kinds_parts, crates/archicraft-geometry/tests/kinds.rs). Missing: the writer must write the parts as child nodes with their own IfcStairFlight/IfcSlab/IfcMember/IfcPlate classes and v5 ids, and the reader must restore them.",
       "depends_on": []
     },
     {
@@ -4651,7 +4651,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Only a single \"Body\" part is ever produced (Wall::evaluate and Slab::evaluate, crates/archicraft-geometry/src/kinds/wall.rs:57 and crates/archicraft-geometry/src/kinds/slab.rs:12); Skin_1 to Skin_n parts for layer structures (PRF-001), Frame/Panel/Glazing parts (doors, windows, curtain walls) and Void children for openings (IFX-036, OPN-001) are not generated because these do not exist. Axis children are written for walls. The writer path is generic and needs little change once multi-part bodies exist: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:504) already writes one child per BodyPart under its name with its material; Void children need a new path (invisible mesh).",
+      "gap": "Only a single \"Body\" part is ever produced (Wall::evaluate and Slab::evaluate, crates/archicraft-geometry/src/kinds/wall.rs:61 and crates/archicraft-geometry/src/kinds/slab.rs:12); Skin_1 to Skin_n parts for layer structures (PRF-001), Frame/Panel/Glazing parts (doors, windows, curtain walls) and Void children for openings (IFX-036, OPN-001) are not generated because these do not exist. Axis children are written for walls. The writer path is generic and needs little change once multi-part bodies exist: write_element (crates/archicraft-ifcx/src/alpha/writer.rs:504) already writes one child per BodyPart under its name with its material; Void children need a new path (invisible mesh).",
       "depends_on": []
     },
     {
@@ -4751,7 +4751,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Only wall L and T junction cleanup exists (footprints, crates/archicraft-geometry/src/wall.rs:236); nodes of three or more walls and crossings stay square. Layer-structure intersections (PRF-001), openings and hosted doors/windows (OPN-001), trims to roofs and slabs, solid operations and beam junctions are not in the geometry crate yet, as these elements and operations do not exist; slab holes are cut by extrusion (Slab::evaluate, crates/archicraft-geometry/src/kinds/slab.rs:12). The writer needs no change: it writes the bodies that ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:95) produces.",
+      "gap": "Only wall L and T junction cleanup exists (footprints, crates/archicraft-geometry/src/wall.rs:236); nodes of three or more walls and crossings stay square. Layer-structure intersections (PRF-001), openings and hosted doors/windows (OPN-001), trims to roofs and slabs, solid operations and beam junctions are not in the geometry crate yet, as these elements and operations do not exist; slab holes are cut by extrusion (Slab::evaluate, crates/archicraft-geometry/src/kinds/slab.rs:12). The writer needs no change: it writes the bodies that ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:157) produces.",
       "depends_on": []
     },
     {
@@ -5221,7 +5221,7 @@
       "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Unmeasured, and the update is not incremental: ModelGeometry::evaluate re-extrudes and re-triangulates every element (crates/archicraft-geometry/src/evaluate.rs:119) and all plan caches are dropped (Document::geometry, crates/archicraft-app/src/document.rs:113). The model records what each edit changed, for the caches to update only that: Project.changes (ChangeLog, crates/archicraft-model/src/changes.rs:44) keeps per-element stamps with tombstones for removed elements, the storeys an edit moved and a full invalidation for settings edits, and for a profile edit the elements that use the profile (PRF-004; `profile_edits_stamp_the_elements_that_use_them`, crates/archicraft-model/tests/changes.rs), stamped by Edit::apply in execute, undo and redo (stamp_changes, crates/archicraft-model/src/command.rs:1323); no consumer reads it yet (geometry: archicraft-dyau.3; plans and the 3D scene: archicraft-5a64). Wall junctions are found through one R-tree of reference lines per storey (ContactIndex, crates/archicraft-geometry/src/contact.rs), linear in the walls: a full evaluation of stand_in(20_000) makes 2 candidate tests per wall instead of a scan over 160 million pairs (a_full_evaluation_of_the_20000_stand_in_finds_contacts_through_the_index, crates/archicraft-geometry/tests/stand_ins.rs; its timing smoke test, docs/performance/README.md, prints about 0.1 s in release on a developer machine), and ModelGeometry keeps the index and shares element geometry through Arc for an incremental evaluation (archicraft-dyau.3). An RM-M stand-in exists (samples::stand_in(5_000): seeded, five storeys of 4 m rooms in L and T junctions; 20,000 as four blocks); no criterion target or CI timing gate yet",
+      "gap": "Unmeasured in the application, which does not use the incremental geometry yet: Document::geometry (crates/archicraft-app/src/document.rs:113) still evaluates the whole model on every revision and drops every plan cache, and the 3D view rebuilds and uploads the whole scene (view3d::ui, crates/archicraft-app/src/views/view3d.rs:120); archicraft-5a64 makes them follow the changed elements and storeys. The geometry itself is incremental: ModelGeometry::evaluate_incremental (crates/archicraft-geometry/src/evaluate.rs:177) evaluates again only the dirty set of the edits since the previous geometry (dirty_set, crates/archicraft-geometry/src/dirty.rs:78), read from the change log that Edit::apply stamps in execute, undo and redo (Project.changes, ChangeLog, crates/archicraft-model/src/changes.rs:44; stamp_changes, crates/archicraft-model/src/command.rs:1323): the elements an edit inserted, replaced or removed, for a profile edit the elements that use the profile (PRF-004; `profile_edits_stamp_the_elements_that_use_them`, crates/archicraft-model/tests/changes.rs), the storey dependents of the storeys it moved and the elements whose vertical extent they move, the walls touching the old or the new reference line of a wall whose junction input changed (one R-tree per storey, ContactIndex, crates/archicraft-geometry/src/contact.rs:44), and the closure over the relations' dependents (hosted elements and their hosts both ways). It resolves the junctions of the dirty walls only, keeps the Arc and the problem of every other element and lists the changed elements and storeys; ModelGeometry::evaluate (crates/archicraft-geometry/src/evaluate.rs:157) is the same path from an empty geometry. 200 seeded random edit sequences on stand_in(1_000) give a full evaluation's result bit for bit (incremental_equals_full, crates/archicraft-geometry/tests/incremental.rs:991), and one wall move on stand_in(5_000) dirties the wall and the walls touching its old or new line only (dirty_set_after_one_edit_is_local_for_a_moved_wall, crates/archicraft-geometry/tests/incremental.rs:118). The update after that move takes about 0.6 ms in release on a developer machine, a full evaluation about 18 ms, and a full evaluation of stand_in(20_000) about 0.08 s (timing smoke tests, docs/performance/README.md). No criterion target or CI timing gate yet (regression-and-status)",
       "depends_on": []
     },
     {
@@ -5311,7 +5311,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No fallback representation: an element whose geometry failed is skipped in the plan (plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so it cannot be seen, picked or highlighted. The problems panel link (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:891) selects it, but PlanViewState::zoom_to (crates/archicraft-app/src/views/plan.rs:106) finds no bounds and does nothing. The global panic hook (install, crates/archicraft-app/src/persistence/crash.rs:66) also fires for panics that ModelGeometry::evaluate catches (crates/archicraft-geometry/src/evaluate.rs:95). A caught geometry panic therefore still writes a crash report, and the next start reports it as a crash.",
+      "gap": "No fallback representation: an element whose geometry failed is skipped in the plan (plan_drawing, crates/archicraft-geometry/src/plan.rs:111) and in 3D (build_scene, crates/archicraft-app/src/views/render3d.rs:102), so it cannot be seen, picked or highlighted. The problems panel link (problems_panel, crates/archicraft-app/src/ui/dialogs.rs:891) selects it, but PlanViewState::zoom_to (crates/archicraft-app/src/views/plan.rs:106) finds no bounds and does nothing. The global panic hook (install, crates/archicraft-app/src/persistence/crash.rs:66) also fires for panics that ModelGeometry::evaluate catches (crates/archicraft-geometry/src/evaluate.rs:157). A caught geometry panic therefore still writes a crash report, and the next start reports it as a crash.",
       "depends_on": []
     },
     {

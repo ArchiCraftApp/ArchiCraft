@@ -10,8 +10,9 @@ use std::time::Instant;
 use archicraft_geometry::ModelGeometry;
 use archicraft_geometry::evaluate::wall_inputs;
 use archicraft_geometry::wall::{WallInput, footprints};
+use archicraft_model::glam::DVec2;
 use archicraft_model::samples;
-use archicraft_model::{JOIN_TOLERANCE, StoreyId};
+use archicraft_model::{Command, History, JOIN_TOLERANCE, Position, StoreyId};
 
 /// How a wall end meets the other walls of its storey.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,5 +148,50 @@ fn full_evaluation_of_the_20000_stand_in_timing() {
         walls.len(),
         geometry.junction_candidate_tests(),
         pair_scan_tests(&walls),
+    );
+}
+
+/// NFR-PERF-006: prints how long `ModelGeometry::evaluate_incremental` takes
+/// after one interior wall of the RM-M-sized stand-in moved, next to a full
+/// evaluation, and how many elements it evaluated again. The target is well
+/// under the 200 ms of NFR-PERF-006. A smoke test, not a gate: run it in a
+/// release build (docs/performance/README.md, "Timing smoke tests"); the
+/// timing gate is regression-and-status's.
+#[test]
+#[ignore = "timing smoke test: run in release with --ignored --nocapture"]
+fn incremental_evaluation_after_one_wall_move_on_the_5000_stand_in_timing() {
+    let mut project = samples::stand_in(5_000);
+    let geometry = ModelGeometry::evaluate(&project);
+    let storey = project.storeys.as_slice()[2].id;
+    let wall = project
+        .elements_on(storey)
+        .find(|e| {
+            e.position == Position::Interior
+                && e.as_wall()
+                    .is_some_and(|w| (w.start.x - w.end.x).abs() < 1e-9 && w.start.distance(w.end) > 4.0)
+        })
+        .map(|e| e.id)
+        .expect("an interior column wall");
+    let command = Command::MoveElements {
+        ids: vec![wall],
+        delta: DVec2::new(2.0, 0.0),
+    };
+    History::default()
+        .execute(&mut project, command)
+        .expect("the move is accepted");
+
+    let started = Instant::now();
+    let updated = ModelGeometry::evaluate_incremental(&project, &geometry);
+    let incremental = started.elapsed();
+    let started = Instant::now();
+    let full = ModelGeometry::evaluate(&project);
+    let evaluation = started.elapsed();
+    assert!(updated.problems.is_empty(), "{:?}", updated.problems);
+    assert_eq!(updated.elements.len(), full.elements.len());
+    println!(
+        "stand_in(5_000): evaluate_incremental after one wall move {incremental:.2?} ({} of {} elements \
+         evaluated again), a full evaluation {evaluation:.1?}",
+        updated.changed.len(),
+        full.elements.len(),
     );
 }
