@@ -1467,6 +1467,7 @@ fn read_migrated<A: AttributeValue>(
         storeys,
         layers: data.layers,
         materials: data.materials,
+        profiles: Vec::new(),
         text_styles: data.text_styles,
         elements: IndexMap::new(),
         groups: data.groups,
