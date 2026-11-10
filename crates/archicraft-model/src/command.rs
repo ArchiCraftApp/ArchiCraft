@@ -12,9 +12,11 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use glam::DVec2;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::changes::ChangeLog;
 use crate::element::{Element, KindTag};
 use crate::group::Group;
 use crate::ids::{ElementId, GroupId, LayerId, MaterialId, ProfileId, RelationId, StoreyId};
@@ -1313,8 +1315,11 @@ impl Edit {
 /// version, moved storeys by the old storey list. A relation decides what
 /// its ends depend on (SRS 3.3), so recording or removing one stamps the
 /// ends that are in the project. The settings hold the tessellation
-/// tolerances every body depends on (IFX-034): everything is stamped. The
-/// match names every edit, so that a new one decides what it stamps.
+/// tolerances every body depends on (IFX-034): everything is stamped. An
+/// element's body depends on the profiles it uses (PRF-004), so inserting,
+/// replacing or removing a profile stamps the elements whose
+/// [`crate::kinds::Kind::profiles`] name it. The match names every edit, so
+/// that a new one decides what it stamps.
 fn stamp_changes(project: &mut Project, inverse: &Edit) {
     let Project {
         changes,
@@ -1343,6 +1348,9 @@ fn stamp_changes(project: &mut Project, inverse: &Edit) {
         Edit::SetSettings(_) => changes.stamp_everything(revision),
         Edit::RemoveRelation(id) => stamp_ends(relations.get(*id)),
         Edit::InsertRelation(relation) => stamp_ends(Some(relation)),
+        Edit::InsertProfile { profile, .. } => stamp_profile_users(changes, elements, profile.id, revision),
+        Edit::RemoveProfile { id } => stamp_profile_users(changes, elements, *id, revision),
+        Edit::ReplaceProfile(old) => stamp_profile_users(changes, elements, old.id, revision),
         Edit::InsertLayer { .. }
         | Edit::RemoveLayer { .. }
         | Edit::ReplaceLayer(_)
@@ -1358,6 +1366,18 @@ fn stamp_changes(project: &mut Project, inverse: &Edit) {
         | Edit::RemoveGroup { .. }
         | Edit::ReplaceGroup(_)
         | Edit::SetGroupCounter(_) => {}
+    }
+}
+
+/// Stamps the elements that use `profile` (PRF-004), see [`stamp_changes`].
+fn stamp_profile_users(
+    changes: &mut ChangeLog,
+    elements: &IndexMap<ElementId, Element>,
+    profile: ProfileId,
+    revision: u64,
+) {
+    for element in elements.values().filter(|e| e.kind.profiles().contains(&profile)) {
+        changes.stamp_element(element.id, revision, false);
     }
 }
 

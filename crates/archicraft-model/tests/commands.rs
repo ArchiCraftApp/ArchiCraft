@@ -921,6 +921,132 @@ fn added_profiles_are_stored_normalised() {
     );
 }
 
+/// PRF-004, DSP-003: the profile commands find users only through the
+/// Kind hooks, here the test kind standing in for a column. Deleting a
+/// profile in use needs a replacement; the replacement re-points the user in
+/// one undoable step and must allow the user's kind; an edit that removes a
+/// usage flag a user needs is rejected; an element cannot use a profile that
+/// does not exist or does not allow its kind.
+#[cfg(feature = "test-kinds")]
+#[test]
+fn profile_users_are_re_pointed_and_re_validated() {
+    use archicraft_model::ProfileUsage;
+    use archicraft_model::kinds::Dummy;
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let material = p.materials[0].id;
+    let ipe = Profile::parametric("IPE 300", ParametricShape::ALL[4], material);
+    let hea = Profile::parametric("HEA 300", ParametricShape::ALL[4], material);
+    let beams_only = Profile {
+        usage: ProfileUsage {
+            columns: false,
+            ..ProfileUsage::MEMBERS
+        },
+        ..Profile::parametric("Beam 300", ParametricShape::ALL[4], material)
+    };
+    for profile in [&ipe, &hea, &beams_only] {
+        h.execute(&mut p, Command::AddProfile(profile.clone())).unwrap();
+    }
+    let ground = ground(&p);
+    let column = |p: &Project, profile| {
+        let mut dummy = Dummy::new(DVec2::ZERO, DVec2::ONE, material);
+        dummy.profile = Some(profile);
+        dummy.into_element(p, ground, 0)
+    };
+
+    let dangling = column(&p, ProfileId::new());
+    assert_eq!(
+        h.execute(&mut p, Command::AddElements(vec![dangling])),
+        Err(CommandError::Invalid(Message::new(
+            "model-error-element-profile-missing"
+        )))
+    );
+    let usage = Message::new("model-error-profile-usage")
+        .text("name", "Beam 300")
+        .kind("kind", KindTag::Dummy);
+    let usage_error = Err(CommandError::Invalid(
+        Message::new("model-error-element-invalid")
+            .text("name", "X-001")
+            .nested("reason", usage.clone()),
+    ));
+    let not_a_column = column(&p, beams_only.id);
+    assert_eq!(
+        h.execute(&mut p, Command::AddElements(vec![not_a_column])),
+        Err(CommandError::Invalid(usage.clone()))
+    );
+
+    let user = column(&p, ipe.id);
+    let user_id = user.id;
+    h.execute(&mut p, Command::AddElements(vec![user])).unwrap();
+    assert_eq!(p.profile_users(ipe.id).map(|e| e.id).collect::<Vec<_>>(), [user_id]);
+    assert_eq!(p.profile_users(hea.id).count(), 0);
+    let before = p.clone();
+
+    assert_eq!(
+        h.execute(
+            &mut p,
+            Command::DeleteProfile {
+                profile: ipe.id,
+                replacement: None
+            }
+        ),
+        Err(CommandError::Invalid(
+            Message::new("model-error-profile-in-use")
+                .text("name", "IPE 300")
+                .count("count", 1)
+        ))
+    );
+    assert_eq!(
+        h.execute(
+            &mut p,
+            Command::DeleteProfile {
+                profile: ipe.id,
+                replacement: Some(beams_only.id)
+            }
+        ),
+        usage_error,
+        "the replacement must allow the user's kind"
+    );
+    let no_columns = Profile {
+        usage: beams_only.usage,
+        ..ipe.clone()
+    };
+    assert_eq!(
+        h.execute(&mut p, Command::UpdateProfile(no_columns)),
+        Err(CommandError::Invalid(
+            Message::new("model-error-element-invalid")
+                .text("name", "X-001")
+                .nested(
+                    "reason",
+                    Message::new("model-error-profile-usage")
+                        .text("name", "IPE 300")
+                        .kind("kind", KindTag::Dummy)
+                ),
+        )),
+        "an edit cannot remove a usage flag a user needs"
+    );
+    assert_eq!(p, before, "rejected commands change nothing");
+
+    let depth = h.undo_len();
+    h.execute(
+        &mut p,
+        Command::DeleteProfile {
+            profile: ipe.id,
+            replacement: Some(hea.id),
+        },
+    )
+    .unwrap();
+    assert_eq!(h.undo_len(), depth + 1, "one transaction");
+    assert!(p.profile(ipe.id).is_none());
+    assert_eq!(p.element(user_id).unwrap().kind.profiles(), [hea.id]);
+    assert!(p.integrity_problems().is_empty());
+    h.undo(&mut p).unwrap();
+    let mut expected = before;
+    expected.revision = p.revision;
+    assert_eq!(p, expected, "undo restores the profile and its user exactly");
+}
+
 /// NFR-MNT-001, PRF-004: a command log with profile commands serialises and
 /// replays onto the starting project to the same profiles.
 #[test]
