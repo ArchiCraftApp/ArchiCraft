@@ -43,7 +43,7 @@ pub use ids::{
     BuildingId, ElementId, GroupId, LayerId, MaterialId, ProfileId, ProjectId, RelationId, SiteId, StoreyId,
     TextStyleId, ViewId,
 };
-pub use kinds::{BoundarySource, ReferenceLine, Slab, SlabReference, Space, Text, Wall};
+pub use kinds::{BoundarySource, PlanMeasure, ReferenceLine, Slab, SlabReference, Space, Text, Wall};
 pub use layer::Layer;
 pub use material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 pub use message::{Arg, Message};

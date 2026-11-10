@@ -11,7 +11,9 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, Vertical, VerticalLink, transform_outline, vertical};
+use super::{
+    Kind, KindDescriptor, KindTag, PlanMeasure, StoreyLinkRef, Vertical, VerticalLink, transform_outline, vertical,
+};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
 use crate::fields::{FieldSpec, FieldType, FieldValue, Section};
 use crate::ids::StoreyId;
@@ -242,6 +244,11 @@ impl Kind for Space {
     /// Holes lie inside the boundary, so the outer ring bounds the space.
     fn plan_bounds(&self) -> Option<(DVec2, DVec2)> {
         self.boundary.bounds()
+    }
+
+    /// The net area, the value the plan stamp shows (SPC-001).
+    fn plan_measure(&self) -> Option<PlanMeasure> {
+        Some(PlanMeasure::Area(self.net_area()))
     }
 }
 

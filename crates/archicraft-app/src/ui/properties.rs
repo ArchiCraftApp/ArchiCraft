@@ -7,15 +7,14 @@
 //! element. Locked elements are counted but not changed.
 
 use archicraft_model::command::relink_to_storey;
+use archicraft_model::fields::{FieldSpec, Section, fields_of};
 use archicraft_model::project::DefaultsSlot;
-use archicraft_model::units::{NumberFormat, UnitSettings, format_area, format_length, format_volume};
-use archicraft_model::{
-    AnchorPos, Command, Element, ElementKind, GroupId, IfcClass, KindTag, LayerId, MaterialId, Position,
-    PredefinedType, Project, ReferenceLine, SlabReference, StoreyId, StructuralFunction, TextStyleId, TopLink,
-};
+use archicraft_model::units::{format_area, format_length, format_volume};
+use archicraft_model::{Command, Element, GroupId, KindTag, PlanMeasure, StoreyId};
 use egui::{Id, Ui};
 
 use super::command_widgets::command_button;
+use super::fields::Fields;
 use super::widgets::{self, Edited, common};
 use crate::commands::{self, CommandCtx, CommandId, Origin, Registry, Target};
 use crate::input::{DivisionMode, DivisionScope, EQUAL_PARTS, PointInput};
@@ -103,707 +102,61 @@ fn apply(ws: &mut Workspace, editing: Editing) {
     }
 }
 
-/// Field rendering context.
-struct Fields<'a> {
-    layout: Layout,
-    id: Id,
-    units: UnitSettings,
-    nf: NumberFormat,
-    project: &'a Project,
-    targets: &'a mut Vec<Element>,
-    /// True while editing selected elements, false for the tool defaults.
-    selection: bool,
-    /// The hint of an empty space number (SPC-001), see [`number_hint`].
-    number_hint: Option<String>,
-    changed: bool,
-    error: Option<String>,
-}
-
-impl Fields<'_> {
-    fn width(&self, strip: f32) -> f32 {
-        match self.layout {
-            Layout::Strip => strip,
-            Layout::Grid => 180.0,
-        }
+/// The UI-only hints of empty text fields, by field key: the default-name
+/// pattern of the room name for the tool defaults, the suggested `number`
+/// ([`number_hint`]) and the style's size of a text without its own `size`
+/// (SPC-001, ANN-007).
+fn hints(ws: &Workspace, editing: &Editing) -> Vec<(&'static str, String)> {
+    let has = |key: &str| editing.targets.iter().any(|e| fields_of(e).any(|s| s.key == key));
+    let mut hints = Vec::new();
+    if editing.subject != Subject::Selection && has("long_name") {
+        hints.push(("long_name", tr!("tool-space-default-name", n = "{n}")));
     }
-
-    fn row(&mut self, ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui, &mut Self)) {
-        self.row_of(ui, label, |ui, f| {
-            add(ui, f);
-            None
-        });
+    if has("number")
+        && let Some(hint) = number_hint(ws, editing)
+    {
+        hints.push(("number", hint));
     }
-
-    /// A row whose label names the widget whose id `add` returns, for
-    /// screen readers.
-    fn row_of(&mut self, ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui, &mut Self) -> Option<Id>) {
-        let label = ui.label(label);
-        if let Some(field) = add(ui, self) {
-            ui.ctx().accesskit_node_builder(field, |node| {
-                node.push_labelled_by(label.id.accesskit_id());
-            });
-        }
-        match self.layout {
-            Layout::Strip => ui.add_space(8.0),
-            Layout::Grid => ui.end_row(),
-        }
-    }
-
-    fn length(
-        &mut self,
-        ui: &mut Ui,
-        label: &str,
-        key: &str,
-        get: impl Fn(&Element) -> Option<f64>,
-        set: impl Fn(&mut Element, f64),
-    ) {
-        if !self.targets.iter().any(|e| get(e).is_some()) {
-            return;
-        }
-        self.row(ui, label, |ui, f| {
-            let value = common(f.targets.iter().filter_map(&get));
-            let width = f.width(64.0);
-            match widgets::length(ui, f.id.with(key), value, &f.units, &f.nf, width) {
-                Edited::Changed(v) => {
-                    for e in f.targets.iter_mut().filter(|e| get(e).is_some()) {
-                        set(e, v);
-                    }
-                    f.changed = true;
-                }
-                Edited::Invalid(e) => f.error = Some(e),
-                Edited::Unchanged => {}
-            }
-        });
-    }
-
-    /// A free-text row over the targets for which `get` gives a value; an
-    /// empty value shows `hint`.
-    fn text(
-        &mut self,
-        ui: &mut Ui,
-        label: &str,
-        key: &str,
-        hint: &str,
-        get: impl Fn(&Element) -> Option<&str>,
-        set: impl Fn(&mut Element, String),
-    ) {
-        if !self.targets.iter().any(|e| get(e).is_some()) {
-            return;
-        }
-        self.row(ui, label, |ui, f| {
-            let value = common(f.targets.iter().filter_map(&get));
-            let width = f.width(90.0);
-            match widgets::hinted_text(ui, f.id.with(key), value, hint, width) {
-                Edited::Changed(v) => {
-                    for e in f.targets.iter_mut().filter(|e| get(e).is_some()) {
-                        set(e, v.clone());
-                    }
-                    f.changed = true;
-                }
-                Edited::Invalid(e) => f.error = Some(e),
-                Edited::Unchanged => {}
-            }
-        });
-    }
-
-    fn choice<T: Clone + PartialEq>(
-        &mut self,
-        ui: &mut Ui,
-        label: &str,
-        key: &str,
-        options: &[(T, String)],
-        get: impl Fn(&Element) -> Option<T>,
-        set: impl Fn(&mut Element, &T),
-    ) {
-        if !self.targets.iter().any(|e| get(e).is_some()) {
-            return;
-        }
-        self.row_of(ui, label, |ui, f| {
-            let value = common(f.targets.iter().filter_map(&get));
-            let width = f.width(110.0);
-            let (response, picked) = widgets::choice_response(ui, f.id.with(key), value.as_ref(), options, width);
-            if let Some(picked) = picked {
-                for e in f.targets.iter_mut().filter(|e| get(e).is_some()) {
-                    set(e, &picked);
-                }
-                f.changed = true;
-            }
-            Some(response.id)
-        });
-    }
-}
-
-fn wall(e: &Element) -> Option<&archicraft_model::Wall> {
-    e.as_wall()
-}
-
-fn wall_mut(e: &mut Element) -> Option<&mut archicraft_model::Wall> {
-    e.as_wall_mut()
-}
-
-fn slab_mut(e: &mut Element) -> Option<&mut archicraft_model::Slab> {
-    e.as_slab_mut()
-}
-
-/// The top of a wall or a space (ELM-006, SPC-001), which share the height
-/// rows.
-fn top(e: &Element) -> Option<TopLink> {
-    match &e.kind {
-        ElementKind::Wall(w) => Some(w.top),
-        ElementKind::Space(s) => Some(s.link.top),
-        _ => None,
-    }
-}
-
-fn top_mut(e: &mut Element) -> Option<&mut TopLink> {
-    match &mut e.kind {
-        ElementKind::Wall(w) => Some(&mut w.top),
-        ElementKind::Space(s) => Some(&mut s.link.top),
-        _ => None,
-    }
-}
-
-/// The base offset of a wall or a space from its home storey (ELM-006,
-/// SPC-001).
-fn base_offset_mut(e: &mut Element) -> Option<&mut f64> {
-    match &mut e.kind {
-        ElementKind::Wall(w) => Some(&mut w.base_offset),
-        ElementKind::Space(s) => Some(&mut s.link.base_offset),
-        _ => None,
-    }
-}
-
-fn base_offset(e: &Element) -> Option<f64> {
-    match &e.kind {
-        ElementKind::Wall(w) => Some(w.base_offset),
-        ElementKind::Space(s) => Some(s.link.base_offset),
-        _ => None,
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TopMode {
-    Fixed,
-    Storey,
-    Relative,
-}
-
-fn top_mode(top: TopLink) -> TopMode {
-    match top {
-        TopLink::Fixed { .. } => TopMode::Fixed,
-        TopLink::Storey { .. } => TopMode::Storey,
-        TopLink::Relative { .. } => TopMode::Relative,
-    }
-}
-
-fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
-    f.length(
-        ui,
-        "Thickness",
-        "thickness",
-        |e| match &e.kind {
-            ElementKind::Wall(w) => Some(w.thickness),
-            ElementKind::Slab(s) => Some(s.thickness),
-            // Other kinds show the common fields only.
-            _ => None,
-        },
-        |e, v| match &mut e.kind {
-            ElementKind::Wall(w) => w.thickness = v,
-            ElementKind::Slab(s) => s.thickness = v,
-            _ => {}
-        },
-    );
-    let reference_options: Vec<(u8, String)> = [
-        ReferenceLine::Outside,
-        ReferenceLine::Center,
-        ReferenceLine::Inside,
-        ReferenceLine::Custom(0.0),
-    ]
-    .iter()
-    .enumerate()
-    .map(|(i, r)| (i as u8, tr!(r.label_key())))
-    .collect();
-    let reference_index = |r: ReferenceLine| match r {
-        ReferenceLine::Outside => 0u8,
-        ReferenceLine::Center => 1,
-        ReferenceLine::Inside => 2,
-        ReferenceLine::Custom(_) => 3,
-    };
-    f.choice(
-        ui,
-        "Reference line",
-        "refline",
-        &reference_options,
-        |e| wall(e).map(|w| reference_index(w.reference_line)),
-        |e, i| {
-            if let Some(w) = wall_mut(e) {
-                w.reference_line = match i {
-                    0 => ReferenceLine::Outside,
-                    1 => ReferenceLine::Center,
-                    2 => ReferenceLine::Inside,
-                    _ => ReferenceLine::Custom(w.thickness / 3.0),
-                };
-            }
-        },
-    );
-    f.length(
-        ui,
-        "Offset from exterior face",
-        "refoffset",
-        |e| match wall(e)?.reference_line {
-            ReferenceLine::Custom(o) => Some(o),
-            _ => None,
-        },
-        |e, v| {
-            if let Some(w) = wall_mut(e) {
-                w.reference_line = ReferenceLine::Custom(v);
-            }
-        },
-    );
-    f.length(ui, "Base offset", "base", base_offset, |e, v| {
-        if let Some(base) = base_offset_mut(e) {
-            *base = v;
-        }
-    });
-    let modes = vec![
-        (TopMode::Fixed, "Fixed height".to_owned()),
-        (TopMode::Storey, "Linked to storey".to_owned()),
-        (TopMode::Relative, "Home storey + n".to_owned()),
-    ];
-    let project = f.project;
-    f.choice(
-        ui,
-        "Top",
-        "topmode",
-        &modes,
-        |e| top(e).map(top_mode),
-        |e, mode| {
-            let extent = project.vertical_extent(e);
-            let home = e.storey;
-            if let Some(link) = top_mut(e) {
-                let (bottom, top) = extent.unwrap_or((0.0, 3.0));
-                *link = match mode {
-                    TopMode::Fixed => TopLink::Fixed { height: top - bottom },
-                    TopMode::Storey => {
-                        let s = project
-                            .storeys
-                            .relative(home, 1)
-                            .unwrap_or_else(|| project.storeys.storey_at_elevation(top));
-                        TopLink::Storey {
-                            storey: s.id,
-                            offset: top - s.elevation,
-                        }
-                    }
-                    TopMode::Relative => TopLink::Relative {
-                        storeys: 1,
-                        offset: 0.0,
-                    },
-                };
-            }
-        },
-    );
-    f.length(
-        ui,
-        "Height",
-        "height",
-        |e| match top(e)? {
-            TopLink::Fixed { height } => Some(height),
-            _ => None,
-        },
-        |e, v| {
-            if let Some(link) = top_mut(e) {
-                *link = TopLink::Fixed { height: v };
-            }
-        },
-    );
-    let storeys: Vec<(StoreyId, String)> = project
-        .storeys
-        .highest_first()
-        .map(|s| (s.id, s.name.clone()))
-        .collect();
-    f.choice(
-        ui,
-        "Top storey",
-        "topstorey",
-        &storeys,
-        |e| match top(e)? {
-            TopLink::Storey { storey, .. } => Some(storey),
-            _ => None,
-        },
-        |e, s| {
-            if let Some(link) = top_mut(e)
-                && let TopLink::Storey { offset, .. } = *link
-            {
-                *link = TopLink::Storey { storey: *s, offset };
-            }
-        },
-    );
-    let relative: Vec<(i32, String)> = [-2, -1, 0, 1, 2, 3]
-        .iter()
-        .map(|n| (*n, format!("Home {n:+}")))
-        .collect();
-    f.choice(
-        ui,
-        "Linked storey",
-        "toprel",
-        &relative,
-        |e| match top(e)? {
-            TopLink::Relative { storeys, .. } => Some(storeys),
-            _ => None,
-        },
-        |e, n| {
-            if let Some(link) = top_mut(e)
-                && let TopLink::Relative { offset, .. } = *link
-            {
-                *link = TopLink::Relative { storeys: *n, offset };
-            }
-        },
-    );
-    f.length(
-        ui,
-        "Top offset",
-        "topoffset",
-        |e| match top(e)? {
-            TopLink::Storey { offset, .. } | TopLink::Relative { offset, .. } => Some(offset),
-            TopLink::Fixed { .. } => None,
-        },
-        |e, v| {
-            if let Some(link) = top_mut(e) {
-                *link = match *link {
-                    TopLink::Storey { storey, .. } => TopLink::Storey { storey, offset: v },
-                    TopLink::Relative { storeys, .. } => TopLink::Relative { storeys, offset: v },
-                    fixed => fixed,
-                };
-            }
-        },
-    );
-    let references = vec![
-        (SlabReference::Top, "Top face".to_owned()),
-        (SlabReference::Bottom, "Bottom face".to_owned()),
-    ];
-    f.choice(
-        ui,
-        "Reference plane",
-        "slabref",
-        &references,
-        |e| e.as_slab().map(|s| s.reference),
-        |e, r| {
-            if let Some(s) = slab_mut(e) {
-                s.reference = *r;
-            }
-        },
-    );
-    f.length(
-        ui,
-        "Elevation offset",
-        "slaboffset",
-        |e| e.as_slab().map(|s| s.offset),
-        |e, v| {
-            if let Some(s) = slab_mut(e) {
-                s.offset = v;
-            }
-        },
-    );
-}
-
-fn text_mut(e: &mut Element) -> Option<&mut archicraft_model::Text> {
-    e.as_text_mut()
-}
-
-/// The name of an anchor position (ANN-007).
-fn anchor_pos_label(pos: AnchorPos) -> String {
-    match pos {
-        AnchorPos::TopLeft => tr!("dlg-properties-anchor-top-left"),
-        AnchorPos::TopCenter => tr!("dlg-properties-anchor-top-center"),
-        AnchorPos::TopRight => tr!("dlg-properties-anchor-top-right"),
-        AnchorPos::MiddleLeft => tr!("dlg-properties-anchor-middle-left"),
-        AnchorPos::Center => tr!("dlg-properties-anchor-center"),
-        AnchorPos::MiddleRight => tr!("dlg-properties-anchor-middle-right"),
-        AnchorPos::BottomLeft => tr!("dlg-properties-anchor-bottom-left"),
-        AnchorPos::BottomCenter => tr!("dlg-properties-anchor-bottom-center"),
-        AnchorPos::BottomRight => tr!("dlg-properties-anchor-bottom-right"),
-    }
-}
-
-/// The fields of texts (ANN-007): the content (several lines), the style,
-/// the size in millimetres (empty for the style's size), the anchor
-/// position and the angle. Each committed change is one step (ELM-001). The
-/// text tool's defaults have no content: each text gets its own in the
-/// inline editor, so their strip has no Content row.
-fn text_fields(ui: &mut Ui, f: &mut Fields<'_>) {
-    if !f.targets.iter().any(|e| e.as_text().is_some()) {
-        return;
-    }
-    let texts = |targets: &[Element]| -> Vec<archicraft_model::Text> {
-        targets.iter().filter_map(Element::as_text).cloned().collect()
-    };
-    if f.selection {
-        let field = f.id.with("text-content");
-        f.row_of(ui, "Content", |ui, f| {
-            let value = common(texts(f.targets).into_iter().map(|t| t.content));
-            match widgets::multiline_text(ui, field, value.as_deref(), f.width(140.0)).1 {
-                Edited::Changed(content) => {
-                    for t in f.targets.iter_mut().filter_map(text_mut) {
-                        t.content.clone_from(&content);
-                    }
-                    f.changed = true;
-                }
-                Edited::Invalid(e) => f.error = Some(e),
-                Edited::Unchanged => {}
-            }
-            Some(field)
-        });
-    }
-    let project = f.project;
-    let styles: Vec<(TextStyleId, String)> = project.text_styles.iter().map(|s| (s.id, s.name.clone())).collect();
-    f.choice(
-        ui,
-        "Text style",
-        "text-style",
-        &styles,
-        |e| e.as_text().map(|t| t.style),
-        |e, style| {
-            if let Some(t) = text_mut(e) {
-                t.style = *style;
-            }
-        },
-    );
-    let field = f.id.with("text-size");
-    f.row_of(ui, "Size (mm)", |ui, f| {
-        let targets = texts(f.targets);
-        let value = common(targets.iter().map(|t| t.size_mm));
+    if has("size") {
+        let project = &ws.doc.project;
         let style_size = common(
-            targets
+            editing
+                .targets
                 .iter()
-                .filter_map(|t| project.text_style(t.style))
+                .filter_map(|e| project.text_style(e.kind.text_style()?))
                 .map(|s| s.size_mm.to_bits()),
         );
-        let hint = style_size.map_or_else(String::new, |bits| {
-            let size = widgets::format_trimmed(&f.nf, f64::from_bits(bits), 3);
-            tr!("dlg-properties-text-style-size", size = size.as_str())
-        });
-        match widgets::optional_positive(ui, field, value, &hint, &f.nf, f.width(64.0)).1 {
-            Edited::Changed(size) => {
-                for t in f.targets.iter_mut().filter_map(text_mut) {
-                    t.size_mm = size;
-                }
-                f.changed = true;
-            }
-            Edited::Invalid(e) => f.error = Some(e),
-            Edited::Unchanged => {}
+        if let Some(bits) = style_size {
+            let size = widgets::format_trimmed(&ws.prefs.number_format(), f64::from_bits(bits), 3);
+            hints.push(("size", tr!("dlg-properties-text-style-size", size = size.as_str())));
         }
-        Some(field)
-    });
-    let positions: Vec<(AnchorPos, String)> = AnchorPos::ALL.iter().map(|p| (*p, anchor_pos_label(*p))).collect();
-    f.choice(
-        ui,
-        "Anchor position",
-        "text-anchor-pos",
-        &positions,
-        |e| e.as_text().map(|t| t.anchor_pos),
-        |e, pos| {
-            if let Some(t) = text_mut(e) {
-                t.anchor_pos = *pos;
-            }
-        },
-    );
-    let field = f.id.with("text-angle");
-    f.row_of(ui, "Angle", |ui, f| {
-        let value = common(texts(f.targets).into_iter().map(|t| t.angle.to_bits())).map(f64::from_bits);
-        match widgets::angle(ui, field, value, &f.units, &f.nf, f.width(64.0)) {
-            Edited::Changed(angle) => {
-                for t in f.targets.iter_mut().filter_map(text_mut) {
-                    t.angle = angle;
-                }
-                f.changed = true;
-            }
-            Edited::Invalid(e) => f.error = Some(e),
-            Edited::Unchanged => {}
-        }
-        Some(field)
-    });
+    }
+    hints
 }
 
-/// The room name and number of spaces (SPC-001). For the space tool's
-/// defaults the room name is the default name, in which `{n}` stands for
-/// the new space's number in its kind (`Raum {n}` names the second space
-/// "Raum 2"); empty, new spaces are named with the localised pattern, which
-/// the field shows as its hint.
-fn space_fields(ui: &mut Ui, f: &mut Fields<'_>) {
-    let (label, hint) = if f.selection {
-        ("Room name", String::new())
-    } else {
-        ("Default name", tr!("tool-space-default-name", n = "{n}"))
-    };
-    f.text(
-        ui,
-        label,
-        "longname",
-        &hint,
-        |e| e.as_space().map(|s| s.long_name.as_str()),
-        |e, v| {
-            if let Some(s) = e.as_space_mut() {
-                s.long_name = v;
-            }
-        },
-    );
-    let hint = f.number_hint.clone().unwrap_or_default();
-    f.text(
-        ui,
-        "Number",
-        "number",
-        &hint,
-        |e| e.as_space().map(|s| s.number.as_str()),
-        |e, v| {
-            if let Some(s) = e.as_space_mut() {
-                s.number = v;
-            }
-        },
-    );
-}
-
-/// The read-only net area of one selected space in the project's area unit
-/// (SPC-001), the value its plan stamp shows.
-fn space_area(ui: &mut Ui, f: &mut Fields<'_>) {
-    let [element] = f.targets.as_slice() else {
-        return;
-    };
-    let Some(space) = element.as_space().filter(|_| f.selection) else {
-        return;
-    };
-    let area = format_area(space.net_area(), &f.units, &f.nf);
-    f.row(ui, "Area", |ui, _| {
-        ui.label(egui::RichText::new(area).weak());
-    });
-}
-
-/// The hint of an empty space number (SPC-001): for the space tool's
-/// defaults [`Project::suggested_space_number`] of the active storey, the
-/// number the next space gets suggested; for one selected space the same
-/// pattern with the space's place among its storey's spaces, so that the
-/// only space of the ground storey shows `0.01`, not the `0.02` suggested
-/// for a further one. `None` for other targets.
+/// The hint of an empty number (SPC-001): for the tool defaults
+/// [`Project::suggested_space_number`](archicraft_model::Project::suggested_space_number)
+/// of the active storey, the number the next element gets suggested; for
+/// one selected element the same pattern with its place among the elements
+/// of its kind on its storey, so that the only space of the ground storey
+/// shows `0.01`, not the `0.02` suggested for a further one. `None` for
+/// several targets.
 fn number_hint(ws: &Workspace, editing: &Editing) -> Option<String> {
     let project = &ws.doc.project;
     let [element] = editing.targets.as_slice() else {
         return None;
     };
-    element.as_space()?;
     match editing.subject {
         Subject::Defaults(_) => project.suggested_space_number(ws.active_storey),
         Subject::Selection => {
             let number = project.storeys.number(element.storey)?;
             let place = project
                 .elements_on(element.storey)
-                .filter(|e| e.tag() == KindTag::Space)
+                .filter(|e| e.tag() == element.tag())
                 .position(|e| e.id == element.id)?;
             Some(format!("{number}.{:02}", place + 1))
         }
     }
-}
-
-/// True if every target is a space (SPC-001): the settings dialog then shows
-/// all its fields in the 'Space' section.
-fn all_spaces(f: &Fields<'_>) -> bool {
-    f.targets.iter().all(|e| e.as_space().is_some())
-}
-
-/// True if every target has a material: a kind without one, like a space
-/// (SPC-001), has none to pick and no cut fill.
-fn all_have_material(f: &Fields<'_>) -> bool {
-    f.targets.iter().all(|e| e.kind.material().is_some())
-}
-
-/// The Material row, shown only when every selected element has a
-/// material ([`all_have_material`]).
-fn appearance_fields(ui: &mut Ui, f: &mut Fields<'_>) {
-    if !all_have_material(f) {
-        return;
-    }
-    let materials: Vec<(MaterialId, String)> = f.project.materials.iter().map(|m| (m.id, m.name.clone())).collect();
-    f.choice(
-        ui,
-        "Material",
-        "material",
-        &materials,
-        |e| e.kind.material(),
-        |e, m| e.kind.set_material(*m),
-    );
-}
-
-fn classification_fields(ui: &mut Ui, f: &mut Fields<'_>) {
-    let layers: Vec<(LayerId, String)> = f.project.layers.iter().map(|l| (l.id, l.name.clone())).collect();
-    f.choice(ui, "Layer", "layer", &layers, |e| Some(e.layer), |e, l| e.layer = *l);
-    let kinds = common(f.targets.iter().map(Element::tag));
-    if let Some(kind) = kinds {
-        let classes: Vec<(IfcClass, String)> = kind.ifc_classes().iter().map(|c| (*c, tr!(c.label_key()))).collect();
-        f.choice(
-            ui,
-            "IFC class",
-            "class",
-            &classes,
-            |e| Some(e.ifc_class),
-            |e, c| {
-                e.ifc_class = *c;
-                // IFX-024: a type the new class does not offer is dropped.
-                if e.predefined_type
-                    .is_some_and(|t| !e.tag().predefined_types(*c).contains(&t))
-                {
-                    e.predefined_type = None;
-                }
-            },
-        );
-        predefined_type_field(ui, f, kind);
-    }
-    let positions = vec![
-        (Position::Undefined, "Undefined".to_owned()),
-        (Position::Exterior, "Exterior".to_owned()),
-        (Position::Interior, "Interior".to_owned()),
-    ];
-    f.choice(
-        ui,
-        "Position",
-        "position",
-        &positions,
-        |e| Some(e.position),
-        |e, p| e.position = *p,
-    );
-    // ELM-020: an envelope flag like the position, for every kind.
-    let functions: Vec<(StructuralFunction, String)> = StructuralFunction::ALL
-        .iter()
-        .map(|s| (*s, tr!(s.label_key())))
-        .collect();
-    f.choice(
-        ui,
-        "Structural function",
-        "structural-function",
-        &functions,
-        |e| Some(e.structural),
-        |e, s| e.structural = *s,
-    );
-}
-
-/// The predefined type (IFX-024): none or one of the types the kind offers
-/// with the class, shown when all targets have the same class and it has
-/// types.
-fn predefined_type_field(ui: &mut Ui, f: &mut Fields<'_>, kind: KindTag) {
-    let Some(class) = common(f.targets.iter().map(|e| e.ifc_class)) else {
-        return;
-    };
-    let offered = kind.predefined_types(class);
-    if offered.is_empty() {
-        return;
-    }
-    let mut types: Vec<(Option<PredefinedType>, String)> = vec![(None, "None".to_owned())];
-    types.extend(offered.iter().map(|t| (Some(*t), tr!(t.label_key()))));
-    f.choice(
-        ui,
-        "Predefined type",
-        "predefined-type",
-        &types,
-        |e| Some(e.predefined_type),
-        |e, t| e.predefined_type = *t,
-    );
 }
 
 fn summary(ws: &Workspace, editing: &Editing) -> String {
@@ -839,34 +192,36 @@ fn summary(ws: &Workspace, editing: &Editing) -> String {
     }
 }
 
-/// Read-only values derived from the geometry (MEA-003).
-fn derived(ui: &mut Ui, ws: &mut Workspace, layout: Layout) {
+/// Read-only values of one selected element: its plan measure, such as a
+/// wall's length or a space's net area, and its volume (MEA-003, SPC-001).
+fn derived(ws: &mut Workspace) -> Vec<(&'static str, String)> {
     let ids = ws.selected_ids();
     let [id] = ids.as_slice() else {
-        return;
+        return Vec::new();
     };
     let geometry = ws.doc.geometry();
     let project = &ws.doc.project;
     let Some(element) = project.element(*id) else {
-        return;
+        return Vec::new();
     };
     let units = &project.settings.units;
     let nf = ws.prefs.number_format();
-    let volume = geometry.get(*id).map(|g| g.volume());
-    let mut rows: Vec<(&str, String)> = Vec::new();
-    match &element.kind {
-        ElementKind::Wall(w) => rows.push(("Length", format_length(w.length(), units, &nf, true))),
-        ElementKind::Slab(s) => {
-            rows.push(("Area", format_area(s.outline.area(), units, &nf)));
-        }
-        // A space's area is a row of its fields (space_area).
-        _ => {}
+    let mut rows = Vec::new();
+    match element.kind.plan_measure() {
+        Some(PlanMeasure::Length(length)) => rows.push(("Length", format_length(length, units, &nf, true))),
+        Some(PlanMeasure::Area(area)) => rows.push(("Area", format_area(area, units, &nf))),
+        None => {}
     }
-    if let Some(v) = volume {
+    if let Some(v) = geometry.get(*id).map(|g| g.volume()) {
         rows.push(("Volume", format_volume(v, units, &nf)));
     }
+    rows
+}
+
+/// The rows of [`derived`] values.
+fn derived_rows(ui: &mut Ui, rows: &[(&str, String)], layout: Layout) {
     for (label, value) in rows {
-        ui.label(label);
+        ui.label(*label);
         ui.label(egui::RichText::new(value).weak());
         if layout == Layout::Grid {
             ui.end_row();
@@ -1028,7 +383,8 @@ pub fn strip(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
         }
         if editing.subject == Subject::Selection {
             lock_toggle(ui, ws);
-            derived(ui, ws, Layout::Strip);
+            let rows = derived(ws);
+            derived_rows(ui, &rows, Layout::Strip);
         }
         if ui
             .button("Settings…")
@@ -1051,7 +407,12 @@ fn edit_fields(ui: &mut Ui, ws: &mut Workspace, editing: &mut Editing, layout: L
                 .inner
         }
     };
-    let number_hint = number_hint(ws, editing);
+    let hints = hints(ws, editing);
+    // The dialog shows the derived values with the geometry.
+    let derived = match (layout, editing.subject) {
+        (Layout::Grid, Subject::Selection) => derived(ws),
+        _ => Vec::new(),
+    };
     let mut targets = std::mem::take(&mut editing.targets);
     let mut f = Fields {
         layout,
@@ -1061,48 +422,14 @@ fn edit_fields(ui: &mut Ui, ws: &mut Workspace, editing: &mut Editing, layout: L
         project: &ws.doc.project,
         targets: &mut targets,
         selection: editing.subject == Subject::Selection,
-        number_hint,
+        hints,
         changed: false,
         error: None,
     };
+    let visible = f.visible();
     match layout {
-        Layout::Strip => {
-            space_fields(ui, &mut f);
-            geometry_fields(ui, &mut f);
-            space_area(ui, &mut f);
-            text_fields(ui, &mut f);
-            appearance_fields(ui, &mut f);
-            classification_fields(ui, &mut f);
-        }
-        Layout::Grid => {
-            // UI-003: a space's fields, its height included, are one
-            // section; with other kinds selected too, the room name and
-            // number get their own.
-            if all_spaces(&f) {
-                section(ui, "Space", |ui| {
-                    space_fields(ui, &mut f);
-                    geometry_fields(ui, &mut f);
-                    space_area(ui, &mut f);
-                });
-            } else {
-                section(ui, "Geometry and positioning", |ui| geometry_fields(ui, &mut f));
-                if f.targets.iter().any(|e| e.as_space().is_some()) {
-                    section(ui, "Space", |ui| space_fields(ui, &mut f));
-                }
-            }
-            if f.targets.iter().any(|e| e.as_text().is_some()) {
-                section(ui, "Text", |ui| text_fields(ui, &mut f));
-            }
-            // Without a material both sections would be empty (SPC-001).
-            if all_have_material(&f) {
-                section(ui, "Model and appearance", |ui| appearance_fields(ui, &mut f));
-                section(ui, "Plan display", |ui| {
-                    ui.label("Cut fills come from the material.");
-                    ui.end_row();
-                });
-            }
-            section(ui, "Classification", |ui| classification_fields(ui, &mut f));
-        }
+        Layout::Strip => f.show(ui, &visible),
+        Layout::Grid => dialog_sections(ui, &mut f, &visible, &derived),
     }
     let changed = f.changed;
     error = error.or(f.error.take());
@@ -1118,6 +445,73 @@ fn edit_fields(ui: &mut Ui, ws: &mut Workspace, editing: &mut Editing, layout: L
         );
     }
     error
+}
+
+/// The settings dialog's sections (UI-003), each with the visible fields of
+/// its [`Section`] in display order. The fields of a kind's own section are
+/// titled with the kind's label; when every target is of one kind that has
+/// such fields, its geometry joins them, as all of a space's fields are in
+/// 'Space'. The derived values follow the geometry.
+fn dialog_sections(ui: &mut Ui, f: &mut Fields<'_>, visible: &[&'static FieldSpec], derived: &[(&str, String)]) {
+    let of = |section: Section| -> Vec<&'static FieldSpec> {
+        visible.iter().copied().filter(|s| s.section == section).collect()
+    };
+    let mut kinds: Vec<KindTag> = Vec::new();
+    for tag in f.targets.iter().map(Element::tag) {
+        if !kinds.contains(&tag) {
+            kinds.push(tag);
+        }
+    }
+    let kind_fields = of(Section::Kind);
+    if let ([kind], false) = (kinds.as_slice(), kind_fields.is_empty()) {
+        let fields: Vec<&'static FieldSpec> = visible
+            .iter()
+            .copied()
+            .filter(|s| matches!(s.section, Section::Kind | Section::Geometry))
+            .collect();
+        section(ui, &tr!(kind.label_key()), |ui| {
+            f.show(ui, &fields);
+            derived_rows(ui, derived, Layout::Grid);
+        });
+    } else {
+        let geometry = of(Section::Geometry);
+        if !geometry.is_empty() || !derived.is_empty() {
+            section(ui, "Geometry and positioning", |ui| {
+                f.show(ui, &geometry);
+                derived_rows(ui, derived, Layout::Grid);
+            });
+        }
+        let mut shown: Vec<&str> = Vec::new();
+        for kind in kinds {
+            let fields: Vec<&'static FieldSpec> = kind_fields
+                .iter()
+                .copied()
+                .filter(|s| !shown.contains(&s.key) && kind.descriptor().fields.iter().any(|k| k.key == s.key))
+                .collect();
+            if fields.is_empty() {
+                continue;
+            }
+            shown.extend(fields.iter().map(|s| s.key));
+            section(ui, &tr!(kind.label_key()), |ui| f.show(ui, &fields));
+        }
+    }
+    let appearance = of(Section::ModelAppearance);
+    if !appearance.is_empty() {
+        section(ui, "Model and appearance", |ui| f.show(ui, &appearance));
+    }
+    // Without a material there is no cut fill to explain (SPC-001).
+    let plan_display = of(Section::PlanDisplay);
+    if !plan_display.is_empty() || visible.iter().any(|s| s.key == "material") {
+        section(ui, "Plan display", |ui| {
+            f.show(ui, &plan_display);
+            ui.label("Cut fills come from the material.");
+            ui.end_row();
+        });
+    }
+    let classification = of(Section::Classification);
+    if !classification.is_empty() {
+        section(ui, "Classification", |ui| f.show(ui, &classification));
+    }
 }
 
 fn section(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
@@ -1261,14 +655,6 @@ pub fn settings_dialog(ui: &mut Ui, ws: &mut Workspace) {
         ui.label("The selected elements are locked.");
         return;
     }
-    egui::Grid::new("settings-common")
-        .num_columns(2)
-        .spacing([12.0, 6.0])
-        .show(ui, |ui| {
-            if editing.subject == Subject::Selection {
-                derived(ui, ws, Layout::Grid);
-            }
-        });
     if let Some(e) = edit_fields(ui, ws, &mut editing, Layout::Grid) {
         ui.colored_label(ui.visuals().error_fg_color, e);
     }

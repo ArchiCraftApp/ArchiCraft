@@ -3,7 +3,9 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, Vertical, VerticalLink, plan_bounds_of, vertical};
+use super::{
+    Kind, KindDescriptor, KindTag, PlanMeasure, StoreyLinkRef, Vertical, VerticalLink, plan_bounds_of, vertical,
+};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
 use crate::fields::{self, FieldSpec, FieldType, FieldValue, Section};
 use crate::ids::{MaterialId, StoreyId};
@@ -340,5 +342,10 @@ impl Kind for Wall {
                 .into_iter()
                 .flat_map(|p| [p + normal * exterior, p + normal * interior]),
         )
+    }
+
+    /// The length along the reference line (MEA-003).
+    fn plan_measure(&self) -> Option<PlanMeasure> {
+        Some(PlanMeasure::Length(self.length()))
     }
 }
