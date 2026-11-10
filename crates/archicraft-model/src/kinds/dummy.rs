@@ -11,7 +11,10 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Container, Kind, KindDescriptor, KindTag, PartSpec, StoreyLinkRef, VerticalLink, plan_bounds_of};
+use super::{
+    Container, Kind, KindDescriptor, KindTag, PartSpec, StoreyLinkRef, Vertical, VerticalLink, plan_bounds_of, vertical,
+};
+use crate::fields::FieldSpec;
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
 use crate::ids::{ElementId, MaterialId, StoreyId};
 use crate::message::Message;
@@ -98,6 +101,22 @@ impl Dummy {
     }
 }
 
+impl Vertical for Dummy {
+    fn link_of(element: &Element) -> Option<VerticalLink> {
+        element.as_dummy().map(|d| d.link)
+    }
+
+    fn set_link_of(element: &mut Element, link: VerticalLink) {
+        if let Some(dummy) = element.as_dummy_mut() {
+            dummy.link = link;
+        }
+    }
+}
+
+/// The base and top fields, which the application renders without knowing
+/// the kind (UI-002, UI-003).
+const FIELDS: [FieldSpec; 6] = vertical::fields::<Dummy>("model-error-wall-height-range");
+
 impl Kind for Dummy {
     /// ELM-011: stands in for free-form solids and objects,
     /// `IfcBuildingElementProxy` by default and any Appendix D.5 class
@@ -116,6 +135,7 @@ impl Kind for Dummy {
         ifcx_node: true,
         construction: true,
         template_defaults: None,
+        fields: &FIELDS,
     };
 
     fn material(&self) -> Option<MaterialId> {

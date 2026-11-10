@@ -9,12 +9,15 @@ use std::collections::BTreeSet;
 
 use archicraft_app::i18n::{self, Localizer};
 use archicraft_model::drawing::ScaleError;
+use archicraft_model::fields::COMMON_FIELDS;
+use archicraft_model::kinds::KINDS;
 use archicraft_model::message::ALL_KEYS;
 use archicraft_model::units::{
     AngleUnit, AreaUnit, LengthUnit, NumberFormat, ParseError, SlopeFormat, UnitSettings, VolumeUnit, format_length,
 };
 use archicraft_model::{
-    IfcClass, KindTag, Message, ParametricShape, PredefinedType, ProfileDimension, ReferenceLine, StructuralFunction,
+    IfcClass, KindTag, Message, ParametricShape, Position, PredefinedType, ProfileDimension, ReferenceLine,
+    StructuralFunction,
 };
 use catalogue_check::{assert_catalogue_matches, variables_of_pattern};
 use fluent_syntax::ast::Entry;
@@ -93,7 +96,9 @@ fn label_representatives() -> Vec<Message> {
         ]
         .map(ReferenceLine::label_key),
     );
+    keys.extend(field_label_keys());
     let mut messages: Vec<Message> = keys.into_iter().map(Message::new).collect();
+    messages.push(Message::new("model-top-linked-storey").text("storeys", "+1"));
     messages.extend(
         [
             ParseError::Empty,
@@ -110,6 +115,26 @@ fn label_representatives() -> Vec<Message> {
             .map(ScaleError::message),
     );
     messages
+}
+
+/// The labels of every declared field (fields.rs, KindDescriptor::fields)
+/// and the option labels without arguments.
+fn field_label_keys() -> Vec<&'static str> {
+    let mut keys: Vec<&'static str> = Vec::new();
+    for spec in KINDS.iter().flat_map(|k| k.fields).chain(COMMON_FIELDS) {
+        keys.push(spec.label);
+        keys.extend(spec.defaults_label);
+    }
+    keys.extend(Position::ALL.map(Position::label_key));
+    keys.extend([
+        "model-predefined-type-none",
+        "model-top-mode-fixed",
+        "model-top-mode-storey",
+        "model-top-mode-relative",
+        "model-slab-reference-top",
+        "model-slab-reference-bottom",
+    ]);
+    keys
 }
 
 /// A representative message for every error and problem key, with the

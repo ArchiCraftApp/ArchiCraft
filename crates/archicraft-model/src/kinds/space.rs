@@ -139,6 +139,7 @@ impl Kind for Space {
         ifcx_node: true,
         construction: false,
         template_defaults: Some(template_defaults),
+        fields: &[],
     };
 
     /// Normalises the boundary (EDT-018); a positive height is checked

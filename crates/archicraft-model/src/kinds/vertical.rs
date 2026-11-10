@@ -8,9 +8,13 @@
 use serde::{Deserialize, Serialize};
 
 use super::StoreyLinkRef;
-use crate::element::TopLink;
+use crate::element::{Element, TopLink};
+use crate::fields::{self, FieldSpec, FieldType, FieldValue, OptionLabel, Section};
 use crate::ids::StoreyId;
+use crate::message::Message;
+use crate::project::Project;
 use crate::storey::StoreyList;
+use crate::validate::{MAX_HEIGHT, MAX_LINKED_STOREYS, MAX_OFFSET, MIN_HEIGHT};
 
 /// Base offset and top of a vertical element. The base is an offset from
 /// the home storey's elevation (ELM-005); the top is a fixed height above the
@@ -103,4 +107,192 @@ impl VerticalLink {
         self.top = TopLink::Fixed { height };
         true
     }
+}
+
+/// Access to the [`VerticalLink`] of a vertical kind's elements, for the
+/// shared height fields of [`fields`].
+pub(crate) trait Vertical {
+    /// The link, if `element` is of this kind.
+    fn link_of(element: &Element) -> Option<VerticalLink>;
+
+    /// Replaces the link; does nothing for an element of another kind.
+    fn set_link_of(element: &mut Element, link: VerticalLink);
+}
+
+/// Applies `change` to the link of `element`, if it is of kind `K`.
+fn change<K: Vertical>(element: &mut Element, change: impl FnOnce(&mut VerticalLink)) {
+    if let Some(mut link) = K::link_of(element) {
+        change(&mut link);
+        K::set_link_of(element, link);
+    }
+}
+
+/// The top of a link as the code of the `top_mode` field.
+fn top_mode(top: TopLink) -> &'static str {
+    match top {
+        TopLink::Fixed { .. } => "fixed",
+        TopLink::Storey { .. } => "storey",
+        TopLink::Relative { .. } => "relative",
+    }
+}
+
+/// The new top of an element of kind `K` on `home` for the top mode `mode`:
+/// a fixed height or a storey link that keeps the current top elevation
+/// (the storey above the home storey, else the storey at the top), or the
+/// home storey + 1 (ELM-006). The current top, if `mode` is unknown.
+fn top_for_mode(element: &Element, link: VerticalLink, mode: &str, project: &Project) -> TopLink {
+    let (bottom, top) = project.vertical_extent(element).unwrap_or((0.0, 3.0));
+    match mode {
+        "fixed" => TopLink::Fixed { height: top - bottom },
+        "storey" => {
+            let s = project
+                .storeys
+                .relative(element.storey, 1)
+                .unwrap_or_else(|| project.storeys.storey_at_elevation(top));
+            TopLink::Storey {
+                storey: s.id,
+                offset: top - s.elevation,
+            }
+        }
+        "relative" => TopLink::Relative {
+            storeys: 1,
+            offset: 0.0,
+        },
+        _ => link.top,
+    }
+}
+
+/// The storey offsets the `linked_storey` field offers (ELM-006).
+const LINKED_STOREYS: [i32; 6] = [-2, -1, 0, 1, 2, 3];
+
+/// The base and top fields of a vertical kind `K` (ELM-005, ELM-006), in
+/// the order of the properties panel: base offset, top mode, height (fixed
+/// tops), top storey (storey links), linked storey (relative links) and top
+/// offset (linked tops). `height_message` is the key the kind's validator
+/// rejects a fixed height out of range with.
+pub(crate) const fn fields<K: Vertical>(height_message: &'static str) -> [FieldSpec; 6] {
+    [
+        FieldSpec::new(
+            "base_offset",
+            "model-field-base-offset",
+            Section::Geometry,
+            FieldType::Elevation,
+            |e, _| K::link_of(e).map(|l| FieldValue::Length(l.base_offset)),
+            |e, v, _| {
+                if let Some(v) = fields::length(v) {
+                    change::<K>(e, |l| l.base_offset = v);
+                }
+            },
+        )
+        .ranged(-MAX_OFFSET, MAX_OFFSET, "model-error-base-offset-range"),
+        FieldSpec::choice(
+            "top_mode",
+            "model-field-top-mode",
+            Section::Geometry,
+            |e, _| K::link_of(e).map(|l| FieldValue::Code(top_mode(l.top))),
+            |e, v, project| {
+                if let (Some(mode), Some(link)) = (fields::code(v), K::link_of(e)) {
+                    let top = top_for_mode(e, link, mode, project);
+                    change::<K>(e, |l| l.top = top);
+                }
+            },
+            |_, _| {
+                [
+                    ("fixed", "model-top-mode-fixed"),
+                    ("storey", "model-top-mode-storey"),
+                    ("relative", "model-top-mode-relative"),
+                ]
+                .map(|(code, key)| (FieldValue::Code(code), fields::message(key)))
+                .to_vec()
+            },
+        ),
+        FieldSpec::new(
+            "height",
+            "model-field-height",
+            Section::Geometry,
+            FieldType::Length,
+            |e, _| match K::link_of(e)?.top {
+                TopLink::Fixed { height } => Some(FieldValue::Length(height)),
+                _ => None,
+            },
+            |e, v, _| {
+                if let Some(height) = fields::length(v) {
+                    change::<K>(e, |l| l.top = TopLink::Fixed { height });
+                }
+            },
+        )
+        .ranged(MIN_HEIGHT, MAX_HEIGHT, height_message),
+        FieldSpec::choice(
+            "top_storey",
+            "model-field-top-storey",
+            Section::Geometry,
+            |e, _| match K::link_of(e)?.top {
+                TopLink::Storey { storey, .. } => Some(FieldValue::Storey(storey)),
+                _ => None,
+            },
+            |e, v, _| {
+                if let FieldValue::Storey(storey) = *v {
+                    change::<K>(e, |l| {
+                        if let TopLink::Storey { offset, .. } = l.top {
+                            l.top = TopLink::Storey { storey, offset };
+                        }
+                    });
+                }
+            },
+            fields::storey_options,
+        ),
+        FieldSpec::choice(
+            "linked_storey",
+            "model-field-linked-storey",
+            Section::Geometry,
+            |e, _| match K::link_of(e)?.top {
+                TopLink::Relative { storeys, .. } => Some(FieldValue::Count(i64::from(storeys))),
+                _ => None,
+            },
+            |e, v, _| {
+                if let FieldValue::Count(n) = *v
+                    && let Ok(storeys) = i32::try_from(n)
+                {
+                    change::<K>(e, |l| {
+                        if let TopLink::Relative { offset, .. } = l.top {
+                            l.top = TopLink::Relative { storeys, offset };
+                        }
+                    });
+                }
+            },
+            |_, _| {
+                LINKED_STOREYS
+                    .iter()
+                    .map(|n| {
+                        let label = Message::new("model-top-linked-storey").text("storeys", format!("{n:+}"));
+                        (FieldValue::Count(i64::from(*n)), OptionLabel::Message(label))
+                    })
+                    .collect()
+            },
+        )
+        .ranged(
+            -(MAX_LINKED_STOREYS as f64),
+            MAX_LINKED_STOREYS as f64,
+            "model-error-linked-storey-range",
+        ),
+        FieldSpec::new(
+            "top_offset",
+            "model-field-top-offset",
+            Section::Geometry,
+            FieldType::Elevation,
+            |e, _| match K::link_of(e)?.top {
+                TopLink::Storey { offset, .. } | TopLink::Relative { offset, .. } => Some(FieldValue::Length(offset)),
+                TopLink::Fixed { .. } => None,
+            },
+            |e, v, _| {
+                if let Some(v) = fields::length(v) {
+                    change::<K>(e, |l| match &mut l.top {
+                        TopLink::Storey { offset, .. } | TopLink::Relative { offset, .. } => *offset = v,
+                        TopLink::Fixed { .. } => {}
+                    });
+                }
+            },
+        )
+        .ranged(-MAX_OFFSET, MAX_OFFSET, "model-error-top-offset-range"),
+    ]
 }

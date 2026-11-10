@@ -38,6 +38,7 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, IfcClass, PredefinedType};
+use crate::fields::FieldSpec;
 use crate::ids::{MaterialId, StoreyId, TextStyleId};
 use crate::message::Message;
 use crate::outline::Outline;
@@ -50,6 +51,7 @@ mod vertical;
 
 pub use self::slab::SlabReference;
 pub use self::space::BoundarySource;
+pub(crate) use self::vertical::Vertical;
 pub use self::vertical::VerticalLink;
 pub use self::wall::ReferenceLine;
 
@@ -108,6 +110,10 @@ pub struct KindDescriptor {
     /// defaults. Every kind with template defaults has a slot in
     /// [`crate::project::ToolDefaults`].
     pub template_defaults: Option<fn(&TemplateContext<'_>) -> DefaultsSlot>,
+    /// The kind's parameters as the properties panel and the settings
+    /// dialog show them, in display order (UI-002, UI-003, ELM-017);
+    /// [`crate::fields::COMMON_FIELDS`] follow them.
+    pub fields: &'static [FieldSpec],
 }
 
 /// A link from an element to a specific storey by ID (ELM-006). Relative

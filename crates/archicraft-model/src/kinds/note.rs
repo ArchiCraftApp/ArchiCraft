@@ -78,6 +78,7 @@ impl Kind for Note {
         ifcx_node: false,
         construction: false,
         template_defaults: None,
+        fields: &[],
     };
 
     /// The point must be within the model's range, and the view must be the
