@@ -733,6 +733,8 @@ hook review-verdict "$(verdict $'VERDICT: PASS' general-purpose)" >/dev/null
 expect_review "PASS from another agent" no
 hook review-verdict "$(verdict $'## Findings\nnone\nVERDICT: PASS')" >/dev/null
 expect_review "PASS on a gated tree" yes
+expect "the PASS stamp records the fork point of the reviewed change" "$(git merge-base "$(loop_base)" HEAD)" \
+    "$(cut -d' ' -f4 "$(loop_dir)/review.ok")"
 hook review-verdict "$(verdict $'1. Blocking\nVERDICT: FAIL')" >/dev/null
 expect_review "FAIL after a PASS" no
 # Claude Code (2.1.299) makes a subagent deliver its report through a SubagentHandback call that
@@ -1283,6 +1285,81 @@ FAKE_GH_BODY="$work/pr-body.md" bash scripts/loop/land.sh >/dev/null 2>&1
 expect "land.sh names the doc fixes a carried-over review did not see" 1 \
     "$(grep -c "the review passed before these changes to prose only: \`docs/a\.md\`\.$" "$work/pr-body.md")"
 expect "land.sh turns on auto-merge after a carried-over review" "pr merge $pr --auto --squash" "$(merge_calls)"
+# A rebase onto a newer main that leaves the bead's own change as it was keeps the review: the
+# review stamp records the fork point, and the change from it is compared hunk for hunk outside
+# the prose (archicraft-qpy17). Half of the rebases of 2026-11 conflicted only in a status row and
+# paid a new review for it.
+git switch -q -c bead/archicraft-rb01-rebase main
+echo 'pub fn rebased() {}' >>crates/demo/src/lib.rs
+sed -i.bak 's/"Not started\."/"Started in the bead."/' docs/status/requirements.json && rm docs/status/requirements.json.bak
+git add -A && git commit -qm "archicraft-rb01: change"
+stamp gate.ok
+loop_stamp_write review.ok "$(loop_tree_hash)" archicraft-rb01 "$(loop_fork_point)"
+reviewed_fork="$(git merge-base origin/main HEAD)"
+git switch -q main
+echo 'pub fn elsewhere() {}' >crates/demo/src/other.rs
+sed -i.bak 's/"Not started\."/"Planned on main."/' docs/status/requirements.json && rm docs/status/requirements.json.bak
+git add -A && git commit -qm "main: another file and the same status row" && git push -q origin main
+git switch -q bead/archicraft-rb01-rebase
+git -c core.hooksPath=/dev/null rebase -q origin/main >/dev/null 2>&1
+sed -i.bak -e '/^<<<<<<< /d' -e '/^=======$/d' -e '/^>>>>>>> /d' -e '/"Planned on main\."/d' docs/status/requirements.json &&
+    rm docs/status/requirements.json.bak
+git add docs/status/requirements.json && GIT_EDITOR=true git -c core.hooksPath=/dev/null rebase --continue >/dev/null 2>&1
+expect "the rebase onto main finished with the bead's status row" "1 0" \
+    "$(grep -c '"Started in the bead\."' docs/status/requirements.json) $(git status --porcelain --untracked-files=no | wc -l | tr -d ' ')"
+expect "the rebase moved the fork point" yes "$([ "$(git merge-base origin/main HEAD)" != "$reviewed_fork" ] && echo yes)"
+loop_review_valid && got=yes || got=no
+expect "a rebase that conflicted only in a status row keeps the review" yes "$got"
+expect "status.sh says the review carried over the rebase" 1 \
+    "$(bash scripts/loop/status.sh | grep -c '^  review: passed on the same change before the rebase onto ')"
+# The user's diff configuration changes nothing: a colored or external diff leaves patch-id without
+# a patch, and every change would look like no change.
+for config in color.ui=always diff.external=true diff.context=0; do
+    (export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="${config%%=*}" GIT_CONFIG_VALUE_0="${config#*=}"; loop_review_valid) &&
+        got=yes || got=no
+    expect "the review carries over the rebase with $config" yes "$got"
+    echo '// a fix after the rebase' >>crates/demo/src/lib.rs
+    (export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="${config%%=*}" GIT_CONFIG_VALUE_0="${config#*=}"; loop_review_valid) &&
+        got=yes || got=no
+    expect "a code change after the rebase needs a new review with $config" no "$got"
+    git checkout -q -- crates/demo/src/lib.rs
+done
+sed -i.bak 's/^pub fn rebased() {}$/pub fn rebased()  {}/' crates/demo/src/lib.rs && rm crates/demo/src/lib.rs.bak
+loop_review_valid && got=yes || got=no
+expect "a change of spacing inside a code line after the rebase needs a new review" no "$got"
+git checkout -q -- crates/demo/src/lib.rs
+echo '- **DEM-002** · S · Another demo requirement.' >>docs/SRS.md
+loop_review_valid && got=yes || got=no
+expect "a change to docs/SRS.md after the rebase needs a new review" no "$got"
+git checkout -q -- docs/SRS.md
+echo 'a doc fix after the rebase' >>docs/a.md
+loop_review_valid && got=yes || got=no
+expect "a doc fix after the rebase keeps the review" yes "$got"
+git checkout -q -- docs/a.md
+# The commit guard: the rebased change, uncommitted again, commits with the carried review.
+git reset -q --soft HEAD~1
+stamp gate.ok
+check "code commit of the rebased change with the review it carried over" allow \
+    "$(hook guard-bash "$(bash_input 'git commit -m x')")"
+git commit -qm "archicraft-rb01: change"
+stamp gate.ok
+: >"$FAKE_GH_LOG"
+FAKE_GH_BODY="$work/pr-body.md" bash scripts/loop/land.sh --rebased >/dev/null 2>&1
+expect "land.sh says the review passed on the same change before the rebase" 1 \
+    "$(grep -c "the review passed on the same change before the rebase onto \`$(git rev-parse --short origin/main)\`" "$work/pr-body.md")"
+expect "land.sh names the prose a review carried over a rebase did not see" 1 \
+    "$(grep -c 'prose that differs from what it saw: `docs/status/requirements\.json`' "$work/pr-body.md")"
+expect "land.sh turns on auto-merge after a review a rebase carried over" "pr merge $pr --auto --squash" "$(merge_calls)"
+echo '// a fix after the rebase' >>crates/demo/src/lib.rs && git commit -qam "archicraft-rb01: fix"
+stamp gate.ok
+: >"$FAKE_GH_LOG"
+out="$(bash scripts/loop/land.sh --rebased 2>&1)"
+expect "land.sh refuses a code change after the rebase without a new review" "1 " \
+    "$(grep -c '^No passing review for this tree' <<<"$out") $(merge_calls)"
+git reset -q --hard HEAD~1
+loop_stamp_write review.ok "$(loop_stamp_tree review.ok)" archicraft-rb01
+loop_review_valid && got=yes || got=no
+expect "a review stamp without its fork point does not carry over a rebase" no "$got"
 unset FAKE_GH_LOG
 
 # --- ci-user-review: the base decides whether a PR waits ---------------------------------------

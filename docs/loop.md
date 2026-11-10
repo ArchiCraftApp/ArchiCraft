@@ -28,9 +28,17 @@ the branch's bead and survives only edits to prose (`docs/` and top-level Markdo
 `loop_review_valid`, `LOOP_REVIEW_CARRY_PATHS`; not `CLAUDE.md`, `AGENTS.md` or `docs/SRS.md`,
 which instruct agents or define requirements): a trivial doc fix for a minor finding after
 a `PASS` needs a new gate run but no new review, and every other minor finding becomes a
-follow-up bead instead of another review round. Stamps, logs and counters
-live in the worktree's git dir (`git rev-parse --git-path loop`), never in the repository.
-`scripts/loop/status.sh` shows where a worktree stands.
+follow-up bead instead of another review round. A rebase onto a newer `main` keeps the review
+too when it leaves the bead's own change as it was: the review stamp records the fork point, and
+`loop_review_rebased` compares the change from it to the reviewed tree with the change from the
+new fork point to the current tree, hunk for hunk outside the prose (`git patch-id --verbatim`
+over a plumbing diff: line numbers ignored, whitespace and context lines compared, whatever the
+user's diff configuration). Half of the rebases of 2026-11
+conflicted only in status rows, and each paid a new review round for an unchanged change
+(archicraft-qpy17); now they need a new gate run, and the PR names the prose the review did not
+see. A conflict resolved in code, a test or a script changes the change and needs a new review.
+Stamps, logs and counters live in the worktree's git dir (`git rev-parse --git-path loop`),
+never in the repository. `scripts/loop/status.sh` shows where a worktree stands.
 
 **Stop rules.** Three gate failures on the same problem or two failed reviews: the session runs
 `scripts/loop/escalate.sh "<reason>"`. The first time, a bead below tier `max` moves one tier
@@ -225,12 +233,13 @@ stands (`queued <position>`, `auto-merge`, `left-queue <reason>`, `waits-for-use
 `checks_timed_out`, `manual`). The sweep prints a dropped PR as `ATTENTION <id>: <url> left the
 merge queue (<reason>, <the failed merge group run>)`; the orchestrator hands that line to the
 bead's session (or resumes the bead in a new one), which rebases onto `origin/main`, fixes the
-combination, runs the gate and the review again and lands with `land.sh --rebased`, and auto-merge
-puts the PR back in the queue. A PR in the queue shows as `queued` with its position, one whose
-CI still runs as `waiting` (`CI pending, then the merge queue`), and the reports count both as on
-their way (`auto-merge`). A PR that nothing moves on, open without auto-merge, outside the queue
-and not waiting for the user, shows as `ATTENTION <id>: <url> is open without auto-merge and not
-in the merge queue`, and the orchestrator's report lists it.
+combination, runs the gate and, unless the rebase left the bead's change as it was (above), the
+review again and lands with `land.sh --rebased`, and auto-merge puts the PR back in the queue. A PR
+in the queue shows as `queued` with its position, one whose CI still runs as `waiting` (`CI
+pending, then the merge queue`), and the reports count both as on their way (`auto-merge`). A PR
+that nothing moves on, open without auto-merge, outside the queue and not waiting for the user,
+shows as `ATTENTION <id>: <url> is open without auto-merge and not in the merge queue`, and the
+orchestrator's report lists it.
 
 A PR that waits for the review merges as an admin, past the failing status `User review` and past
 the queue: the orchestrator merges it once the user approved it in its question (The user's

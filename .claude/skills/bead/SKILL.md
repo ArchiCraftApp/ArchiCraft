@@ -17,7 +17,7 @@ them:
 - `git commit` of code is refused unless the gate passed on the current tree and a passing
   review covers it. Any edit invalidates the gate stamp; the review stamp survives only edits
   to `docs/` and top-level Markdown files other than `CLAUDE.md`, `AGENTS.md` and
-  `docs/SRS.md` (step 6).
+  `docs/SRS.md` (step 6), and a rebase that leaves the bead's own change as it was (step 7).
 - Pushing to `main`, force pushes and merging a PR without `--auto` are refused.
 - Stopping with uncommitted code runs the gate and blocks while it fails (`escalate.sh` and
   `pause.sh` in the stop rules below are the explicit ways out).
@@ -202,14 +202,24 @@ When CI fails or `main` moved under the PR: fix on the same branch, gate, review
 then `scripts/loop/land.sh` again (after a rebase onto `origin/main`:
 `scripts/loop/land.sh --rebased`).
 
+A rebase keeps the review when it leaves the bead's own change as it was reviewed: the review
+stamp records the fork point, and the change from the new fork point must match the reviewed one
+hunk for hunk outside the prose (`docs/` and top-level Markdown files other than `CLAUDE.md`,
+`AGENTS.md` and `docs/SRS.md`). A rebase whose only conflicts were status rows in
+`docs/status/requirements.json` or other prose is such a rebase: `scripts/loop/status.sh` says
+`passed on the same change before the rebase onto …`, and the gate and
+`scripts/loop/land.sh --rebased` follow without a new review; the PR names the prose the review
+did not see. Resolving a conflict in code, a test or a script, or changing one after the
+rebase, needs a new review; prose may still change, as after a doc fix.
+
 When the PR left the merge queue (the sweep's `ATTENTION <id>: <url> left the merge queue
 (<reason>, <run>)` line, or the orchestrator's message with it): its merge group, `main` with the
 PRs ahead of it and this PR, failed (`failed_checks`, `checks_timed_out`) or did not merge
 (`merge_conflict`), so nothing merged and auto-merge is off. Read the failed group run
 (`gh run view <run> --log-failed`), rebase onto `origin/main`
 (`git fetch origin main && git -c core.hooksPath=/dev/null rebase origin/main`), fix what the
-combination broke, then gate, review, commit and `scripts/loop/land.sh --rebased`, which turns
-auto-merge on again.
+combination broke, then gate, review (unless the rebase kept it, above), commit and
+`scripts/loop/land.sh --rebased`, which turns auto-merge on again.
 
 ## 8. Close
 

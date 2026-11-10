@@ -11,8 +11,9 @@ LOOP_SELF_PATHS='^(scripts/loop/|\.claude/settings\.json$|\.claude/skills/bead|\
 # user's review (user decision of 2026-10-19). Every other bead PR auto-merges on green CI.
 LOOP_USER_REVIEW_PATHS='^(\.github/workflows/|\.claude/settings\.json$)'
 # Prose a passing review carries over: a change to these files alone after a PASS needs a new
-# gate run, not a new review (loop_review_valid). Everything else, the build and packaging
-# scripts and other agents' hook files included, needs a new review.
+# gate run, not a new review (loop_review_prose_only), and a rebase compares the bead's change
+# outside them (loop_change_id). Everything else, the build and packaging scripts and other
+# agents' hook files included, needs a new review.
 LOOP_REVIEW_CARRY_PATHS='^(docs/|[^/]+\.md$)'
 # Markdown that is not just prose and needs a new review after all: the agent instructions and
 # the requirements the review checks the change against.
@@ -204,8 +205,10 @@ loop_code_dirty() {
     git status --porcelain --untracked-files=all | cut -c4- | sed 's/.* -> //' | grep -Eq "$LOOP_CODE_PATHS"
 }
 
-# Stamp files hold "<tree> <bead> <utc time>"; a stamp is valid while its tree is the current one.
-loop_stamp_write() { printf '%s %s %s\n' "$2" "${3:--}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$(loop_dir)/$1"; }
+# Stamp files hold "<tree> <bead> <utc time>", the review stamp also "<fork point>": the commit
+# the reviewed change left the base at (loop_review_rebased). A stamp is valid while its tree is
+# the current one.
+loop_stamp_write() { printf '%s %s %s%s\n' "$2" "${3:--}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${4:+ $4}" >"$(loop_dir)/$1"; }
 loop_stamp_tree() { [ -f "$(loop_dir)/$1" ] && cut -d' ' -f1 "$(loop_dir)/$1"; }
 # Seconds since a stamp was written (its UTC time), negative for one from the future; fails without
 # the stamp or a time GNU or BSD date can read.
@@ -236,15 +239,83 @@ loop_review_ours() {
 }
 
 # The review of this branch's bead covers [tree] (default: the current one) when it passed on
-# exactly that tree, or on one that differs from it only in prose (LOOP_REVIEW_CARRY_PATHS but
-# not LOOP_REVIEW_NO_CARRY_PATHS): a minor doc fix after a PASS needs a new gate run, not a new
-# review (/bead step 6).
+# exactly that tree, on one that differs from it only in prose (loop_review_prose_only), or on the
+# same change before a rebase (loop_review_rebased): a minor doc fix after a PASS, or a rebase
+# whose only conflicts were status rows, needs a new gate run, not a new review (/bead steps 6, 7).
 loop_review_valid() {
-    local tree="${1:-$(loop_tree_hash)}" changed
+    local tree="${1:-$(loop_tree_hash)}"
     loop_review_ours || return 1
-    loop_stamp_valid review.ok "$tree" && return 0
-    changed="$(loop_changed_since_review "$tree")" || return 1
+    loop_stamp_valid review.ok "$tree" || loop_review_prose_only "$tree" || loop_review_rebased "$tree"
+}
+
+# The reviewed tree and [tree] differ only in prose (LOOP_REVIEW_CARRY_PATHS but not
+# LOOP_REVIEW_NO_CARRY_PATHS).
+loop_review_prose_only() {
+    local changed
+    changed="$(loop_changed_since_review "${1:-$(loop_tree_hash)}")" || return 1
     ! grep -Evq "$LOOP_REVIEW_CARRY_PATHS" <<<"$changed" && ! grep -Eq "$LOOP_REVIEW_NO_CARRY_PATHS" <<<"$changed"
+}
+
+# The commit this branch left the base at.
+loop_fork_point() { git merge-base "$(loop_base)" HEAD 2>/dev/null; }
+
+# The patch from <from> to <to> for the given paths, from plumbing with fixed options: the user's
+# diff configuration (color, an external diff tool or textconv, the context size) changes nothing,
+# and paths are literal.
+loop_patch() {
+    local from="$1" to="$2"
+    shift 2
+    git --literal-pathspecs diff-tree -p -r -U3 --no-renames --no-color --no-ext-diff --no-textconv \
+        --full-index "$from" "$to" -- "$@"
+}
+
+# The patch id (git patch-id --verbatim: line numbers ignored, whitespace and context lines
+# compared) of the change from <from> to <to> in the files a review does not carry over, the ones
+# loop_review_prose_only does not let through; "none" when the change has no such file. A failed
+# diff, or a patch without an id, fails: it never counts as "none".
+loop_change_id() {
+    local names f files=() patch id
+    names="$(git -c core.quotePath=false diff-tree -r --no-renames --name-only "$1" "$2")" || return 1
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        if ! grep -Eq "$LOOP_REVIEW_CARRY_PATHS" <<<"$f" || grep -Eq "$LOOP_REVIEW_NO_CARRY_PATHS" <<<"$f"; then
+            files+=("$f")
+        fi
+    done <<<"$names"
+    [ "${#files[@]}" -gt 0 ] || { echo none; return 0; }
+    patch="$(loop_patch "$1" "$2" "${files[@]}")" && [ -n "$patch" ] || return 1
+    id="$(git patch-id --verbatim <<<"$patch" | cut -d' ' -f1)" && [ -n "$id" ] || return 1
+    printf '%s\n' "$id"
+}
+
+# After a rebase the review covers [tree] when the bead's change from the new fork point to [tree]
+# is the reviewed one, from the fork point the review stamp records to the reviewed tree, hunk for
+# hunk outside the prose (loop_change_id): the rebase moved the change and did not alter it. The
+# rebases of 2026-11 that conflicted only in status rows each paid a new review (archicraft-qpy17).
+# Prose may differ, as after a doc fix (loop_rebased_prose_changes names it).
+loop_review_rebased() {
+    local tree="${1:-$(loop_tree_hash)}" reviewed fork_then fork_now then_id now_id
+    reviewed="$(loop_stamp_tree review.ok 2>/dev/null)" && [ -n "$reviewed" ] || return 1
+    fork_then="$(cut -d' ' -f4 "$(loop_dir)/review.ok")" && [ -n "$fork_then" ] || return 1
+    fork_now="$(loop_fork_point)" && [ -n "$fork_now" ] && [ "$fork_now" != "$fork_then" ] || return 1
+    then_id="$(loop_change_id "$fork_then" "$reviewed")" && now_id="$(loop_change_id "$fork_now" "$tree")" &&
+        [ "$then_id" = "$now_id" ]
+}
+
+# The prose files whose change from the fork point differs from the one the review saw before a
+# rebase (loop_review_rebased), one per line: status rows merged with main's, a doc fix.
+loop_rebased_prose_changes() {
+    local tree="${1:-$(loop_tree_hash)}" reviewed fork_then fork_now names f
+    reviewed="$(loop_stamp_tree review.ok 2>/dev/null)" && fork_then="$(cut -d' ' -f4 "$(loop_dir)/review.ok")" &&
+        fork_now="$(loop_fork_point)" && [ -n "$reviewed" ] && [ -n "$fork_then" ] && [ -n "$fork_now" ] || return 1
+    names="$(git -c core.quotePath=false diff-tree -r --no-renames --name-only "$fork_then" "$reviewed" &&
+        git -c core.quotePath=false diff-tree -r --no-renames --name-only "$fork_now" "$tree")" || return 1
+    sort -u <<<"$names" | while IFS= read -r f; do
+        [ -n "$f" ] && grep -Eq "$LOOP_REVIEW_CARRY_PATHS" <<<"$f" && ! grep -Eq "$LOOP_REVIEW_NO_CARRY_PATHS" <<<"$f" ||
+            continue
+        [ "$(loop_patch "$fork_then" "$reviewed" "$f" | git patch-id --verbatim)" = \
+            "$(loop_patch "$fork_now" "$tree" "$f" | git patch-id --verbatim)" ] || printf '%s\n' "$f"
+    done
 }
 
 # One bead as a JSON object (bd show prints an array).

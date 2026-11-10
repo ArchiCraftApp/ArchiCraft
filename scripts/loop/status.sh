@@ -18,8 +18,10 @@ echo "  uncommitted code: $(loop_code_dirty && echo yes || echo no)"
 echo "  gate:   $(state gate.ok "passed on this tree" "$(state gate.fail "failed on this tree" "not run on this tree")")"
 if loop_review_valid "$tree" && loop_stamp_valid review.ok "$tree"; then
     review="passed on this tree"
-elif loop_review_valid "$tree"; then
+elif loop_review_valid "$tree" && loop_review_prose_only "$tree"; then
     review="passed before changes to prose only: $(loop_changed_since_review "$tree" | paste -sd ' ' -)"
+elif loop_review_valid "$tree"; then
+    review="passed on the same change before the rebase onto $(git rev-parse --short "$(loop_fork_point)")"
 else
     review="not passed on this tree"
 fi
