@@ -37,7 +37,8 @@ The files in `crates/archicraft-ifcx/tests/formats/` are not golden files: each 
 golden file as an earlier format version wrote it (`format-1.ifcx`: two-storey-shell at
 FORMAT_VERSION 1; `format-2.ifcx`: two-storey-shell-with-spaces at FORMAT_VERSION 2, which
 added spaces; `format-3.ifcx`: annotations at FORMAT_VERSION 3, which added texts and the
-project's text styles), and every later release must keep loading it with no problem beyond the info
+project's text styles; `format-4.ifcx`: walls-and-slab at FORMAT_VERSION 4, which keeps each tool's
+parameters under `parameters` of its defaults slot), and every later release must keep loading it with no problem beyond the info
 reports of its migration steps (`cargo test -p archicraft-ifcx --test formats`, IFX-090,
 IFX-091). They are frozen: no bless
 loop writes them, and `frozen_format_fixtures_never_change` fails with “frozen format fixture

@@ -108,9 +108,11 @@ pub(crate) trait KindCodec: Sized {
     /// repaired on `report` instead.
     fn read(attr: &Object, context: &ReadContext<'_>, report: &mut Report<'_>) -> Result<Self, Message>;
 
-    /// The kind-specific members of the tool's defaults slot (ELM-001):
-    /// the parameters without the placeholder geometry. The common members
-    /// (material, layer, position, IFC class, predefined type) follow them.
+    /// The members of the `parameters` of the tool's defaults slot (ELM-001):
+    /// the kind's parameters without the placeholder geometry. The material
+    /// joins them; the common members (layer, position, structural function,
+    /// IFC class, predefined type) are the slot's own, beside `parameters`
+    /// (format 4, IFX-062).
     fn slot_schema() -> Vec<(&'static str, Value)>;
 
     fn write_slot(&self) -> Map<String, Value>;

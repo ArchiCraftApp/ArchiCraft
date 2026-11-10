@@ -12,7 +12,10 @@
 //!
 //! Whenever a reader-visible shape changes, or the format stores a new kind,
 //! bump [`FORMAT_VERSION`](schema::FORMAT_VERSION) and add a step to
-//! [`MIGRATIONS`]; other optional additions need neither. Older files hold
+//! [`MIGRATIONS`]; other optional additions need neither. A step that moves
+//! or renames members lists those of its own format itself instead of asking
+//! the writer or the schema, which describe the current format only, so that
+//! it still converts its format after later formats change the shapes again. Older files hold
 //! no elements of a new kind, so its step adds only what every project of
 //! the new format has, such as the template's text styles of format 3, or
 //! nothing, as for spaces: it exists so that a reader of the older format
@@ -28,7 +31,7 @@ use std::collections::HashSet;
 
 use archicraft_model::KindTag;
 use archicraft_model::template::template_text_styles;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use super::kinds::annotations;
 use super::schema;
@@ -40,7 +43,7 @@ use crate::validate::Problem;
 /// One step of the migration chain: upgrades a file from format `from` to
 /// format `from + 1`.
 #[derive(Debug)]
-pub struct Migration {
+pub(crate) struct Migration {
     pub from: u32,
     /// The message key of what the step changes, for the load report; it
     /// belongs in [`crate::message::ALL_KEYS`] (NFR-L10N-001).
@@ -51,7 +54,7 @@ pub struct Migration {
 
 /// The migration chain up to [`FORMAT_VERSION`](schema::FORMAT_VERSION), one
 /// step per earlier format, in order.
-pub const MIGRATIONS: &[Migration] = &[
+pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         from: 1,
         description: "ifcx-migration-adds-spaces",
@@ -62,7 +65,23 @@ pub const MIGRATIONS: &[Migration] = &[
         description: "ifcx-migration-adds-texts",
         apply: adds_texts,
     },
+    Migration {
+        from: 3,
+        description: "ifcx-migration-nests-tool-parameters",
+        apply: nests_tool_parameters,
+    },
 ];
+
+/// What the reader's migration did (IFX-062): the format the file was
+/// written in, the format it reached and the steps that ran, each by the
+/// message key of what it changes, in order.
+/// The load report has one info problem per step as well.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MigrationReport {
+    pub from: u32,
+    pub to: u32,
+    pub steps: Vec<&'static str>,
+}
 
 /// Format 2 stores spaces (SPC-001) and, for a node that shows another name
 /// than its element's, the element's own `name` in `archicraft::element`.
@@ -81,6 +100,42 @@ fn adds_texts(file: &mut IfcxFile, _: &mut Vec<Problem>) {
             project
                 .entry("textStyles")
                 .or_insert_with(|| Value::Array(styles.clone()));
+        }
+    }
+}
+
+/// The members every tool-defaults slot of format 3 shares, in the order
+/// the writer of format 4 writes them; every other member of a format 3
+/// slot is a parameter of the tool's kind.
+const FORMAT_3_SLOT_COMMON: [&str; 5] = ["layer", "position", "structuralFunction", "ifcClass", "predefinedType"];
+
+/// Format 4 keeps a tool's defaults slot (ELM-001) as its common members
+/// and the kind's parameters, the material among them, under `parameters`,
+/// so that a kind's parameter never collides with a common member of the
+/// same name, such as the plan position of a column. Format 3 kept them
+/// side by side: each slot's members other than the common ones move into
+/// its `parameters`, in their order. A slot that is not an object is left
+/// as it is, for the reader to report.
+fn nests_tool_parameters(file: &mut IfcxFile, _: &mut Vec<Problem>) {
+    for node in &mut file.data {
+        let slots = node
+            .attributes
+            .get_mut(schema::PROJECT)
+            .and_then(|project| project.get_mut("toolDefaults"))
+            .and_then(Value::as_object_mut);
+        for slot in slots.into_iter().flat_map(|slots| slots.values_mut()) {
+            let Some(members) = slot.as_object_mut() else {
+                continue;
+            };
+            let (mut common, parameters): (Map<String, Value>, Map<String, Value>) = std::mem::take(members)
+                .into_iter()
+                .partition(|(key, _)| FORMAT_3_SLOT_COMMON.contains(&key.as_str()));
+            for key in FORMAT_3_SLOT_COMMON {
+                if let Some(value) = common.remove(key) {
+                    members.insert(key.into(), value);
+                }
+            }
+            members.insert("parameters".into(), Value::Object(parameters));
         }
     }
 }
@@ -105,9 +160,8 @@ fn count(version: u32) -> usize {
 
 /// Upgrades `file` from its format version to `target` with `migrations`,
 /// reporting each step as an info problem “migrated from format n to format
-/// n+1: …”. Returns the migrated file, held as [`Value`] trees, and the
-/// format the file was written in
-/// ([`ReadOutcome::migrated_from`](super::reader::ReadOutcome::migrated_from)),
+/// n+1: …”. Returns the migrated file, held as [`Value`] trees, and what the
+/// migration did ([`ReadOutcome::migrated`](super::reader::ReadOutcome::migrated)),
 /// or `None` when no step ran: a file without a readable format version, or
 /// at `target` or newer, is read as it is, without a copy; the reader reports
 /// those.
@@ -116,9 +170,10 @@ pub(crate) fn upgrade<A: AttributeValue>(
     migrations: &[Migration],
     target: u32,
     problems: &mut Vec<Problem>,
-) -> Option<(IfcxFile, u32)> {
+) -> Option<(IfcxFile, MigrationReport)> {
     let (path, from) = format_version(file)?;
     let mut version = from;
+    let mut steps = Vec::new();
     let mut migrated: Option<IfcxFile> = None;
     while version < target {
         let Some(step) = migrations.iter().find(|m| m.from == version) else {
@@ -146,6 +201,7 @@ pub(crate) fn upgrade<A: AttributeValue>(
             },
         };
         (step.apply)(tree, problems);
+        steps.push(step.description);
         problems.push(Problem::info(
             Some(&path),
             Message::new("ifcx-migrated")
@@ -166,7 +222,14 @@ pub(crate) fn upgrade<A: AttributeValue>(
     // file stores and, when a node carries relations, `archicraft::relations`.
     file.schemas
         .extend(schema::declarations(&present(&file), relations::present_in(&file)));
-    Some((file, from))
+    Some((
+        file,
+        MigrationReport {
+            from,
+            to: version,
+            steps,
+        },
+    ))
 }
 
 /// The kinds the migrated file stores, as [`super::kinds::present`] finds
@@ -216,6 +279,9 @@ mod tests {
 
     /// A file written at format 2, the format that added spaces.
     const FORMAT_2: &[u8] = include_bytes!("../../tests/formats/format-2.ifcx");
+
+    /// A file written at format 3, the format that added texts.
+    const FORMAT_3: &[u8] = include_bytes!("../../tests/formats/format-3.ifcx");
 
     const DESCRIPTION: &str = "bsi::ifc::prop::Description";
 
@@ -322,12 +388,19 @@ mod tests {
         assert_eq!(outcome.problems.len(), 1, "{:#?}", outcome.problems);
         assert!(!outcome.newer_format);
         assert_eq!(outcome.source_version, "ifcx_alpha");
-        assert_eq!(outcome.migrated_from, Some(FORMAT_VERSION));
+        assert_eq!(
+            outcome.migrated,
+            Some(MigrationReport {
+                from: FORMAT_VERSION,
+                to: NEXT,
+                steps: vec!["test-description-added"],
+            })
+        );
         assert_eq!(outcome.project.elements.len(), 12);
 
         let mut problems = Vec::new();
-        let (file, from) = upgrade(&current(), TEST_MIGRATIONS, NEXT, &mut problems).unwrap();
-        assert_eq!(from, FORMAT_VERSION);
+        let (file, report) = upgrade(&current(), TEST_MIGRATIONS, NEXT, &mut problems).unwrap();
+        assert_eq!(Some(report), outcome.migrated);
         assert_eq!(format_version(&file).unwrap().1, NEXT);
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
     }
@@ -345,11 +418,12 @@ mod tests {
             let from_tree = reader::read_with(&current(), TEST_MIGRATIONS, target).unwrap();
             assert_eq!(from_raw.project, from_tree.project);
             assert_eq!(from_raw.problems, from_tree.problems);
-            assert_eq!(from_raw.migrated_from, Some(FORMAT_VERSION));
+            assert_eq!(from_raw.migrated, from_tree.migrated);
+            assert_eq!(from_raw.migrated.map(|m| m.from), Some(FORMAT_VERSION));
         }
         let mut problems = Vec::new();
-        let (file, from) = upgrade(&raw, TEST_MIGRATIONS, NEXT, &mut problems).unwrap();
-        assert_eq!(from, FORMAT_VERSION);
+        let (file, report) = upgrade(&raw, TEST_MIGRATIONS, NEXT, &mut problems).unwrap();
+        assert_eq!(report.from, FORMAT_VERSION);
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
     }
 
@@ -369,7 +443,14 @@ mod tests {
             ]
         );
         assert_eq!(outcome.problems.len(), 2, "{:#?}", outcome.problems);
-        assert_eq!(outcome.migrated_from, Some(FORMAT_VERSION));
+        assert_eq!(
+            outcome.migrated,
+            Some(MigrationReport {
+                from: FORMAT_VERSION,
+                to: NEXT + 1,
+                steps: vec!["test-description-added", "test-description-extended"],
+            })
+        );
     }
 
     /// After migrating, the file declares the current `archicraft::`
@@ -547,7 +628,7 @@ mod tests {
         let raw = current_raw(&bytes);
         assert!(upgrade(&raw, MIGRATIONS, FORMAT_VERSION, &mut problems).is_none());
         assert!(problems.is_empty());
-        assert_eq!(reader::read(&raw).unwrap().migrated_from, None);
+        assert_eq!(reader::read(&raw).unwrap().migrated, None);
     }
 
     /// IFX-062, SPC-001: spaces came with one step that changes nothing,
@@ -640,11 +721,18 @@ mod tests {
             messages(&outcome.problems, Severity::Warning),
             [format!("ifcx-migration-unknown(version={FORMAT_VERSION})")]
         );
-        assert_eq!(outcome.migrated_from, None);
+        assert_eq!(outcome.migrated, None);
 
         let mut problems = Vec::new();
-        let (file, from) = upgrade(&current(), &TEST_MIGRATIONS[1..], NEXT + 1, &mut problems).unwrap();
-        assert_eq!(from, FORMAT_VERSION);
+        let (file, report) = upgrade(&current(), &TEST_MIGRATIONS[1..], NEXT + 1, &mut problems).unwrap();
+        assert_eq!(
+            report,
+            MigrationReport {
+                from: FORMAT_VERSION,
+                to: NEXT,
+                steps: vec!["test-description-added"],
+            }
+        );
         assert_eq!(
             messages(&problems, Severity::Warning),
             [format!("ifcx-migration-unknown(version={NEXT})")]
@@ -652,15 +740,163 @@ mod tests {
         assert_eq!(format_version(&file).unwrap().1, NEXT);
     }
 
-    /// The registered chain has exactly one step for every format before
-    /// [`FORMAT_VERSION`] and none beyond it.
+    /// IFX-062: the registered chain has one step for every format before
+    /// [`FORMAT_VERSION`], in format order from format 1, and none beyond
+    /// it; each step has a test of its own on a minimal file below.
     #[test]
-    fn the_registered_migrations_form_a_chain_to_the_current_format() {
-        let mut froms: Vec<u32> = MIGRATIONS.iter().map(|m| m.from).collect();
-        froms.sort_unstable();
-        let earlier: Vec<u32> = (1..).take_while(|v| *v < FORMAT_VERSION).collect();
-        assert_eq!(froms, earlier);
+    fn migrations_are_contiguous() {
+        for (i, step) in MIGRATIONS.iter().enumerate() {
+            assert_eq!(usize::try_from(step.from).unwrap(), i + 1, "{MIGRATIONS:?}");
+        }
+        assert_eq!(MIGRATIONS.last().map(|m| m.from), Some(FORMAT_VERSION - 1));
         // NFR-L10N-001: the load report renders each step's description.
         assert!(MIGRATIONS.iter().all(|m| ALL_KEYS.contains(&m.description)));
+    }
+
+    /// The registered step from `from`.
+    fn step(from: u32) -> &'static Migration {
+        MIGRATIONS.iter().find(|m| m.from == from).unwrap()
+    }
+
+    /// A minimal file of `format`, the least a step sees: one project node
+    /// with `project`, its format version set, and nothing else.
+    fn minimal(format: u32, mut project: Value) -> IfcxFile {
+        project["formatVersion"] = format.to_string().into();
+        let file = serde_json::json!({
+            "header": {
+                "id": "minimal",
+                "ifcxVersion": "ifcx_alpha",
+                "dataVersion": "1",
+                "author": "Test",
+                "timestamp": "2026-11-10T00:00:00Z",
+            },
+            "imports": [],
+            "schemas": {},
+            "data": [{"path": "project", "attributes": {schema::PROJECT: project}}],
+        });
+        validate::parse(&serde_json::to_vec(&file).unwrap()).unwrap()
+    }
+
+    /// The project attribute of `file`'s single node.
+    fn project_of(file: &IfcxFile) -> &Value {
+        &file.data[0].attributes[schema::PROJECT]
+    }
+
+    /// IFX-062, SPC-001: the spaces step changes nothing of a minimal file.
+    #[test]
+    fn the_spaces_step_changes_nothing_of_a_minimal_file() {
+        let original = minimal(1, serde_json::json!({"toolDefaults": {}, "counters": {"wall": 0}}));
+        let mut file = original.clone();
+        let mut problems = Vec::new();
+        (step(1).apply)(&mut file, &mut problems);
+        assert_eq!(file, original);
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    /// IFX-062, ANN-007: the texts step gives a minimal project the
+    /// template's text styles.
+    #[test]
+    fn the_texts_step_gives_a_minimal_file_the_template_text_styles() {
+        let mut file = minimal(2, serde_json::json!({}));
+        let mut problems = Vec::new();
+        (step(2).apply)(&mut file, &mut problems);
+        let expected: Vec<Value> = template_text_styles().iter().map(writer::text_style_record).collect();
+        assert_eq!(project_of(&file)["textStyles"], Value::Array(expected));
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    /// IFX-062, ELM-001: the step from format 3 moves every member of a
+    /// tool-defaults slot that is not one of the common members (layer,
+    /// position, structural function, IFC class, predefined type) into the
+    /// slot's `parameters`, in their order, the material among them, and
+    /// writes the common members first, in the writer's order. A slot that
+    /// is not an object and a project without tool defaults stay as they
+    /// are.
+    #[test]
+    fn the_tool_parameters_step_nests_the_kind_parameters_of_a_minimal_file() {
+        let mut file = minimal(
+            3,
+            serde_json::json!({
+                "toolDefaults": {
+                    "wall": {
+                        "thickness": 0.25,
+                        "referenceLine": "outside",
+                        "baseOffset": 0,
+                        "top": {"link": "relative", "value": 0, "relative": 1},
+                        "material": "m",
+                        "layer": "l",
+                        "position": "exterior",
+                        "structuralFunction": "load-bearing",
+                        "ifcClass": "IfcWall",
+                        "predefinedType": "SOLIDWALL",
+                    },
+                    "text": {
+                        "anchorPos": "bottom_left",
+                        "angle": 0,
+                        "style": "s",
+                        "layer": "l",
+                        "position": "undefined",
+                        "ifcClass": "IfcAnnotation",
+                    },
+                    "broken": "not a slot",
+                },
+                "counters": {"wall": 4},
+            }),
+        );
+        let mut problems = Vec::new();
+        (step(3).apply)(&mut file, &mut problems);
+        assert!(problems.is_empty(), "{problems:#?}");
+        let expected = serde_json::json!({
+            "wall": {
+                "layer": "l",
+                "position": "exterior",
+                "structuralFunction": "load-bearing",
+                "ifcClass": "IfcWall",
+                "predefinedType": "SOLIDWALL",
+                "parameters": {
+                    "thickness": 0.25,
+                    "referenceLine": "outside",
+                    "baseOffset": 0,
+                    "top": {"link": "relative", "value": 0, "relative": 1},
+                    "material": "m",
+                },
+            },
+            "text": {
+                "layer": "l",
+                "position": "undefined",
+                "ifcClass": "IfcAnnotation",
+                "parameters": {"anchorPos": "bottom_left", "angle": 0, "style": "s"},
+            },
+            "broken": "not a slot",
+        });
+        // Compared as text, so that the order of the members counts too.
+        assert_eq!(project_of(&file)["toolDefaults"].to_string(), expected.to_string());
+        assert_eq!(project_of(&file)["counters"], serde_json::json!({"wall": 4}));
+
+        let original = minimal(3, serde_json::json!({"counters": {}}));
+        let mut file = original.clone();
+        (step(3).apply)(&mut file, &mut problems);
+        assert_eq!(file, original);
+    }
+
+    /// IFX-062: the tool defaults of a file written at format 3, migrated,
+    /// are the members this release writes for the same project, in the
+    /// same order: the annotation sample, the project of the frozen format 3
+    /// file.
+    #[test]
+    fn a_migrated_format_3_file_has_the_tool_defaults_this_release_writes() {
+        let tool_defaults = |file: &IfcxFile| {
+            let project = file
+                .data
+                .iter()
+                .find_map(|n| n.attributes.get(schema::PROJECT))
+                .unwrap();
+            project["toolDefaults"].to_string()
+        };
+        let format_3 = validate::parse(FORMAT_3).unwrap();
+        let (migrated, report) = upgrade(&format_3, MIGRATIONS, FORMAT_VERSION, &mut Vec::new()).unwrap();
+        assert_eq!(report.from, 3);
+        let written = validate::parse(&saved(&samples::annotation_sample())).unwrap();
+        assert_eq!(tool_defaults(&migrated), tool_defaults(&written));
     }
 }

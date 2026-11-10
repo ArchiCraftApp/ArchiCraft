@@ -96,14 +96,14 @@ fn predefined_type(value: &mut Value, predefined: Option<PredefinedType>) {
 }
 
 /// The tool defaults, one member per kind code in slot order (ELM-001): the
-/// prototype's parameters from the kind's codec, then the slot's common
-/// members. A slot of a kind without a codec is left out with a warning,
-/// one whose codec is a placeholder without one: the reader takes the
-/// template's slot for it.
+/// slot's common members, then the prototype's `parameters` from the kind's
+/// codec with the material (format 4). A slot of a kind without a codec is
+/// left out with a warning, one whose codec is a placeholder without one:
+/// the reader takes the template's slot for it.
 fn tool_defaults(p: &Project, warnings: &mut Vec<Problem>) -> Value {
     let mut map = Map::new();
     for (kind, slot) in p.tool_defaults.iter().filter(|(kind, _)| !kinds::placeholder(*kind)) {
-        let Some(mut members) = CODECS.iter().find_map(|c| c.write_slot(&slot.kind)) else {
+        let Some(mut parameters) = CODECS.iter().find_map(|c| c.write_slot(&slot.kind)) else {
             warnings.push(Problem::warning(
                 None,
                 Message::new("ifcx-tool-defaults-not-saved").kind("kind", kind),
@@ -111,14 +111,16 @@ fn tool_defaults(p: &Project, warnings: &mut Vec<Problem>) -> Value {
             continue;
         };
         if let Some(material) = slot.kind.material() {
-            members.insert("material".into(), json!(material.to_string()));
+            parameters.insert("material".into(), json!(material.to_string()));
         }
+        let mut members = Map::new();
         members.insert("layer".into(), json!(slot.layer.to_string()));
         members.insert("position".into(), json!(slot.position.code()));
         structural_function(&mut members, slot.structural);
         members.insert("ifcClass".into(), json!(slot.ifc_class.code()));
         let mut value = Value::Object(members);
         predefined_type(&mut value, slot.predefined_type);
+        value["parameters"] = Value::Object(parameters);
         map.insert(kind.code().into(), value);
     }
     Value::Object(map)

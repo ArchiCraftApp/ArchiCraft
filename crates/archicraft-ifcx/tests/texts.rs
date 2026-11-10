@@ -227,10 +227,10 @@ fn text_styles_are_stored_in_the_project_attribute() {
     );
 }
 
-/// ELM-001, ELM-019: the text tool's defaults slot holds the anchor
-/// position, angle and style, and the size override only when set, then
-/// the common members without a material; its placeholder view, anchor and
-/// empty content are not written. The text counter is written like every
+/// ELM-001, ELM-019: the text tool's defaults slot holds the common members
+/// and, apart from them, its parameters without a material: the anchor
+/// position, angle and style, and the size override only when set; its
+/// placeholder view, anchor and empty content are not written. The text counter is written like every
 /// tool's. A size override in the slot round-trips.
 #[test]
 fn the_text_tools_defaults_and_counter_are_stored() {
@@ -239,9 +239,12 @@ fn the_text_tools_defaults_and_counter_are_stored() {
     let attribute = project_attribute(&mut file);
     let slot = attribute["toolDefaults"]["text"].as_object().unwrap();
     let keys: Vec<&String> = slot.keys().collect();
-    assert_eq!(keys, ["anchorPos", "angle", "style", "layer", "position", "ifcClass"]);
-    assert_eq!(slot["anchorPos"], "bottom_left");
-    assert_eq!(slot["style"], project.text_styles[0].id.to_string().as_str());
+    assert_eq!(keys, ["layer", "position", "ifcClass", "parameters"]);
+    let parameters = slot["parameters"].as_object().unwrap();
+    let keys: Vec<&String> = parameters.keys().collect();
+    assert_eq!(keys, ["anchorPos", "angle", "style"]);
+    assert_eq!(parameters["anchorPos"], "bottom_left");
+    assert_eq!(parameters["style"], project.text_styles[0].id.to_string().as_str());
     assert_eq!(attribute["counters"]["text"], 3);
 
     let mut defaults = project.tool_defaults.clone();
@@ -253,7 +256,10 @@ fn the_text_tools_defaults_and_counter_are_stored() {
         .unwrap();
     let bytes = save(&project);
     let mut file: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(project_attribute(&mut file)["toolDefaults"]["text"]["sizeMm"], 7.0);
+    assert_eq!(
+        project_attribute(&mut file)["toolDefaults"]["text"]["parameters"]["sizeMm"],
+        7.0
+    );
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
     assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
     assert_eq!(loaded.project.tool_defaults, project.tool_defaults);
@@ -467,7 +473,7 @@ fn a_file_without_text_styles_gets_the_templates_with_a_warning() {
 fn the_text_tools_default_style_is_repaired_when_missing() {
     let project = samples::annotation_sample();
     let bytes = edit(&project, |v| {
-        project_attribute(v)["toolDefaults"]["text"]["style"] = json!(TextStyleId::new().to_string());
+        project_attribute(v)["toolDefaults"]["text"]["parameters"]["style"] = json!(TextStyleId::new().to_string());
     });
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
     let slot = loaded.project.tool_defaults.get(KindTag::Text).unwrap();

@@ -29,6 +29,7 @@ use archicraft_geometry::ModelGeometry;
 use archicraft_model::Project;
 use serde_json::value::RawValue;
 
+pub use alpha::migrate::MigrationReport;
 pub use alpha::reader::ReadOutcome;
 pub use alpha::writer::{WriteOptions, WriteOutcome};
 pub use container::IfcxFile;
