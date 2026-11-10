@@ -109,6 +109,10 @@ struct Fields<'a> {
     nf: NumberFormat,
     project: &'a Project,
     targets: &'a mut Vec<Element>,
+    /// True while editing selected elements, false for the tool defaults.
+    selection: bool,
+    /// The hint of an empty space number (SPC-001), see [`number_hint`].
+    number_hint: Option<String>,
     changed: bool,
     error: Option<String>,
 }
@@ -170,6 +174,36 @@ impl Fields<'_> {
         });
     }
 
+    /// A free-text row over the targets for which `get` gives a value; an
+    /// empty value shows `hint`.
+    fn text(
+        &mut self,
+        ui: &mut Ui,
+        label: &str,
+        key: &str,
+        hint: &str,
+        get: impl Fn(&Element) -> Option<&str>,
+        set: impl Fn(&mut Element, String),
+    ) {
+        if !self.targets.iter().any(|e| get(e).is_some()) {
+            return;
+        }
+        self.row(ui, label, |ui, f| {
+            let value = common(f.targets.iter().filter_map(&get));
+            let width = f.width(90.0);
+            match widgets::hinted_text(ui, f.id.with(key), value, hint, width) {
+                Edited::Changed(v) => {
+                    for e in f.targets.iter_mut().filter(|e| get(e).is_some()) {
+                        set(e, v.clone());
+                    }
+                    f.changed = true;
+                }
+                Edited::Invalid(e) => f.error = Some(e),
+                Edited::Unchanged => {}
+            }
+        });
+    }
+
     fn choice<T: Clone + PartialEq>(
         &mut self,
         ui: &mut Ui,
@@ -207,6 +241,42 @@ fn wall_mut(e: &mut Element) -> Option<&mut archicraft_model::Wall> {
 
 fn slab_mut(e: &mut Element) -> Option<&mut archicraft_model::Slab> {
     e.as_slab_mut()
+}
+
+/// The top of a wall or a space (ELM-006, SPC-001), which share the height
+/// rows.
+fn top(e: &Element) -> Option<TopLink> {
+    match &e.kind {
+        ElementKind::Wall(w) => Some(w.top),
+        ElementKind::Space(s) => Some(s.link.top),
+        _ => None,
+    }
+}
+
+fn top_mut(e: &mut Element) -> Option<&mut TopLink> {
+    match &mut e.kind {
+        ElementKind::Wall(w) => Some(&mut w.top),
+        ElementKind::Space(s) => Some(&mut s.link.top),
+        _ => None,
+    }
+}
+
+/// The base offset of a wall or a space from its home storey (ELM-006,
+/// SPC-001).
+fn base_offset_mut(e: &mut Element) -> Option<&mut f64> {
+    match &mut e.kind {
+        ElementKind::Wall(w) => Some(&mut w.base_offset),
+        ElementKind::Space(s) => Some(&mut s.link.base_offset),
+        _ => None,
+    }
+}
+
+fn base_offset(e: &Element) -> Option<f64> {
+    match &e.kind {
+        ElementKind::Wall(w) => Some(w.base_offset),
+        ElementKind::Space(s) => Some(s.link.base_offset),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -288,17 +358,11 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
             }
         },
     );
-    f.length(
-        ui,
-        "Base offset",
-        "base",
-        |e| wall(e).map(|w| w.base_offset),
-        |e, v| {
-            if let Some(w) = wall_mut(e) {
-                w.base_offset = v;
-            }
-        },
-    );
+    f.length(ui, "Base offset", "base", base_offset, |e, v| {
+        if let Some(base) = base_offset_mut(e) {
+            *base = v;
+        }
+    });
     let modes = vec![
         (TopMode::Fixed, "Fixed height".to_owned()),
         (TopMode::Storey, "Linked to storey".to_owned()),
@@ -310,13 +374,13 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
         "Top",
         "topmode",
         &modes,
-        |e| wall(e).map(|w| top_mode(w.top)),
+        |e| top(e).map(top_mode),
         |e, mode| {
             let extent = project.vertical_extent(e);
             let home = e.storey;
-            if let Some(w) = wall_mut(e) {
+            if let Some(link) = top_mut(e) {
                 let (bottom, top) = extent.unwrap_or((0.0, 3.0));
-                w.top = match mode {
+                *link = match mode {
                     TopMode::Fixed => TopLink::Fixed { height: top - bottom },
                     TopMode::Storey => {
                         let s = project
@@ -340,13 +404,13 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
         ui,
         "Height",
         "height",
-        |e| match wall(e)?.top {
+        |e| match top(e)? {
             TopLink::Fixed { height } => Some(height),
             _ => None,
         },
         |e, v| {
-            if let Some(w) = wall_mut(e) {
-                w.top = TopLink::Fixed { height: v };
+            if let Some(link) = top_mut(e) {
+                *link = TopLink::Fixed { height: v };
             }
         },
     );
@@ -360,15 +424,15 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
         "Top storey",
         "topstorey",
         &storeys,
-        |e| match wall(e)?.top {
+        |e| match top(e)? {
             TopLink::Storey { storey, .. } => Some(storey),
             _ => None,
         },
         |e, s| {
-            if let Some(w) = wall_mut(e)
-                && let TopLink::Storey { offset, .. } = w.top
+            if let Some(link) = top_mut(e)
+                && let TopLink::Storey { offset, .. } = *link
             {
-                w.top = TopLink::Storey { storey: *s, offset };
+                *link = TopLink::Storey { storey: *s, offset };
             }
         },
     );
@@ -381,15 +445,15 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
         "Linked storey",
         "toprel",
         &relative,
-        |e| match wall(e)?.top {
+        |e| match top(e)? {
             TopLink::Relative { storeys, .. } => Some(storeys),
             _ => None,
         },
         |e, n| {
-            if let Some(w) = wall_mut(e)
-                && let TopLink::Relative { offset, .. } = w.top
+            if let Some(link) = top_mut(e)
+                && let TopLink::Relative { offset, .. } = *link
             {
-                w.top = TopLink::Relative { storeys: *n, offset };
+                *link = TopLink::Relative { storeys: *n, offset };
             }
         },
     );
@@ -397,13 +461,13 @@ fn geometry_fields(ui: &mut Ui, f: &mut Fields<'_>) {
         ui,
         "Top offset",
         "topoffset",
-        |e| match wall(e)?.top {
+        |e| match top(e)? {
             TopLink::Storey { offset, .. } | TopLink::Relative { offset, .. } => Some(offset),
             TopLink::Fixed { .. } => None,
         },
         |e, v| {
-            if let Some(w) = wall_mut(e) {
-                w.top = match w.top {
+            if let Some(link) = top_mut(e) {
+                *link = match *link {
                     TopLink::Storey { storey, .. } => TopLink::Storey { storey, offset: v },
                     TopLink::Relative { storeys, .. } => TopLink::Relative { storeys, offset: v },
                     fixed => fixed,
@@ -554,6 +618,90 @@ fn text_fields(ui: &mut Ui, f: &mut Fields<'_>) {
     });
 }
 
+/// The room name and number of spaces (SPC-001). For the space tool's
+/// defaults the room name is the default name, in which `{n}` stands for
+/// the new space's number in its kind (`Raum {n}` names the second space
+/// "Raum 2"); empty, new spaces are named with the localised pattern, which
+/// the field shows as its hint.
+fn space_fields(ui: &mut Ui, f: &mut Fields<'_>) {
+    let (label, hint) = if f.selection {
+        ("Room name", String::new())
+    } else {
+        ("Default name", tr!("tool-space-default-name", n = "{n}"))
+    };
+    f.text(
+        ui,
+        label,
+        "longname",
+        &hint,
+        |e| e.as_space().map(|s| s.long_name.as_str()),
+        |e, v| {
+            if let Some(s) = e.as_space_mut() {
+                s.long_name = v;
+            }
+        },
+    );
+    let hint = f.number_hint.clone().unwrap_or_default();
+    f.text(
+        ui,
+        "Number",
+        "number",
+        &hint,
+        |e| e.as_space().map(|s| s.number.as_str()),
+        |e, v| {
+            if let Some(s) = e.as_space_mut() {
+                s.number = v;
+            }
+        },
+    );
+}
+
+/// The read-only net area of one selected space in the project's area unit
+/// (SPC-001), the value its plan stamp shows.
+fn space_area(ui: &mut Ui, f: &mut Fields<'_>) {
+    let [element] = f.targets.as_slice() else {
+        return;
+    };
+    let Some(space) = element.as_space().filter(|_| f.selection) else {
+        return;
+    };
+    let area = format_area(space.net_area(), &f.units, &f.nf);
+    f.row(ui, "Area", |ui, _| {
+        ui.label(egui::RichText::new(area).weak());
+    });
+}
+
+/// The hint of an empty space number (SPC-001): for the space tool's
+/// defaults [`Project::suggested_space_number`] of the active storey, the
+/// number the next space gets suggested; for one selected space the same
+/// pattern with the space's place among its storey's spaces, so that the
+/// only space of the ground storey shows `0.01`, not the `0.02` suggested
+/// for a further one. `None` for other targets.
+fn number_hint(ws: &Workspace, editing: &Editing) -> Option<String> {
+    let project = &ws.doc.project;
+    let [element] = editing.targets.as_slice() else {
+        return None;
+    };
+    element.as_space()?;
+    match editing.subject {
+        Subject::Defaults(_) => project.suggested_space_number(ws.active_storey),
+        Subject::Selection => {
+            let number = project.storeys.number(element.storey)?;
+            let place = project
+                .elements_on(element.storey)
+                .filter(|e| e.tag() == KindTag::Space)
+                .position(|e| e.id == element.id)?;
+            Some(format!("{number}.{:02}", place + 1))
+        }
+    }
+}
+
+/// True if every target is a space (SPC-001): the settings dialog then shows
+/// all its fields in the 'Space' section.
+fn all_spaces(f: &Fields<'_>) -> bool {
+    f.targets.iter().all(|e| e.as_space().is_some())
+}
+
 /// True if every target has a material: a kind without one, like a space
 /// (SPC-001), has none to pick and no cut fill.
 fn all_have_material(f: &Fields<'_>) -> bool {
@@ -692,6 +840,7 @@ fn derived(ui: &mut Ui, ws: &mut Workspace, layout: Layout) {
         ElementKind::Slab(s) => {
             rows.push(("Area", format_area(s.outline.area(), units, &nf)));
         }
+        // A space's area is a row of its fields (space_area).
         _ => {}
     }
     if let Some(v) = volume {
@@ -883,6 +1032,7 @@ fn edit_fields(ui: &mut Ui, ws: &mut Workspace, editing: &mut Editing, layout: L
                 .inner
         }
     };
+    let number_hint = number_hint(ws, editing);
     let mut targets = std::mem::take(&mut editing.targets);
     let mut f = Fields {
         layout,
@@ -891,18 +1041,36 @@ fn edit_fields(ui: &mut Ui, ws: &mut Workspace, editing: &mut Editing, layout: L
         nf: ws.prefs.number_format(),
         project: &ws.doc.project,
         targets: &mut targets,
+        selection: editing.subject == Subject::Selection,
+        number_hint,
         changed: false,
         error: None,
     };
     match layout {
         Layout::Strip => {
+            space_fields(ui, &mut f);
             geometry_fields(ui, &mut f);
+            space_area(ui, &mut f);
             text_fields(ui, &mut f);
             appearance_fields(ui, &mut f);
             classification_fields(ui, &mut f);
         }
         Layout::Grid => {
-            section(ui, "Geometry and positioning", |ui| geometry_fields(ui, &mut f));
+            // UI-003: a space's fields, its height included, are one
+            // section; with other kinds selected too, the room name and
+            // number get their own.
+            if all_spaces(&f) {
+                section(ui, "Space", |ui| {
+                    space_fields(ui, &mut f);
+                    geometry_fields(ui, &mut f);
+                    space_area(ui, &mut f);
+                });
+            } else {
+                section(ui, "Geometry and positioning", |ui| geometry_fields(ui, &mut f));
+                if f.targets.iter().any(|e| e.as_space().is_some()) {
+                    section(ui, "Space", |ui| space_fields(ui, &mut f));
+                }
+            }
             if f.targets.iter().any(|e| e.as_text().is_some()) {
                 section(ui, "Text", |ui| text_fields(ui, &mut f));
             }
