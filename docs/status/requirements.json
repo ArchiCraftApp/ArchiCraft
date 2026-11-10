@@ -1747,18 +1747,22 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "'Usable by display overrides' cannot be met until DSP-016 (Could) exists. No round-trip test asserts IsExternal or position survive save/load.",
-      "depends_on": []
+      "gap": "Position (crates/archicraft-model/src/element.rs Position, on the element envelope and the tool defaults) is written as bsi::ifc::prop::IsExternal when known (IFX-022) and as archicraft::element.position, and IsExternal, the position and the structural function (ELM-020) survive save and load (`position_and_structural_function_round_trip`, crates/archicraft-ifcx/tests/roundtrip.rs). Missing: 'usable by display overrides' waits for DSP-016 (Could), whose planned OverrideCriteria (archicraft-j67) lacks a position criterion; archicraft-490.1 adds it, matching Position::code.",
+      "depends_on": [
+        "DSP-016"
+      ]
     },
     {
       "id": "ELM-020",
       "priority": "C",
       "section": "4.9",
-      "status": "missing",
+      "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "No structural-function flag on Element, no UI, no IFCX property (e.g. LoadBearing).",
-      "depends_on": []
+      "gap": "A structural function (StructuralFunction: undefined, load-bearing, non-load-bearing; crates/archicraft-model/src/element.rs) is on the element envelope and the tool defaults (template default undefined for every kind, Appendix D gives none), edited in the properties' Classification section, undoably and with 'Mixed' for differing values (`the_structural_function_choice_sets_the_flag_undoably`, `a_structural_function_in_the_strip_updates_the_wall_defaults_slot`, crates/archicraft-app/tests/ui.rs), and stored as archicraft::element.structuralFunction and in the defaults slot when stated, an unknown code read as undefined with a warning (`position_and_structural_function_round_trip`, `an_unknown_structural_function_loads_as_undefined_with_one_warning`, crates/archicraft-ifcx/tests/roundtrip.rs). Open question: write bsi::ifc::prop::LoadBearing once a bundled schema declares it (prop@v5a declares only IsExternal, IFX-061). Missing: 'usable by display overrides' waits for DSP-016 (Could); archicraft-490.1 adds the criterion to the planned OverrideCriteria (archicraft-j67), matching StructuralFunction::code.",
+      "depends_on": [
+        "DSP-016"
+      ]
     },
     {
       "id": "ELM-013",

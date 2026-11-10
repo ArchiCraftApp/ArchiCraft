@@ -12,7 +12,7 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
 use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, VerticalLink, transform_outline};
-use crate::element::{Element, IfcClass, Position, PredefinedType, TopLink};
+use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
 use crate::ids::StoreyId;
 use crate::message::Message;
 use crate::outline::Outline;
@@ -75,6 +75,7 @@ fn template_defaults(context: &TemplateContext<'_>) -> DefaultsSlot {
     DefaultsSlot {
         layer: context.layer("Spaces"),
         position: Position::Undefined,
+        structural: StructuralFunction::Undefined,
         ifc_class: Space::DESCRIPTOR.default_class,
         predefined_type: None,
         kind: Space {

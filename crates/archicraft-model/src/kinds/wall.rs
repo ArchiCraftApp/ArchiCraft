@@ -4,7 +4,7 @@ use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
 use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, VerticalLink, plan_bounds_of};
-use crate::element::{Element, IfcClass, Position, PredefinedType, TopLink};
+use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
 use crate::ids::{MaterialId, StoreyId};
 use crate::message::Message;
 use crate::project::{DefaultsSlot, Project};
@@ -115,6 +115,7 @@ fn template_defaults(context: &TemplateContext<'_>) -> DefaultsSlot {
     DefaultsSlot {
         layer: context.layer("Exterior walls"),
         position: Position::Exterior,
+        structural: StructuralFunction::Undefined,
         ifc_class: Wall::DESCRIPTOR.default_class,
         predefined_type: None,
         kind: Wall {

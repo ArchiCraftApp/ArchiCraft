@@ -12,7 +12,7 @@ use glam::DVec2;
 use uuid::Uuid;
 
 use crate::command::{Command, History};
-use crate::element::{Element, ElementKind, KindTag, Position, PredefinedType};
+use crate::element::{Element, ElementKind, KindTag, Position, PredefinedType, StructuralFunction};
 use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
 use crate::kinds::{BoundarySource, ReferenceLine};
 use crate::layer::Layer;
@@ -139,17 +139,25 @@ impl FixtureBuilder {
     }
 
     /// Creates an element of any registered kind on `storey`. Walls and
-    /// slabs get the layer, position, IFC class and predefined type of their
-    /// tool defaults (ELM-001); other kinds get their default IFC class, the first layer
-    /// and an undefined position, like [`crate::kinds`]' test kind.
+    /// slabs get the layer, position, structural function, IFC class and
+    /// predefined type of their tool defaults (ELM-001); other kinds get
+    /// their default IFC class, the first layer and an undefined position
+    /// and structural function, like [`crate::kinds`]' test kind.
     pub fn element(&mut self, storey: StoreyId, kind: impl Into<ElementKind>) -> ElementId {
         let kind = kind.into();
         let tag = kind.tag();
-        let (layer, position, ifc_class, predefined_type) = match self.project.tool_defaults.get(tag) {
-            Some(slot) => (slot.layer, slot.position, slot.ifc_class, slot.predefined_type),
+        let (layer, position, structural, ifc_class, predefined_type) = match self.project.tool_defaults.get(tag) {
+            Some(slot) => (
+                slot.layer,
+                slot.position,
+                slot.structural,
+                slot.ifc_class,
+                slot.predefined_type,
+            ),
             None => (
                 self.project.layers[0].id,
                 Position::Undefined,
+                StructuralFunction::Undefined,
                 tag.descriptor().default_class,
                 None,
             ),
@@ -166,6 +174,7 @@ impl FixtureBuilder {
             ifc_class,
             predefined_type,
             position,
+            structural,
             locked: false,
             snap_excluded: false,
             group: None,

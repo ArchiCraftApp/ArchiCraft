@@ -209,6 +209,17 @@ fn the_plan_view_snaps_to_a_thin_walls_face_midpoint() {
     assert!(label.ends_with("\nmidpoint"), "{label}");
 }
 
+/// The screen position of `point` in the active plan view, once the window
+/// has followed the last change: the properties strip shows the division
+/// mode and the selection, and its height moves the plan view when its
+/// fields wrap to another row.
+fn settled_screen_pos(harness: &mut Harness<'static, archicraft_app::ArchiCraftApp>, point: DVec2) -> Pos2 {
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    let state = &ws.plan_views[&ws.active_storey];
+    state.camera.to_screen(state.last_rect, point)
+}
+
 /// INP-010, INP-008: with four equal parts chosen in the preferences, the
 /// plan view of two_storey_shell hovers the south wall, draws ticks at its
 /// three division points and snaps to the one near the cursor with the
@@ -217,12 +228,8 @@ fn the_plan_view_snaps_to_a_thin_walls_face_midpoint() {
 fn the_plan_view_draws_division_ticks_and_snaps_to_them() {
     let mut harness = wall_tool_on_two_storey_shell("division-ticks");
     harness.state_mut().workspace().prefs.input.division = DivisionMode::Equal(4);
-    let (storey, pos) = {
-        let ws = harness.state_mut().workspace();
-        let storey = ws.active_storey;
-        let state = &ws.plan_views[&storey];
-        (storey, state.camera.to_screen(state.last_rect, DVec2::new(3.0, -0.03)))
-    };
+    let storey = harness.state_mut().workspace().active_storey;
+    let pos = settled_screen_pos(&mut harness, DVec2::new(3.0, -0.03));
     harness.hover_at(pos);
     harness.run_steps(2);
     let ws = harness.state_mut().workspace();
@@ -248,7 +255,7 @@ fn the_selected_slabs_outline_is_hovered_under_reference_lines() {
     use archicraft_model::ElementKind;
 
     let mut harness = wall_tool_on_two_storey_shell("selected-outline");
-    let (storey, pos, slab) = {
+    let (storey, slab) = {
         let ws = harness.state_mut().workspace();
         ws.prefs.input.division = DivisionMode::Equal(3);
         ws.prefs.input.scope = DivisionScope::WholeElement;
@@ -257,13 +264,10 @@ fn the_selected_slabs_outline_is_hovered_under_reference_lines() {
             .find(|e| matches!(e.kind, ElementKind::Slab(_)))
             .unwrap()
             .id;
-        let state = &ws.plan_views[&storey];
-        (
-            storey,
-            state.camera.to_screen(state.last_rect, DVec2::new(3.0, -0.03)),
-            slab,
-        )
+        (storey, slab)
     };
+    let south = DVec2::new(3.0, -0.03);
+    let pos = settled_screen_pos(&mut harness, south);
     let ticks = |h: &mut Harness<'static, archicraft_app::ArchiCraftApp>, pos: Pos2| {
         h.hover_at(pos);
         h.run_steps(2);
@@ -278,6 +282,7 @@ fn the_selected_slabs_outline_is_hovered_under_reference_lines() {
     assert_ticks(&ticks(&mut harness, pos), &[DVec2::new(4.0, 0.0), DVec2::new(8.0, 0.0)]);
 
     harness.state_mut().workspace().selection.insert(slab);
+    let pos = settled_screen_pos(&mut harness, south);
     let found = ticks(&mut harness, pos + egui::vec2(1.0, 0.0));
     assert_ticks(&found, &[DVec2::new(12.0, 2.0), DVec2::new(5.0, 9.0)]);
 }

@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 use archicraft_model::material::{FillPattern, MaterialCategory};
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, VolumeUnit};
-use archicraft_model::{KindTag, Position, PredefinedType, TextAlign};
+use archicraft_model::{KindTag, Position, PredefinedType, StructuralFunction, TextAlign};
 
 use super::kinds::{self, Codec, annotations};
 use super::relations;
@@ -132,6 +132,12 @@ fn positions() -> Value {
     enumeration(Position::ALL.map(Position::code))
 }
 
+/// The structural function of an element or a tool's defaults (ELM-020).
+/// Optional: written only when stated.
+fn structural_function() -> Value {
+    optional(enumeration(StructuralFunction::ALL.map(StructuralFunction::code)))
+}
+
 /// The predefined type of an element or a tool's defaults (IFX-024), as its
 /// IFC 4.3 literal. Optional: written only when set.
 fn predefined_type() -> Value {
@@ -153,6 +159,7 @@ pub(crate) fn element_data<'a>(kinds: impl IntoIterator<Item = &'a str>) -> Vec<
         ("layer", string()),
         ("locked", boolean()),
         ("position", positions()),
+        ("structuralFunction", structural_function()),
         ("predefinedType", predefined_type()),
         ("snapExcluded", snap_excluded()),
         ("group", optional(string())),
@@ -173,6 +180,7 @@ fn defaults_slot(codec: &dyn Codec) -> Value {
         ("material", material),
         ("layer", string()),
         ("position", positions()),
+        ("structuralFunction", structural_function()),
         ("ifcClass", string()),
         ("predefinedType", predefined_type()),
     ]);

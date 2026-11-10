@@ -13,7 +13,7 @@ use archicraft_model::message::ALL_KEYS;
 use archicraft_model::units::{
     AngleUnit, AreaUnit, LengthUnit, NumberFormat, ParseError, SlopeFormat, UnitSettings, VolumeUnit, format_length,
 };
-use archicraft_model::{IfcClass, KindTag, Message, PredefinedType, ReferenceLine};
+use archicraft_model::{IfcClass, KindTag, Message, PredefinedType, ReferenceLine, StructuralFunction};
 use catalogue_check::{assert_catalogue_matches, variables_of_pattern};
 use fluent_syntax::ast::Entry;
 use fluent_syntax::parser;
@@ -65,8 +65,8 @@ fn representatives() -> Vec<Message> {
     messages
 }
 
-/// The names of units, IFC classes, predefined types and wall reference
-/// lines, and the parse errors of typed lengths and angles (units.rs,
+/// The names of units, IFC classes, predefined types, structural functions
+/// and wall reference lines, and the parse errors of typed lengths and angles (units.rs,
 /// element.rs, kinds/wall.rs).
 fn label_representatives() -> Vec<Message> {
     let mut keys: Vec<&'static str> = Vec::new();
@@ -77,6 +77,7 @@ fn label_representatives() -> Vec<Message> {
     keys.extend(VolumeUnit::ALL.map(VolumeUnit::label_key));
     keys.extend(IfcClass::ALL.map(IfcClass::label_key));
     keys.extend(PredefinedType::ALL.map(PredefinedType::label_key));
+    keys.extend(StructuralFunction::ALL.map(StructuralFunction::label_key));
     keys.extend(
         [
             ReferenceLine::Outside,

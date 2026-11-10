@@ -848,6 +848,7 @@ fn check_slot(project: &Project, kind: KindTag, slot: &DefaultsSlot) -> Result<(
         ifc_class: slot.ifc_class,
         predefined_type: slot.predefined_type,
         position: slot.position,
+        structural: slot.structural,
         locked: false,
         snap_excluded: false,
         group: None,

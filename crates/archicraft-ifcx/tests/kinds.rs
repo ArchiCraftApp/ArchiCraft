@@ -13,7 +13,9 @@ use archicraft_ifcx::validate::{self, Severity};
 use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::{Dummy, VerticalLink};
 use archicraft_model::project::DefaultsSlot;
-use archicraft_model::{Command, ElementId, History, KindTag, Position, Project, StoreyId, TopLink, samples};
+use archicraft_model::{
+    Command, ElementId, History, KindTag, Position, Project, StoreyId, StructuralFunction, TopLink, samples,
+};
 use serde_json::Value;
 
 use common::{edit, node_index, save};
@@ -212,6 +214,7 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     defaults.insert(DefaultsSlot {
         layer: p.layers[0].id,
         position: Position::Undefined,
+        structural: StructuralFunction::LoadBearing,
         ifc_class: KindTag::Dummy.descriptor().default_class,
         predefined_type: None,
         kind: dummy.into(),
@@ -238,9 +241,11 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
             "material",
             "layer",
             "position",
+            "structuralFunction",
             "ifcClass"
         ]
     );
+    assert_eq!(slot["structuralFunction"], "load-bearing");
     assert_eq!(slot["parts"], true);
     assert_eq!(slot["panicOnEvaluate"], false);
     assert_eq!(slot["siteLevel"], true);
@@ -327,6 +332,7 @@ fn a_material_less_dummy_round_trips_without_a_material() {
     defaults.insert(DefaultsSlot {
         layer: p.layers[0].id,
         position: Position::Undefined,
+        structural: StructuralFunction::Undefined,
         ifc_class: KindTag::Dummy.descriptor().default_class,
         predefined_type: None,
         kind: Dummy::without_material(DVec2::ZERO, DVec2::ONE).into(),

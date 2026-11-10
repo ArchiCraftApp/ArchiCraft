@@ -31,7 +31,9 @@ pub mod validate;
 pub use command::{Command, CommandError, History};
 pub use drafting_view::DraftingView;
 pub use drawing::DrawingScale;
-pub use element::{CompoundPart, Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, TopLink};
+pub use element::{
+    CompoundPart, Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, StructuralFunction, TopLink,
+};
 pub use group::Group;
 pub use ids::{
     BuildingId, ElementId, GroupId, LayerId, MaterialId, ProjectId, RelationId, SiteId, StoreyId, TextStyleId, ViewId,

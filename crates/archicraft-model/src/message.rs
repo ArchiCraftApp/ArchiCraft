@@ -244,6 +244,10 @@ pub const ALL_KEYS: &[&str] = &[
     "model-predefined-type-base-slab",
     "model-predefined-type-pad-footing",
     "model-predefined-type-strip-footing",
+    // Structural functions (StructuralFunction::label_key, ELM-020).
+    "model-structural-function-undefined",
+    "model-structural-function-load-bearing",
+    "model-structural-function-non-load-bearing",
 ];
 
 /// Every argument name a [`Message`] of this crate uses. Names are
