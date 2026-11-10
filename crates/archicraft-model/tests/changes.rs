@@ -456,3 +456,50 @@ fn the_change_log_takes_no_part_in_equality_or_the_serde_form() {
     let back: Project = serde_json::from_value(json).unwrap();
     assert!(back.changes.is_empty(), "a project read back starts with an empty log");
 }
+
+/// NFR-PERF-006, PRF-004, UND-001: an element's body depends on the profile
+/// it uses, so changing a profile stamps exactly the elements that use it,
+/// and deleting it with a replacement stamps the re-pointed users; other
+/// elements stay unstamped, and undo and redo stamp the same elements.
+#[cfg(feature = "test-kinds")]
+#[test]
+fn profile_edits_stamp_the_elements_that_use_them() {
+    use archicraft_model::kinds::Dummy;
+    use archicraft_model::{ParametricShape, Profile};
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let material = p.materials[0].id;
+    let ipe = Profile::parametric("IPE 200", ParametricShape::ALL[4], material);
+    let hea = Profile::parametric("HEA 200", ParametricShape::ALL[4], material);
+    h.execute(&mut p, Command::AddProfile(ipe.clone())).unwrap();
+    h.execute(&mut p, Command::AddProfile(hea.clone())).unwrap();
+    let ground = p.storeys.ground();
+    let mut column = Dummy::new(DVec2::ZERO, DVec2::ONE, material);
+    column.profile = Some(ipe.id);
+    let user = column.into_element(&p, ground, 0);
+    let other = Dummy::new(DVec2::new(3.0, 0.0), DVec2::ONE, material).into_element(&p, ground, 1);
+    let user_id = user.id;
+    let mut elements = vec![user, other];
+    elements.extend(four_walls(&p));
+    h.execute(&mut p, Command::AddElements(elements)).unwrap();
+
+    let renamed = Profile {
+        name: "IPE 200 S355".into(),
+        ..ipe.clone()
+    };
+    assert_stamps_elements(&mut p, &mut h, Command::UpdateProfile(renamed), &[user_id]);
+    assert_stamps_elements(
+        &mut p,
+        &mut h,
+        Command::DeleteProfile {
+            profile: ipe.id,
+            replacement: Some(hea.id),
+        },
+        &[user_id],
+    );
+    assert_eq!(p.element(user_id).unwrap().kind.profiles(), [hea.id]);
+    // A profile no element uses stamps nothing.
+    let unused = Profile::parametric("Unused", ParametricShape::ALL[0], material);
+    assert_stamps_elements(&mut p, &mut h, Command::AddProfile(unused), &[]);
+}

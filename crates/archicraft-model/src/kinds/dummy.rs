@@ -6,7 +6,8 @@
 //! line in the registry names it. It is a box over an axis-aligned plan
 //! rectangle with a [`VerticalLink`] (ELM-006), and carries flags for later
 //! registry tests: compound parts (IFX-016), a panicking geometry generator
-//! (NFR-REL-006) and placement under the site (Table 5-1).
+//! (NFR-REL-006), placement under the site (Table 5-1) and a profile it
+//! uses as a column would (PRF-004).
 
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
@@ -16,8 +17,9 @@ use super::{
 };
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
 use crate::fields::FieldSpec;
-use crate::ids::{ElementId, MaterialId, StoreyId};
+use crate::ids::{ElementId, MaterialId, ProfileId, StoreyId};
 use crate::message::Message;
+use crate::profile::ProfileUsage;
 use crate::project::Project;
 use crate::storey::StoreyList;
 use crate::transform::{PlanTransform, TransformError};
@@ -42,6 +44,12 @@ pub struct Dummy {
     pub panic_on_evaluate: bool,
     /// Places the element under the site instead of a storey (Table 5-1).
     pub site_level: bool,
+    /// A profile the element uses as a column uses its cross-section, to
+    /// exercise the profile commands and the change log (PRF-004). Not
+    /// stored in IFCX, and left out of the serde form while `None`, so the
+    /// codec's field table does not see it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<ProfileId>,
 }
 
 impl Dummy {
@@ -67,6 +75,7 @@ impl Dummy {
             parts: false,
             panic_on_evaluate: false,
             site_level: false,
+            profile: None,
         }
     }
 
@@ -147,6 +156,25 @@ impl Kind for Dummy {
         if let Some(m) = &mut self.material {
             *m = material;
         }
+    }
+
+    fn profiles(&self) -> Vec<ProfileId> {
+        self.profile.into_iter().collect()
+    }
+
+    fn replace_profile(&mut self, from: ProfileId, to: ProfileId) -> bool {
+        match &mut self.profile {
+            Some(profile) if *profile == from => {
+                *profile = to;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Stands in for a column: only profiles usable by columns.
+    fn accepts_profile(&self, usage: ProfileUsage) -> bool {
+        usage.columns
     }
 
     /// The rectangle is checked as a polygon; a missing linked storey shows

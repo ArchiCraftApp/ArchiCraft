@@ -1,5 +1,5 @@
 //! Command objects and the undo history (NFR-MNT-001, UND-001, UND-002,
-//! UND-005, STR-005, ELM-015, SRS 3.3).
+//! UND-005, STR-005, ELM-015, PRF-004, SRS 3.3).
 //!
 //! Every change to a project is a [`Command`]. Executing a command first plans
 //! it against the current project, which validates it and produces a list of
@@ -12,15 +12,18 @@
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use glam::DVec2;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::changes::ChangeLog;
 use crate::element::{Element, KindTag};
 use crate::group::Group;
-use crate::ids::{ElementId, GroupId, LayerId, MaterialId, RelationId, StoreyId};
+use crate::ids::{ElementId, GroupId, LayerId, MaterialId, ProfileId, RelationId, StoreyId};
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
+use crate::profile::Profile;
 use crate::project::{DefaultsSlot, Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
 use crate::relations::Relation;
 use crate::storey::{MAX_CUT_PLANE_HEIGHT, Storey, StoreyList};
@@ -85,6 +88,20 @@ pub enum Command {
     DeleteMaterial {
         material: MaterialId,
         replacement: MaterialId,
+    },
+    /// Adds a profile (PRF-004), stored as
+    /// [`validate::validate_profile`] normalises it.
+    AddProfile(Profile),
+    /// Replaces the profile with this identity (PRF-004). Every element and
+    /// tool-defaults slot that uses it must stay valid with the new profile,
+    /// so an edit cannot remove a usage flag a user needs.
+    UpdateProfile(Profile),
+    /// Deletes a profile (PRF-004, DSP-003). Its users are re-pointed to
+    /// `replacement` through [`crate::kinds::Kind::replace_profile`]; a
+    /// profile in use cannot be deleted without one.
+    DeleteProfile {
+        profile: ProfileId,
+        replacement: Option<ProfileId>,
     },
     SetToolDefaults(ToolDefaults),
     SetSettings(ProjectSettings),
@@ -183,6 +200,9 @@ impl Command {
             Command::AddMaterial(_) => Message::new("model-label-new-material"),
             Command::UpdateMaterial(_) => Message::new("model-label-change-material"),
             Command::DeleteMaterial { .. } => Message::new("model-label-delete-material"),
+            Command::AddProfile(_) => Message::new("model-label-new-profile"),
+            Command::UpdateProfile(_) => Message::new("model-label-change-profile"),
+            Command::DeleteProfile { .. } => Message::new("model-label-delete-profile"),
             Command::SetToolDefaults(_) => Message::new("model-label-tool-settings"),
             Command::SetSettings(_) => Message::new("model-label-project-settings"),
             Command::SetInfo(_) => Message::new("model-label-project-info"),
@@ -296,6 +316,18 @@ impl Command {
                 }
             }
             Command::DeleteMaterial { material, replacement } => plan_delete_material(project, *material, *replacement),
+            Command::AddProfile(profile) => {
+                let profile = validate::validate_profile(project, profile).map_err(CommandError::Invalid)?;
+                if project.profile(profile.id).is_some() {
+                    return Err(invalid("model-error-duplicate-profile-id"));
+                }
+                Ok(vec![Edit::InsertProfile {
+                    index: project.profiles.len(),
+                    profile,
+                }])
+            }
+            Command::UpdateProfile(profile) => plan_update_profile(project, profile),
+            Command::DeleteProfile { profile, replacement } => plan_delete_profile(project, *profile, *replacement),
             Command::SetToolDefaults(defaults) => {
                 check_tool_defaults(project, defaults)?;
                 if &project.tool_defaults == defaults {
@@ -900,6 +932,13 @@ fn plan_delete_material(
             Edit::ReplaceElement(changed)
         })
         .collect();
+    // PRF-004: the parametric shapes and regions of profiles made of it.
+    for profile in &project.profiles {
+        let mut changed = profile.clone();
+        if changed.replace_material(material, replacement) {
+            edits.push(Edit::ReplaceProfile(changed));
+        }
+    }
     let mut defaults = project.tool_defaults.clone();
     for slot in defaults.slots_mut().filter(|s| s.kind.material() == Some(material)) {
         slot.kind.set_material(replacement);
@@ -909,6 +948,93 @@ fn plan_delete_material(
     }
     edits.push(Edit::RemoveMaterial { id: material });
     Ok(edits)
+}
+
+/// The edit of [`Command::UpdateProfile`] (PRF-004). Editing a profile
+/// updates every element that uses it, so each user and each tool-defaults
+/// slot that refers to it is validated against the project with the new
+/// profile, which rejects, for example, removing a usage flag a user needs.
+fn plan_update_profile(project: &Project, profile: &Profile) -> Result<Vec<Edit>, CommandError> {
+    let profile = validate::validate_profile(project, profile).map_err(CommandError::Invalid)?;
+    match project.profile(profile.id) {
+        None => return Err(not_found("model-error-profile-not-found")),
+        Some(old) if *old == profile => return Err(CommandError::NoChange),
+        Some(_) => {}
+    }
+    let id = profile.id;
+    let slot_uses = |slot: &DefaultsSlot| slot.kind.profiles().contains(&id);
+    if project.profile_users(id).next().is_some() || project.tool_defaults.iter().any(|(_, s)| slot_uses(s)) {
+        let mut next = project.clone();
+        if let Some(slot) = next.profiles.iter_mut().find(|p| p.id == id) {
+            *slot = profile.clone();
+        }
+        for user in project.profile_users(id) {
+            validate::validate_element(&next, user).map_err(|e| element_invalid(user, e))?;
+        }
+        for (kind, slot) in project.tool_defaults.iter().filter(|(_, s)| slot_uses(s)) {
+            check_slot(&next, kind, slot)?;
+        }
+    }
+    Ok(vec![Edit::ReplaceProfile(profile)])
+}
+
+/// The edits of [`Command::DeleteProfile`] (PRF-004, DSP-003). Every
+/// element and tool-defaults slot that uses the profile is re-pointed to the
+/// replacement through [`crate::kinds::Kind::replace_profile`] and must stay
+/// valid with it, so a replacement without a usage flag a user needs is
+/// rejected. A profile in use needs a replacement.
+fn plan_delete_profile(
+    project: &Project,
+    profile: ProfileId,
+    replacement: Option<ProfileId>,
+) -> Result<Vec<Edit>, CommandError> {
+    let Some(deleted) = project.profile(profile) else {
+        return Err(not_found("model-error-profile-not-found"));
+    };
+    let users: Vec<&Element> = project.profile_users(profile).collect();
+    let mut defaults = project.tool_defaults.clone();
+    let mut edits = Vec::new();
+    match replacement {
+        None => {
+            if !users.is_empty() || defaults.iter().any(|(_, s)| s.kind.profiles().contains(&profile)) {
+                return Err(CommandError::Invalid(
+                    Message::new("model-error-profile-in-use")
+                        .text("name", &deleted.name)
+                        .count("count", users.len()),
+                ));
+            }
+        }
+        Some(replacement) => {
+            if replacement == profile || project.profile(replacement).is_none() {
+                return Err(invalid("model-error-replacement-profile"));
+            }
+            for user in users {
+                let mut changed = user.clone();
+                changed.kind.replace_profile(profile, replacement);
+                validate::validate_element(project, &changed).map_err(|e| element_invalid(user, e))?;
+                edits.push(Edit::ReplaceElement(changed));
+            }
+            for slot in defaults.slots_mut() {
+                if slot.kind.replace_profile(profile, replacement) {
+                    check_slot(project, slot.tag(), slot)?;
+                }
+            }
+            if defaults != project.tool_defaults {
+                edits.push(Edit::SetToolDefaults(defaults));
+            }
+        }
+    }
+    edits.push(Edit::RemoveProfile { id: profile });
+    Ok(edits)
+}
+
+/// The error for `element`, which `reason` makes invalid.
+fn element_invalid(element: &Element, reason: Message) -> CommandError {
+    CommandError::Invalid(
+        Message::new("model-error-element-invalid")
+            .text("name", &element.name)
+            .nested("reason", reason),
+    )
 }
 
 /// Checks every slot as the prototype element it makes on the ground
@@ -999,6 +1125,9 @@ pub enum Edit {
     InsertMaterial { index: usize, material: Material },
     RemoveMaterial { id: MaterialId },
     ReplaceMaterial(Material),
+    InsertProfile { index: usize, profile: Profile },
+    RemoveProfile { id: ProfileId },
+    ReplaceProfile(Profile),
     SetToolDefaults(ToolDefaults),
     SetSettings(ProjectSettings),
     SetInfo(ProjectInfo),
@@ -1098,6 +1227,31 @@ impl Edit {
                     .ok_or_else(|| not_found("model-error-material-not-found"))?;
                 Edit::ReplaceMaterial(std::mem::replace(slot, material))
             }
+            Edit::InsertProfile { index, profile } => {
+                let id = profile.id;
+                let index = index.min(project.profiles.len());
+                project.profiles.insert(index, profile);
+                Edit::RemoveProfile { id }
+            }
+            Edit::RemoveProfile { id } => {
+                let index = project
+                    .profiles
+                    .iter()
+                    .position(|p| p.id == id)
+                    .ok_or_else(|| not_found("model-error-profile-not-found"))?;
+                Edit::InsertProfile {
+                    index,
+                    profile: project.profiles.remove(index),
+                }
+            }
+            Edit::ReplaceProfile(profile) => {
+                let slot = project
+                    .profiles
+                    .iter_mut()
+                    .find(|p| p.id == profile.id)
+                    .ok_or_else(|| not_found("model-error-profile-not-found"))?;
+                Edit::ReplaceProfile(std::mem::replace(slot, profile))
+            }
             Edit::SetToolDefaults(defaults) => {
                 Edit::SetToolDefaults(std::mem::replace(&mut project.tool_defaults, defaults))
             }
@@ -1161,8 +1315,11 @@ impl Edit {
 /// version, moved storeys by the old storey list. A relation decides what
 /// its ends depend on (SRS 3.3), so recording or removing one stamps the
 /// ends that are in the project. The settings hold the tessellation
-/// tolerances every body depends on (IFX-034): everything is stamped. The
-/// match names every edit, so that a new one decides what it stamps.
+/// tolerances every body depends on (IFX-034): everything is stamped. An
+/// element's body depends on the profiles it uses (PRF-004), so inserting,
+/// replacing or removing a profile stamps the elements whose
+/// [`crate::kinds::Kind::profiles`] name it. The match names every edit, so
+/// that a new one decides what it stamps.
 fn stamp_changes(project: &mut Project, inverse: &Edit) {
     let Project {
         changes,
@@ -1191,6 +1348,9 @@ fn stamp_changes(project: &mut Project, inverse: &Edit) {
         Edit::SetSettings(_) => changes.stamp_everything(revision),
         Edit::RemoveRelation(id) => stamp_ends(relations.get(*id)),
         Edit::InsertRelation(relation) => stamp_ends(Some(relation)),
+        Edit::InsertProfile { profile, .. } => stamp_profile_users(changes, elements, profile.id, revision),
+        Edit::RemoveProfile { id } => stamp_profile_users(changes, elements, *id, revision),
+        Edit::ReplaceProfile(old) => stamp_profile_users(changes, elements, old.id, revision),
         Edit::InsertLayer { .. }
         | Edit::RemoveLayer { .. }
         | Edit::ReplaceLayer(_)
@@ -1206,6 +1366,18 @@ fn stamp_changes(project: &mut Project, inverse: &Edit) {
         | Edit::RemoveGroup { .. }
         | Edit::ReplaceGroup(_)
         | Edit::SetGroupCounter(_) => {}
+    }
+}
+
+/// Stamps the elements that use `profile` (PRF-004), see [`stamp_changes`].
+fn stamp_profile_users(
+    changes: &mut ChangeLog,
+    elements: &IndexMap<ElementId, Element>,
+    profile: ProfileId,
+    revision: u64,
+) {
+    for element in elements.values().filter(|e| e.kind.profiles().contains(&profile)) {
+        changes.stamp_element(element.id, revision, false);
     }
 }
 

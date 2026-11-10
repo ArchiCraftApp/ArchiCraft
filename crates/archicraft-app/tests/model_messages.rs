@@ -48,6 +48,9 @@ fn representatives() -> Vec<Message> {
             "model-label-new-material",
             "model-label-change-material",
             "model-label-delete-material",
+            "model-label-new-profile",
+            "model-label-change-profile",
+            "model-label-delete-profile",
             "model-label-tool-settings",
             "model-label-project-settings",
             "model-label-project-info",
@@ -149,6 +152,9 @@ fn error_representatives() -> Vec<Message> {
         "model-error-duplicate-material-id",
         "model-error-material-not-found",
         "model-error-replacement-material",
+        "model-error-duplicate-profile-id",
+        "model-error-profile-not-found",
+        "model-error-replacement-profile",
         "model-error-tessellation-range",
         "model-error-project-name",
         "model-error-spatial-names",
@@ -169,6 +175,7 @@ fn error_representatives() -> Vec<Message> {
         "model-error-home-storey-missing",
         "model-error-element-layer-missing",
         "model-error-element-material-missing",
+        "model-error-element-profile-missing",
         "model-error-vertical-extent",
         "model-error-top-below-base",
         "model-error-view-storey-missing",
@@ -297,6 +304,12 @@ fn error_representatives() -> Vec<Message> {
         Message::new("model-error-profile-regions-overlap")
             .count("first", 1)
             .count("second", 2),
+        Message::new("model-error-profile-in-use")
+            .text("name", "IPE 300")
+            .count("count", 3),
+        Message::new("model-error-profile-usage")
+            .text("name", "IPE 300")
+            .kind("kind", KindTag::Wall),
     ]);
     messages
 }

@@ -1,5 +1,5 @@
 //! Command and undo behaviour (NFR-MNT-001, UND-001, UND-002, STR-004,
-//! STR-005, ELM-013, ELM-015, LAY-002, DSP-003, INP-013).
+//! STR-005, ELM-013, ELM-015, LAY-002, DSP-003, INP-013, PRF-004).
 
 #![allow(clippy::unwrap_used)]
 
@@ -13,8 +13,9 @@ use archicraft_model::template::default_metric_project;
 use archicraft_model::validate::{MAX_GRID_SPACING, MAX_HEIGHT, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
 use archicraft_model::{
     AnchorPos, Arg, Command, CommandError, DraftingView, Element, ElementId, ElementKind, Group, GroupId, History,
-    IfcClass, KindTag, Layer, Material, Message, PlanGrid, Project, ProjectSettings, Slab, Space, Storey, StoreyId,
-    Text, TextStyleId, TopLink, Wall,
+    IfcClass, KindTag, Layer, Material, MaterialId, Message, ParametricShape, PlanGrid, Profile, ProfileId,
+    ProfileRegion, ProfileShape, Project, ProjectSettings, Slab, Space, Storey, StoreyId, Text, TextStyleId, TopLink,
+    Wall,
 };
 use common::{ground, wall};
 
@@ -680,9 +681,25 @@ fn deleting_resources_requires_a_replacement() {
     let id = w.id;
     let brick = w.kind.material().unwrap();
     let concrete = p.materials[0].id;
+    let other = p
+        .materials
+        .iter()
+        .find(|m| m.id != brick && m.id != concrete)
+        .unwrap()
+        .id;
     assert_eq!(template.get(KindTag::Wall).unwrap().kind.material().unwrap(), brick);
     assert_ne!(template.get(KindTag::Slab).unwrap().kind.material().unwrap(), brick);
     h.execute(&mut p, Command::AddElements(vec![w])).unwrap();
+    // PRF-004: a parametric profile of brick and a custom profile with one
+    // brick region and one region of another material.
+    let parametric = Profile::parametric("Brick pier", ParametricShape::ALL[0], brick);
+    let custom = Profile::custom(
+        "Faced pier",
+        vec![region(DVec2::ZERO, brick), region(DVec2::new(0.1, 0.0), other)],
+    );
+    h.execute(&mut p, Command::AddProfile(parametric.clone())).unwrap();
+    h.execute(&mut p, Command::AddProfile(custom.clone())).unwrap();
+    let profiles_before = p.profiles.clone();
     assert!(
         h.execute(
             &mut p,
@@ -702,6 +719,15 @@ fn deleting_resources_requires_a_replacement() {
     )
     .unwrap();
     assert_eq!(p.element(id).unwrap().kind.material().unwrap(), concrete);
+    assert_eq!(p.profile(parametric.id).unwrap().materials(), [concrete]);
+    let ProfileShape::Custom { regions } = &p.profile(custom.id).unwrap().shape else {
+        panic!("custom");
+    };
+    assert_eq!(
+        regions.iter().map(|r| r.material).collect::<Vec<_>>(),
+        [concrete, other],
+        "only the brick region is reassigned"
+    );
     let mut expected = template.clone();
     expected.get_mut(KindTag::Wall).unwrap().kind.set_material(concrete);
     assert_eq!(p.tool_defaults, expected, "only the wall slot used the brick");
@@ -727,6 +753,333 @@ fn deleting_resources_requires_a_replacement() {
     h.undo(&mut p).unwrap();
     h.undo(&mut p).unwrap();
     assert_eq!(p.tool_defaults, template);
+    assert_eq!(p.profiles, profiles_before, "one undo restores both profiles exactly");
+    assert!(p.material(brick).is_some());
+}
+
+/// A square region of `material`, 0.1 m wide, with its corner at `min`.
+fn region(min: DVec2, material: MaterialId) -> ProfileRegion {
+    ProfileRegion {
+        outer: vec![
+            min,
+            min + DVec2::new(0.1, 0.0),
+            min + DVec2::splat(0.1),
+            min + DVec2::new(0.0, 0.1),
+        ],
+        holes: Vec::new(),
+        material,
+    }
+}
+
+/// PRF-004: AddProfile, UpdateProfile and DeleteProfile execute, undo to
+/// the exact starting project and redo. A duplicate id is invalid, an
+/// unchanged profile changes nothing, and an unused profile is deleted
+/// without a replacement.
+#[test]
+fn profile_commands_execute_undo_and_redo() {
+    let mut p = default_metric_project();
+    let start = p.clone();
+    let mut h = History::default();
+    let material = p.materials[0].id;
+    let ipe = Profile::parametric("IPE 200", ParametricShape::ALL[4], material);
+    let id = ipe.id;
+
+    let add = Command::AddProfile(ipe.clone());
+    assert_eq!(add.label().key(), "model-label-new-profile");
+    h.execute(&mut p, add.clone()).unwrap();
+    assert_eq!(p.profiles, std::slice::from_ref(&ipe));
+    assert!(matches!(h.execute(&mut p, add), Err(CommandError::Invalid(_))));
+    assert_eq!(
+        h.execute(&mut p, Command::UpdateProfile(ipe.clone())),
+        Err(CommandError::NoChange)
+    );
+
+    let renamed = Profile {
+        name: "IPE 200 S355".into(),
+        ..ipe.clone()
+    };
+    let update = Command::UpdateProfile(renamed.clone());
+    assert_eq!(update.label().key(), "model-label-change-profile");
+    h.execute(&mut p, update).unwrap();
+    assert_eq!(p.profile(id), Some(&renamed));
+    let updated = p.clone();
+
+    let delete = Command::DeleteProfile {
+        profile: id,
+        replacement: None,
+    };
+    assert_eq!(delete.label().key(), "model-label-delete-profile");
+    h.execute(&mut p, delete).unwrap();
+    assert!(p.profiles.is_empty(), "an unused profile needs no replacement");
+    assert_eq!(h.undo_len(), 3);
+
+    h.undo(&mut p).unwrap();
+    let mut expected = updated.clone();
+    expected.revision = p.revision;
+    assert_eq!(p, expected);
+    while h.undo(&mut p).is_some() {}
+    let mut expected = start;
+    expected.revision = p.revision;
+    assert_eq!(p, expected, "undo restores the exact starting project");
+
+    while h.redo(&mut p).is_some() {}
+    assert!(p.profiles.is_empty());
+    h.undo(&mut p).unwrap();
+    assert_eq!(p.profiles, updated.profiles, "redo and undo replay the same edits");
+}
+
+/// PRF-004, NFR-REL-005: invalid profile commands are rejected and leave
+/// the project unchanged: an invalid profile, a profile that does not
+/// exist, and a replacement that is the profile itself or does not exist.
+#[test]
+fn invalid_profile_commands_are_rejected() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let material = p.materials[0].id;
+    let ipe = Profile::parametric("IPE 200", ParametricShape::ALL[4], material);
+    h.execute(&mut p, Command::AddProfile(ipe.clone())).unwrap();
+    let before = p.clone();
+
+    let blank = Profile {
+        name: " ".into(),
+        ..Profile::parametric("", ParametricShape::ALL[0], material)
+    };
+    assert_eq!(
+        h.execute(&mut p, Command::AddProfile(blank)),
+        Err(CommandError::Invalid(Message::new("model-error-profile-name")))
+    );
+    let missing_material = Profile::parametric("Ghost", ParametricShape::ALL[0], MaterialId::new());
+    assert!(matches!(
+        h.execute(&mut p, Command::AddProfile(missing_material)),
+        Err(CommandError::Invalid(_))
+    ));
+    assert_eq!(
+        h.execute(
+            &mut p,
+            Command::UpdateProfile(Profile {
+                name: String::new(),
+                ..ipe.clone()
+            })
+        ),
+        Err(CommandError::Invalid(Message::new("model-error-profile-name")))
+    );
+    let unknown = Profile::parametric("Unknown", ParametricShape::ALL[0], material);
+    assert_eq!(
+        h.execute(&mut p, Command::UpdateProfile(unknown.clone())),
+        Err(CommandError::NotFound(Message::new("model-error-profile-not-found")))
+    );
+    assert_eq!(
+        h.execute(
+            &mut p,
+            Command::DeleteProfile {
+                profile: unknown.id,
+                replacement: None
+            }
+        ),
+        Err(CommandError::NotFound(Message::new("model-error-profile-not-found")))
+    );
+    for replacement in [ipe.id, ProfileId::new()] {
+        assert_eq!(
+            h.execute(
+                &mut p,
+                Command::DeleteProfile {
+                    profile: ipe.id,
+                    replacement: Some(replacement)
+                }
+            ),
+            Err(CommandError::Invalid(Message::new("model-error-replacement-profile")))
+        );
+    }
+    assert_eq!(p, before);
+    assert_eq!(h.undo_len(), 1);
+}
+
+/// PRF-004: a custom profile is stored as validate_profile normalises it,
+/// its outer ring counter-clockwise.
+#[test]
+fn added_profiles_are_stored_normalised() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let material = p.materials[0].id;
+    let mut clockwise = region(DVec2::ZERO, material);
+    clockwise.outer.reverse();
+    let custom = Profile::custom("Plate", vec![clockwise]);
+    h.execute(&mut p, Command::AddProfile(custom.clone())).unwrap();
+    let ProfileShape::Custom { regions } = &p.profile(custom.id).unwrap().shape else {
+        panic!("custom");
+    };
+    assert_ne!(regions[0].outer, {
+        let ProfileShape::Custom { regions } = &custom.shape else {
+            panic!("custom");
+        };
+        regions[0].outer.clone()
+    });
+    assert_eq!(
+        h.execute(&mut p, Command::UpdateProfile(custom)),
+        Err(CommandError::NoChange),
+        "the same profile in another orientation is no change"
+    );
+}
+
+/// PRF-004, DSP-003: the profile commands find users only through the
+/// Kind hooks, here the test kind standing in for a column. Deleting a
+/// profile in use needs a replacement; the replacement re-points the user in
+/// one undoable step and must allow the user's kind; an edit that removes a
+/// usage flag a user needs is rejected; an element cannot use a profile that
+/// does not exist or does not allow its kind.
+#[cfg(feature = "test-kinds")]
+#[test]
+fn profile_users_are_re_pointed_and_re_validated() {
+    use archicraft_model::ProfileUsage;
+    use archicraft_model::kinds::Dummy;
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let material = p.materials[0].id;
+    let ipe = Profile::parametric("IPE 300", ParametricShape::ALL[4], material);
+    let hea = Profile::parametric("HEA 300", ParametricShape::ALL[4], material);
+    let beams_only = Profile {
+        usage: ProfileUsage {
+            columns: false,
+            ..ProfileUsage::MEMBERS
+        },
+        ..Profile::parametric("Beam 300", ParametricShape::ALL[4], material)
+    };
+    for profile in [&ipe, &hea, &beams_only] {
+        h.execute(&mut p, Command::AddProfile(profile.clone())).unwrap();
+    }
+    let ground = ground(&p);
+    let column = |p: &Project, profile| {
+        let mut dummy = Dummy::new(DVec2::ZERO, DVec2::ONE, material);
+        dummy.profile = Some(profile);
+        dummy.into_element(p, ground, 0)
+    };
+
+    let dangling = column(&p, ProfileId::new());
+    assert_eq!(
+        h.execute(&mut p, Command::AddElements(vec![dangling])),
+        Err(CommandError::Invalid(Message::new(
+            "model-error-element-profile-missing"
+        )))
+    );
+    let usage = Message::new("model-error-profile-usage")
+        .text("name", "Beam 300")
+        .kind("kind", KindTag::Dummy);
+    let usage_error = Err(CommandError::Invalid(
+        Message::new("model-error-element-invalid")
+            .text("name", "X-001")
+            .nested("reason", usage.clone()),
+    ));
+    let not_a_column = column(&p, beams_only.id);
+    assert_eq!(
+        h.execute(&mut p, Command::AddElements(vec![not_a_column])),
+        Err(CommandError::Invalid(usage.clone()))
+    );
+
+    let user = column(&p, ipe.id);
+    let user_id = user.id;
+    h.execute(&mut p, Command::AddElements(vec![user])).unwrap();
+    assert_eq!(p.profile_users(ipe.id).map(|e| e.id).collect::<Vec<_>>(), [user_id]);
+    assert_eq!(p.profile_users(hea.id).count(), 0);
+    let before = p.clone();
+
+    assert_eq!(
+        h.execute(
+            &mut p,
+            Command::DeleteProfile {
+                profile: ipe.id,
+                replacement: None
+            }
+        ),
+        Err(CommandError::Invalid(
+            Message::new("model-error-profile-in-use")
+                .text("name", "IPE 300")
+                .count("count", 1)
+        ))
+    );
+    assert_eq!(
+        h.execute(
+            &mut p,
+            Command::DeleteProfile {
+                profile: ipe.id,
+                replacement: Some(beams_only.id)
+            }
+        ),
+        usage_error,
+        "the replacement must allow the user's kind"
+    );
+    let no_columns = Profile {
+        usage: beams_only.usage,
+        ..ipe.clone()
+    };
+    assert_eq!(
+        h.execute(&mut p, Command::UpdateProfile(no_columns)),
+        Err(CommandError::Invalid(
+            Message::new("model-error-element-invalid")
+                .text("name", "X-001")
+                .nested(
+                    "reason",
+                    Message::new("model-error-profile-usage")
+                        .text("name", "IPE 300")
+                        .kind("kind", KindTag::Dummy)
+                ),
+        )),
+        "an edit cannot remove a usage flag a user needs"
+    );
+    assert_eq!(p, before, "rejected commands change nothing");
+
+    let depth = h.undo_len();
+    h.execute(
+        &mut p,
+        Command::DeleteProfile {
+            profile: ipe.id,
+            replacement: Some(hea.id),
+        },
+    )
+    .unwrap();
+    assert_eq!(h.undo_len(), depth + 1, "one transaction");
+    assert!(p.profile(ipe.id).is_none());
+    assert_eq!(p.element(user_id).unwrap().kind.profiles(), [hea.id]);
+    assert!(p.integrity_problems().is_empty());
+    h.undo(&mut p).unwrap();
+    let mut expected = before;
+    expected.revision = p.revision;
+    assert_eq!(p, expected, "undo restores the profile and its user exactly");
+}
+
+/// NFR-MNT-001, PRF-004: a command log with profile commands serialises and
+/// replays onto the starting project to the same profiles.
+#[test]
+fn a_log_with_profile_commands_replays() {
+    let mut p = default_metric_project();
+    let start = p.clone();
+    let mut h = History::default();
+    let material = p.materials[0].id;
+    let ipe = Profile::parametric("IPE 200", ParametricShape::ALL[4], material);
+    let plate = Profile::custom("Plate", vec![region(DVec2::ZERO, material)]);
+    h.execute(&mut p, Command::AddProfile(ipe.clone())).unwrap();
+    h.execute(&mut p, Command::AddProfile(plate.clone())).unwrap();
+    h.execute(
+        &mut p,
+        Command::UpdateProfile(Profile {
+            catalogue: Some("IPE 200".into()),
+            ..ipe
+        }),
+    )
+    .unwrap();
+    h.execute(
+        &mut p,
+        Command::DeleteProfile {
+            profile: plate.id,
+            replacement: None,
+        },
+    )
+    .unwrap();
+    let log = serde_json::to_string(&h.applied_commands().collect::<Vec<_>>()).unwrap();
+    let commands: Vec<Command> = serde_json::from_str(&log).unwrap();
+    let mut replayed = start;
+    replay(&mut replayed, &commands).unwrap();
+    assert_eq!(replayed.profiles, p.profiles);
 }
 
 /// ELM-011, ELM-001: SetToolDefaults checks every slot as the prototype
