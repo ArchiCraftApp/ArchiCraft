@@ -54,6 +54,9 @@ modal-unsaved-text = “{ $name }” has unsaved changes. Save them before conti
 modal-unsaved-text-file = “{ $name }” ({ $file }) has unsaved changes. Save them before continuing?
 modal-load-report-title = The project was opened with problems
 modal-load-report-text = Everything that could be read was loaded. These objects were skipped, repaired or replaced:
+# $from: the ArchiCraft format the file was written in; $to: the format it
+# was converted to, the one this version saves.
+modal-load-report-migrated = The file was written in ArchiCraft format { $from } by an earlier version and was converted to format { $to }. Saving stores it in format { $to }.
 modal-newer-title = Overwrite a newer file?
 modal-newer-text = This file was written by a newer version of ArchiCraft. Saving it with this version may lose data that this version does not know.
 modal-save-anyway = Save anyway
@@ -88,6 +91,9 @@ startup-crash-copy-path = Copy path
 
 # $path: the file.
 status-opened = Opened { $path }
+# $path: the file; $from: the ArchiCraft format it was written in; $to: the
+# format it was converted to.
+status-opened-migrated = Opened { $path }, converted from ArchiCraft format { $from } to format { $to }
 # $path: the file.
 status-saved = Saved { $path }
 # $warning: the first warning of the save.

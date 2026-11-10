@@ -230,35 +230,40 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
         ["wall", "slab", "space", "text", "dummy"]
     );
     let slot = slots["dummy"].as_object().unwrap();
+    // IFX-062: the common members, then the kind's parameters apart.
     assert_eq!(
         slot.keys().collect::<Vec<_>>(),
-        [
-            "baseOffset",
-            "top",
-            "parts",
-            "panicOnEvaluate",
-            "siteLevel",
-            "material",
-            "layer",
-            "position",
-            "structuralFunction",
-            "ifcClass"
-        ]
+        ["layer", "position", "structuralFunction", "ifcClass", "parameters"]
+    );
+    let parameters = slot["parameters"].as_object().unwrap();
+    assert_eq!(
+        parameters.keys().collect::<Vec<_>>(),
+        ["baseOffset", "top", "parts", "panicOnEvaluate", "siteLevel", "material"]
     );
     assert_eq!(slot["structuralFunction"], "load-bearing");
-    assert_eq!(slot["parts"], true);
-    assert_eq!(slot["panicOnEvaluate"], false);
-    assert_eq!(slot["siteLevel"], true);
+    assert_eq!(parameters["parts"], true);
+    assert_eq!(parameters["panicOnEvaluate"], false);
+    assert_eq!(parameters["siteLevel"], true);
     let declared = members(&members(project_declaration(&file))["toolDefaults"]);
     assert_eq!(
         declared.keys().collect::<Vec<_>>(),
         ["wall", "slab", "space", "text", "dummy"]
     );
+    let declared_slot = members(&declared["dummy"]);
     assert_eq!(
-        members(&declared["dummy"]).keys().collect::<Vec<_>>(),
-        slot.keys()
-            .chain(std::iter::once(&"predefinedType".to_owned()))
-            .collect::<Vec<_>>()
+        declared_slot.keys().collect::<Vec<_>>(),
+        [
+            "layer",
+            "position",
+            "structuralFunction",
+            "ifcClass",
+            "predefinedType",
+            "parameters"
+        ]
+    );
+    assert_eq!(
+        members(&declared_slot["parameters"]).keys().collect::<Vec<_>>(),
+        parameters.keys().collect::<Vec<_>>()
     );
     // The slot makes the kind present: its counter is declared, optional,
     // and not written while it is zero.
@@ -367,6 +372,10 @@ fn a_material_less_dummy_round_trips_without_a_material() {
     assert_eq!(material_nodes(&file), material_nodes(&plain_file));
     let slot = project_attribute(&file)["toolDefaults"]["dummy"].as_object().unwrap();
     assert!(!slot.contains_key("material"), "{slot:?}");
+    assert!(
+        !slot["parameters"].as_object().unwrap().contains_key("material"),
+        "{slot:?}"
+    );
     let parsed = validate::parse(&bytes).unwrap();
     assert!(
         validate::validate(&parsed).is_empty(),

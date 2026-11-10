@@ -2833,6 +2833,129 @@ fn load_problems_show_as_localized_text() {
     no_key_form(&harness);
 }
 
+/// A fresh folder for the files of the test `name`.
+fn file_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("archicraft-ui-{name}-files-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// The ArchiCraft format version of a saved file.
+fn format_version_of(bytes: &[u8]) -> String {
+    let file: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    file["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|n| n["attributes"]["archicraft::project"]["formatVersion"].as_str())
+        .unwrap()
+        .to_owned()
+}
+
+/// IFX-062: a file written by a newer ArchiCraft opens, flagged as newer,
+/// and Save does not overwrite it unasked: it asks “Overwrite a newer
+/// file?” and writes nothing; Cancel leaves the file byte for byte as it
+/// was; “Save anyway” writes it in this release's format.
+#[test]
+fn a_newer_file_is_overwritten_only_after_confirmation() {
+    let dir = file_dir("newer-file");
+    let path = dir.join("newer.ifcx");
+    let project = archicraft_model::samples::storey_with_walls_and_slab();
+    let geometry = archicraft_geometry::ModelGeometry::evaluate(&project);
+    let options = archicraft_ifcx::WriteOptions {
+        author: "Test".into(),
+        timestamp: "2026-11-10T12:00:00Z".into(),
+        data_version: 1,
+    };
+    let (bytes, _) = archicraft_ifcx::save(&project, &geometry, &options, false);
+    let mut file: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    file["data"][0]["attributes"]["archicraft::project"]["formatVersion"] = "99".into();
+    let original = serde_json::to_vec(&file).unwrap();
+    std::fs::write(&path, &original).unwrap();
+
+    let mut harness = harness("newer-file");
+    harness.state_mut().open_path(&path);
+    harness.run_steps(2);
+    harness.get_by_label_contains("written by a newer ArchiCraft");
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    assert!(harness.state_mut().workspace().doc.newer_format);
+    assert_eq!(harness.state_mut().workspace().doc.project.elements.len(), 5);
+
+    let button = |label: &'static str| By::new().role(Role::Button).label(label);
+    toolbar_button(&harness, "Save").click();
+    // The modal is centred once it knows its size.
+    harness.run_steps(4);
+    let newer = Some("Overwrite a newer file?");
+    assert_eq!(harness.state_mut().prompt_title().as_deref(), newer);
+    assert!(std::fs::read(&path).unwrap() == original, "Save wrote the newer file");
+    harness.get(button("Cancel")).click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().prompt_title(), None);
+    assert!(std::fs::read(&path).unwrap() == original, "Cancel changed the file");
+
+    toolbar_button(&harness, "Save").click();
+    harness.run_steps(4);
+    assert_eq!(harness.state_mut().prompt_title().as_deref(), newer);
+    harness.get(button("Save anyway")).click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().prompt_title(), None);
+    let written = std::fs::read(&path).unwrap();
+    assert_eq!(
+        format_version_of(&written),
+        archicraft_ifcx::alpha::schema::FORMAT_VERSION.to_string()
+    );
+    assert!(!archicraft_ifcx::load(&written).unwrap().newer_format);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// IFX-062: a file of an earlier ArchiCraft format opens with the load
+/// report naming the migration, a line per step among the report's
+/// entries, and the status line saying it was converted; the document is
+/// not flagged as newer, so Save writes it in this release's format without
+/// asking.
+#[test]
+fn a_migrated_file_opens_with_the_migration_in_the_load_report() {
+    let dir = file_dir("migrated-file");
+    let path = dir.join("format-1.ifcx");
+    let fixture =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../archicraft-ifcx/tests/formats/format-1.ifcx");
+    std::fs::copy(&fixture, &path).unwrap();
+    let current = archicraft_ifcx::alpha::schema::FORMAT_VERSION;
+
+    let mut harness = harness("migrated-file");
+    harness.state_mut().open_path(&path);
+    harness.run_steps(2);
+    harness.get_by_label("The project was opened with problems");
+    harness.get_by_label(&format!(
+        "The file was written in ArchiCraft format 1 by an earlier version and was converted to format {current}. \
+         Saving stores it in format {current}."
+    ));
+    harness.get_by_label_contains(&format!(
+        "migrated from format {} to format {current}: keeps each tool's parameters apart",
+        current - 1
+    ));
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    let status = harness.state_mut().workspace().status.as_ref().unwrap().text.clone();
+    assert!(
+        status.ends_with(&format!("converted from ArchiCraft format 1 to format {current}")),
+        "{status}"
+    );
+    assert!(!harness.state_mut().workspace().doc.newer_format);
+
+    toolbar_button(&harness, "Save").click();
+    harness.run_steps(4);
+    assert_eq!(harness.state_mut().prompt_title(), None);
+    let written = std::fs::read(&path).unwrap();
+    assert_eq!(format_version_of(&written), current.to_string());
+    let reloaded = archicraft_ifcx::load(&written).unwrap();
+    assert_eq!(reloaded.migrated, None);
+    assert!(reloaded.problems.is_empty(), "{:#?}", reloaded.problems);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// UI-012, NFR-L10N-001, NFR-REL-006: the problems panel shows each element
 /// without geometry as its name and a sentence from the catalogue: a
 /// generator that panicked (the test kind asked to), the model's reason for

@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use archicraft_ifcx::Problem;
+use archicraft_ifcx::{MigrationReport, Problem};
 use archicraft_model::template::default_metric_project;
 use eframe::egui_wgpu;
 use egui::{Id, RichText, ThemePreference, Ui, ViewportCommand, WidgetText};
@@ -59,7 +59,11 @@ enum Prompt {
         title: String,
         text: String,
     },
-    LoadReport,
+    /// PRJ-008: what was skipped or repaired, and, for a file of an earlier
+    /// ArchiCraft format, the migration (IFX-062).
+    LoadReport {
+        migrated: Option<MigrationReport>,
+    },
     /// IFX-062: the file was written by a newer ArchiCraft.
     OverwriteNewer {
         save_as: bool,
@@ -71,7 +75,7 @@ impl Prompt {
         match self {
             Prompt::Unsaved(_) => tr!("modal-unsaved-title"),
             Prompt::Message { title, .. } => title.clone(),
-            Prompt::LoadReport => tr!("modal-load-report-title"),
+            Prompt::LoadReport { .. } => tr!("modal-load-report-title"),
             Prompt::OverwriteNewer { .. } => tr!("modal-newer-title"),
         }
     }
@@ -254,7 +258,9 @@ impl ArchiCraftApp {
     }
 
     /// Opens a project file (PRJ-003, PRJ-008), checking its size before
-    /// reading it (NFR-SEC-003).
+    /// reading it (NFR-SEC-003). A file of an earlier ArchiCraft format is
+    /// migrated by the reader; the load report and the status line say so
+    /// (IFX-062).
     pub fn open_path(&mut self, path: &Path) {
         match archicraft_ifcx::load_path_with_limit(path, self.file_size_limit) {
             Ok(outcome) => {
@@ -267,11 +273,22 @@ impl ArchiCraftApp {
                 self.replace_document(doc);
                 self.load_problems = outcome.problems;
                 if !self.load_problems.is_empty() {
-                    self.prompt = Some(Prompt::LoadReport);
+                    self.prompt = Some(Prompt::LoadReport {
+                        migrated: outcome.migrated.clone(),
+                    });
                 }
                 self.ws.prefs.add_recent(path);
                 self.save_prefs();
-                self.ws.info(tr!("status-opened", path = path.display().to_string()));
+                let shown = path.display().to_string();
+                self.ws.info(match &outcome.migrated {
+                    Some(m) => tr!(
+                        "status-opened-migrated",
+                        path = shown,
+                        from = m.from.to_string(),
+                        to = m.to.to_string()
+                    ),
+                    None => tr!("status-opened", path = shown),
+                });
             }
             Err(problem) => {
                 let reason = self.ws.render(&problem.located());
@@ -682,7 +699,14 @@ impl ArchiCraftApp {
                         close = true;
                     }
                 }
-                Prompt::LoadReport => {
+                Prompt::LoadReport { migrated } => {
+                    if let Some(m) = migrated {
+                        ui.label(tr!(
+                            "modal-load-report-migrated",
+                            from = m.from.to_string(),
+                            to = m.to.to_string()
+                        ));
+                    }
                     ui.label(tr!("modal-load-report-text"));
                     egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                         for p in &self.load_problems {

@@ -116,6 +116,7 @@ fn representatives() -> Vec<Message> {
             .nested("change", reason()),
         Message::new("ifcx-migration-adds-spaces"),
         Message::new("ifcx-migration-adds-texts"),
+        Message::new("ifcx-migration-nests-tool-parameters"),
         Message::new("ifcx-skipped")
             .nested("record", Message::new("ifcx-record-project"))
             .nested("reason", reason()),
@@ -156,6 +157,7 @@ fn representatives() -> Vec<Message> {
         key("ifcx-counter-negative").count("value", 3),
         key("ifcx-tool-unknown"),
         nested("ifcx-tool-template-used", "reason"),
+        nested("ifcx-tool-parameters-template-used", "reason"),
         Message::new("ifcx-tool-class-not-allowed")
             .text("class", "IfcSlab")
             .kind("kind", KindTag::Wall)

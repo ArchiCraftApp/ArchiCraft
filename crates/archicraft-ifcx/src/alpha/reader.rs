@@ -72,7 +72,7 @@ use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use super::kinds::{self, Codec, ReadContext, annotations};
-use super::migrate::{self, Migration};
+use super::migrate::{self, Migration, MigrationReport};
 use super::relations;
 use super::schema::{self, FORMAT_VERSION};
 use super::writer::IFCX_VERSION;
@@ -91,13 +91,13 @@ pub struct ReadOutcome {
     /// The IFCX version the file was read as (IFX-090). When it is not
     /// [`crate::WRITTEN_VERSION`], saving converts the file to that version.
     pub source_version: &'static str,
-    /// The ArchiCraft format the file was written in, when the reader
-    /// migrated it from that earlier format (IFX-062); each step is also
-    /// reported as an info problem. `None` when no migration step ran: for a
-    /// file at the current format or a newer one ([`Self::newer_format`]),
-    /// and for one whose format version is unreadable or has no migration
-    /// (both reported as warnings).
-    pub migrated_from: Option<u32>,
+    /// What the reader migrated when the file was written in an earlier
+    /// ArchiCraft format (IFX-062): the format it was written in, the one it
+    /// reached and the steps, each also reported as an info problem. `None`
+    /// when no migration step ran: for a file at the current format or a
+    /// newer one ([`Self::newer_format`]), and for one whose format version
+    /// is unreadable or has no migration (both reported as warnings).
+    pub migrated: Option<MigrationReport>,
 }
 
 pub(crate) type Object = Map<String, Value>;
@@ -994,7 +994,9 @@ fn with_text_style(mut slot: DefaultsSlot, text_styles: &[TextStyle], report: &m
 /// One tool's defaults, with `default`'s values for invalid fields and its
 /// placeholder geometry (ELM-001). A class the kind does not allow is
 /// replaced by the default's (ELM-011), and a predefined type the class does
-/// not offer is left out (IFX-024). The kind's codec reads the parameters.
+/// not offer is left out (IFX-024). The kind's codec reads the parameters
+/// from the slot's `parameters` (format 4): without them the slot keeps
+/// `default`'s, reported once.
 fn read_defaults_slot(
     map: &Object,
     default: &DefaultsSlot,
@@ -1003,9 +1005,12 @@ fn read_defaults_slot(
     report: &mut Report<'_>,
 ) -> DefaultsSlot {
     let kind = default.tag();
+    let parameters = object(map, "parameters")
+        .map_err(|e| report.repaired(Message::new("ifcx-tool-parameters-template-used").nested("reason", e)))
+        .ok();
     // A slot of a kind without a material has none to read or repair.
-    let material = default.kind.material().map(|fallback| {
-        let id = report.or(uuid(map, "material").map(MaterialId::from_uuid), fallback);
+    let material = default.kind.material().zip(parameters).map(|(fallback, parameters)| {
+        let id = report.or(uuid(parameters, "material").map(MaterialId::from_uuid), fallback);
         if materials.iter().any(|m| m.id == id) {
             id
         } else {
@@ -1034,7 +1039,8 @@ fn read_defaults_slot(
     }
     let predefined_type = predefined_type(map, kind, ifc_class, report);
     let mut payload = kinds::codec(kind)
-        .and_then(|codec| codec.read_slot(map, &default.kind, report))
+        .zip(parameters)
+        .and_then(|(codec, parameters)| codec.read_slot(parameters, &default.kind, report))
         .unwrap_or_else(|| default.kind.clone());
     if let Some(material) = material {
         payload.set_material(material);
@@ -1345,7 +1351,7 @@ pub(crate) fn read_with<A: AttributeValue>(
 ) -> Result<ReadOutcome, Problem> {
     let mut problems = Vec::new();
     match migrate::upgrade(file, migrations, current, &mut problems) {
-        Some((migrated, from)) => read_migrated(&migrated, Some(from), current, problems),
+        Some((file, report)) => read_migrated(&file, Some(report), current, problems),
         None => read_migrated(file, None, current, problems),
     }
 }
@@ -1354,7 +1360,7 @@ pub(crate) fn read_with<A: AttributeValue>(
 /// holds the migration's reports.
 fn read_migrated<A: AttributeValue>(
     file: &IfcxFile<A>,
-    migrated_from: Option<u32>,
+    migrated: Option<MigrationReport>,
     current: u32,
     mut problems: Vec<Problem>,
 ) -> Result<ReadOutcome, Problem> {
@@ -1432,7 +1438,7 @@ fn read_migrated<A: AttributeValue>(
     });
     // The format the file was written in, which says what it can lack
     // (IFX-062): before its migration, else as it states it.
-    let written = migrated_from.or(data.format).unwrap_or(current);
+    let written = migrated.as_ref().map(|m| m.from).or(data.format).unwrap_or(current);
     let tool_defaults = read_tool_defaults(
         data.tool_defaults.as_ref(),
         (&data.materials, &data.layers, &data.text_styles),
@@ -1554,7 +1560,7 @@ fn read_migrated<A: AttributeValue>(
         problems,
         newer_format: data.newer_format,
         source_version: IFCX_VERSION,
-        migrated_from,
+        migrated,
     })
 }
 
@@ -1567,19 +1573,21 @@ mod tests {
 
     use super::*;
 
-    /// The members the writer writes for `slot`: the codec's, then the
-    /// common ones, the material only when the slot has one.
+    /// The members the writer writes for `slot`: the common ones, then the
+    /// codec's `parameters`, with the material only when the slot has one.
     fn written(slot: &DefaultsSlot) -> Object {
-        let mut map = kinds::codec(slot.tag()).unwrap().write_slot(&slot.kind).unwrap();
+        let mut parameters = kinds::codec(slot.tag()).unwrap().write_slot(&slot.kind).unwrap();
         if let Some(material) = slot.kind.material() {
-            map.insert("material".into(), json!(material.to_string()));
+            parameters.insert("material".into(), json!(material.to_string()));
         }
+        let mut map = Object::new();
         map.insert("layer".into(), json!(slot.layer.to_string()));
         map.insert("position".into(), json!(slot.position.code()));
         if slot.structural != StructuralFunction::Undefined {
             map.insert("structuralFunction".into(), json!(slot.structural.code()));
         }
         map.insert("ifcClass".into(), json!(slot.ifc_class.code()));
+        map.insert("parameters".into(), Value::Object(parameters));
         map
     }
 
@@ -1603,7 +1611,7 @@ mod tests {
             kind: Dummy::without_material(DVec2::ZERO, DVec2::ONE).into(),
         };
         let map = written(&slot);
-        assert!(!map.contains_key("material"));
+        assert!(!map["parameters"].as_object().unwrap().contains_key("material"));
         let mut problems = Vec::new();
         assert_eq!(read(&map, &slot, &p, &mut problems), slot);
         assert!(problems.is_empty(), "{problems:#?}");
@@ -1614,7 +1622,8 @@ mod tests {
             .find(|(_, s)| s.kind.material().is_some())
             .unwrap();
         let mut map = written(with);
-        assert!(map.remove("material").is_some());
+        let parameters = map["parameters"].as_object_mut().unwrap();
+        assert!(parameters.remove("material").is_some());
         assert_eq!(read(&map, with, &p, &mut problems), *with);
         assert_eq!(problems.len(), 1, "{problems:#?}");
         assert!(

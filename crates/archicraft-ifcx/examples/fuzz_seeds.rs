@@ -263,7 +263,7 @@ fn coverage() -> Vec<(String, Value)> {
         let defaults = &mut project["toolDefaults"];
         defaults["door"] = json!({});
         defaults["slab"] = json!(5);
-        defaults["wall"]["material"] = json!(path(1));
+        defaults["wall"]["parameters"]["material"] = json!(path(1));
         defaults["wall"]["ifcClass"] = json!("IfcSlab");
     });
     // Damaged elements, each read on its own: no ArchiCraft data object, an

@@ -371,62 +371,6 @@ expression: review_view(&bytes)
                     "dataType": "Object",
                     "objectRestrictions": {
                       "values": {
-                        "thickness": {
-                          "dataType": "Real",
-                          "quantityKind": "Length"
-                        },
-                        "referenceLine": {
-                          "dataType": "Enum",
-                          "enumRestrictions": {
-                            "options": [
-                              "outside",
-                              "center",
-                              "inside",
-                              "custom"
-                            ]
-                          }
-                        },
-                        "referenceOffset": {
-                          "dataType": "Real",
-                          "quantityKind": "Length",
-                          "optional": true
-                        },
-                        "baseOffset": {
-                          "dataType": "Real",
-                          "quantityKind": "Length"
-                        },
-                        "top": {
-                          "dataType": "Object",
-                          "objectRestrictions": {
-                            "values": {
-                              "link": {
-                                "dataType": "Enum",
-                                "enumRestrictions": {
-                                  "options": [
-                                    "fixed",
-                                    "storey",
-                                    "relative"
-                                  ]
-                                }
-                              },
-                              "value": {
-                                "dataType": "Real",
-                                "quantityKind": "Length"
-                              },
-                              "storey": {
-                                "dataType": "Reference",
-                                "optional": true
-                              },
-                              "relative": {
-                                "dataType": "Integer",
-                                "optional": true
-                              }
-                            }
-                          }
-                        },
-                        "material": {
-                          "dataType": "String"
-                        },
                         "layer": {
                           "dataType": "String"
                         },
@@ -467,6 +411,69 @@ expression: review_view(&bytes)
                             ]
                           },
                           "optional": true
+                        },
+                        "parameters": {
+                          "dataType": "Object",
+                          "objectRestrictions": {
+                            "values": {
+                              "thickness": {
+                                "dataType": "Real",
+                                "quantityKind": "Length"
+                              },
+                              "referenceLine": {
+                                "dataType": "Enum",
+                                "enumRestrictions": {
+                                  "options": [
+                                    "outside",
+                                    "center",
+                                    "inside",
+                                    "custom"
+                                  ]
+                                }
+                              },
+                              "referenceOffset": {
+                                "dataType": "Real",
+                                "quantityKind": "Length",
+                                "optional": true
+                              },
+                              "baseOffset": {
+                                "dataType": "Real",
+                                "quantityKind": "Length"
+                              },
+                              "top": {
+                                "dataType": "Object",
+                                "objectRestrictions": {
+                                  "values": {
+                                    "link": {
+                                      "dataType": "Enum",
+                                      "enumRestrictions": {
+                                        "options": [
+                                          "fixed",
+                                          "storey",
+                                          "relative"
+                                        ]
+                                      }
+                                    },
+                                    "value": {
+                                      "dataType": "Real",
+                                      "quantityKind": "Length"
+                                    },
+                                    "storey": {
+                                      "dataType": "Reference",
+                                      "optional": true
+                                    },
+                                    "relative": {
+                                      "dataType": "Integer",
+                                      "optional": true
+                                    }
+                                  }
+                                }
+                              },
+                              "material": {
+                                "dataType": "String"
+                              }
+                            }
+                          }
                         }
                       }
                     }
@@ -475,26 +482,6 @@ expression: review_view(&bytes)
                     "dataType": "Object",
                     "objectRestrictions": {
                       "values": {
-                        "thickness": {
-                          "dataType": "Real",
-                          "quantityKind": "Length"
-                        },
-                        "reference": {
-                          "dataType": "Enum",
-                          "enumRestrictions": {
-                            "options": [
-                              "top",
-                              "bottom"
-                            ]
-                          }
-                        },
-                        "offset": {
-                          "dataType": "Real",
-                          "quantityKind": "Length"
-                        },
-                        "material": {
-                          "dataType": "String"
-                        },
                         "layer": {
                           "dataType": "String"
                         },
@@ -535,6 +522,33 @@ expression: review_view(&bytes)
                             ]
                           },
                           "optional": true
+                        },
+                        "parameters": {
+                          "dataType": "Object",
+                          "objectRestrictions": {
+                            "values": {
+                              "thickness": {
+                                "dataType": "Real",
+                                "quantityKind": "Length"
+                              },
+                              "reference": {
+                                "dataType": "Enum",
+                                "enumRestrictions": {
+                                  "options": [
+                                    "top",
+                                    "bottom"
+                                  ]
+                                }
+                              },
+                              "offset": {
+                                "dataType": "Real",
+                                "quantityKind": "Length"
+                              },
+                              "material": {
+                                "dataType": "String"
+                              }
+                            }
+                          }
                         }
                       }
                     }
@@ -543,49 +557,6 @@ expression: review_view(&bytes)
                     "dataType": "Object",
                     "objectRestrictions": {
                       "values": {
-                        "longName": {
-                          "dataType": "String"
-                        },
-                        "number": {
-                          "dataType": "String"
-                        },
-                        "baseOffset": {
-                          "dataType": "Real",
-                          "quantityKind": "Length"
-                        },
-                        "top": {
-                          "dataType": "Object",
-                          "objectRestrictions": {
-                            "values": {
-                              "link": {
-                                "dataType": "Enum",
-                                "enumRestrictions": {
-                                  "options": [
-                                    "fixed",
-                                    "storey",
-                                    "relative"
-                                  ]
-                                }
-                              },
-                              "value": {
-                                "dataType": "Real",
-                                "quantityKind": "Length"
-                              },
-                              "storey": {
-                                "dataType": "Reference",
-                                "optional": true
-                              },
-                              "relative": {
-                                "dataType": "Integer",
-                                "optional": true
-                              }
-                            }
-                          }
-                        },
-                        "material": {
-                          "dataType": "String",
-                          "optional": true
-                        },
                         "layer": {
                           "dataType": "String"
                         },
@@ -626,6 +597,56 @@ expression: review_view(&bytes)
                             ]
                           },
                           "optional": true
+                        },
+                        "parameters": {
+                          "dataType": "Object",
+                          "objectRestrictions": {
+                            "values": {
+                              "longName": {
+                                "dataType": "String"
+                              },
+                              "number": {
+                                "dataType": "String"
+                              },
+                              "baseOffset": {
+                                "dataType": "Real",
+                                "quantityKind": "Length"
+                              },
+                              "top": {
+                                "dataType": "Object",
+                                "objectRestrictions": {
+                                  "values": {
+                                    "link": {
+                                      "dataType": "Enum",
+                                      "enumRestrictions": {
+                                        "options": [
+                                          "fixed",
+                                          "storey",
+                                          "relative"
+                                        ]
+                                      }
+                                    },
+                                    "value": {
+                                      "dataType": "Real",
+                                      "quantityKind": "Length"
+                                    },
+                                    "storey": {
+                                      "dataType": "Reference",
+                                      "optional": true
+                                    },
+                                    "relative": {
+                                      "dataType": "Integer",
+                                      "optional": true
+                                    }
+                                  }
+                                }
+                              },
+                              "material": {
+                                "dataType": "String",
+                                "optional": true
+                              }
+                            }
+                          }
                         }
                       }
                     }
@@ -634,37 +655,6 @@ expression: review_view(&bytes)
                     "dataType": "Object",
                     "objectRestrictions": {
                       "values": {
-                        "anchorPos": {
-                          "dataType": "Enum",
-                          "enumRestrictions": {
-                            "options": [
-                              "top_left",
-                              "top_center",
-                              "top_right",
-                              "middle_left",
-                              "center",
-                              "middle_right",
-                              "bottom_left",
-                              "bottom_center",
-                              "bottom_right"
-                            ]
-                          }
-                        },
-                        "angle": {
-                          "dataType": "Real",
-                          "quantityKind": "Plane angle"
-                        },
-                        "style": {
-                          "dataType": "String"
-                        },
-                        "sizeMm": {
-                          "dataType": "Real",
-                          "optional": true
-                        },
-                        "material": {
-                          "dataType": "String",
-                          "optional": true
-                        },
                         "layer": {
                           "dataType": "String"
                         },
@@ -705,6 +695,44 @@ expression: review_view(&bytes)
                             ]
                           },
                           "optional": true
+                        },
+                        "parameters": {
+                          "dataType": "Object",
+                          "objectRestrictions": {
+                            "values": {
+                              "anchorPos": {
+                                "dataType": "Enum",
+                                "enumRestrictions": {
+                                  "options": [
+                                    "top_left",
+                                    "top_center",
+                                    "top_right",
+                                    "middle_left",
+                                    "center",
+                                    "middle_right",
+                                    "bottom_left",
+                                    "bottom_center",
+                                    "bottom_right"
+                                  ]
+                                }
+                              },
+                              "angle": {
+                                "dataType": "Real",
+                                "quantityKind": "Plane angle"
+                              },
+                              "style": {
+                                "dataType": "String"
+                              },
+                              "sizeMm": {
+                                "dataType": "Real",
+                                "optional": true
+                              },
+                              "material": {
+                                "dataType": "String",
+                                "optional": true
+                              }
+                            }
+                          }
                         }
                       }
                     }
@@ -1335,7 +1363,7 @@ expression: review_view(&bytes)
         },
         "bsi::ifc::prop::Name": "Walls and slab",
         "archicraft::project": {
-          "formatVersion": "3",
+          "formatVersion": "4",
           "info": {
             "number": "",
             "client": "",
@@ -1821,48 +1849,56 @@ expression: review_view(&bytes)
           ],
           "toolDefaults": {
             "wall": {
-              "thickness": 0.25,
-              "referenceLine": "outside",
-              "baseOffset": 0,
-              "top": {
-                "link": "relative",
-                "value": 0,
-                "relative": 1
-              },
-              "material": "4b803c98-6423-5702-884e-799a3debc58b",
               "layer": "3ef8019b-43c9-5979-8254-bfb7c7595538",
               "position": "exterior",
-              "ifcClass": "IfcWall"
+              "ifcClass": "IfcWall",
+              "parameters": {
+                "thickness": 0.25,
+                "referenceLine": "outside",
+                "baseOffset": 0,
+                "top": {
+                  "link": "relative",
+                  "value": 0,
+                  "relative": 1
+                },
+                "material": "4b803c98-6423-5702-884e-799a3debc58b"
+              }
             },
             "slab": {
-              "thickness": 0.2,
-              "reference": "top",
-              "offset": 0,
-              "material": "9c48db78-9ac7-5f7f-9189-4d72b280d4f2",
               "layer": "15b3de24-1444-5be3-91cd-a743a7d3b894",
               "position": "undefined",
-              "ifcClass": "IfcSlab"
+              "ifcClass": "IfcSlab",
+              "parameters": {
+                "thickness": 0.2,
+                "reference": "top",
+                "offset": 0,
+                "material": "9c48db78-9ac7-5f7f-9189-4d72b280d4f2"
+              }
             },
             "space": {
-              "longName": "",
-              "number": "",
-              "baseOffset": 0,
-              "top": {
-                "link": "relative",
-                "value": 0,
-                "relative": 1
-              },
               "layer": "7d2e2fcf-385e-5952-ba6b-743fd7b93c56",
               "position": "undefined",
-              "ifcClass": "IfcSpace"
+              "ifcClass": "IfcSpace",
+              "parameters": {
+                "longName": "",
+                "number": "",
+                "baseOffset": 0,
+                "top": {
+                  "link": "relative",
+                  "value": 0,
+                  "relative": 1
+                }
+              }
             },
             "text": {
-              "anchorPos": "bottom_left",
-              "angle": 0,
-              "style": "4959959b-c6ef-54f4-a7a6-93144f276435",
               "layer": "c43b5690-bf86-51a6-8b84-e12f16a5d341",
               "position": "undefined",
-              "ifcClass": "IfcAnnotation"
+              "ifcClass": "IfcAnnotation",
+              "parameters": {
+                "anchorPos": "bottom_left",
+                "angle": 0,
+                "style": "4959959b-c6ef-54f4-a7a6-93144f276435"
+              }
             }
           },
           "views": [

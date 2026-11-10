@@ -28,8 +28,9 @@ use crate::container::{Header, IfcxFile};
 
 /// Version of the ArchiCraft schema written by this release: format 2
 /// stores spaces (SPC-001), format 3 texts and the project's text styles
-/// (ANN-007; [`super::migrate::MIGRATIONS`]).
-pub const FORMAT_VERSION: u32 = 3;
+/// (ANN-007), format 4 a tool's parameters apart from the common members of
+/// its defaults slot (ELM-001; [`super::migrate`]).
+pub const FORMAT_VERSION: u32 = 4;
 
 pub const PROJECT: &str = "archicraft::project";
 pub const STOREY: &str = "archicraft::storey";
@@ -166,25 +167,27 @@ pub(crate) fn element_data<'a>(kinds: impl IntoIterator<Item = &'a str>) -> Vec<
     ]
 }
 
-/// A tool's defaults slot (ELM-001): the kind's parameters from its codec,
-/// then the common members (the material a string here, a reference on the
-/// element, and optional for a kind that may have none).
+/// A tool's defaults slot (ELM-001): the members every slot has, then the
+/// kind's `parameters`, from its codec, with the material (a string here, a
+/// reference on the element, and optional for a kind that may have none).
+/// Kept apart, a parameter cannot collide with a common member of the same
+/// name (IFX-062, format 4).
 fn defaults_slot(codec: &dyn Codec) -> Value {
-    let mut fields = codec.slot_schema();
+    let mut parameters = codec.slot_schema();
     let material = if codec.optional_material() {
         optional(string())
     } else {
         string()
     };
-    fields.extend([
-        ("material", material),
+    parameters.push(("material", material));
+    object(&[
         ("layer", string()),
         ("position", positions()),
         ("structuralFunction", structural_function()),
         ("ifcClass", string()),
         ("predefinedType", predefined_type()),
-    ]);
-    object(&fields)
+        ("parameters", object(&parameters)),
+    ])
 }
 
 /// The tool defaults, one slot per present kind, keyed by kind code. The

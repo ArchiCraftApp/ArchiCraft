@@ -389,6 +389,50 @@ fn a_tool_default_class_the_kind_does_not_allow_is_repaired() {
     assert_eq!(p.severity, Severity::Warning);
 }
 
+/// PRJ-008, ELM-001, IFX-062: a tool's defaults slot whose `parameters`
+/// are missing or not an object keeps the template's parameters, material
+/// included, with one warning, and its common members as written.
+#[test]
+fn a_tool_slot_without_parameters_keeps_the_template_parameters() {
+    let base = reference_model();
+    for parameters in [None, Some(json!(5))] {
+        let bytes = edit(&base, |v| {
+            let wall = project_attr(v)["toolDefaults"]["wall"].as_object_mut().unwrap();
+            wall["position"] = json!("interior");
+            match &parameters {
+                Some(parameters) => wall.insert("parameters".into(), parameters.clone()),
+                None => wall.remove("parameters"),
+            };
+        });
+        let outcome = archicraft_ifcx::load(&bytes).unwrap();
+        let p = &outcome.project;
+        let template = template_tool_defaults(&TemplateContext::new(&p.materials, &p.layers));
+        let wall = p.tool_defaults.get(KindTag::Wall).unwrap();
+        assert_eq!(wall.kind, template.get(KindTag::Wall).unwrap().kind, "{parameters:?}");
+        assert_eq!(wall.position, Position::Interior, "{parameters:?}");
+        assert_eq!(
+            p.tool_defaults.get(KindTag::Slab),
+            base.tool_defaults.get(KindTag::Slab)
+        );
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        let repaired = problem(
+            &outcome,
+            &root_path(&value),
+            &[
+                "ifcx-repaired(record=ifcx-record-tool-defaults",
+                "ifcx-tool-parameters-template-used",
+            ],
+        );
+        assert_eq!(repaired.severity, Severity::Warning);
+        let tool_problems = outcome
+            .problems
+            .iter()
+            .filter(|p| p.message.to_string().contains("ifcx-record-tool-defaults"))
+            .count();
+        assert_eq!(tool_problems, 1, "{parameters:?}: {:#?}", outcome.problems);
+    }
+}
+
 /// PRJ-008: invalid counters are repaired to the number of elements of their
 /// kind, so automatic names do not repeat (ELM-019), and reported.
 #[test]

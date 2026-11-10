@@ -444,7 +444,8 @@ fn schema_violations_are_reported() {
     }));
 }
 
-/// IFX-062: a file of a newer format is flagged, not migrated.
+/// IFX-062: a file of a newer format is flagged, not migrated, and its
+/// project is loaded.
 #[test]
 fn newer_format_versions_are_flagged() {
     let project = samples::storey_with_walls_and_slab();
@@ -453,7 +454,58 @@ fn newer_format_versions_are_flagged() {
     });
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
     assert!(loaded.newer_format);
-    assert_eq!(loaded.migrated_from, None);
+    assert_eq!(loaded.migrated, None);
+    assert!(
+        loaded
+            .problems
+            .iter()
+            .any(|p| p.severity == Severity::Warning && p.message.to_string() == "ifcx-newer-format(version=99)"),
+        "{:#?}",
+        loaded.problems
+    );
+    assert_eq!(loaded.project.elements.len(), project.elements.len());
+}
+
+/// IFX-062: a file whose format version is missing or not a number loads
+/// with the warning that says so, is read as it is, without a migration,
+/// and is not flagged as newer.
+#[test]
+fn missing_or_non_numeric_format_versions_load_without_a_migration() {
+    let project = samples::storey_with_walls_and_slab();
+    for version in [
+        None,
+        Some(Value::from("four")),
+        Some(Value::from("")),
+        Some(Value::from(4)),
+    ] {
+        let bytes = edit(&project, |v| {
+            let attribute = v["data"][0]["attributes"]["archicraft::project"]
+                .as_object_mut()
+                .unwrap();
+            match &version {
+                Some(version) => attribute.insert("formatVersion".into(), version.clone()),
+                None => attribute.remove("formatVersion"),
+            };
+        });
+        let loaded = archicraft_ifcx::load(&bytes).unwrap();
+        assert_eq!(loaded.migrated, None, "{version:?}");
+        assert!(!loaded.newer_format, "{version:?}");
+        assert!(
+            loaded
+                .problems
+                .iter()
+                .any(|p| p.severity == Severity::Warning
+                    && p.message.to_string().contains("ifcx-format-version-invalid")),
+            "{version:?}: {:#?}",
+            loaded.problems
+        );
+        assert!(
+            !loaded.problems.iter().any(|p| p.severity == Severity::Info),
+            "{version:?}: {:#?}",
+            loaded.problems
+        );
+        assert_eq!(loaded.project.elements.len(), project.elements.len(), "{version:?}");
+    }
 }
 
 /// NFR-REL-007: malformed input is rejected with an error, not a panic.
@@ -982,6 +1034,7 @@ fn defaults_slots_with_predefined_types_round_trip() {
     assert!(problems.is_empty(), "{problems:#?}");
     let value: Value = serde_json::from_slice(&bytes).unwrap();
     let slots = &value["data"][0]["attributes"]["archicraft::project"]["toolDefaults"];
+    // A common member of the slot, not a parameter (IFX-062, format 4).
     assert_eq!(slots["wall"]["predefinedType"], "STRIP_FOOTING");
     assert_eq!(slots["slab"]["predefinedType"], "ROOF");
     let loaded = archicraft_ifcx::load(&bytes).unwrap();

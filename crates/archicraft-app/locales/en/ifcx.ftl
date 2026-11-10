@@ -52,6 +52,7 @@ ifcx-migration-failed = the file cannot be migrated from ArchiCraft format { $ve
 ifcx-migrated = migrated from format { $from_text } to format { $to_text }: { $change }
 ifcx-migration-adds-spaces = adds space elements
 ifcx-migration-adds-texts = adds texts and the template's text styles
+ifcx-migration-nests-tool-parameters = keeps each tool's parameters apart from its layer, position and classification
 
 ## The load report (PRJ-008): “<record> skipped: <reason>” and
 ## “<record> repaired: <reason>”.
@@ -117,6 +118,7 @@ ifcx-counters-from-elements = { $reason }; the number of elements of each kind (
 ifcx-counter-negative = “{ $key }” is negative; { $value_text } is used
 ifcx-tool-unknown = “{ $key }” is not a tool this version knows; it is ignored
 ifcx-tool-template-used = { $reason }; the template defaults of the tool are used
+ifcx-tool-parameters-template-used = { $reason }; the template parameters of the tool are used
 ifcx-tool-material-missing = a tool's default material does not exist; the template default is used
 ifcx-tool-layer-missing = a tool's default layer does not exist; the template default is used
 ifcx-tool-text-style-missing = the text tool's default style does not exist; “{ $name }” is used

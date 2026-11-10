@@ -53,6 +53,7 @@ pub const ALL_KEYS: &[&str] = &[
     "ifcx-migrated",
     "ifcx-migration-adds-spaces",
     "ifcx-migration-adds-texts",
+    "ifcx-migration-nests-tool-parameters",
     // The load report (alpha/reader.rs): what happened to a record ...
     "ifcx-skipped",
     "ifcx-repaired",
@@ -108,6 +109,7 @@ pub const ALL_KEYS: &[&str] = &[
     "ifcx-counter-negative",
     "ifcx-tool-unknown",
     "ifcx-tool-template-used",
+    "ifcx-tool-parameters-template-used",
     "ifcx-tool-material-missing",
     "ifcx-tool-layer-missing",
     "ifcx-tool-text-style-missing",
