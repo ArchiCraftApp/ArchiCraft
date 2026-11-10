@@ -15,6 +15,7 @@ use crate::tools::{TextEditor, ToolKind, ToolState, UserOriginTool};
 use crate::tr;
 use crate::views::plan::PlanViewState;
 use crate::views::render3d::{GpuScene, Renderer3d};
+use crate::views::transfer::TransferState;
 use crate::views::view3d::View3dState;
 
 /// A view shown in a tab (UI-006, VIEW-002).
@@ -119,6 +120,9 @@ pub struct Workspace {
     pub doc: Document,
     pub prefs: Preferences,
     pub tool: ToolState,
+    /// Parameter pick-up and inject (ELM-003), beside the tool so that a
+    /// creation tool keeps its input in progress while a click transfers.
+    pub transfer: TransferState,
     /// The consumer taking points: the tool or a transient one (INP-001).
     pub active_consumer: Consumer,
     /// The user origin and later frames of point input (INP-014).
@@ -163,6 +167,7 @@ impl Workspace {
             doc,
             prefs,
             tool: ToolState::default(),
+            transfer: TransferState::default(),
             active_consumer: Consumer::Tool,
             frames: InputFrames::default(),
             input: PointInput::default(),
@@ -393,6 +398,13 @@ impl Workspace {
     /// (NFR-REL-005), rendered from the error's message key with the limits
     /// in the project units (NFR-L10N-001). Returns true on success.
     pub fn execute(&mut self, command: Command) -> bool {
+        self.run(command) == Some(true)
+    }
+
+    /// Executes a command as [`Workspace::execute`] does: `Some(true)` when
+    /// it changed the project, `Some(false)` when it had nothing to change,
+    /// `None` when the project rejected it, which the status line reports.
+    pub fn run(&mut self, command: Command) -> Option<bool> {
         let label = self.render(&command.label());
         #[cfg(feature = "perf")]
         let started = Instant::now();
@@ -401,13 +413,13 @@ impl Workspace {
                 #[cfg(feature = "perf")]
                 self.perf.edit_executed(self.doc.project.revision, started);
                 self.info(label);
-                true
+                Some(true)
             }
-            Err(CommandError::NoChange) => false,
+            Err(CommandError::NoChange) => Some(false),
             Err(e) => {
                 let reason = self.render(&e.message());
                 self.error(tr!("status-rejected", command = label, reason = reason));
-                false
+                None
             }
         }
     }
@@ -597,13 +609,7 @@ impl Workspace {
     /// (SEL-004), with the groups they belong to (ELM-015).
     pub fn select_all(&mut self) {
         let project = &self.doc.project;
-        let kind = match self.tool.kind {
-            ToolKind::Select | ToolKind::Measure => None,
-            ToolKind::Wall => Some(archicraft_model::KindTag::Wall),
-            ToolKind::Slab => Some(archicraft_model::KindTag::Slab),
-            ToolKind::Space => Some(archicraft_model::KindTag::Space),
-            ToolKind::Text => Some(archicraft_model::KindTag::Text),
-        };
+        let kind = self.tool.kind.element_kind();
         let storey = match self.active_pane {
             Some(Pane::Plan(s)) => Some(s),
             _ => None,

@@ -48,13 +48,7 @@ struct Editing {
 fn gather(ws: &Workspace) -> Option<Editing> {
     let project = &ws.doc.project;
     if ws.selection.is_empty() {
-        let kind = match ws.tool.kind {
-            ToolKind::Select | ToolKind::Measure => return None,
-            ToolKind::Wall => KindTag::Wall,
-            ToolKind::Slab => KindTag::Slab,
-            ToolKind::Space => KindTag::Space,
-            ToolKind::Text => KindTag::Text,
-        };
+        let kind = ws.tool.kind.element_kind()?;
         return Some(Editing {
             subject: Subject::Defaults(kind),
             targets: vec![project.new_element(kind, project.storeys.ground(), 0)?],

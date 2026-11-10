@@ -20,6 +20,7 @@ use egui::{
 
 use super::annotation_draw::{LaidOutText, TextBlock, layout_text, paint};
 use super::camera::{Camera2d, ZoomHistory};
+use super::transfer::{self, TransferMode};
 use crate::commands::{CommandId, view_keys};
 use crate::input::{
     ConstraintReference, CursorState, Effect, Expect, Frame2d, Guide, GuideShape, Hovered, InputConsumer, InputContext,
@@ -310,7 +311,7 @@ fn screen(p: Pos2) -> DVec2 {
     DVec2::new(f64::from(p.x), f64::from(p.y))
 }
 
-fn modifiers(m: egui::Modifiers) -> Modifiers {
+pub(crate) fn modifiers(m: egui::Modifiers) -> Modifiers {
     Modifiers {
         shift: m.shift,
         command: m.command,
@@ -813,6 +814,42 @@ pub fn snap_glyph(p: Pos2, snap: SnapKind, color: Color32) -> Vec<Shape> {
     }
 }
 
+/// The pointer of a parameter transfer mode (ELM-003): the eyedropper
+/// picks, the syringe copies settings into elements.
+pub fn transfer_cursor(mode: TransferMode) -> CursorIcon {
+    match mode {
+        TransferMode::PickUp => CursorIcon::Crosshair,
+        TransferMode::Inject => CursorIcon::Copy,
+    }
+}
+
+/// The glyph beside the pointer `p` in a parameter transfer mode (ELM-003):
+/// an eyedropper for pick-up and a syringe for inject, both pointing at the
+/// pointer from the upper right.
+pub fn transfer_glyph(p: Pos2, mode: TransferMode, color: Color32) -> Vec<Shape> {
+    let stroke = Stroke::new(1.5, color);
+    // Along the tool from its tip near the pointer to its far end.
+    let along = egui::vec2(1.0, -1.0).normalized();
+    let across = egui::vec2(-along.y, along.x);
+    let tip = p + egui::vec2(8.0, -8.0);
+    let at = |t: f32, s: f32| tip + along * t + across * s;
+    match mode {
+        TransferMode::PickUp => vec![
+            // The glass tube and the rubber bulb.
+            Shape::line_segment([at(0.0, 0.0), at(3.0, 0.0)], stroke),
+            Shape::closed_line(vec![at(3.0, -1.8), at(10.0, -1.8), at(10.0, 1.8), at(3.0, 1.8)], stroke),
+            Shape::circle_filled(at(13.0, 0.0), 3.0, color),
+        ],
+        TransferMode::Inject => vec![
+            // The needle, the barrel, the plunger and its handle.
+            Shape::line_segment([at(0.0, 0.0), at(4.0, 0.0)], stroke),
+            Shape::closed_line(vec![at(4.0, -2.2), at(12.0, -2.2), at(12.0, 2.2), at(4.0, 2.2)], stroke),
+            Shape::line_segment([at(12.0, 0.0), at(16.0, 0.0)], stroke),
+            Shape::line_segment([at(16.0, -2.8), at(16.0, 2.8)], stroke),
+        ],
+    }
+}
+
 /// The ticks of the hovered edge's division points (INP-010): a short
 /// stroke across the divided stretch at each point, 4 points to either
 /// side, `to_screen` mapping model to screen positions.
@@ -998,8 +1035,16 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     let cursor_world = pointer.and_then(|p| surface.to_plane(screen(p)));
     let pick_tolerance = 4.0 / camera.scale;
     let drawing_tool = ws.takes_points();
-    let selecting = !drawing_tool || ui.input(|i| i.modifiers.command);
     let mods = ui.input(|i| modifiers(i.modifiers));
+    // Parameter transfer (ELM-003): while its gesture is held or its mode
+    // latched, a click picks up or injects instead of selecting or placing a
+    // point; the tool keeps its input. Contour detection keeps Alt for its
+    // edge-only pick (INP-018), and an open text editor its clicks.
+    let transfer = ws
+        .transfer
+        .mode(mods, &ws.keymap, transfer::gestures_free(&ws.tool))
+        .filter(|_| ws.tool.editor.is_none() && ws.active_consumer == Consumer::Tool);
+    let selecting = transfer.is_none() && (!drawing_tool || mods.command);
     // Only the view under the cursor or taking the keys needs snap targets.
     state.cursor = cursor_world;
     let input = (drawing_tool && (cursor_world.is_some() || active)).then(|| {
@@ -1009,7 +1054,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
 
     // Hover: preselection for the selection tool (SEL-001).
     if let Some(world) = cursor_world {
-        if selecting && !ws.tool.is_drawing() {
+        if transfer.is_some() || (selecting && !ws.tool.is_drawing()) {
             let candidates = pick(
                 &plan,
                 &state.texts,
@@ -1065,6 +1110,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     // With the Text tool, a click on a text edits it rather than placing a
     // new one (ANN-007).
     if ws.tool.kind == ToolKind::Text
+        && transfer.is_none()
         && ws.active_consumer == Consumer::Tool
         && ws.tool.editor.is_none()
         && !state.editor_press
@@ -1084,6 +1130,14 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     // editor (ANN-007).
     let clicked = response.clicked_by(PointerButton::Primary);
     if clicked
+        && let Some(mode) = transfer
+        && !swallowed
+        && cursor_world.is_some()
+    {
+        // The candidate the hover highlights, Tab cycling included.
+        transfer::click(ws, mode, ws.hover);
+        state.last_hit = None;
+    } else if clicked
         && selecting
         && !swallowed
         && let Some(world) = cursor_world
@@ -1130,6 +1184,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     // Points from the primary button in the chosen input mode (INP-020): a
     // press that becomes a drag takes its point where the button went down.
     if !selecting
+        && transfer.is_none()
         && !swallowed
         && let Some(input) = &input
     {
@@ -1176,16 +1231,15 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
 
     // Point input: the resolved point and its tracker after this frame's
     // keys and clicks (INP-001, INP-002).
-    let resolved: Option<(Resolved, Option<String>)> =
-        cursor_world
-            .filter(|_| !selecting)
-            .zip(input.as_ref())
-            .map(|(world, input)| {
-                let ctx = input.ctx(&ws.doc.project, ws.frames, &ws.active_consumer, &ws.tool);
-                let resolved = ws.input.resolve(world, mods, &ctx);
-                let tracker = ws.input.tracker(resolved.point, &ctx);
-                (resolved, tracker)
-            });
+    let resolved: Option<(Resolved, Option<String>)> = cursor_world
+        .filter(|_| !selecting && transfer.is_none())
+        .zip(input.as_ref())
+        .map(|(world, input)| {
+            let ctx = input.ctx(&ws.doc.project, ws.frames, &ws.active_consumer, &ws.tool);
+            let resolved = ws.input.resolve(world, mods, &ctx);
+            let tracker = ws.input.tracker(resolved.point, &ctx);
+            (resolved, tracker)
+        });
     state.tracker = resolved.as_ref().and_then(|(_, tracker)| tracker.clone());
     state.glyph = None;
     state.label = None;
@@ -1236,6 +1290,12 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         &palette,
     );
     state.measure = draw_measurement(&painter, rect, &camera, ws, storey, &palette);
+    if let Some(mode) = transfer
+        && let Some(p) = pointer
+    {
+        ui.ctx().set_cursor_icon(transfer_cursor(mode));
+        painter.extend(transfer_glyph(p, mode, palette.selection));
+    }
     if let Some((r, fully)) = area.filter(|(r, _)| r.area() > 4.0) {
         let stroke = Stroke::new(1.0, palette.selection);
         painter.rect_filled(r, 0.0, palette.selection.gamma_multiply(0.08));
@@ -1596,6 +1656,8 @@ fn local_command(
         view_keys::NEXT_FIELD => KeyInput::Tab,
         view_keys::REMOVE_LAST => KeyInput::Backspace,
         view_keys::FINISH => KeyInput::Enter,
+        // Esc ends a latched transfer mode first (ELM-003).
+        view_keys::CANCEL_STEP if ws.transfer.cancel() => return,
         view_keys::CANCEL_STEP => KeyInput::Escape,
         _ => return,
     };

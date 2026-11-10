@@ -8,8 +8,10 @@ use eframe::egui_wgpu;
 use egui::{Align2, Color32, CursorIcon, Event, FontId, PointerButton, Pos2, Rect, Sense, Ui};
 
 use super::camera::Camera3d;
+use super::plan::{modifiers, transfer_cursor, transfer_glyph};
 use super::render3d::{DisplayMode, Renderer3d, Viewport, build_scene};
-use crate::workspace::{Pane, Request, SceneKey, Workspace};
+use super::transfer;
+use crate::workspace::{Consumer, Pane, Request, SceneKey, Workspace};
 
 #[derive(Debug)]
 pub struct View3dState {
@@ -181,17 +183,31 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
     }
 
     // Picking: click selects, double-click sets the orbit pivot (VIEW-021).
+    // While a parameter transfer gesture is held or its mode latched, a
+    // click picks up or injects through the handler the plan uses too
+    // (ELM-003); an Alt-drag still orbits.
     let hit_at = |state: &View3dState, ws: &Workspace, p: Pos2| {
         let (origin, dir) = state.camera.ray(rect, p);
         pick(&ws.doc.project, &geometry, origin, dir)
     };
+    let held = ui.input(|i| modifiers(i.modifiers));
+    // Contour detection's edge-only Alt-click exists only in the plan, so
+    // the gestures are always free here; a transient consumer and an open
+    // text editor keep their clicks, as in the plan.
+    let transfer_mode = ws
+        .transfer
+        .mode(held, &ws.keymap, true)
+        .filter(|_| ws.tool.editor.is_none() && ws.active_consumer == Consumer::Tool);
     if response.clicked_by(PointerButton::Primary)
         && let Some(p) = response.interact_pointer_pos()
     {
         let hit = hit_at(&state, ws, p).map(|(id, _)| id);
-        // A grouped element selects its group; Shift toggles it whole
-        // (ELM-015).
-        ws.click_select(hit, ui.input(|i| i.modifiers.shift));
+        match transfer_mode {
+            Some(mode) => transfer::click(ws, mode, hit),
+            // A grouped element selects its group; Shift toggles it whole
+            // (ELM-015).
+            None => ws.click_select(hit, held.shift),
+        }
     }
     if response.double_clicked_by(PointerButton::Primary)
         && let Some(p) = response.interact_pointer_pos()
@@ -244,6 +260,13 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
                 ui.visuals().weak_text_color(),
             );
         }
+    }
+    if let Some(mode) = transfer_mode
+        && let Some(p) = response.hover_pos()
+        && !response.dragged()
+    {
+        ui.ctx().set_cursor_icon(transfer_cursor(mode));
+        painter.extend(transfer_glyph(p, mode, ui.visuals().selection.stroke.color));
     }
     let projection = match state.camera.projection {
         Projection::Perspective => crate::tr!("view-projection-perspective"),
