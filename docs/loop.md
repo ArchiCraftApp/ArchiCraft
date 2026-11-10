@@ -57,8 +57,16 @@ another such turn; after many of them in a row, or after a stopped or failed tur
 and the orchestrator ends with "continue" for the user. The app continues the orchestrator only
 when none of its sessions is still working, so batches run in lockstep: a slot that frees up
 early stays empty until the whole batch reported. A batch holds up to `parallel` (default 3)
-ready beads, each in its own fresh session and worktree with `/bead <id>`, whose crate labels
-overlap neither each other nor beads still in progress. Beads labelled `loop` are picked only
+ready beads, each in its own fresh session and worktree with `/bead <id>`, that share neither a
+crate label nor a requirement row with each other or with a bead still in progress, as
+`scripts/loop/batch.sh` picks them (archicraft-i2yfz). A requirement row is an ID of the bead's
+`SRS:` line that has a row in `docs/status/requirements.json`: the bead's PR changes that row, so
+two such PRs conflict there. A bead stays in progress until its PR merges, so an open PR blocks
+too (user decision of 2026-11-10); split parents (`loop-split`) and epics block nothing. Before
+the script the orchestrator compared the labels itself, and since the split parents in progress
+carry every crate label, the rule as written left nothing to start and was not applied: beads of
+one crate ran at once and conflicted (archicraft-vwt.3 and archicraft-u4vm.2.3,
+archicraft-w2y8.1 and archicraft-3slg). Beads labelled `loop` are picked only
 when the user passes `loop`, at most one per batch and none while another loop bead's PR is
 open, because loop beads edit the same files. A red `main` (the sweep's `ATTENTION windows`
 line or a failed CI run on `main`) becomes a P0 bead labelled `red-main` that starts first in

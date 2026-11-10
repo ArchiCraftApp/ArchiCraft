@@ -1,6 +1,6 @@
 ---
 name: bead-loop
-description: Orchestrate the bead loop over several beads — sweep, start a batch of ready beads with disjoint crates, each in its own fresh session and worktree with /bead at the model and effort of its tier, verify what they landed and start the next batch when the whole batch reported, never wait on a merge, ask the user through AskUserQuestion (and merge a PR that waits for their review once they approve it), and stop after N beads or at an epic boundary for the user's demo.
+description: Orchestrate the bead loop over several beads — sweep, start a batch of ready beads that share no crate and no requirement row, each in its own fresh session and worktree with /bead at the model and effort of its tier, verify what they landed and start the next batch when the whole batch reported, never wait on a merge, ask the user through AskUserQuestion (and merge a PR that waits for their review once they approve it), and stop after N beads or at an epic boundary for the user's demo.
 argument-hint: "[count] [parallel] [epic-id] [loop]"
 disable-model-invocation: true
 ---
@@ -130,17 +130,29 @@ the whole batch reported. Each batch starts at once:
    epic was given). `bd ready` leaves out beads in progress and beads blocked by an open
    bead, so a bead whose blocker's PR has not merged yet waits for a later batch by itself.
    Walk the list in its order (priority), a bead labelled `escalated` first after a `red-main`
-   one, and take a bead when its crate labels (`archicraft-model`, `archicraft-geometry`,
-   `archicraft-ifcx`, `archicraft-app`) overlap neither those of the beads already taken nor
-   those of beads still in progress (`bd list --status in_progress --json`), until the batch
-   holds `parallel` beads or the remaining count is reached. Give each bead you take its tier
-   (Tiers), labelling it when it has none. A `fable` bead (asked, kind 4) or one whose tier is
-   above this session's effort (listed in the report) is not taken and takes no slot. At
-   most one loop bead per batch, and none while another loop bead's PR is open
-   (`gh pr list --state open --label loop`), because loop beads edit the same files. If
-   nothing is ready, say in one line which open PRs the remaining work waits on and end the
-   turn; the user's next "continue" sweeps again (no bead session is working, so no report
-   turn follows).
+   one, and find each bead's tier (Tiers). A `fable` bead (asked, kind 4) or one whose tier is
+   above this session's effort (listed in the report) is not taken and takes no slot. At most
+   one loop bead per batch, and none while another loop bead's PR is open
+   (`gh pr list --state open --label loop`), because loop beads edit the same files. Then let the
+   script pick from the rest, in that order:
+
+   ```bash
+   scripts/loop/batch.sh --limit <slots> [--first <red-main id>] <id>...
+   ```
+
+   `<slots>` is `parallel` less the beads restarted in step 1 (a PR the merge queue dropped, its
+   session gone), or the beads still to run when fewer. Those beads are in progress, so the
+   script keeps the others clear of them without being passed them. It prints `take <id>` for a
+   bead whose crate labels (`archicraft-model`, `archicraft-geometry`, `archicraft-ifcx`,
+   `archicraft-app`) and requirement rows (the IDs of its `SRS:` notes line that have a row in
+   `docs/status/requirements.json`, which its PR changes) it shares with no bead taken before it
+   and no bead in progress, and `skip <id>: shares … with …` for the others (archicraft-i2yfz).
+   A bead stays in progress until its PR merges, so an open PR blocks too (user decision of
+   2026-11-10); split parents (`loop-split`) and epics block nothing. `--first` takes the
+   `red-main` bead whatever it shares. Take the beads it takes, labelling each with its tier when
+   it has none. If nothing is ready or it takes none, say in one line which beads in progress or
+   open PRs the remaining work waits on and end the turn; the user's next "continue" sweeps again
+   (no bead session is working, so no report turn follows).
 4. **Start.** In the Claude desktop app, load `mcp__ccd_session__start_session` with
    ToolSearch, mark a chapter for the batch (`mcp__ccd_session__mark_chapter`), and start every bead of the batch in the same
    message: `initiation` "user_asked" (the user ran /bead-loop for `count` beads or said
