@@ -2481,7 +2481,7 @@
       "status": "partial",
       "remaining_effort": "M",
       "evidence": "",
-      "gap": "ParametricShape (crates/archicraft-model/src/profile.rs) stores rectangle, circle, rectangular and circular hollow sections, I/H, T, L, U/C and Z shapes by their dimensions, centred on their bounding box (`parametric_bounds_are_centred_on_the_bounding_box`); check_parametric_shape (crates/archicraft-model/src/validate.rs) checks each dimension's range and that they fit together, naming the dimension (`parametric_shapes_accept_typical_dimensions`, `out_of_range_dimensions_are_rejected_naming_the_dimension`, `inconsistent_dimensions_are_rejected_naming_the_dimension`). Missing: generating the section polygons from the dimensions (archicraft-bxc5), storing the parametric definition in IFCX (archicraft-jrtb) and the dimension UI.",
+      "gap": "ParametricShape (crates/archicraft-model/src/profile.rs) stores rectangle, circle, rectangular and circular hollow sections, I/H, T, L, U/C and Z shapes by their dimensions, centred on their bounding box (`parametric_bounds_are_centred_on_the_bounding_box`); check_parametric_shape (crates/archicraft-model/src/validate.rs) checks each dimension's range and that they fit together, naming the dimension (`parametric_shapes_accept_typical_dimensions`, `out_of_range_dimensions_are_rejected_naming_the_dimension`, `inconsistent_dimensions_are_rejected_naming_the_dimension`). parametric_section (crates/archicraft-geometry/src/section.rs) generates each shape's closed cross-section from its dimensions: outer loop counter-clockwise, holes clockwise, root, toe and corner radii as tessellated quarter arcs with their vertices marked smooth (IFX-034, IFX-038), matching the closed-form areas (`filleted_shapes_match_their_closed_form_areas`, `circles_are_inscribed_polygons`, `ipe_200_has_the_tabulated_area`), valid rings at typical dimensions and at the validation's limits (`every_loop_is_a_valid_ring`) and spanning the dimensions' box (`bounds_are_the_bounding_box_of_the_dimensions`). Missing: sections of Profile resources with custom regions (archicraft-bxc5.2), storing the parametric definition in IFCX (archicraft-jrtb) and the dimension UI.",
       "depends_on": []
     },
     {
@@ -4761,7 +4761,7 @@
       "status": "partial",
       "remaining_effort": "S",
       "evidence": "",
-      "gap": "Max segment angle has no UI field (only chord deviation is in the dialog); no curved geometry exists, so nothing tessellates with these values yet",
+      "gap": "Max segment angle has no UI field (only chord deviation is in the dialog). Profile sections tessellate fillets and circles with these values (arc_segments in crates/archicraft-geometry/src/section.rs, the larger of the angle and the chord rule: `arc_segments_follow_the_angle_and_the_chord_rule`, `the_project_tessellation_settings_change_the_counts`), but no element kind uses sections yet (columns, archicraft-i4gl), so no element geometry is curved. arc_segments caps a full turn at MAX_SEGMENTS_PER_TURN (1024 segments, `unusable_tessellation_values_stay_bounded`) because the IFCX reader does not range-check the values; SetSettings accepts any chord deviation above zero, so a deviation below about 5 µm on a 1 m circle is not honoured: a lower bound in SetSettings and a range check in the reader are missing",
       "depends_on": []
     },
     {

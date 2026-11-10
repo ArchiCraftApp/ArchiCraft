@@ -90,6 +90,7 @@ crates/archicraft-geometry/src/kinds/wall.rs::Wall::evaluate | "Body" | body-par
 crates/archicraft-geometry/src/kinds/slab.rs::Slab::evaluate | "Body" | body-part name, the IFCX sub-node name of the element's body (file format)
 crates/archicraft-geometry/src/kinds/space.rs::Space::evaluate | "Body" | body-part name, the IFCX sub-node name of the element's body (file format)
 crates/archicraft-geometry/src/kinds/dummy.rs::body | "Body" | body-part name, the IFCX sub-node name of the test kind's bodies (file format, test builds only)
+crates/archicraft-geometry/src/section.rs::BODY_ROLE | "Body" | role of a parametric section's one region, the body-part name and IFCX sub-node name of a column or beam made of it (file format)
 crates/archicraft-geometry/src/mesh.rs::MeshIssue::fmt | * | diagnostic of check_closed, which only tests and benches call (IFX-032); never shown in the user interface
 
 # The default keymap page docs/keymap.md, English documentation that a test
