@@ -55,6 +55,17 @@ pub(crate) use self::vertical::Vertical;
 pub use self::vertical::VerticalLink;
 pub use self::wall::ReferenceLine;
 
+/// The plan measure of an element, a read-only value the properties panel
+/// shows beside its volume (MEA-003): a wall's length along its reference
+/// line, a slab's area net of its holes, a space's net area (SPC-001).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PlanMeasure {
+    /// A length in metres.
+    Length(f64),
+    /// An area in square metres.
+    Area(f64),
+}
+
 /// Static description of an element kind (ELM-011, ELM-019).
 #[derive(Debug)]
 pub struct KindDescriptor {
@@ -255,6 +266,11 @@ pub trait Kind: Sized {
     /// Smallest and largest plan coordinates the element covers. `None` if
     /// it has no points.
     fn plan_bounds(&self) -> Option<(DVec2, DVec2)>;
+
+    /// The element's plan measure (MEA-003), `None` for a kind without one.
+    fn plan_measure(&self) -> Option<PlanMeasure> {
+        None
+    }
 }
 
 /// Bounding box of plan points, `None` if there are none.
@@ -475,6 +491,13 @@ macro_rules! kinds {
             pub fn plan_bounds(&self) -> Option<(DVec2, DVec2)> {
                 match self {
                     $($(#[$meta])* ElementKind::$Payload(k) => k.plan_bounds(),)+
+                }
+            }
+
+            /// See [`Kind::plan_measure`].
+            pub fn plan_measure(&self) -> Option<PlanMeasure> {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.plan_measure(),)+
                 }
             }
         }

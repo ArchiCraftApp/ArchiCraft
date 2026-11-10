@@ -3,7 +3,7 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor, KindTag, transform_outline};
+use super::{Kind, KindDescriptor, KindTag, PlanMeasure, transform_outline};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction};
 use crate::fields::{self, FieldSpec, FieldType, FieldValue, Section};
 use crate::ids::{MaterialId, StoreyId};
@@ -214,5 +214,10 @@ impl Kind for Slab {
     /// Holes lie inside the outline, so the outline bounds the slab.
     fn plan_bounds(&self) -> Option<(DVec2, DVec2)> {
         self.outline.bounds()
+    }
+
+    /// The outline's area net of the holes (MEA-003, SLB-003).
+    fn plan_measure(&self) -> Option<PlanMeasure> {
+        Some(PlanMeasure::Area(self.outline.area()))
     }
 }

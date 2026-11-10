@@ -586,3 +586,47 @@ fn the_test_kind_hooks() {
     assert_eq!(p, before);
     h.execute(&mut p, Command::AddElements(vec![d])).unwrap();
 }
+
+/// MEA-003, SPC-001: the plan measure the properties panel shows comes from
+/// the kind: a wall's length, a slab's and a space's area net of their
+/// holes, and nothing for a kind without one.
+#[test]
+fn each_kind_reports_its_plan_measure() {
+    use archicraft_model::PlanMeasure;
+    let p = default_metric_project();
+    let storey = ground(&p);
+    let square = |x0: f64, x1: f64| {
+        vec![
+            DVec2::new(x0, x0),
+            DVec2::new(x1, x0),
+            DVec2::new(x1, x1),
+            DVec2::new(x0, x1),
+        ]
+    };
+    let close = |measure: Option<PlanMeasure>, expected: PlanMeasure| match (measure, expected) {
+        (Some(PlanMeasure::Length(a)), PlanMeasure::Length(b)) | (Some(PlanMeasure::Area(a)), PlanMeasure::Area(b)) => {
+            (a - b).abs() < 1e-12
+        }
+        _ => false,
+    };
+    let w = wall(&p, (0.0, 0.0), (3.0, 4.0));
+    assert!(
+        close(w.kind.plan_measure(), PlanMeasure::Length(5.0)),
+        "{:?}",
+        w.kind.plan_measure()
+    );
+    let slab = p.new_slab(storey, square(0.0, 4.0), vec![square(1.0, 2.0)], 0);
+    assert!(
+        close(slab.kind.plan_measure(), PlanMeasure::Area(15.0)),
+        "{:?}",
+        slab.kind.plan_measure()
+    );
+    let space = p.new_space(storey, square(0.0, 4.0), vec![square(1.0, 2.0)], 0);
+    assert!(
+        close(space.kind.plan_measure(), PlanMeasure::Area(15.0)),
+        "{:?}",
+        space.kind.plan_measure()
+    );
+    let dummy = archicraft_model::kinds::Dummy::without_material(DVec2::ZERO, DVec2::ONE).into_element(&p, storey, 0);
+    assert_eq!(dummy.kind.plan_measure(), None);
+}
