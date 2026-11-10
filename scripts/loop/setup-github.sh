@@ -19,8 +19,11 @@
 # - main also requires the status "User review" (.github/workflows/user-review.yml), which fails
 #   for a PR that changes the CI workflows or the hook wiring: auto-merge never merges it, the
 #   owner merges it after the review (archicraft-9nlk).
-# Usage: scripts/loop/setup-github.sh [--print-rulesets]   (--print-rulesets prints the rulesets
-#        it would send and changes nothing)
+# - the Actions event policy "User review on pull_request_target", which lets user-review.yml run
+#   on pull_request_target once GitHub blocks that event by default in public repositories
+#   (2026-12-02, archicraft-x79i7).
+# Usage: scripts/loop/setup-github.sh [--print-rulesets | --print-policy]   (they print the
+#        rulesets or the policy it would send and change nothing)
 set -euo pipefail
 
 # The required checks: the CI job names in .github/workflows/ci.yml, each of which runs on
@@ -82,10 +85,30 @@ rulesets="$(jq -n --argjson app "$actions_app" --args '
         bypass_actors: [],
         rules: [{ type: "deletion" }, { type: "non_fast_forward" }]
     }]' "${required[@]}")"
-if [ "${1:-}" = --print-rulesets ]; then
-    printf '%s\n' "$rulesets"
-    exit 0
-fi
+
+# The Actions event policy that lets user-review.yml run on pull_request_target. GitHub blocks
+# that event in public repositories by default from 2026-12-02, unless an Actions event policy
+# allows it (changelog of 2026-11-02). In its brownout of 2026-11-09 the check ended in
+# startup_failure for the same-repository PRs #264 to #266, a run that cannot be re-run, so they
+# could not join the merge queue until a close and reopen (archicraft-x79i7). The workflow is safe
+# on that event: it runs main's script on a checkout of main and reads the PR's commits only as
+# data. An event rule is an allowlist for the workflows the policy targets, so the policy targets
+# user-review.yml alone and allows exactly the events it runs on, merge_group too, or the merge
+# queue would wait for its status (selftest.sh compares them with the workflow's on: block). Every
+# other workflow keeps GitHub's default, which blocks pull_request_target.
+policy_workflow=.github/workflows/user-review.yml
+policy_events=(pull_request_target merge_group)
+policy="$(jq -n --arg workflow "$policy_workflow" --args '{
+    name: "User review on pull_request_target",
+    enforcement: "active",
+    conditions: { workflow_path: { include: [$workflow], exclude: [] } },
+    rules: [{ type: "restrict_action_events", parameters: { allowed_events: $ARGS.positional } }]
+}' "${policy_events[@]}")"
+
+case "${1:-}" in
+    --print-rulesets) printf '%s\n' "$rulesets"; exit 0 ;;
+    --print-policy) printf '%s\n' "$policy"; exit 0 ;;
+esac
 
 command -v gh >/dev/null || { echo "gh is not installed: brew install gh && gh auth login"; exit 1; }
 repo="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
@@ -131,3 +154,22 @@ if gh api "repos/$repo/branches/main/protection" >/dev/null 2>&1; then
     gh api -X DELETE "repos/$repo/branches/main/protection" >/dev/null
     echo "  classic branch protection of main removed (the ruleset replaces it)"
 fi
+
+# The event policy, created or updated by name like the rulesets, through the API version that
+# documents the endpoint (docs.github.com/en/rest/actions/policies).
+api_version="X-GitHub-Api-Version: 2026-03-10"
+name="$(jq -r .name <<<"$policy")"
+id="$(gh api "repos/$repo/actions/policies?has_parents=false" -H "$api_version" \
+    -q ".policies[] | select(.name == \"$name\") | .id" | head -n 1)"
+if [ -n "$id" ]; then
+    write=(-X PUT "repos/$repo/actions/policies/$id")
+else
+    write=(-X POST "repos/$repo/actions/policies")
+fi
+if ! gh api "${write[@]}" -H "$api_version" --input - <<<"$policy" >/dev/null; then
+    echo "  The Actions policy \"$name\" was not set. Without it GitHub blocks user-review.yml from"
+    echo "  2026-12-02 and no PR gets the status User review. Set it by hand under Settings → Actions"
+    echo "  → Policies: $policy_workflow, events ${policy_events[*]} (docs/loop.md)."
+    exit 1
+fi
+echo "  Actions policy \"$name\": $policy_workflow may run on ${policy_events[*]}"

@@ -128,7 +128,7 @@ Instructions are soft; these are not:
 | Hook `stop-gate` (Stop) | A bead session does not end with uncommitted code that has not passed the gate and the review; it runs the gate, blocks at most three times per tree, and `escalate.sh` (the stop rules) and `pause.sh` are the explicit ways out |
 | Hook `session-context` (SessionStart) | New, resumed and compacted sessions see the loop state |
 | CI job `Loop policy` | Bead PR titles start with the bead id; bead PRs never change `.beads/`; golden files change only with the PR label `format-change`; loop files change only in a bead labelled `loop` (labels read live at run time, since `gh pr create` attaches them after the PR is opened); headless layering; the hooks' self-test |
-| CI workflow `User review` | A PR that changes `.github/workflows/` or `.claude/settings.json` (or `LOOP_USER_REVIEW_PATHS`) gets the failing status `User review`, decided by the base's `scripts/loop/ci-user-review.sh` (`pull_request_target`), never by the PR's own scripts |
+| CI workflow `User review` | A PR that changes `.github/workflows/` or `.claude/settings.json` (or `LOOP_USER_REVIEW_PATHS`) gets the failing status `User review`, decided by the base's `scripts/loop/ci-user-review.sh` (`pull_request_target`), never by the PR's own scripts; the Actions event policy `User review on pull_request_target` lets it run once GitHub blocks that event by default (below) |
 | Rulesets on `main` | Every PR merges through the merge queue (squash), which needs the seven required CI checks on Linux and the status `User review` on the PR and again on `main` with the PRs ahead of it (The merge queue, below); admins bypass it, nobody deletes or force-pushes `main`; Windows runs on `main`, nightly and by hand, macOS only for releases and the nightly conformance matrix (below) |
 
 **A bead PR runs CI once, and once more in the merge queue.** `ci.yml` runs for the
@@ -313,6 +313,27 @@ overwrite it, and closing that is archicraft-t9zs.
 A CODEOWNERS review cannot enforce this while Claude works under the user's GitHub account,
 because GitHub does not let an account approve its own PR.
 
+**`pull_request_target` needs an Actions event policy.** From 2026-12-02 GitHub blocks
+`pull_request_target` in public repositories, for PRs from branches of the same repository too,
+unless an Actions event policy allows it
+([changelog of 2026-11-02](https://github.blog/changelog/2026-11-02-pull_request_target-blocked-by-default-december-2/)).
+A blocked run ends in `startup_failure`, which cannot be re-run, so the PR never gets the status
+`User review` and never joins the merge queue; only a new `pull_request_target` event (a push, or
+a close and reopen) tries again. That happened to PRs #264 to #266 in the brownout of 2026-11-09
+(archicraft-x79i7). The user chose to allow the event by policy rather than move the check to
+another trigger (2026-11-10): the workflow is safe on it, since it runs `main`'s script on a
+checkout of `main` and reads the PR's commits only as data. `setup-github.sh` creates the
+repository's policy `User review on pull_request_target` (REST
+`repos/{owner}/{repo}/actions/policies`; Settings → Actions → Policies on GitHub). Its event
+rule (`restrict_action_events`) is an allowlist for the workflows the policy targets, so it
+targets `.github/workflows/user-review.yml` alone and allows exactly the events that workflow runs
+on, `pull_request_target` and `merge_group`: without `merge_group` the merge queue would wait for
+the status and drop every PR. GitHub's docs do not say whether its default still applies to the
+other workflows once a policy targets one, so the loop does not rely on it: `selftest.sh` checks
+that no other workflow runs on `pull_request_target`, and that the policy names the workflow's
+path and its triggers. A change to the workflow's triggers therefore needs the policy changed with
+it, and `setup-github.sh` run again after the merge.
+
 **The user's approval of a merge.** Until 2026-11-04 the orchestrator named a PR that waits for
 the review in its `Needs you:` line, and the user opened it on GitHub and merged it there. Since
 the user's request of that day the orchestrator asks with `AskUserQuestion` (`/bead-loop`,
@@ -372,8 +393,9 @@ Once per machine: `brew install gh && gh auth login` (PRs and auto-merge), optio
 `cargo install cargo-deny` (the gate skips the licence check without it; CI runs it).
 
 Once per repository, by an admin: `scripts/loop/setup-github.sh` (auto-merge, labels, the
-rulesets on `main` with the merge queue and the required checks). Run it again after a change to
-its list of required checks or the queue's settings: `land.sh` writes that step into the
+rulesets on `main` with the merge queue and the required checks, the Actions event policy that
+lets `user-review.yml` run on `pull_request_target`). Run it again after a change to its list of
+required checks, the queue's settings or the policy: `land.sh` writes that step into the
 description of every PR that changes the script. A PR
 opened before the status `User review` became required gets it with its next push (or a close
 and reopen).
