@@ -378,10 +378,11 @@ mod tests {
         }
     }
 
-    /// UI-001: the toolbox shows the Selection, Modelling and View tools
-    /// separators (named by their groups) with their tools in that order; a registry with a stub
-    /// Annotation2d tool adds the 2D and annotation heading with its tool in
-    /// third place, between Modelling and View tools.
+    /// UI-001: the toolbox shows the Selection, Modelling, 2D and annotation
+    /// and View tools separators (named by their groups) with their tools in
+    /// that order; a group without tools has no separator, and a stub
+    /// Annotation2d tool after the Text tool (ANN-007) follows it under the
+    /// 2D and annotation heading, between Modelling and View tools.
     #[test]
     fn the_tool_palette_groups_the_registrys_tools() {
         let specs = Registry::get().specs().to_vec();
@@ -393,6 +394,8 @@ mod tests {
                 "Modelling",
                 "Wall",
                 "Slab",
+                "2D and annotation",
+                "Text",
                 "View tools",
                 "Fit",
                 "Orbit",
@@ -403,7 +406,11 @@ mod tests {
         assert!(rows.is_sorted(), "{rows:?}");
         let harness = {
             let cx = CommandCtx::default();
-            let specs = specs.clone();
+            let specs: Vec<CommandSpec> = specs
+                .iter()
+                .filter(|s| s.toolbox.is_none_or(|t| t.group != ToolGroup::Annotation2d))
+                .cloned()
+                .collect();
             Harness::new_ui(move |ui| {
                 tool_palette(ui, &cx, &specs, 1);
             })
@@ -418,7 +425,7 @@ mod tests {
         stubbed.push(
             CommandSpec::new("tool.stub-line", Category::Design, |_, _, _| {}).toolbox(
                 ToolGroup::Annotation2d,
-                0,
+                1,
                 "toolbox-stub-line",
             ),
         );
@@ -429,6 +436,7 @@ mod tests {
                 "Modelling",
                 "Slab",
                 "2D and annotation",
+                "Text",
                 "toolbox-stub-line",
                 "View tools",
                 "Fit",

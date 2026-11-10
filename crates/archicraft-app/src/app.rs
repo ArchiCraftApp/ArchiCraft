@@ -516,6 +516,11 @@ impl ArchiCraftApp {
             return;
         };
         tracing::debug!(%id, ?origin, "command");
+        // ANN-007: a command leaves the inline text editor, which commits
+        // its text first, so that Save, New, Open and the rest see it.
+        if !self.ws.commit_text_editor() {
+            return;
+        }
         (spec.handler)(self, ctx, target);
     }
 
@@ -624,6 +629,13 @@ impl ArchiCraftApp {
 
     fn handle_close_request(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit_confirmed {
+            // ANN-007: the open text editor's text counts as unsaved. While
+            // the project rejects it, the window stays open with the editor
+            // and the status line names the error.
+            if !self.ws.commit_text_editor() {
+                ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+                return;
+            }
             if self.ws.doc.is_dirty() {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
                 self.prompt = Some(Prompt::Unsaved(Then::Quit));

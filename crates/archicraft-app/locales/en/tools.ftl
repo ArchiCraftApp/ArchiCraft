@@ -86,3 +86,12 @@ prompt-space-polygon-first = Space: click the first corner of the boundary
 prompt-space-polygon-next = Space: click the next corner or type a distance
 prompt-space-rectangle-first = Space rectangle: click the first corner
 prompt-space-rectangle-next = Space rectangle: click the opposite corner or type a distance
+
+## The text tool (ANN-007): placing a text's anchor, then typing its content
+## in the inline editor, and the keys of the editor.
+
+prompt-text-anchor = Text: click where the text goes or type its coordinates
+prompt-text-type = Text: type the text, a click outside places it
+prompt-text-key-newline = starts a new line
+prompt-text-key-commit = places the text
+prompt-text-key-cancel = cancels the text

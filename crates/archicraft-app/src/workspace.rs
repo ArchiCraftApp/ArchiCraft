@@ -11,7 +11,7 @@ use crate::commands::{CommandId, Keymap, Origin, Target};
 use crate::document::Document;
 use crate::input::{Frame2d, InputConsumer, PointInput, SnapIndex};
 use crate::persistence::prefs::Preferences;
-use crate::tools::{ToolKind, ToolState, UserOriginTool};
+use crate::tools::{TextEditor, ToolKind, ToolState, UserOriginTool};
 use crate::tr;
 use crate::views::plan::PlanViewState;
 use crate::views::render3d::{GpuScene, Renderer3d};
@@ -190,6 +190,8 @@ impl Workspace {
     pub fn replace_document(&mut self, doc: Document) {
         self.doc = doc;
         self.reset_input();
+        // An open text editor belongs to the replaced project (ANN-007).
+        self.tool.editor = None;
         self.frames = InputFrames::default();
         self.selection.clear();
         self.hover = None;
@@ -221,11 +223,12 @@ impl Workspace {
     }
 
     /// Switches to the tool `kind`, discarding the input in progress. An open
-    /// wall chain keeps its walls (UND-003); while the project rejects them,
-    /// the tool stays with the chain pending.
+    /// wall chain keeps its walls (UND-003) and an open text editor its text
+    /// (ANN-007); while the project rejects them, the tool stays with them
+    /// pending.
     pub fn select_tool(&mut self, kind: ToolKind) {
         self.active_consumer = Consumer::Tool;
-        if !self.end_chain() {
+        if !self.end_chain() || !self.commit_text_editor() {
             return;
         }
         self.tool.select(kind);
@@ -255,6 +258,44 @@ impl Workspace {
         self.active_consumer = Consumer::Tool;
         self.tool.reset();
         self.input = PointInput::default();
+    }
+
+    /// Opens the inline editor on the text `id` (ANN-007), committing an
+    /// editor already open; does nothing for an element that is no text or
+    /// cannot be edited, or while the open editor's text is rejected.
+    pub fn edit_text(&mut self, id: ElementId) {
+        if !self.commit_text_editor() {
+            return;
+        }
+        let project = &self.doc.project;
+        if let Some(element) = project.element(id).filter(|e| project.is_editable(e)) {
+            self.tool.editor = TextEditor::edit(element);
+        }
+    }
+
+    /// Closes the inline text editor and commits its content as one undo
+    /// step (ANN-007): a new text, or the edited text's new content. Blank
+    /// or unchanged content creates and changes nothing. When the project
+    /// rejects the text, the editor stays open with its content and the
+    /// status line names the error; returns whether no editor is open any
+    /// more.
+    pub fn commit_text_editor(&mut self) -> bool {
+        let Some(mut editor) = self.tool.editor.take() else {
+            return true;
+        };
+        if let Some(command) = editor.command()
+            && !self.execute(command)
+        {
+            editor.wants_focus = true;
+            self.tool.editor = Some(editor);
+            return false;
+        }
+        true
+    }
+
+    /// Closes the inline text editor without changing the project (ANN-007).
+    pub fn cancel_text_editor(&mut self) {
+        self.tool.editor = None;
     }
 
     /// The consumer taking points now (INP-001).
@@ -561,6 +602,7 @@ impl Workspace {
             ToolKind::Wall => Some(archicraft_model::KindTag::Wall),
             ToolKind::Slab => Some(archicraft_model::KindTag::Slab),
             ToolKind::Space => Some(archicraft_model::KindTag::Space),
+            ToolKind::Text => Some(archicraft_model::KindTag::Text),
         };
         let storey = match self.active_pane {
             Some(Pane::Plan(s)) => Some(s),
@@ -724,6 +766,62 @@ mod tests {
         assert_eq!(ws.tool.kind, ToolKind::Wall, "the tool waits for the chain");
         assert_eq!(ws.tool.points, points);
         assert_eq!(ws.doc.project.revision, revision);
+    }
+
+    /// ANN-007: a text whose command the project rejects keeps its editor
+    /// open with the typed content, taking the keyboard again: here its
+    /// storey was deleted meanwhile. Neither committing, switching the tool
+    /// nor editing another text loses the content; the status line names the
+    /// error. Once the content is blank, the commit creates nothing and the
+    /// editor closes.
+    #[test]
+    fn a_rejected_text_keeps_its_editor_open() {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        ws.select_tool(ToolKind::Text);
+        let ground = ws.doc.project.storeys.ground();
+        let upper = ws
+            .doc
+            .project
+            .storeys
+            .iter()
+            .map(|s| s.id)
+            .find(|&s| s != ground)
+            .unwrap();
+        let other = ws.doc.project.new_text(ground, DVec2::ZERO, "Other", 0);
+        let other_id = other.id;
+        assert!(ws.execute(Command::AddElements(vec![other])));
+        let anchor = DVec2::new(2.0, 3.0);
+        assert_eq!(
+            ws.tool.commit(&ws.doc.project, upper, anchor),
+            crate::input::Outcome::Continue
+        );
+        let editor = ws.tool.editor.as_mut().expect("the click opens the editor");
+        editor.content = "Landing".into();
+        editor.wants_focus = false;
+        assert!(ws.execute(Command::DeleteStorey {
+            storey: upper,
+            elements: archicraft_model::command::StoreyElements::Delete,
+        }));
+        let revision = ws.doc.project.revision;
+
+        assert!(!ws.commit_text_editor(), "the editor did not close");
+        let editor = ws.tool.editor.as_ref().expect("the editor stays open");
+        assert_eq!(editor.content, "Landing");
+        assert_eq!(editor.storey(), upper);
+        assert!(editor.wants_focus, "the editor takes the keyboard again");
+        assert!(matches!(ws.status, Some(Status { error: true, .. })), "{:?}", ws.status);
+
+        ws.select_tool(ToolKind::Select);
+        assert_eq!(ws.tool.kind, ToolKind::Text, "the tool waits for the text");
+        ws.edit_text(other_id);
+        let editor = ws.tool.editor.as_ref().expect("the editor stays open");
+        assert_eq!(editor.content, "Landing", "the other text waits too");
+        assert_eq!(ws.doc.project.revision, revision);
+
+        ws.tool.editor.as_mut().unwrap().content.clear();
+        assert!(ws.commit_text_editor(), "blank content closes the editor");
+        assert_eq!(ws.tool.editor, None);
+        assert_eq!(ws.doc.project.revision, revision, "and creates nothing");
     }
 
     /// Feeds `key` to the workspace's consumer, as a plan view does, with
