@@ -17,6 +17,14 @@ geometry-linked-storey-missing = the linked storey is missing
 geometry-kind-unsupported = elements of the kind “{ $kind }” have no geometry yet
 geometry-evaluation-panicked = geometry evaluation failed unexpectedly
 
+## Why a column or beam cannot be swept along its axis.
+
+# $min is the shortest length a member may have between its end cuts.
+geometry-end-cuts-cross = the end cuts cross or come closer than { $min }
+# $min is the smallest angle between an end cut and the member's axis.
+geometry-end-cut-parallel = an end cut meets the member's axis at less than { $min }
+geometry-member-axis-undefined = the member's axis or orientation is undefined
+
 ## Why the triangulation refused an outline.
 
 geometry-polygon-too-few-points = it has fewer than three points

@@ -302,7 +302,7 @@ pub fn evaluate_element(
     };
     let (bottom, top) = kinds::local_extent(&ctx)?;
     if top - bottom < MODEL_TOLERANCE {
-        return Err(GeometryError::InvalidExtent);
+        return Err(GeometryError::no_height());
     }
     kinds::evaluate(&ctx)
 }

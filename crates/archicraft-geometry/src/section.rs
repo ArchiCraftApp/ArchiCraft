@@ -101,7 +101,7 @@ impl SectionLoop {
         }
     }
 
-    fn reversed(mut self) -> Self {
+    pub(crate) fn reversed(mut self) -> Self {
         self.points.reverse();
         self.smooth.reverse();
         self

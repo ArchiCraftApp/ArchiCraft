@@ -23,6 +23,10 @@ pub const ALL_KEYS: &[&str] = &[
     "geometry-home-storey-missing",
     "geometry-linked-storey-missing",
     "geometry-kind-unsupported",
+    // Why a member cannot be swept (sweep.rs).
+    "geometry-end-cuts-cross",
+    "geometry-end-cut-parallel",
+    "geometry-member-axis-undefined",
     // ModelGeometry::evaluate (evaluate.rs).
     "geometry-evaluation-panicked",
     // Why triangulation refused a polygon (triangulate.rs).
@@ -62,6 +66,7 @@ mod tests {
             include_str!("mesh.rs"),
             include_str!("plan.rs"),
             include_str!("slice.rs"),
+            include_str!("sweep.rs"),
             include_str!("triangulate.rs"),
             include_str!("wall.rs"),
         ];
