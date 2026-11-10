@@ -247,9 +247,9 @@ jobs:
       - name: Negative self-test of the guards
         run: scripts/guards-selftest.sh
 
-  # docs/testing.md, "Implementation status": the tables of docs/implementation-status.md are
-  # generated from docs/status/requirements.json, every done row names a test or CI guard, and a
-  # pull request changes the rows of the SRS IDs it lists and regresses no done row.
+  # docs/testing.md, "Implementation status": docs/status/requirements.json is the only tracked
+  # copy of the status (the tables are rendered on demand), every done row names a test or CI
+  # guard, and a pull request changes the rows of the SRS IDs it lists and regresses no done row.
   status:
     name: Implementation status
     runs-on: ubuntu-24.04
@@ -259,7 +259,7 @@ jobs:
           fetch-depth: 0
       - name: Tests of the status script
         run: python3 scripts/tests/test_status.py
-      - name: Tables in sync with requirements.json and every done row traced
+      - name: Rows valid and every done row traced
         run: python3 scripts/status.py check
       - name: Rows of the listed SRS IDs changed and no done row regressed
         if: github.event_name == 'pull_request'

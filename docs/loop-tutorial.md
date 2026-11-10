@@ -194,7 +194,7 @@ Or tell any Claude session "pull the main checkout".
 | A new task | Tell Claude "file a bead for …", or use `bd create` |
 | Focus on one feature area | `/bead-loop <count> <epic-id>` |
 | See the plan | [roadmap.md](roadmap.md), `bd epic status` |
-| See progress against the SRS | [implementation-status.md](implementation-status.md) |
+| See progress against the SRS | The dashboard's roadmap page (`scripts/dashboard.py`), `python3 scripts/status.py report`, and the analysis in [implementation-status.md](implementation-status.md) |
 
 ## 5. If something looks wrong
 

@@ -92,9 +92,10 @@ scripts/asset-allowlist.txt` and `git diff --stat <last release tag>.. -- '*.png
 ### 6. Implementation status is current
 
 - [ ] Every requirement whose status changed since the last release has its row in
-      `docs/implementation-status.md` updated (status and gap text), and the summary at the top
-      gives the current counts. Check the merged pull requests since the last release against
-      the rows they cite.
+      `docs/status/requirements.json` updated (status and gap text), and the dated counts in the
+      summary at the top of `docs/implementation-status.md` are refreshed from
+      `python3 scripts/status.py report`. Check the merged pull requests since the last release
+      against the rows they cite.
 
 ### 7. Third-party notices (NFR-LEG-001)
 
