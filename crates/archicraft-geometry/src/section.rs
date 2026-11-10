@@ -1,4 +1,5 @@
-//! Closed cross-sections of profiles (PRF-005, IFX-034, IFX-038).
+//! Closed cross-sections of profiles (PRF-004, PRF-005, COL-001, IFX-034,
+//! IFX-038).
 //!
 //! A [`Section`] is the cross-section a column or beam is swept from: one or
 //! more regions, each a closed outer loop with holes and a material. The
@@ -7,10 +8,15 @@
 //! last point, outer loops counter-clockwise and holes clockwise, and have no
 //! edge shorter than [`MIN_EDGE_LENGTH`], so they pass
 //! [`validate_ring`](archicraft_model::validate::validate_ring) as they are,
-//! and every hole lies inside its outer loop. Curved edges (fillets and circles) are tessellated by
-//! [`arc_segments`] (IFX-034), and every vertex records whether the boundary
-//! is smooth there, so that a sweep shares vertices across smooth edges only
-//! (IFX-038).
+//! and every hole lies inside its outer loop. Curved edges (fillets and
+//! circles) are tessellated by [`arc_segments`] (IFX-034), and every vertex
+//! records whether the boundary is smooth there, so that a sweep shares
+//! vertices across smooth edges only (IFX-038).
+//!
+//! [`profile_section`] builds the section of a [`Profile`] resource
+//! (PRF-004): the parametric section of its shape or its custom regions.
+//! A member places it with [`Section::transformed`], anchored at one of
+//! the [`Section::nine_point`]s of its bounding box (COL-001).
 //!
 //! [`parametric_section`] builds the nine standard shapes from their
 //! dimensions, centred on their bounding box. Orientation conventions, which
@@ -23,10 +29,11 @@
 
 use std::f64::consts::{FRAC_PI_2, TAU};
 
-use archicraft_model::MaterialId;
-use archicraft_model::profile::ParametricShape;
+use archicraft_model::outline::Ring;
+use archicraft_model::profile::{ParametricShape, Profile, ProfileRegion, ProfileShape};
 use archicraft_model::project::Tessellation;
 use archicraft_model::validate::{MIN_EDGE_LENGTH, check_parametric_shape, validate_slab_polygon};
+use archicraft_model::{MaterialId, Message};
 use glam::DVec2;
 
 use crate::GeometryError;
@@ -42,6 +49,17 @@ pub const MAX_SEGMENTS_PER_TURN: usize = 1024;
 /// made of one region names its body part by.
 pub const BODY_ROLE: &str = "Body";
 
+/// The role of region `index` (from zero) of a section of `count` regions:
+/// [`BODY_ROLE`] for the only one, `Region_1`, `Region_2`, ... in order for
+/// several. A member names the parts of its body by them.
+fn region_role(index: usize, count: usize) -> String {
+    if count == 1 {
+        BODY_ROLE.to_owned()
+    } else {
+        format!("Region_{}", index + 1)
+    }
+}
+
 /// A closed loop of a section region.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SectionLoop {
@@ -55,11 +73,32 @@ pub struct SectionLoop {
 impl SectionLoop {
     /// The shoelace area: positive for a counter-clockwise loop.
     pub fn signed_area(&self) -> f64 {
+        Ring::<()>::from_points(self.points.iter().copied()).signed_area()
+    }
+
+    /// A loop of hard vertices only.
+    fn hard(points: Vec<DVec2>) -> Self {
+        let smooth = vec![false; points.len()];
+        Self { points, smooth }
+    }
+
+    /// The signed area and the signed first moment of area of the loop,
+    /// with its points taken relative to `origin`: the centroid of the
+    /// loop is `origin + moment / area`.
+    fn moments(&self, origin: DVec2) -> (f64, DVec2) {
         let n = self.points.len();
-        (0..n)
-            .map(|i| self.points[i].perp_dot(self.points[(i + 1) % n]))
-            .sum::<f64>()
-            / 2.0
+        (0..n).fold((0.0, DVec2::ZERO), |(area, moment), i| {
+            let (p, q) = (self.points[i] - origin, self.points[(i + 1) % n] - origin);
+            let cross = p.perp_dot(q);
+            (area + cross / 2.0, moment + (p + q) * cross / 6.0)
+        })
+    }
+
+    fn transformed(&self, offset: DVec2, turn: DVec2) -> Self {
+        Self {
+            points: self.points.iter().map(|&p| turn.rotate(p + offset)).collect(),
+            smooth: self.smooth.clone(),
+        }
     }
 
     fn reversed(mut self) -> Self {
@@ -84,6 +123,20 @@ impl SectionRegion {
     /// The area of the outer loop minus that of the holes.
     pub fn area(&self) -> f64 {
         self.outer.signed_area().abs() - self.holes.iter().map(|h| h.signed_area().abs()).sum::<f64>()
+    }
+
+    /// The area and the first moment of area of the region about `origin`,
+    /// the holes subtracted whichever way the loops run.
+    fn moments(&self, origin: DVec2) -> (f64, DVec2) {
+        let unsigned = |ring: &SectionLoop| {
+            let (area, moment) = ring.moments(origin);
+            if area < 0.0 { (-area, -moment) } else { (area, moment) }
+        };
+        let (area, moment) = unsigned(&self.outer);
+        self.holes
+            .iter()
+            .map(unsigned)
+            .fold((area, moment), |(a, m), (ha, hm)| (a - ha, m - hm))
     }
 }
 
@@ -113,6 +166,114 @@ impl Section {
                 })
             })
     }
+
+    /// The centroid of all regions, each weighted by its area with the
+    /// holes subtracted (COL-001), or `None` for a section without area.
+    /// The origin for a shape symmetric about both axes.
+    pub fn centroid(&self) -> Option<DVec2> {
+        // Moments about the centre of the box keep the products small.
+        let (min, max) = self.bounds()?;
+        let origin = (min + max) / 2.0;
+        let (area, moment) = self
+            .regions
+            .iter()
+            .map(|r| r.moments(origin))
+            .fold((0.0, DVec2::ZERO), |(a, m), (ra, rm)| (a + ra, m + rm));
+        (area > 0.0).then(|| origin + moment / area).filter(|c| c.is_finite())
+    }
+
+    /// One of the nine anchor points of the cross-section (COL-001): the
+    /// corners, edge midpoints and centre of [`Section::bounds`], numbered
+    /// row by row from the top left, so 0 is (min.x, max.y), 1 the middle of
+    /// the top edge, 4 the centre and 8 (max.x, min.y). `None` for an index
+    /// from 9 on and for a section without points.
+    pub fn nine_point(&self, index: usize) -> Option<DVec2> {
+        if index >= 9 {
+            return None;
+        }
+        let (min, max) = self.bounds()?;
+        let centre = (min + max) / 2.0;
+        let x = [min.x, centre.x, max.x][index % 3];
+        let y = [max.y, centre.y, min.y][index / 3];
+        Some(DVec2::new(x, y))
+    }
+
+    /// The section moved by `offset` and then turned by `rotation` radians
+    /// counter-clockwise about the origin (COL-001): every point p moves to
+    /// rotate(p + offset). A member anchored at the point a turns about its
+    /// axis with `transformed(-a, rotation)`. A rotation keeps every loop's
+    /// orientation, so outer loops stay counter-clockwise and holes
+    /// clockwise; the smooth flags, materials and roles stay as they are.
+    #[must_use]
+    pub fn transformed(&self, offset: DVec2, rotation: f64) -> Section {
+        let turn = DVec2::from_angle(rotation);
+        Section {
+            regions: self
+                .regions
+                .iter()
+                .map(|r| SectionRegion {
+                    outer: r.outer.transformed(offset, turn),
+                    holes: r.holes.iter().map(|h| h.transformed(offset, turn)).collect(),
+                    material: r.material,
+                    role: r.role.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// The closed section of a profile (PRF-004, PRF-005), in profile
+/// coordinates (the insertion [`Profile::origin`] is not applied; a member
+/// moves the section with [`Section::transformed`]).
+///
+/// A parametric profile has the [`parametric_section`] of its shape and
+/// material. A custom profile has one region per profile region, in order,
+/// with its material and holes, every vertex hard (custom profiles have no
+/// arcs yet), and the role [`BODY_ROLE`] when it is the only region,
+/// otherwise `Region_1`, `Region_2`, ... Each region is checked and
+/// normalised as [`validate_profile`] does, outer loops counter-clockwise
+/// and holes clockwise, so a validated profile's rings are taken as they
+/// are; a profile without regions or with a region that is no valid
+/// polygon with holes has no section, and the error carries the message
+/// [`validate_profile`] gives. Whether regions overlap is left to
+/// [`validate_profile`].
+///
+/// [`validate_profile`]: archicraft_model::validate::validate_profile
+pub fn profile_section(profile: &Profile, tessellation: &Tessellation) -> Result<Section, GeometryError> {
+    match &profile.shape {
+        ProfileShape::Parametric { shape, material } => parametric_section(shape, *material, tessellation),
+        ProfileShape::Custom { regions } => custom_section(regions),
+    }
+}
+
+/// The section of the regions of a custom profile, see [`profile_section`].
+fn custom_section(regions: &[ProfileRegion]) -> Result<Section, GeometryError> {
+    if regions.is_empty() {
+        return Err(GeometryError::InvalidPolygon(Message::new(
+            "model-error-profile-no-regions",
+        )));
+    }
+    let count = regions.len();
+    let regions = regions
+        .iter()
+        .enumerate()
+        .map(|(i, region)| {
+            let (outer, holes) = validate_slab_polygon(&region.outer, &region.holes).map_err(|e| {
+                GeometryError::InvalidPolygon(
+                    Message::new("model-error-profile-region")
+                        .count("number", i + 1)
+                        .nested("reason", e),
+                )
+            })?;
+            Ok(SectionRegion {
+                outer: SectionLoop::hard(outer),
+                holes: holes.into_iter().map(SectionLoop::hard).collect(),
+                material: region.material,
+                role: region_role(i, count),
+            })
+        })
+        .collect::<Result<Vec<_>, GeometryError>>()?;
+    Ok(Section { regions })
 }
 
 /// The number of segments an arc of `radius` sweeping `sweep` radians (of

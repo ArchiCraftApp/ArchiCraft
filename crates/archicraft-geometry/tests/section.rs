@@ -8,11 +8,12 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use archicraft_geometry::GeometryError;
 use archicraft_geometry::section::{
-    BODY_ROLE, MAX_SEGMENTS_PER_TURN, Section, SectionLoop, arc_segments, parametric_section,
+    BODY_ROLE, MAX_SEGMENTS_PER_TURN, Section, SectionLoop, arc_segments, parametric_section, profile_section,
 };
 use archicraft_model::MaterialId;
 use archicraft_model::glam::DVec2;
-use archicraft_model::profile::ParametricShape;
+use archicraft_model::outline::Ring;
+use archicraft_model::profile::{ParametricShape, Profile, ProfileRegion};
 use archicraft_model::project::{ProjectSettings, Tessellation};
 use archicraft_model::validate::{MIN_EDGE_LENGTH, clean_ring, validate_ring, validate_slab_polygon};
 
@@ -426,8 +427,9 @@ fn assert_valid(section: &Section, what: &str) {
             assert!(hole.signed_area() < 0.0, "{what}");
             let reversed: Vec<DVec2> = hole.points.iter().rev().copied().collect();
             assert_eq!(validate_ring(&hole.points), Ok(reversed), "{what}: hole");
+            let ring = Ring::<()>::from_points(outer.iter().copied());
             for &p in &hole.points {
-                assert!(point_in_ring(p, outer), "{what}: hole point {p} outside");
+                assert!(ring.contains(p), "{what}: hole point {p} outside");
             }
         }
         let holes: Vec<Vec<DVec2>> = region.holes.iter().map(|h| h.points.clone()).collect();
@@ -437,19 +439,6 @@ fn assert_valid(section: &Section, what: &str) {
             "{what}: holes"
         );
     }
-}
-
-fn point_in_ring(p: DVec2, ring: &[DVec2]) -> bool {
-    let mut inside = false;
-    let mut j = ring.len() - 1;
-    for i in 0..ring.len() {
-        let (a, b) = (ring[i], ring[j]);
-        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
 }
 
 /// PRF-005, EDT-018, EDT-019: every loop of every shape, at typical
@@ -539,10 +528,11 @@ fn unusable_tessellation_values_stay_bounded() {
 }
 
 /// What a parametric shape is made of: its sharp corners and its fillets
-/// (centre and radius), in profile coordinates.
+/// (centre, radius and the radius whose segment count the fillet takes), in
+/// profile coordinates.
 struct Features {
     corners: Vec<DVec2>,
-    fillets: Vec<(DVec2, f64)>,
+    fillets: Vec<(DVec2, f64, f64)>,
 }
 
 /// The features of the typical filleted shapes, from the orientation
@@ -560,8 +550,9 @@ fn features(shape: ParametricShape) -> Features {
             let (x, y) = (width / 2.0, height / 2.0);
             let ri = outer_radius - thickness;
             let centre = v(x - outer_radius, y - outer_radius);
-            let mut fillets: Vec<_> = mirror(centre).map(|c| (c, outer_radius)).to_vec();
-            fillets.extend(mirror(centre).map(|c| (c, ri)));
+            let mut fillets: Vec<_> = mirror(centre).map(|c| (c, outer_radius, outer_radius)).to_vec();
+            // The hole's fillets take the outer fillets' counts.
+            fillets.extend(mirror(centre).map(|c| (c, ri, outer_radius)));
             Features {
                 corners: Vec::new(),
                 fillets,
@@ -579,7 +570,7 @@ fn features(shape: ParametricShape) -> Features {
             corners.extend(mirror(v(x, f)));
             Features {
                 corners,
-                fillets: mirror(v(w + r, f - r)).map(|c| (c, r)).to_vec(),
+                fillets: mirror(v(w + r, f - r)).map(|c| (c, r, r)).to_vec(),
             }
         }
         ParametricShape::TShape {
@@ -592,7 +583,7 @@ fn features(shape: ParametricShape) -> Features {
             let (x, y, w, f) = (width / 2.0, height / 2.0, web / 2.0, height / 2.0 - flange);
             Features {
                 corners: vec![v(-w, -y), v(w, -y), v(x, f), v(x, y), v(-x, y), v(-x, f)],
-                fillets: vec![(v(w + r, f - r), r), (v(-w - r, f - r), r)],
+                fillets: vec![(v(w + r, f - r), r, r), (v(-w - r, f - r), r, r)],
             }
         }
         ParametricShape::UShape {
@@ -606,7 +597,7 @@ fn features(shape: ParametricShape) -> Features {
             let inner = -x + web;
             Features {
                 corners: vec![v(-x, -y), v(x, -y), v(x, -f), v(x, f), v(x, y), v(-x, y)],
-                fillets: vec![(v(inner + r, -f + r), r), (v(inner + r, f - r), r)],
+                fillets: vec![(v(inner + r, -f + r), r, r), (v(inner + r, f - r), r, r)],
             }
         }
         ParametricShape::LShape {
@@ -621,9 +612,9 @@ fn features(shape: ParametricShape) -> Features {
             Features {
                 corners: vec![v(-x, -y), v(x, -y), v(-x, y)],
                 fillets: vec![
-                    (v(x - r2, iy - r2), r2),
-                    (v(ix + r1, iy + r1), r1),
-                    (v(ix - r2, y - r2), r2),
+                    (v(x - r2, iy - r2), r2, r2),
+                    (v(ix + r1, iy + r1), r1, r1),
+                    (v(ix - r2, y - r2), r2, r2),
                 ],
             }
         }
@@ -633,7 +624,9 @@ fn features(shape: ParametricShape) -> Features {
 
 /// IFX-038: the smooth flags are true exactly on arc vertices, the tangent
 /// points included, and false on sharp corners. A fillet of radius r has
-/// arc_segments(r, 90°) + 1 vertices on its arc.
+/// arc_segments(r, 90°) + 1 vertices on its arc; a fillet of a hole takes
+/// the count of the outer loop's fillet about the same centre, so it has
+/// arc_segments(ro, 90°) + 1.
 #[test]
 fn smooth_flags_mark_exactly_the_arc_vertices() {
     let tessellation = defaults();
@@ -648,7 +641,7 @@ fn smooth_flags_mark_exactly_the_arc_vertices() {
                 if smooth {
                     let j = fillets
                         .iter()
-                        .position(|&(c, r)| (p.distance(c) - r).abs() < 1e-12)
+                        .position(|&(c, r, _)| (p.distance(c) - r).abs() < 1e-12)
                         .unwrap_or_else(|| panic!("{}: smooth {p} on no fillet", shape.code()));
                     on_fillet[j] += 1;
                 } else {
@@ -656,10 +649,10 @@ fn smooth_flags_mark_exactly_the_arc_vertices() {
                 }
             }
         }
-        for (j, &(_, r)) in fillets.iter().enumerate() {
+        for (j, &(_, _, count_radius)) in fillets.iter().enumerate() {
             assert_eq!(
                 on_fillet[j],
-                arc_segments(r, FRAC_PI_2, &tessellation) + 1,
+                arc_segments(count_radius, FRAC_PI_2, &tessellation) + 1,
                 "{}: fillet {j}",
                 shape.code()
             );
@@ -779,7 +772,7 @@ fn a_parametric_section_is_one_body_region() {
     }
 }
 
-/// UI-012: a shape the validation rejects has no section, and the error
+/// PRF-005, EDT-018: a shape the validation rejects has no section, and the error
 /// carries the validation's message.
 #[test]
 fn an_invalid_shape_has_no_section() {
@@ -836,4 +829,292 @@ fn thin_walls_keep_the_hole_inside() {
             assert!((q.distance(*p) - 0.001).abs() < 1e-12, "{}: {q} {p}", shape.code());
         }
     }
+}
+
+fn square(min: DVec2, side: f64) -> Vec<DVec2> {
+    vec![min, min + v(side, 0.0), min + v(side, side), min + v(0.0, side)]
+}
+
+/// A custom profile of two touching regions: a 0.2 m square with a
+/// clockwise 0.1 m square hole, and a 0.1 m square to its right.
+fn two_regions(first: MaterialId, second: MaterialId) -> Profile {
+    let mut hole = square(v(-0.05, -0.05), 0.1);
+    hole.reverse();
+    Profile::custom(
+        "Two regions",
+        vec![
+            ProfileRegion {
+                outer: square(v(-0.1, -0.1), 0.2),
+                holes: vec![hole],
+                material: first,
+            },
+            ProfileRegion {
+                outer: square(v(0.1, -0.1), 0.1),
+                holes: Vec::new(),
+                material: second,
+            },
+        ],
+    )
+}
+
+fn sections_of(profile: &Profile) -> Section {
+    profile_section(profile, &defaults()).unwrap_or_else(|e| panic!("{}: {e}", profile.name))
+}
+
+/// PRF-004, PRF-005: the section of a parametric profile is the parametric
+/// section of its shape and material; a custom profile keeps its regions in
+/// order with their materials and holes, all vertices hard, the roles
+/// Region_1, Region_2, ... for several regions and Body for one.
+#[test]
+fn a_profile_section_is_its_shape_or_its_regions() {
+    let material = MaterialId::new();
+    for shape in TYPICAL {
+        let profile = Profile::parametric(shape.code(), shape, material);
+        assert_eq!(
+            profile_section(&profile, &defaults()),
+            parametric_section(&shape, material, &defaults()),
+            "{}",
+            shape.code()
+        );
+    }
+
+    let (first, second) = (MaterialId::new(), MaterialId::new());
+    let profile = two_regions(first, second);
+    let section = sections_of(&profile);
+    let archicraft_model::profile::ProfileShape::Custom { regions } = &profile.shape else {
+        unreachable!()
+    };
+    assert_eq!(section.regions.len(), 2);
+    for (i, (actual, given)) in section.regions.iter().zip(regions).enumerate() {
+        assert_eq!(actual.role, format!("Region_{}", i + 1));
+        assert_eq!(actual.material, given.material);
+        assert_eq!(actual.outer.points, given.outer);
+        let holes: Vec<Vec<DVec2>> = actual.holes.iter().map(|h| h.points.clone()).collect();
+        assert_eq!(holes, given.holes);
+        for ring in std::iter::once(&actual.outer).chain(&actual.holes) {
+            assert_eq!(ring.smooth, vec![false; ring.points.len()]);
+        }
+    }
+    assert_eq!(section.regions[0].material, first);
+    assert_eq!(section.regions[1].material, second);
+    assert_eq!(section.regions[0].holes.len(), 1);
+    assert_valid(&section, &profile.name);
+    assert!(relative(section.area(), 0.04 - 0.01 + 0.01) < 1e-12);
+
+    let one = Profile::custom(
+        "One region",
+        vec![ProfileRegion {
+            outer: square(v(0.0, 0.0), 0.3),
+            holes: Vec::new(),
+            material,
+        }],
+    );
+    let section = sections_of(&one);
+    assert_eq!(section.regions.len(), 1);
+    assert_eq!(section.regions[0].role, BODY_ROLE);
+}
+
+/// PRF-004: a custom profile that is not a valid set of regions has no
+/// section; one whose rings run the wrong way is normalised, outer loops
+/// counter-clockwise and holes clockwise.
+#[test]
+fn custom_regions_are_checked_and_normalised() {
+    let empty = Profile::custom("Empty", Vec::new());
+    assert!(matches!(
+        profile_section(&empty, &defaults()),
+        Err(GeometryError::InvalidPolygon(m)) if m.key() == "model-error-profile-no-regions"
+    ));
+    let line = Profile::custom(
+        "Line",
+        vec![ProfileRegion {
+            outer: vec![v(0.0, 0.0), v(1.0, 0.0), v(2.0, 0.0)],
+            holes: Vec::new(),
+            material: MaterialId::new(),
+        }],
+    );
+    assert!(matches!(
+        profile_section(&line, &defaults()),
+        Err(GeometryError::InvalidPolygon(m)) if m.key() == "model-error-profile-region"
+    ));
+
+    let mut outer = square(v(-0.1, -0.1), 0.2);
+    outer.reverse();
+    let reversed = Profile::custom(
+        "Reversed",
+        vec![ProfileRegion {
+            outer,
+            holes: vec![square(v(-0.05, -0.05), 0.1)],
+            material: MaterialId::new(),
+        }],
+    );
+    let section = sections_of(&reversed);
+    assert_valid(&section, "reversed");
+    assert!(relative(section.area(), 0.03) < 1e-12);
+}
+
+/// PRF-004, PRF-005: the section spans the profile's bounding box, for
+/// every parametric shape and for custom regions.
+#[test]
+fn profile_sections_span_the_profile_bounds() {
+    let material = MaterialId::new();
+    let profiles = TYPICAL
+        .into_iter()
+        .chain(ParametricShape::ALL)
+        .map(|shape| Profile::parametric(shape.code(), shape, material))
+        .chain([two_regions(material, material)]);
+    for profile in profiles {
+        assert_eq!(sections_of(&profile).bounds(), profile.bounds(), "{}", profile.name);
+    }
+}
+
+/// COL-001: the nine anchor points of a cross-section are the 3 x 3 points
+/// of its bounding box in row-major order from the top left: 0 is the top
+/// left corner, 4 the centre, 8 the bottom right corner.
+#[test]
+fn nine_points_run_row_major_from_the_top_left() {
+    let custom = sections_of(&two_regions(MaterialId::new(), MaterialId::new()));
+    // The bounds are (-0.1, -0.1)..(0.2, 0.1).
+    let (xs, ys) = ([-0.1, 0.05, 0.2], [0.1, 0.0, -0.1]);
+    for i in 0..9 {
+        let expected = v(xs[i % 3], ys[i / 3]);
+        let point = custom.nine_point(i).unwrap();
+        assert!(point.distance(expected) < 1e-15, "{i}: {point} against {expected}");
+    }
+    assert_eq!(custom.nine_point(0), Some(v(-0.1, 0.1)));
+    assert_eq!(custom.nine_point(8), Some(v(0.2, -0.1)));
+    assert_eq!(custom.nine_point(9), None);
+    assert_eq!(Section::default().nine_point(4), None);
+
+    let ipe = section(IPE_200);
+    assert_eq!(ipe.nine_point(4), Some(DVec2::ZERO));
+    assert_eq!(ipe.nine_point(2), Some(v(0.05, 0.1)));
+    assert_eq!(ipe.nine_point(3), Some(v(-0.05, 0.0)));
+}
+
+/// The centroid of the region between a convex corner at the origin and a
+/// quarter circle of radius `r` tangent to both edges lies `spandrel(r)`
+/// from the corner along each edge.
+fn spandrel(r: f64) -> f64 {
+    r * (10.0 - 3.0 * PI) / (12.0 - 3.0 * PI)
+}
+
+/// COL-001: the centroid is area-weighted over the regions with the holes
+/// subtracted: the origin for the symmetric shapes, the closed-form centroid
+/// of an L section within 0.5 %, and off the centre of a custom profile
+/// with a hole and a second region.
+#[test]
+fn the_centroid_weights_regions_and_subtracts_holes() {
+    for shape in [RECTANGLE, CIRCLE, RHS, CHS, IPE_200, ZED] {
+        let centroid = section(shape).centroid().unwrap();
+        assert!(centroid.length() < 1e-15, "{}: {centroid}", shape.code());
+    }
+    for shape in [TEE, CHANNEL] {
+        // Symmetric about one axis only.
+        let centroid = section(shape).centroid().unwrap();
+        let symmetric = if shape == TEE { centroid.x } else { centroid.y };
+        assert!(symmetric.abs() < 1e-15, "{}: {centroid}", shape.code());
+    }
+
+    // L 120 x 80 x 10: two legs, the root fillet added and the two toe
+    // fillets removed, each a spandrel with a known centroid.
+    let (h, b, t, r1, r2) = (0.12, 0.08, 0.01, 0.013, 0.0065);
+    let (x, y) = (b / 2.0, h / 2.0);
+    let (ix, iy) = (-x + t, -y + t);
+    let parts = [
+        (b * t, v(0.0, -y + t / 2.0)),
+        (t * (h - t), v(-x + t / 2.0, (iy + y) / 2.0)),
+        (fillet(r1), v(ix, iy) + DVec2::splat(spandrel(r1))),
+        (-fillet(r2), v(x, iy) - DVec2::splat(spandrel(r2))),
+        (-fillet(r2), v(ix, y) - DVec2::splat(spandrel(r2))),
+    ];
+    let area: f64 = parts.iter().map(|(a, _)| a).sum();
+    let expected = parts.iter().map(|&(a, c)| a * c).sum::<DVec2>() / area;
+    // Measured from the heel, as tables give it.
+    let heel = v(-x, -y);
+    let actual = section(ANGLE).centroid().unwrap() - heel;
+    let expected = expected - heel;
+    assert!(relative(actual.x, expected.x) < 0.005, "{actual} against {expected}");
+    assert!(relative(actual.y, expected.y) < 0.005, "{actual} against {expected}");
+    // Without radii the closed form is exact.
+    let sharp = ParametricShape::LShape {
+        height: h,
+        width: b,
+        thickness: t,
+        root_radius: 0.0,
+        toe_radius: 0.0,
+    };
+    let (area, moment) = (
+        parts[0].0 + parts[1].0,
+        parts[0].0 * parts[0].1 + parts[1].0 * parts[1].1,
+    );
+    let centroid = section(sharp).centroid().unwrap();
+    assert!(centroid.distance(moment / area) < 1e-15, "{centroid}");
+
+    // The square of 0.04 m² with a hole of 0.01 m² centred on the origin,
+    // and a square of 0.01 m² centred on (0.15, -0.05).
+    let custom = sections_of(&two_regions(MaterialId::new(), MaterialId::new()));
+    let expected = (0.03 * DVec2::ZERO + 0.01 * v(0.15, -0.05)) / 0.04;
+    let centroid = custom.centroid().unwrap();
+    assert!(centroid.distance(expected) < 1e-15, "{centroid} against {expected}");
+    assert_eq!(Section::default().centroid(), None);
+}
+
+/// COL-001: transformed(offset, rotation) translates every point by the
+/// offset and then rotates it about the origin, so an anchor point a moves
+/// to rotate(a + offset); it keeps the area, the orientation of every loop
+/// (validate_ring leaves it unchanged), the smooth flags, the materials and
+/// the roles.
+#[test]
+fn transformed_translates_then_rotates() {
+    let material = MaterialId::new();
+    let offset = v(0.1, -0.05);
+    let sections: Vec<Section> = TYPICAL
+        .into_iter()
+        .map(section)
+        .chain([sections_of(&two_regions(material, MaterialId::new()))])
+        .collect();
+    for (n, original) in sections.iter().enumerate() {
+        for rotation in [0.0, 0.3, FRAC_PI_2, -2.0, PI] {
+            let moved = original.transformed(offset, rotation);
+            let what = format!("section {n} at {rotation}");
+            let turn = DVec2::from_angle(rotation);
+            assert_eq!(moved.regions.len(), original.regions.len());
+            for (a, b) in original.regions.iter().zip(&moved.regions) {
+                assert_eq!((a.material, &a.role), (b.material, &b.role));
+                assert_eq!(a.holes.len(), b.holes.len());
+                for (from, to) in std::iter::once(&a.outer)
+                    .chain(&a.holes)
+                    .zip(std::iter::once(&b.outer).chain(&b.holes))
+                {
+                    assert_eq!(from.smooth, to.smooth, "{what}");
+                    assert_eq!(from.points.len(), to.points.len(), "{what}");
+                    for (&p, &q) in from.points.iter().zip(&to.points) {
+                        assert!(q.distance(turn.rotate(p + offset)) < 1e-15, "{what}: {p} to {q}");
+                    }
+                }
+                assert_eq!(validate_ring(&b.outer.points).as_ref(), Ok(&b.outer.points), "{what}");
+                for hole in &b.holes {
+                    let reversed: Vec<DVec2> = hole.points.iter().rev().copied().collect();
+                    assert_eq!(validate_ring(&hole.points), Ok(reversed), "{what}: hole");
+                }
+            }
+            assert!(relative(moved.area(), original.area()) < 1e-12, "{what}");
+        }
+        // Without a rotation the nine points move by the offset.
+        let moved = original.transformed(offset, 0.0);
+        for i in 0..9 {
+            let (a, b) = (original.nine_point(i).unwrap(), moved.nine_point(i).unwrap());
+            assert!(b.distance(a + offset) < 1e-15, "{i}: {a} to {b}");
+        }
+    }
+
+    // Anchored at its top left corner and turned a quarter: the rectangle's
+    // corner lies on the axis, and the rectangle, 0.3 wide and 0.5 high,
+    // extends 0.5 along +x and 0.3 along +y.
+    let rectangle = section(RECTANGLE);
+    let anchor = rectangle.nine_point(0).unwrap();
+    let moved = rectangle.transformed(-anchor, FRAC_PI_2);
+    assert!(outer(&moved).points.iter().any(|p| p.length() < 1e-15));
+    let (min, max) = moved.bounds().unwrap();
+    assert!(min.length() < 1e-15 && max.distance(v(0.5, 0.3)) < 1e-15, "{min} {max}");
 }
