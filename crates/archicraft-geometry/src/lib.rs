@@ -13,6 +13,7 @@ pub mod kinds;
 pub mod mesh;
 pub mod message;
 pub mod plan;
+pub mod section;
 pub mod slice;
 pub mod space;
 pub mod triangulate;
