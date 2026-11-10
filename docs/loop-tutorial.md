@@ -51,9 +51,10 @@ else runs without you.
 
 With `/bead-loop`, the session you typed it in coordinates. It never writes code itself: it
 starts a batch of up to three beads at once, one session each (they appear in the sidebar),
-whose crates do not overlap, and checks each result. Run only one coordinator at a time. When
-a batch has reported, it lists one line per bead, and whatever needs you it asks right there,
-as a question with buttons to choose from (section 3); type `continue` to start the next batch.
+that share no crate and no requirement row (`docs/loop.md`, "Several beads"), and checks each
+result. Run only one coordinator at a time. When a batch has reported, it lists one line per
+bead, and whatever needs you it asks right there, as a question with buttons to choose from
+(section 3); type `continue` to start the next batch.
 
 Start with small numbers (3 to 5). Each bead is a full working session, so you see cost and
 quality before you let a run go longer. The coordinator never waits for a merge: a bead

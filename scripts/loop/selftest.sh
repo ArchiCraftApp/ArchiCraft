@@ -19,10 +19,10 @@ cp -R "$src" "$repo/scripts/loop"
 cp "$src/../check-layering.sh" "$src/../status.py" "$repo/scripts/"
 cat >"$work/bin/bd" <<'EOF'
 #!/usr/bin/env bash
-# Stub: bd show <id> --json answers from FAKE_BD_STATUS, FAKE_BD_LABELS and FAKE_BD_NOTES; list, children
-# and close work on the JSON array in FAKE_BD_DB (closed ids go to FAKE_BD_DB.closed; close
-# refuses the ids listed in FAKE_BD_REFUSE, as bd does for a blocked bead); update and unclaim
-# go to FAKE_BD_LOG.
+# Stub: bd show <id> --json answers from FAKE_BD_STATUS, FAKE_BD_LABELS and FAKE_BD_NOTES; list
+# (with --label, --status and --id), children and close work on the JSON array in FAKE_BD_DB
+# (closed ids go to FAKE_BD_DB.closed; close refuses the ids listed in FAKE_BD_REFUSE, as bd does
+# for a blocked bead); update and unclaim go to FAKE_BD_LOG.
 db="${FAKE_BD_DB:-}"
 case "$1" in
     update | unclaim) [ -z "${FAKE_BD_LOG:-}" ] || echo "$*" >>"$FAKE_BD_LOG" ;;
@@ -32,14 +32,15 @@ case "$1" in
             '[{id: $id, status: $s, issue_type: "task", labels: ($l | split(",") | map(select(. != ""))), notes: $n}]'
         ;;
     list)
-        label="" status=""
+        label="" status="" ids=""
         while [ $# -gt 0 ]; do
-            case "$1" in --label) label="$2"; shift ;; --status) status="$2"; shift ;; esac
+            case "$1" in --label) label="$2"; shift ;; --status) status="$2"; shift ;; --id) ids="$2"; shift ;; esac
             shift
         done
         [ -n "$db" ] || { echo '[]'; exit 0; }
-        jq --arg l "$label" --arg s "$status" \
-            '[.[] | select(($l == "" or ((.labels // []) | index($l))) and ($s == "" or .status == $s))]' "$db"
+        jq --arg l "$label" --arg s "$status" --arg i "$ids" \
+            '[.[] | select(($l == "" or ((.labels // []) | index($l))) and ($s == "" or .status == $s)
+                and ($i == "" or (.id as $x | $i | split(",") | index($x))))]' "$db"
         ;;
     children)
         [ -n "$db" ] || { echo '[]'; exit 0; }
@@ -899,6 +900,53 @@ python3 scripts/status.py generate
 out="$(FAKE_BD_NOTES='SRS: DEM-001, AS-03. More notes.' gate "")" && got=pass || got=fail
 expect "gate on a bead that changes the row its SRS line names" pass "$got"
 reset_state
+
+# --- batch: beads that share a crate or a requirement row wait for a later batch ----------------
+# Beads of one crate ran at once and conflicted (vwt.3 and u4vm.2.3 on 2026-11-10), and so did
+# beads that change one status row (archicraft-i2yfz). A bead in progress blocks until its PR
+# merges; split parents and epics block nothing; AS-03 has no row.
+reset_state
+export FAKE_BD_DB="$work/batch-beads.json"
+cat >"$FAKE_BD_DB" <<'EOF'
+[
+  {"id": "archicraft-wip", "status": "in_progress", "issue_type": "task", "labels": ["archicraft-app", "tier:high"],
+   "notes": "PR https://example.invalid/pull/1, auto-merge. SRS: DEM-001."},
+  {"id": "archicraft-split", "status": "in_progress", "issue_type": "feature", "labels": ["archicraft-model", "loop-split"],
+   "notes": "SRS: DEM-001. Split into archicraft-c1, archicraft-c2."},
+  {"id": "archicraft-epic", "status": "in_progress", "issue_type": "epic", "labels": ["archicraft-geometry"], "notes": ""},
+  {"id": "archicraft-c1", "status": "open", "issue_type": "task", "labels": ["archicraft-model"], "notes": "SRS: DEM-001."},
+  {"id": "archicraft-c2", "status": "open", "issue_type": "task", "labels": ["archicraft-model"], "notes": "SRS: AS-03."},
+  {"id": "archicraft-c3", "status": "open", "issue_type": "task", "labels": ["archicraft-model", "docs"], "notes": ""},
+  {"id": "archicraft-c4", "status": "open", "issue_type": "task", "labels": ["archicraft-app", "archicraft-ifcx"], "notes": ""},
+  {"id": "archicraft-c5", "status": "open", "issue_type": "bug", "labels": ["archicraft-geometry"], "notes": ""},
+  {"id": "archicraft-c6", "status": "open", "issue_type": "task", "labels": ["docs"], "notes": ""},
+  {"id": "archicraft-c7", "status": "open", "issue_type": "task", "labels": ["archicraft-ifcx"], "notes": ""}
+]
+EOF
+batch() { bash scripts/loop/batch.sh "$@" 2>&1 | paste -sd '|' -; }
+expect "batch skips a shared row and crate, ignores split parents and epics, stops at the limit" \
+    "skip archicraft-c1: shares row DEM-001 with archicraft-wip (in progress)|take archicraft-c2|skip archicraft-c3: shares crate archicraft-model with archicraft-c2|skip archicraft-c4: shares crate archicraft-app with archicraft-wip (in progress)|take archicraft-c5" \
+    "$(batch --limit 2 archicraft-c1 archicraft-c2 archicraft-c3 archicraft-c4 archicraft-c5 archicraft-c6)"
+expect "batch without a limit takes every bead that shares nothing" \
+    "take archicraft-c2|take archicraft-c5|take archicraft-c6" \
+    "$(batch archicraft-c2 archicraft-c5 archicraft-c6)"
+expect "batch takes the --first bead whatever it shares, and the others keep clear of it" \
+    "take archicraft-c4|take archicraft-c2|skip archicraft-c7: shares crate archicraft-ifcx with archicraft-c4|skip archicraft-nope: no open bead with this id" \
+    "$(batch --first archicraft-c4 archicraft-c2 archicraft-c7 archicraft-nope)"
+# Two candidates that change one row: the second waits. AS-03, which both of the first two cite,
+# has no row and keeps nobody apart.
+cat >"$FAKE_BD_DB" <<'EOF'
+[
+  {"id": "archicraft-r1", "status": "open", "issue_type": "task", "labels": ["docs"], "notes": "SRS: DEM-001, AS-03."},
+  {"id": "archicraft-r2", "status": "open", "issue_type": "task", "labels": [], "notes": "SRS: AS-03."},
+  {"id": "archicraft-r3", "status": "open", "issue_type": "task", "labels": ["docs"], "notes": "Split off. SRS: DEM-001."}
+]
+EOF
+expect "batch keeps two candidates that change one row apart, not two that cite a scenario" \
+    "take archicraft-r1|take archicraft-r2|skip archicraft-r3: shares row DEM-001 with archicraft-r1" \
+    "$(batch archicraft-r1 archicraft-r2 archicraft-r3)"
+expect "batch refuses a call without beads" 2 "$(bash scripts/loop/batch.sh --limit 2 >/dev/null 2>&1; echo $?)"
+unset FAKE_BD_DB
 
 # --- ci-check ----------------------------------------------------------------------------------
 reset_state

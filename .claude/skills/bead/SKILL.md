@@ -101,8 +101,10 @@ change). Slicing may also mark a child `max` (an estimate of 360 minutes or more
 memory or architecture redesign that later beads build on). A child takes only the
 crate labels (`archicraft-model`, `archicraft-geometry`, `archicraft-ifcx`, `archicraft-app`)
 of the crates it touches, because `/bead-loop` runs beads at once only when they share no
-crate label; it keeps the parent's other labels where they apply (`format-change` only on the
-child that changes the format). Each child must leave `main` green on its own; order them
+crate label and no requirement row (`scripts/loop/batch.sh`): its `SRS:` line lists only the IDs
+whose rows it changes, since children that cite one ID run one after the other. It keeps the
+parent's other labels where they apply (`format-change` only on the child that changes the
+format). Each child must leave `main` green on its own; order them
 with `bd dep add <later> <earlier>`. A cross-cutting test (a scan or grep over all crates)
 goes into the first child scoped to the crate that child changes, and each later child widens
 the scope to its own crates, so `main` stays green after every child. Then mark the parent as
