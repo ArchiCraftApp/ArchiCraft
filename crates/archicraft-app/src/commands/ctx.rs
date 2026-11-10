@@ -9,6 +9,7 @@ use super::Keymap;
 use crate::tools::{SlabMode, SpaceMode, ToolKind, WallMode};
 use crate::ui::dialogs::Dialogs;
 use crate::views::render3d::DisplayMode;
+use crate::views::transfer::TransferMode;
 use crate::workspace::{Pane, Workspace};
 
 /// A cheap snapshot of the state that decides whether commands are enabled,
@@ -46,6 +47,9 @@ pub struct CommandCtx {
     pub space_mode: SpaceMode,
     /// Contour detection is on, toggled or held (INP-018).
     pub contour_detection: bool,
+    /// The latched parameter transfer mode, which Pick up and Inject show
+    /// as checked (ELM-003).
+    pub transfer: Option<TransferMode>,
     /// The state of the active 3D view, if a 3D view is active.
     pub view3d: Option<View3dCtx>,
     /// The Materials dialog is open with a material selected (MAT-001).
@@ -89,6 +93,7 @@ impl CommandCtx {
             slab_mode: ws.tool.slab_mode,
             space_mode: ws.tool.space_mode,
             contour_detection: ws.tool.detection.is_on(),
+            transfer: ws.transfer.latched(),
             view3d,
             material_selected: dialogs.materials
                 && dialogs

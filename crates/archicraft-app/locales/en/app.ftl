@@ -190,10 +190,36 @@ status-transfer-skip-inapplicable = { $field } not applicable
 # why.
 status-transfer-skip-invalid = { $field }: { $reason }
 
+## The preview of a parameter transfer while hovering an element (ELM-003,
+## EDT-020)
+
+# $name: the hovered element's name, such as W-003.
+view-transfer-preview-pick-up = Pick up from { $name }
+view-transfer-preview-inject = Inject into { $name }
+# $count: the selected elements, for the plural; $count_text: the same
+# number in the user's number format; $name: the hovered one's name.
+view-transfer-preview-inject-selection =
+    { $count ->
+        [one] Inject into { $count_text } selected element, such as { $name }
+       *[other] Inject into { $count_text } selected elements, such as { $name }
+    }
+# $fields: the labels of the settings a click would transfer, separated by
+# commas.
+view-transfer-preview-applied = Transfers: { $fields }
+# $fields: the settings a click would skip, each a status-transfer-skip-
+# message, separated by commas.
+view-transfer-preview-skipped = Skips: { $fields }
+view-transfer-preview-nothing = Nothing to transfer
+# The hovered element is locked, so an inject would be refused (ELM-013).
+view-transfer-preview-locked = Locked: nothing would change
+
 ## Status bar (UI-001): the prompt while no tool step is in progress, the
 ## problem count and the cursor in a plan
 
 status-prompt-select = Click an element to select it, Shift-click to add or remove, drag a rectangle to select several · Tab cycles overlapping elements
+# While Pick up parameters or Inject parameters is latched (ELM-003).
+status-prompt-pick-up = Pick up: click an element to make its settings the tool's defaults · Esc ends
+status-prompt-inject = Inject: click an element to give it the tool's settings · Esc ends
 # Appended to a tool's prompt in press-drag-release input mode (INP-020).
 status-prompt-press-drag-release = Press-drag-release: press at a point, drag and release at the next
 # The button that shows the problems panel; $count: the problems, for the

@@ -1,16 +1,21 @@
-//! Commands of the Edit menu (UND-001, SEL-004, ELM-015).
+//! Commands of the Edit menu (UND-001, SEL-004, ELM-015, ELM-003).
 
 use egui::Key;
 
 use super::{Binding, Category, CommandId, CommandSpec, Enabled, Handler, Scope};
 use crate::tr;
 use crate::ui::icons;
+use crate::views::transfer::TransferMode;
 
 // The edit commands the toolbar invokes (UI-011).
 pub const UNDO: CommandId = CommandId::new("edit.undo");
 pub const REDO: CommandId = CommandId::new("edit.redo");
 pub const GROUP: CommandId = CommandId::new("edit.group");
 pub const UNGROUP: CommandId = CommandId::new("edit.ungroup");
+// The parameter transfer commands that latch pick-up and inject (ELM-003,
+// EDT-020).
+pub const PICK_UP_PARAMETERS: CommandId = CommandId::new("edit.pick-up-parameters");
+pub const INJECT_PARAMETERS: CommandId = CommandId::new("edit.inject-parameters");
 // The command the status bar's indicator turns off (ELM-015).
 pub const SUSPEND_GROUPS: CommandId = CommandId::new("edit.suspend-groups");
 
@@ -67,5 +72,22 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             .menu("edit", 3, 0)
             .bind(Binding::primary(Key::T))
             .scope(Scope::TextSafe),
+        // ELM-003, EDT-020: the explicit commands of the transfer gestures
+        // latch their mode until Esc or a second invocation; the gesture is
+        // their accelerator (D-7).
+        edit(PICK_UP_PARAMETERS.as_str(), |app, _, _| {
+            app.ws.transfer.latch(TransferMode::PickUp)
+        })
+        .menu("edit", 3, 1)
+        .checked_when(|cx| cx.transfer == Some(TransferMode::PickUp))
+        .gesture(TransferMode::PickUp)
+        .icon(icons::PICK_UP),
+        edit(INJECT_PARAMETERS.as_str(), |app, _, _| {
+            app.ws.transfer.latch(TransferMode::Inject)
+        })
+        .menu("edit", 3, 2)
+        .checked_when(|cx| cx.transfer == Some(TransferMode::Inject))
+        .gesture(TransferMode::Inject)
+        .icon(icons::INJECT),
     ]
 }

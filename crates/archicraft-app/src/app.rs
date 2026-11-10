@@ -1049,10 +1049,13 @@ impl eframe::App for ArchiCraftApp {
             self.tree.ui(&mut behavior, ui);
             let closed = std::mem::take(&mut behavior.closed);
             for pane in closed {
-                if let Pane::View3d(view) = pane
-                    && let Some(state) = self.ws.views_3d.remove(&view)
-                {
-                    state.release(frame.wgpu_render_state());
+                if let Pane::View3d(view) = pane {
+                    if self.ws.hover_3d.is_some_and(|(v, _)| v == view) {
+                        self.ws.hover_3d = None;
+                    }
+                    if let Some(state) = self.ws.views_3d.remove(&view) {
+                        state.release(frame.wgpu_render_state());
+                    }
                 }
             }
         });

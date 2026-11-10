@@ -2,7 +2,9 @@
 //! picks an element's settings up into the active tool's defaults,
 //! Alt+Primary-click injects the tool's defaults into an element or the
 //! selection; between kinds only the compatible settings go, and the status
-//! line says what was skipped and why. A latched mode needs no modifiers.
+//! line says what was skipped and why. A latched mode needs no modifiers;
+//! the Edit menu and the toolbar latch it (EDT-020), and hovering an element
+//! previews what a click would transfer.
 
 #![allow(clippy::unwrap_used)]
 
@@ -12,13 +14,15 @@ use archicraft_app::ArchiCraftApp;
 use archicraft_app::tools::ToolKind;
 use archicraft_app::views::transfer::TransferMode;
 use archicraft_app::views::view3d::pick;
-use archicraft_app::workspace::{Pane, Request};
+use archicraft_app::workspace::{Pane, Request, SceneKey};
 use archicraft_model::glam::DVec2;
 use archicraft_model::{Command, Element, ElementId, IfcClass, KindTag, LayerId, MaterialId};
 use common::harness;
+use egui::accesskit::{Role, Toggled};
 use egui::os::OperatingSystem;
 use egui::{CursorIcon, Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;
+use egui_kittest::kittest::{By, NodeT, Queryable};
 
 type App = Harness<'static, ArchiCraftApp>;
 
@@ -390,4 +394,295 @@ fn a_held_gesture_shows_its_pointer() {
     assert_eq!(cursor(&harness), CursorIcon::Copy);
     hover_holding(&mut harness, over, Modifiers::NONE);
     assert_eq!(cursor(&harness), plain);
+}
+
+/// The labels of the toolbar's Pick up and Inject buttons.
+const PICK_UP: &str = "Pick up parameters";
+const INJECT: &str = "Inject parameters";
+
+/// The toolbar's button labelled `label`, not a menu item or tooltip.
+fn toolbar_button<'h>(harness: &'h App, label: &'h str) -> egui_kittest::Node<'h> {
+    harness.get(By::new().role(Role::Button).label(label))
+}
+
+/// Whether the toolbar's button labelled `label` shows as selected.
+fn toolbar_selected(harness: &App, label: &str) -> bool {
+    toolbar_button(harness, label).accesskit_node().toggled() == Some(Toggled::True)
+}
+
+fn click_toolbar(harness: &mut App, label: &str) {
+    toolbar_button(harness, label).click();
+    harness.run_steps(2);
+}
+
+fn latched(harness: &mut App) -> Option<TransferMode> {
+    harness.state_mut().workspace().transfer.latched()
+}
+
+/// Presses Esc with the pointer over `pos`, as a user in that view would.
+fn escape_at(harness: &mut App, pos: egui::Pos2) {
+    harness.hover_at(pos);
+    harness.run_steps(1);
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+}
+
+/// Whether a widget of the window has a label containing `text`.
+fn shows(harness: &App, text: &str) -> bool {
+    harness.query_all(By::new().label_contains(text)).next().is_some()
+}
+
+/// The gesture text a tooltip or menu gives for `modifiers`, as egui
+/// writes them on this platform.
+fn gesture_text(harness: &App, modifiers: Modifiers) -> String {
+    format!("{}-click", harness.ctx.format_modifiers(modifiers))
+}
+
+/// UI-011, ELM-003: the toolbar shows Pick up and Inject right after Undo
+/// and Redo, before Measure, Group and Ungroup.
+#[test]
+fn the_toolbar_shows_pick_up_and_inject_right_after_redo() {
+    let harness = harness("transfer-toolbar-order");
+    let order = ["Undo", "Redo", PICK_UP, INJECT, "Measure tool", "Group", "Ungroup"];
+    let lefts: Vec<f32> = order
+        .iter()
+        .map(|label| toolbar_button(&harness, label).rect().left())
+        .collect();
+    assert!(lefts.is_sorted(), "{order:?}: {lefts:?}");
+    let top = toolbar_button(&harness, "Redo").rect().top();
+    for label in [PICK_UP, INJECT] {
+        assert_eq!(
+            toolbar_button(&harness, label).rect().top(),
+            top,
+            "{label} is in the toolbar"
+        );
+    }
+}
+
+/// UI-011, ELM-003 (EDT-020): the tooltips of the toolbar's Pick up and
+/// Inject show their label, their gesture as shortcut and their
+/// description.
+#[test]
+fn the_toolbar_tooltips_of_pick_up_and_inject_show_label_gesture_and_description() {
+    let mut harness = harness("transfer-toolbar-tooltip");
+    for (label, gesture, description) in [
+        (PICK_UP, ALT, "Pick up the settings of the elements you click"),
+        (
+            INJECT,
+            alt_primary(),
+            "Inject the active tool's settings into the elements you click",
+        ),
+    ] {
+        toolbar_button(&harness, label).hover();
+        harness.run_steps(4);
+        let gesture = gesture_text(&harness, gesture);
+        assert!(shows(&harness, &gesture), "{label}: {gesture} is missing");
+        assert!(shows(&harness, description), "{label}: {description} is missing");
+        assert!(
+            harness.query_all_by_label(label).count() >= 2,
+            "{label}: the tooltip's title"
+        );
+    }
+}
+
+/// ELM-003 (Showcase 3, step 3): a click on the toolbar's Pick up latches
+/// pick-up and selects the button; a click on a wall without modifiers then
+/// picks up its settings, and Esc ends the mode and clears the button. The
+/// same for Inject, whose click goes into another wall; it stays latched
+/// for a second wall, and undo takes the injection back.
+#[test]
+fn the_toolbar_latches_pick_up_and_inject_until_esc() {
+    let mut harness = harness("transfer-toolbar-latch");
+    let source = thick_wall(&mut harness, 0.0);
+    let a = wall(&mut harness, 3.0, 1);
+    let b = wall(&mut harness, 6.0, 2);
+    let before = a.as_wall().unwrap().thickness;
+    let ids = add(&mut harness, vec![source, a, b]);
+    select_tool(&mut harness, ToolKind::Wall);
+    assert!(!toolbar_selected(&harness, PICK_UP));
+
+    click_toolbar(&mut harness, PICK_UP);
+    assert_eq!(latched(&mut harness), Some(TransferMode::PickUp));
+    assert!(toolbar_selected(&harness, PICK_UP));
+    assert!(!toolbar_selected(&harness, INJECT));
+    let on_source = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+    click_with(&mut harness, on_source, Modifiers::NONE);
+    assert_eq!(wall_defaults(&mut harness).as_wall().unwrap().thickness, 0.365);
+    assert!(harness.state_mut().workspace().selection.is_empty());
+    assert_eq!(latched(&mut harness), Some(TransferMode::PickUp));
+    escape_at(&mut harness, on_source);
+    assert_eq!(latched(&mut harness), None);
+    assert!(!toolbar_selected(&harness, PICK_UP));
+
+    click_toolbar(&mut harness, INJECT);
+    assert_eq!(latched(&mut harness), Some(TransferMode::Inject));
+    assert!(toolbar_selected(&harness, INJECT));
+    for (id, y) in [(ids[1], 3.0), (ids[2], 6.0)] {
+        let on_target = plan_point(&mut harness, DVec2::new(2.0, y));
+        click_with(&mut harness, on_target, Modifiers::NONE);
+        assert_eq!(element(&mut harness, id).as_wall().unwrap().thickness, 0.365);
+        assert!(toolbar_selected(&harness, INJECT), "the latch stays");
+    }
+    let on_target = plan_point(&mut harness, DVec2::new(2.0, 6.0));
+    escape_at(&mut harness, on_target);
+    assert_eq!(latched(&mut harness), None);
+    assert!(!toolbar_selected(&harness, INJECT));
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Wall);
+
+    harness.state_mut().workspace().undo();
+    assert_ne!(element(&mut harness, ids[2]).as_wall().unwrap().thickness, 0.365);
+    assert_eq!(element(&mut harness, ids[1]).as_wall().unwrap().thickness, 0.365);
+    harness.state_mut().workspace().undo();
+    assert_eq!(element(&mut harness, ids[1]).as_wall().unwrap().thickness, before);
+}
+
+/// ELM-003: a second click on the latched mode's button ends it, a click on
+/// the other mode's button switches to it.
+#[test]
+fn a_second_invocation_ends_the_latch() {
+    let mut harness = harness("transfer-toolbar-toggle");
+    click_toolbar(&mut harness, PICK_UP);
+    click_toolbar(&mut harness, INJECT);
+    assert_eq!(latched(&mut harness), Some(TransferMode::Inject));
+    assert!(!toolbar_selected(&harness, PICK_UP));
+    click_toolbar(&mut harness, INJECT);
+    assert_eq!(latched(&mut harness), None);
+}
+
+/// ELM-003, EDT-020: Pick up parameters from the Edit menu latches pick-up
+/// without modifiers, shows a check mark there and its gesture as shortcut;
+/// hovering a wall shows what would transfer before the click; Esc ends it.
+/// Inject parameters from the menu, hovering a slab with the wall tool,
+/// lists the settings that would transfer and the IFC class as skipped,
+/// with the reason.
+#[test]
+fn the_edit_menu_latches_and_the_hover_tooltip_lists_transferred_and_skipped_settings() {
+    let mut harness = harness("transfer-menu-preview");
+    let source = thick_wall(&mut harness, 0.0);
+    let s = slab(&mut harness);
+    let ids = add(&mut harness, vec![source, s]);
+    select_tool(&mut harness, ToolKind::Wall);
+    let source_name = element(&mut harness, ids[0]).name;
+    let slab_name = element(&mut harness, ids[1]).name;
+
+    open_menu(&mut harness, "Edit");
+    let gesture = gesture_text(&harness, ALT);
+    assert!(shows(&harness, &gesture), "the menu shows the gesture {gesture}");
+    menu_item(&harness, PICK_UP).click();
+    harness.run_steps(2);
+    assert_eq!(latched(&mut harness), Some(TransferMode::PickUp));
+    open_menu(&mut harness, "Edit");
+    assert_eq!(
+        menu_item(&harness, PICK_UP).accesskit_node().toggled(),
+        Some(Toggled::True)
+    );
+    open_menu(&mut harness, "Edit");
+    assert_eq!(
+        latched(&mut harness),
+        Some(TransferMode::PickUp),
+        "closing the menu keeps it"
+    );
+
+    let on_source = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+    hover_holding(&mut harness, on_source, Modifiers::NONE);
+    harness.run_steps(4);
+    assert_eq!(
+        harness.state_mut().workspace().hover,
+        Some(ids[0]),
+        "the candidate is highlighted"
+    );
+    assert!(shows(&harness, &format!("Pick up from {source_name}")));
+    assert!(shows(&harness, "Transfers: ") && shows(&harness, "Thickness"));
+    assert_ne!(
+        wall_defaults(&mut harness).as_wall().unwrap().thickness,
+        0.365,
+        "only a preview"
+    );
+    click_with(&mut harness, on_source, Modifiers::NONE);
+    assert_eq!(wall_defaults(&mut harness).as_wall().unwrap().thickness, 0.365);
+    escape_at(&mut harness, on_source);
+    assert_eq!(latched(&mut harness), None);
+
+    open_menu(&mut harness, "Edit");
+    menu_item(&harness, INJECT).click();
+    harness.run_steps(2);
+    assert_eq!(latched(&mut harness), Some(TransferMode::Inject));
+    let on_slab = plan_point(&mut harness, DVec2::new(8.0, 1.0));
+    hover_holding(&mut harness, on_slab, Modifiers::NONE);
+    harness.run_steps(4);
+    assert!(shows(&harness, &format!("Inject into {slab_name}")));
+    assert!(shows(&harness, "Thickness"));
+    assert!(shows(&harness, "Skips: ") && shows(&harness, "IFC class not allowed"));
+    assert_ne!(
+        element(&mut harness, ids[1]).as_slab().unwrap().thickness,
+        0.365,
+        "only a preview"
+    );
+}
+
+/// ELM-003, EDT-020: a held gesture shows the same preview as the latched
+/// mode.
+#[test]
+fn a_held_gesture_shows_the_preview() {
+    let mut harness = harness("transfer-gesture-preview");
+    let source = thick_wall(&mut harness, 0.0);
+    let ids = add(&mut harness, vec![source]);
+    let name = element(&mut harness, ids[0]).name;
+    let over = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+    hover_holding(&mut harness, over, ALT);
+    harness.run_steps(4);
+    assert!(shows(&harness, &format!("Pick up from {name}")));
+    hover_holding(&mut harness, over, Modifiers::NONE);
+    harness.run_steps(4);
+    assert!(!shows(&harness, &format!("Pick up from {name}")));
+}
+
+/// ELM-003: in a 3D view, a latched pick-up works without modifiers,
+/// highlights and previews the candidate, and Esc ends it there too.
+#[test]
+fn a_latched_mode_works_in_a_3d_view_and_ends_with_esc_there() {
+    let mut harness = harness("transfer-3d-latch");
+    let source = thick_wall(&mut harness, 0.0);
+    let ids = add(&mut harness, vec![source]);
+    let name = element(&mut harness, ids[0]).name;
+    let on_source = open_3d_at(&mut harness, ids[0]);
+    click_toolbar(&mut harness, PICK_UP);
+    hover_holding(&mut harness, on_source, Modifiers::NONE);
+    harness.run_steps(4);
+    assert_eq!(SceneKey::of(harness.state_mut().workspace()).hover, Some(ids[0]));
+    assert!(shows(&harness, &format!("Pick up from {name}")));
+    click_with(&mut harness, on_source, Modifiers::NONE);
+    assert_eq!(wall_defaults(&mut harness).as_wall().unwrap().thickness, 0.365);
+    assert!(harness.state_mut().workspace().selection.is_empty());
+    escape_at(&mut harness, on_source);
+    assert_eq!(latched(&mut harness), None);
+    assert!(!toolbar_selected(&harness, PICK_UP));
+    hover_holding(&mut harness, on_source, Modifiers::NONE);
+    assert_eq!(SceneKey::of(harness.state_mut().workspace()).hover, None);
+}
+
+/// The Edit menu's item of `label`, a check box (the toolbar's button has
+/// the same label).
+fn menu_item<'h>(harness: &'h App, label: &'h str) -> egui_kittest::Node<'h> {
+    harness.get(By::new().role(Role::CheckBox).label_contains(label))
+}
+
+/// Opens the main menu `title` by clicking its button in the menu bar.
+fn open_menu(harness: &mut App, title: &str) {
+    let menu = harness
+        .query_all_by_label(title)
+        .map(|n| n.rect())
+        .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
+        .unwrap();
+    harness.hover_at(menu.center());
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(Event::PointerButton {
+            pos: menu.center(),
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    harness.run_steps(2);
 }

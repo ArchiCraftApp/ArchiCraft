@@ -557,8 +557,8 @@ fn add_wall(harness: &mut Harness<'static, ArchiCraftApp>) {
 
 /// UI-011: the toolbar lies directly below the menu bar and above the
 /// properties strip, and its only buttons are Save, then Undo and Redo
-/// (PRJ-003), the Measure tool (MEA-001), then Group and Ungroup (ELM-015),
-/// each its command's icon and
+/// (PRJ-003), Pick up and Inject parameters (ELM-003), the Measure tool
+/// (MEA-001), then Group and Ungroup (ELM-015), each its command's icon and
 /// label.
 #[test]
 fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
@@ -578,7 +578,19 @@ fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
         .collect();
     buttons.sort_by(|a, b| a.0.total_cmp(&b.0));
     let labels: Vec<&str> = buttons.iter().map(|(_, label)| label.as_str()).collect();
-    assert_eq!(labels, ["Save", "Undo", "Redo", "Measure tool", "Group", "Ungroup"]);
+    assert_eq!(
+        labels,
+        [
+            "Save",
+            "Undo",
+            "Redo",
+            "Pick up parameters",
+            "Inject parameters",
+            "Measure tool",
+            "Group",
+            "Ungroup"
+        ]
+    );
 }
 
 /// UI-001, NFR-PORT-005: the toolbox and the toolbar show their icons,
@@ -602,6 +614,8 @@ fn the_toolbox_and_the_toolbar_draw_their_icons_for_the_screen() {
         icons::SAVE,
         icons::UNDO,
         icons::REDO,
+        icons::PICK_UP,
+        icons::INJECT,
         icons::MEASURE,
         icons::GROUP,
         icons::UNGROUP,
