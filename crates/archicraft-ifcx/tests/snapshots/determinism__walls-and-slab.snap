@@ -329,6 +329,40 @@ expression: review_view(&bytes)
                 }
               }
             },
+            "textStyles": {
+              "dataType": "Array",
+              "arrayRestrictions": {
+                "value": {
+                  "dataType": "Object",
+                  "objectRestrictions": {
+                    "values": {
+                      "id": {
+                        "dataType": "String"
+                      },
+                      "name": {
+                        "dataType": "String"
+                      },
+                      "sizeMm": {
+                        "dataType": "Real"
+                      },
+                      "align": {
+                        "dataType": "Enum",
+                        "enumRestrictions": {
+                          "options": [
+                            "left",
+                            "center",
+                            "right"
+                          ]
+                        }
+                      },
+                      "lineSpacing": {
+                        "dataType": "Real"
+                      }
+                    }
+                  }
+                }
+              }
+            },
             "toolDefaults": {
               "dataType": "Object",
               "objectRestrictions": {
@@ -562,6 +596,74 @@ expression: review_view(&bytes)
                         }
                       }
                     }
+                  },
+                  "text": {
+                    "dataType": "Object",
+                    "objectRestrictions": {
+                      "values": {
+                        "anchorPos": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "top_left",
+                              "top_center",
+                              "top_right",
+                              "middle_left",
+                              "center",
+                              "middle_right",
+                              "bottom_left",
+                              "bottom_center",
+                              "bottom_right"
+                            ]
+                          }
+                        },
+                        "angle": {
+                          "dataType": "Real",
+                          "quantityKind": "Plane angle"
+                        },
+                        "style": {
+                          "dataType": "String"
+                        },
+                        "sizeMm": {
+                          "dataType": "Real",
+                          "optional": true
+                        },
+                        "material": {
+                          "dataType": "String",
+                          "optional": true
+                        },
+                        "layer": {
+                          "dataType": "String"
+                        },
+                        "position": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "undefined",
+                              "exterior",
+                              "interior"
+                            ]
+                          }
+                        },
+                        "ifcClass": {
+                          "dataType": "String"
+                        },
+                        "predefinedType": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "FLOOR",
+                              "ROOF",
+                              "LANDING",
+                              "BASESLAB",
+                              "PAD_FOOTING",
+                              "STRIP_FOOTING"
+                            ]
+                          },
+                          "optional": true
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -604,6 +706,9 @@ expression: review_view(&bytes)
                     "dataType": "Integer"
                   },
                   "space": {
+                    "dataType": "Integer"
+                  },
+                  "text": {
                     "dataType": "Integer"
                   },
                   "group": {
@@ -987,6 +1092,168 @@ expression: review_view(&bytes)
           }
         }
       }
+    },
+    "archicraft::annotations": {
+      "value": {
+        "dataType": "Array",
+        "arrayRestrictions": {
+          "value": {
+            "dataType": "Object",
+            "objectRestrictions": {
+              "values": {
+                "id": {
+                  "dataType": "String"
+                },
+                "name": {
+                  "dataType": "String"
+                },
+                "ifcClass": {
+                  "dataType": "String"
+                },
+                "kind": {
+                  "dataType": "Enum",
+                  "enumRestrictions": {
+                    "options": [
+                      "text"
+                    ]
+                  }
+                },
+                "layer": {
+                  "dataType": "String"
+                },
+                "locked": {
+                  "dataType": "Boolean"
+                },
+                "position": {
+                  "dataType": "Enum",
+                  "enumRestrictions": {
+                    "options": [
+                      "undefined",
+                      "exterior",
+                      "interior"
+                    ]
+                  }
+                },
+                "predefinedType": {
+                  "dataType": "Enum",
+                  "enumRestrictions": {
+                    "options": [
+                      "FLOOR",
+                      "ROOF",
+                      "LANDING",
+                      "BASESLAB",
+                      "PAD_FOOTING",
+                      "STRIP_FOOTING"
+                    ]
+                  },
+                  "optional": true
+                },
+                "snapExcluded": {
+                  "dataType": "Boolean",
+                  "optional": true
+                },
+                "group": {
+                  "dataType": "String",
+                  "optional": true
+                },
+                "text": {
+                  "dataType": "Object",
+                  "objectRestrictions": {
+                    "values": {
+                      "view": {
+                        "dataType": "Object",
+                        "objectRestrictions": {
+                          "values": {
+                            "type": {
+                              "dataType": "Enum",
+                              "enumRestrictions": {
+                                "options": [
+                                  "plan"
+                                ]
+                              }
+                            },
+                            "storey": {
+                              "dataType": "Reference"
+                            }
+                          }
+                        }
+                      },
+                      "anchor": {
+                        "dataType": "Array",
+                        "arrayRestrictions": {
+                          "value": {
+                            "dataType": "Real",
+                            "quantityKind": "Length"
+                          }
+                        }
+                      },
+                      "anchorPos": {
+                        "dataType": "Enum",
+                        "enumRestrictions": {
+                          "options": [
+                            "top_left",
+                            "top_center",
+                            "top_right",
+                            "middle_left",
+                            "center",
+                            "middle_right",
+                            "bottom_left",
+                            "bottom_center",
+                            "bottom_right"
+                          ]
+                        }
+                      },
+                      "angle": {
+                        "dataType": "Real",
+                        "quantityKind": "Plane angle"
+                      },
+                      "content": {
+                        "dataType": "String"
+                      },
+                      "style": {
+                        "dataType": "String"
+                      },
+                      "sizeMm": {
+                        "dataType": "Real",
+                        "optional": true
+                      }
+                    }
+                  },
+                  "optional": true
+                },
+                "relations": {
+                  "dataType": "Array",
+                  "arrayRestrictions": {
+                    "value": {
+                      "dataType": "Object",
+                      "objectRestrictions": {
+                        "values": {
+                          "kind": {
+                            "dataType": "Enum",
+                            "enumRestrictions": {
+                              "options": [
+                                "host",
+                                "junction",
+                                "trim",
+                                "solid_operation",
+                                "annotation_binding"
+                              ]
+                            }
+                          },
+                          "target": {
+                            "dataType": "Reference"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "optional": true
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "data": [
@@ -1002,7 +1269,7 @@ expression: review_view(&bytes)
         },
         "bsi::ifc::prop::Name": "Walls and slab",
         "archicraft::project": {
-          "formatVersion": "2",
+          "formatVersion": "3",
           "info": {
             "number": "",
             "client": "",
@@ -1456,6 +1723,36 @@ expression: review_view(&bytes)
               }
             }
           ],
+          "textStyles": [
+            {
+              "id": "4959959b-c6ef-54f4-a7a6-93144f276435",
+              "name": "Standard 2.5 mm",
+              "sizeMm": 2.5,
+              "align": "left",
+              "lineSpacing": 1.2
+            },
+            {
+              "id": "c38b9852-c990-5fd1-8f0d-be3a7070249a",
+              "name": "Dimension 2.5 mm",
+              "sizeMm": 2.5,
+              "align": "left",
+              "lineSpacing": 1.2
+            },
+            {
+              "id": "ae7c5bba-e4be-5d56-9c25-aa8a77fadcf9",
+              "name": "Small 1.8 mm",
+              "sizeMm": 1.8,
+              "align": "left",
+              "lineSpacing": 1.2
+            },
+            {
+              "id": "b0d566df-65ca-5796-b169-593104ad6af9",
+              "name": "Heading 5.0 mm",
+              "sizeMm": 5,
+              "align": "left",
+              "lineSpacing": 1.2
+            }
+          ],
           "toolDefaults": {
             "wall": {
               "thickness": 0.25,
@@ -1492,6 +1789,14 @@ expression: review_view(&bytes)
               "layer": "7d2e2fcf-385e-5952-ba6b-743fd7b93c56",
               "position": "undefined",
               "ifcClass": "IfcSpace"
+            },
+            "text": {
+              "anchorPos": "bottom_left",
+              "angle": 0,
+              "style": "4959959b-c6ef-54f4-a7a6-93144f276435",
+              "layer": "c43b5690-bf86-51a6-8b84-e12f16a5d341",
+              "position": "undefined",
+              "ifcClass": "IfcAnnotation"
             }
           },
           "views": [
@@ -1509,7 +1814,8 @@ expression: review_view(&bytes)
           "counters": {
             "wall": 4,
             "slab": 1,
-            "space": 0
+            "space": 0,
+            "text": 0
           }
         }
       }

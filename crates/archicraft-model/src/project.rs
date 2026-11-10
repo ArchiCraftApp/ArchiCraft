@@ -458,10 +458,10 @@ impl Project {
     }
 
     /// The dangling references of the project (NFR-REL-004): an element's
-    /// storey, layer or material that does not exist, and an explicit
-    /// relation whose end names no element. Each problem carries what a
-    /// problems panel needs to select it (UI-012) and its message
-    /// (NFR-L10N-001).
+    /// storey, layer, material or text style (ANN-007) that does not exist,
+    /// and an explicit relation whose end names no element. Each problem
+    /// carries what a problems panel needs to select it (UI-012) and its
+    /// message (NFR-L10N-001).
     pub fn integrity_problems(&self) -> Vec<IntegrityProblem> {
         let mut problems = Vec::new();
         for e in self.elements.values() {
@@ -480,6 +480,9 @@ impl Project {
             }
             if e.kind.material().is_some_and(|m| self.material(m).is_none()) {
                 problem("model-problem-material-missing");
+            }
+            if e.kind.text_style().is_some_and(|s| self.text_style(s).is_none()) {
+                problem("model-problem-text-style-missing");
             }
         }
         for (id, relation) in self.relations.iter() {

@@ -12,10 +12,12 @@
 //!
 //! Whenever a reader-visible shape changes, or the format stores a new kind,
 //! bump [`FORMAT_VERSION`](schema::FORMAT_VERSION) and add a step to
-//! [`MIGRATIONS`]; other optional additions need neither. A new kind's step
-//! changes nothing, because older files hold no elements of the kind: it
-//! exists so that a reader of the older format flags the new files as newer
-//! (IFX-062) instead of skipping what it cannot read.
+//! [`MIGRATIONS`]; other optional additions need neither. Older files hold
+//! no elements of a new kind, so its step adds only what every project of
+//! the new format has, such as the template's text styles of format 3, or
+//! nothing, as for spaces: it exists so that a reader of the older format
+//! flags the new files as newer (IFX-062) instead of skipping what it cannot
+//! read.
 //!
 //! A step works on [`Value`] trees, so a file opened with raw attribute
 //! values ([`crate::validate::parse_raw`]) is converted to trees before its
@@ -25,11 +27,12 @@
 use std::collections::HashSet;
 
 use archicraft_model::KindTag;
+use archicraft_model::template::template_text_styles;
 use serde_json::Value;
 
 use super::kinds::annotations;
-use super::relations;
 use super::schema;
+use super::{relations, writer};
 use crate::container::{AttributeValue, IfcxFile};
 use crate::message::Message;
 use crate::validate::Problem;
@@ -48,16 +51,39 @@ pub struct Migration {
 
 /// The migration chain up to [`FORMAT_VERSION`](schema::FORMAT_VERSION), one
 /// step per earlier format, in order.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    from: 1,
-    description: "ifcx-migration-adds-spaces",
-    apply: adds_spaces,
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        from: 1,
+        description: "ifcx-migration-adds-spaces",
+        apply: adds_spaces,
+    },
+    Migration {
+        from: 2,
+        description: "ifcx-migration-adds-texts",
+        apply: adds_texts,
+    },
+];
 
 /// Format 2 stores spaces (SPC-001) and, for a node that shows another name
 /// than its element's, the element's own `name` in `archicraft::element`.
 /// A format 1 file has neither, so nothing changes.
 fn adds_spaces(_: &mut IfcxFile, _: &mut Vec<Problem>) {}
+
+/// Format 3 stores texts as annotation entries and the project's text
+/// styles as `textStyles` of `archicraft::project` (ANN-007). A format 2
+/// file has no texts, and its project gets the template's text styles, as
+/// every project from the template has them; a project that has a
+/// `textStyles` member keeps it.
+fn adds_texts(file: &mut IfcxFile, _: &mut Vec<Problem>) {
+    let styles: Vec<Value> = template_text_styles().iter().map(writer::text_style_record).collect();
+    for node in &mut file.data {
+        if let Some(project) = node.attributes.get_mut(schema::PROJECT).and_then(Value::as_object_mut) {
+            project
+                .entry("textStyles")
+                .or_insert_with(|| Value::Array(styles.clone()));
+        }
+    }
+}
 
 /// The format version of the file and the path of its project node: the last
 /// entry with `archicraft::project` wins, as when the file is composed. Of
@@ -188,15 +214,40 @@ mod tests {
     /// A file written at format 1 (tests/formats/, never regenerated).
     const FORMAT_1: &[u8] = include_bytes!("../../tests/formats/format-1.ifcx");
 
+    /// A file written at format 2, the format that added spaces.
+    const FORMAT_2: &[u8] = include_bytes!("../../tests/formats/format-2.ifcx");
+
     const DESCRIPTION: &str = "bsi::ifc::prop::Description";
+
+    /// The format after this release's, which the synthetic steps reach.
+    const NEXT: u32 = FORMAT_VERSION + 1;
 
     fn format_1() -> IfcxFile {
         validate::parse(FORMAT_1).unwrap()
     }
 
-    /// The file as the open path parses it, with raw attribute values.
-    fn format_1_raw() -> IfcxFile<&'static RawValue> {
-        validate::parse_raw(FORMAT_1).unwrap()
+    /// `project` saved as this release writes it.
+    fn saved(project: &archicraft_model::Project) -> Vec<u8> {
+        let geometry = archicraft_geometry::ModelGeometry::evaluate(project);
+        let options = crate::WriteOptions {
+            author: "Test".into(),
+            timestamp: "2026-11-09T12:00:00Z".into(),
+            data_version: 1,
+        };
+        let (bytes, warnings) = crate::save(project, &geometry, &options, false);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        bytes
+    }
+
+    /// The two-storey shell as this release writes it, at
+    /// [`FORMAT_VERSION`], the file the synthetic steps upgrade.
+    fn current() -> IfcxFile {
+        validate::parse(&saved(&samples::two_storey_shell())).unwrap()
+    }
+
+    /// The same file as the open path parses it, with raw attribute values.
+    fn current_raw(bytes: &[u8]) -> IfcxFile<&RawValue> {
+        validate::parse_raw(bytes).unwrap()
     }
 
     fn describe(file: &mut IfcxFile, text: &str) {
@@ -217,25 +268,26 @@ mod tests {
         }
     }
 
-    /// The synthetic step of the test registry: format 2 describes the
-    /// project.
+    /// The synthetic steps of the test registry, after the registered
+    /// chain: the next format describes the project, the one after it
+    /// extends the description.
     fn first(file: &mut IfcxFile, _: &mut Vec<Problem>) {
-        describe(file, "described by the 1 to 2 step");
+        describe(file, "described by the first step");
     }
 
     fn second(file: &mut IfcxFile, _: &mut Vec<Problem>) {
-        describe(file, "then by the 2 to 3 step");
+        describe(file, "then by the second step");
     }
 
     const TEST_MIGRATIONS: &[Migration] = &[
         // Out of order on purpose: steps are found by their format.
         Migration {
-            from: 2,
+            from: NEXT,
             description: "test-description-extended",
             apply: second,
         },
         Migration {
-            from: 1,
+            from: FORMAT_VERSION,
             description: "test-description-added",
             apply: first,
         },
@@ -250,27 +302,33 @@ mod tests {
             .collect()
     }
 
-    /// IFX-091, IFX-062: a file at format 1 is upgraded by a v1 to v2 step,
-    /// the migrated file validates, the step's change is in the loaded
-    /// project and the migration is reported as info.
+    /// The info of the step from `from` with `change`, in its key form.
+    fn migrated(from: u32, change: &str) -> String {
+        format!("ifcx-migrated(from={from}, to={}, change={change})", from + 1)
+    }
+
+    /// IFX-091, IFX-062: a file at this release's format is upgraded by a
+    /// step to the next format, the migrated file validates, the step's
+    /// change is in the loaded project and the migration is reported as
+    /// info.
     #[test]
-    fn a_synthetic_step_upgrades_format_1_and_its_result_validates() {
-        let outcome = reader::read_with(&format_1(), TEST_MIGRATIONS, 2).unwrap();
-        assert_eq!(outcome.project.info.description, "described by the 1 to 2 step");
+    fn a_synthetic_step_upgrades_a_file_and_its_result_validates() {
+        let outcome = reader::read_with(&current(), TEST_MIGRATIONS, NEXT).unwrap();
+        assert_eq!(outcome.project.info.description, "described by the first step");
         assert_eq!(
             messages(&outcome.problems, Severity::Info),
-            ["ifcx-migrated(from=1, to=2, change=test-description-added)"]
+            [migrated(FORMAT_VERSION, "test-description-added")]
         );
         assert_eq!(outcome.problems.len(), 1, "{:#?}", outcome.problems);
         assert!(!outcome.newer_format);
         assert_eq!(outcome.source_version, "ifcx_alpha");
-        assert_eq!(outcome.migrated_from, Some(1));
+        assert_eq!(outcome.migrated_from, Some(FORMAT_VERSION));
         assert_eq!(outcome.project.elements.len(), 12);
 
         let mut problems = Vec::new();
-        let (file, from) = upgrade(&format_1(), TEST_MIGRATIONS, 2, &mut problems).unwrap();
-        assert_eq!(from, 1);
-        assert_eq!(format_version(&file).unwrap().1, 2);
+        let (file, from) = upgrade(&current(), TEST_MIGRATIONS, NEXT, &mut problems).unwrap();
+        assert_eq!(from, FORMAT_VERSION);
+        assert_eq!(format_version(&file).unwrap().1, NEXT);
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
     }
 
@@ -279,38 +337,39 @@ mod tests {
     /// into trees is.
     #[test]
     fn a_raw_file_is_migrated_like_a_tree() {
-        let raw = format_1_raw();
-        assert_eq!(raw.to_values().unwrap(), format_1());
-        for target in [2, 3] {
+        let bytes = saved(&samples::two_storey_shell());
+        let raw = current_raw(&bytes);
+        assert_eq!(raw.to_values().unwrap(), current());
+        for target in [NEXT, NEXT + 1] {
             let from_raw = reader::read_with(&raw, TEST_MIGRATIONS, target).unwrap();
-            let from_tree = reader::read_with(&format_1(), TEST_MIGRATIONS, target).unwrap();
+            let from_tree = reader::read_with(&current(), TEST_MIGRATIONS, target).unwrap();
             assert_eq!(from_raw.project, from_tree.project);
             assert_eq!(from_raw.problems, from_tree.problems);
-            assert_eq!(from_raw.migrated_from, Some(1));
+            assert_eq!(from_raw.migrated_from, Some(FORMAT_VERSION));
         }
         let mut problems = Vec::new();
-        let (file, from) = upgrade(&raw, TEST_MIGRATIONS, 2, &mut problems).unwrap();
-        assert_eq!(from, 1);
+        let (file, from) = upgrade(&raw, TEST_MIGRATIONS, NEXT, &mut problems).unwrap();
+        assert_eq!(from, FORMAT_VERSION);
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
     }
 
     /// The steps of a chain run in format order, each reported.
     #[test]
     fn a_chain_runs_its_steps_in_format_order() {
-        let outcome = reader::read_with(&format_1(), TEST_MIGRATIONS, 3).unwrap();
+        let outcome = reader::read_with(&current(), TEST_MIGRATIONS, NEXT + 1).unwrap();
         assert_eq!(
             outcome.project.info.description,
-            "described by the 1 to 2 step; then by the 2 to 3 step"
+            "described by the first step; then by the second step"
         );
         assert_eq!(
             messages(&outcome.problems, Severity::Info),
             [
-                "ifcx-migrated(from=1, to=2, change=test-description-added)",
-                "ifcx-migrated(from=2, to=3, change=test-description-extended)",
+                migrated(FORMAT_VERSION, "test-description-added"),
+                migrated(NEXT, "test-description-extended"),
             ]
         );
         assert_eq!(outcome.problems.len(), 2, "{:#?}", outcome.problems);
-        assert_eq!(outcome.migrated_from, Some(1));
+        assert_eq!(outcome.migrated_from, Some(FORMAT_VERSION));
     }
 
     /// After migrating, the file declares the current `archicraft::`
@@ -319,14 +378,14 @@ mod tests {
     #[test]
     fn a_migrated_file_declares_the_current_schemas() {
         let slab = "archicraft::slab";
-        let mut old = format_1();
+        let mut old = current();
         old.schemas.shift_remove(slab);
         old.schemas.insert(
             "archicraft::retired".into(),
             serde_json::json!({"value": {"dataType": "String"}}),
         );
         assert!(!validate::validate(&old).is_empty());
-        let (file, _) = upgrade(&old, TEST_MIGRATIONS, 2, &mut Vec::new()).unwrap();
+        let (file, _) = upgrade(&old, TEST_MIGRATIONS, NEXT, &mut Vec::new()).unwrap();
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
         assert!(!file.schemas.contains_key("archicraft::retired"));
         assert_eq!(
@@ -337,7 +396,8 @@ mod tests {
             !file.schemas.contains_key(relations::ATTRIBUTE),
             "no relations in the file"
         );
-        // The file's kinds and no others, however many codecs this build has.
+        // The file's kinds and no others, however many codecs this build has:
+        // walls, slabs and the space and text tools' slots.
         let declared: Vec<&String> = file
             .schemas
             .keys()
@@ -350,7 +410,9 @@ mod tests {
                 "archicraft::storey",
                 "archicraft::element",
                 "archicraft::wall",
-                slab
+                slab,
+                "archicraft::space",
+                annotations::ATTRIBUTE,
             ]
         );
     }
@@ -358,10 +420,10 @@ mod tests {
     /// SRS 3.3, IFX-062: a migrated file keeps declaring
     /// `archicraft::relations` when one of its nodes carries relations, so
     /// the relations of a file written at the current format survive the
-    /// first real migration and validate afterwards.
+    /// next migration and validate afterwards.
     #[test]
     fn a_migrated_file_with_relations_keeps_declaring_them() {
-        let mut old = format_1();
+        let mut old = current();
         let elements: Vec<String> = old
             .data
             .iter()
@@ -381,7 +443,7 @@ mod tests {
                 .filter(|(id, _)| id == relations::ATTRIBUTE),
         );
         assert!(validate::validate(&old).is_empty(), "{:#?}", validate::validate(&old));
-        let (file, _) = upgrade(&old, TEST_MIGRATIONS, 2, &mut Vec::new()).unwrap();
+        let (file, _) = upgrade(&old, TEST_MIGRATIONS, NEXT, &mut Vec::new()).unwrap();
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
         assert_eq!(
             file.schemas.get(relations::ATTRIBUTE),
@@ -396,14 +458,14 @@ mod tests {
     #[cfg(feature = "test-kinds")]
     #[test]
     fn a_migrated_file_declares_a_kind_its_counters_name() {
-        let mut old = format_1();
+        let mut old = current();
         let project = old
             .data
             .iter_mut()
             .find_map(|node| node.attributes.get_mut(schema::PROJECT))
             .unwrap();
         project["counters"]["dummy"] = 2.into();
-        let (file, _) = upgrade(&old, TEST_MIGRATIONS, 2, &mut Vec::new()).unwrap();
+        let (file, _) = upgrade(&old, TEST_MIGRATIONS, NEXT, &mut Vec::new()).unwrap();
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
         let declared = &file.schemas["archicraft::dummy"]["value"]["objectRestrictions"]["values"];
         assert!(declared["origin"].is_object(), "{declared}");
@@ -415,19 +477,19 @@ mod tests {
         let element = &file.schemas[schema::ELEMENT]["value"]["objectRestrictions"]["values"];
         assert_eq!(
             element["kind"]["enumRestrictions"]["options"],
-            serde_json::json!(["wall", "slab", "dummy"])
+            serde_json::json!(["wall", "slab", "space", "dummy"])
         );
     }
 
-    /// ANN-010, IFX-062: a migrated file declares `archicraft::annotations`
-    /// when a storey node carries entries, the entry's kind found from the
-    /// entry itself without a counter, so the annotations of a file written
-    /// at the current format survive the first real migration: the file
-    /// validates, declares no attribute of the note's own and the note loads.
+    /// ANN-010, IFX-062: a migrated file declares the members of every kind
+    /// its annotation entries hold, the entry's kind found from the entry
+    /// itself without a counter, so the annotations of a file written at the
+    /// current format survive the next migration: the file validates,
+    /// declares no attribute of the note's own and the note loads.
     #[cfg(feature = "test-kinds")]
     #[test]
     fn a_migrated_file_with_annotations_keeps_declaring_them() {
-        let mut old = format_1();
+        let mut old = current();
         let project = old.data.iter().find_map(|n| n.attributes.get(schema::PROJECT)).unwrap();
         let layer = project["layers"][0]["id"].clone();
         let storey = old
@@ -449,7 +511,7 @@ mod tests {
         storey
             .attributes
             .insert(annotations::ATTRIBUTE.into(), serde_json::json!([entry]));
-        let (file, _) = upgrade(&old, TEST_MIGRATIONS, 2, &mut Vec::new()).unwrap();
+        let (file, _) = upgrade(&old, TEST_MIGRATIONS, NEXT, &mut Vec::new()).unwrap();
         assert!(validate::validate(&file).is_empty(), "{:#?}", validate::validate(&file));
         let declared = &file.schemas[annotations::ATTRIBUTE]["value"]["arrayRestrictions"]["value"];
         assert!(
@@ -458,7 +520,7 @@ mod tests {
         );
         assert!(!file.schemas.contains_key("archicraft::note"));
 
-        let outcome = reader::read_with(&old, TEST_MIGRATIONS, 2).unwrap();
+        let outcome = reader::read_with(&old, TEST_MIGRATIONS, NEXT).unwrap();
         let note = outcome
             .project
             .element(archicraft_model::ElementId::from_uuid(id))
@@ -473,29 +535,19 @@ mod tests {
     #[test]
     fn a_file_at_the_target_format_is_left_as_it_is() {
         let mut problems = Vec::new();
-        assert_eq!(upgrade(&format_1(), TEST_MIGRATIONS, 1, &mut problems), None);
+        assert_eq!(
+            upgrade(&current(), TEST_MIGRATIONS, FORMAT_VERSION, &mut problems),
+            None
+        );
         assert!(problems.is_empty());
-        let current = saved(&samples::two_storey_shell());
-        let file = validate::parse(&current).unwrap();
+        let bytes = saved(&samples::two_storey_shell());
+        let file = validate::parse(&bytes).unwrap();
         assert_eq!(upgrade(&file, MIGRATIONS, FORMAT_VERSION, &mut problems), None);
         assert!(problems.is_empty());
-        let raw = validate::parse_raw(&current).unwrap();
+        let raw = current_raw(&bytes);
         assert!(upgrade(&raw, MIGRATIONS, FORMAT_VERSION, &mut problems).is_none());
         assert!(problems.is_empty());
         assert_eq!(reader::read(&raw).unwrap().migrated_from, None);
-    }
-
-    /// `project` saved as this release writes it.
-    fn saved(project: &archicraft_model::Project) -> Vec<u8> {
-        let geometry = archicraft_geometry::ModelGeometry::evaluate(project);
-        let options = crate::WriteOptions {
-            author: "Test".into(),
-            timestamp: "2026-11-09T12:00:00Z".into(),
-            data_version: 1,
-        };
-        let (bytes, warnings) = crate::save(project, &geometry, &options, false);
-        assert!(warnings.is_empty(), "{warnings:?}");
-        bytes
     }
 
     /// IFX-062, SPC-001: spaces came with one step that changes nothing,
@@ -515,47 +567,89 @@ mod tests {
         assert!(problems.is_empty(), "{problems:#?}");
     }
 
-    /// IFX-062, SPC-001: a reader of the format before this one, the chain
-    /// without its last step, flags a file with spaces as written by a newer
-    /// version, so it is not overwritten without confirmation; this
-    /// release reads it as current.
+    /// IFX-062, ANN-007: texts came with the step from format 2, which gives
+    /// the project of an older file the template's text styles, written as
+    /// the writer writes them, and changes nothing else; a project that
+    /// somehow has text styles keeps them.
     #[test]
-    fn an_older_reader_flags_a_file_with_spaces_as_newer() {
-        let bytes = saved(&samples::two_storey_shell_with_spaces());
-        let file = validate::parse_raw(&bytes).unwrap();
-        let older = &MIGRATIONS[..MIGRATIONS.len() - 1];
-        let outcome = reader::read_with(&file, older, FORMAT_VERSION - 1).unwrap();
-        assert!(outcome.newer_format);
-        let version = usize::try_from(FORMAT_VERSION).unwrap();
-        assert!(
-            messages(&outcome.problems, Severity::Warning).contains(&format!("ifcx-newer-format(version={version})")),
-            "{:#?}",
-            outcome.problems
-        );
-        let current = reader::read(&file).unwrap();
-        assert!(!current.newer_format);
-        assert!(current.problems.is_empty(), "{:#?}", current.problems);
+    fn the_texts_step_adds_the_template_text_styles() {
+        let step = MIGRATIONS.iter().find(|m| m.from == 2).unwrap();
+        assert_eq!(step.description, "ifcx-migration-adds-texts");
+        let original = validate::parse(FORMAT_2).unwrap();
+        let mut file = original.clone();
+        let mut problems = Vec::new();
+        (step.apply)(&mut file, &mut problems);
+        assert!(problems.is_empty(), "{problems:#?}");
+        let project = file
+            .data
+            .iter_mut()
+            .find_map(|n| n.attributes.get_mut(schema::PROJECT))
+            .unwrap();
+        let expected: Vec<Value> = template_text_styles().iter().map(writer::text_style_record).collect();
+        assert_eq!(project["textStyles"], Value::Array(expected));
+        project.as_object_mut().unwrap().remove("textStyles");
+        assert_eq!(file, original, "nothing else changes");
+
+        let mut kept = validate::parse(FORMAT_2).unwrap();
+        let project = kept
+            .data
+            .iter_mut()
+            .find_map(|n| n.attributes.get_mut(schema::PROJECT))
+            .unwrap();
+        project["textStyles"] = serde_json::json!([]);
+        let before = kept.clone();
+        (step.apply)(&mut kept, &mut problems);
+        assert_eq!(kept, before);
+    }
+
+    /// IFX-062, SPC-001, ANN-007: a reader of an earlier format, the chain
+    /// up to that format, flags a file with the kind the next format added
+    /// as written by a newer version, so it is not overwritten without
+    /// confirmation: a reader of format 1 a file with spaces, a reader of
+    /// format 2 one with texts. This release reads both as current.
+    #[test]
+    fn an_older_reader_flags_a_file_of_a_later_format_as_newer() {
+        for (project, format) in [
+            (samples::two_storey_shell_with_spaces(), 1),
+            (samples::annotation_sample(), 2),
+        ] {
+            let bytes = saved(&project);
+            let file = validate::parse_raw(&bytes).unwrap();
+            let older = &MIGRATIONS[..usize::try_from(format - 1).unwrap()];
+            let outcome = reader::read_with(&file, older, format).unwrap();
+            assert!(outcome.newer_format, "{}", project.info.name);
+            let version = usize::try_from(FORMAT_VERSION).unwrap();
+            assert!(
+                messages(&outcome.problems, Severity::Warning)
+                    .contains(&format!("ifcx-newer-format(version={version})")),
+                "{:#?}",
+                outcome.problems
+            );
+            let current = reader::read(&file).unwrap();
+            assert!(!current.newer_format);
+            assert!(current.problems.is_empty(), "{:#?}", current.problems);
+        }
     }
 
     /// A format without a step is reported and read as it is; a file that
     /// no step could upgrade at all counts as not migrated.
     #[test]
     fn a_missing_step_is_reported() {
-        let outcome = reader::read_with(&format_1(), &[], 2).unwrap();
+        let outcome = reader::read_with(&current(), &[], NEXT).unwrap();
         assert_eq!(
             messages(&outcome.problems, Severity::Warning),
-            ["ifcx-migration-unknown(version=1)"]
+            [format!("ifcx-migration-unknown(version={FORMAT_VERSION})")]
         );
         assert_eq!(outcome.migrated_from, None);
 
         let mut problems = Vec::new();
-        let (file, from) = upgrade(&format_1(), &TEST_MIGRATIONS[1..], 3, &mut problems).unwrap();
-        assert_eq!(from, 1);
+        let (file, from) = upgrade(&current(), &TEST_MIGRATIONS[1..], NEXT + 1, &mut problems).unwrap();
+        assert_eq!(from, FORMAT_VERSION);
         assert_eq!(
             messages(&problems, Severity::Warning),
-            ["ifcx-migration-unknown(version=2)"]
+            [format!("ifcx-migration-unknown(version={NEXT})")]
         );
-        assert_eq!(format_version(&file).unwrap().1, 2);
+        assert_eq!(format_version(&file).unwrap().1, NEXT);
     }
 
     /// The registered chain has exactly one step for every format before

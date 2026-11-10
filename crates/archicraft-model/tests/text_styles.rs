@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use archicraft_model::template::{default_metric_project, default_metric_project_with};
-use archicraft_model::text::{TextStyle, check_text_styles};
+use archicraft_model::text::{TextStyle, check_text_styles, text_style_problems};
 use archicraft_model::{
     Arg, Command, CommandError, DraftingView, ElementKind, History, KindTag, Message, TextAlign, TextStyleId,
 };
@@ -160,4 +160,101 @@ fn the_text_tools_defaults_pass_the_tool_defaults_check() {
     }
     let reason = slot_reason(h.execute(&mut p, Command::SetToolDefaults(flat)));
     assert_eq!(reason.key(), "model-error-text-size");
+}
+
+/// ANN-007, PRJ-008: every style of a list that breaks a rule is named by
+/// its place with the reason that `check_text_styles` gives: one that fails
+/// `TextStyle::check`, and one that repeats the name or the identity of an
+/// earlier style that is fine. A broken style claims no name, so a later
+/// style of its name is fine. Without the named styles the list passes the
+/// check, and a list without a broken style names none.
+#[test]
+fn every_style_that_breaks_a_rule_is_named_with_its_reason() {
+    let p = default_metric_project();
+    assert_eq!(text_style_problems(&p.text_styles), []);
+    let standard = p.text_styles[0].clone();
+    let mut flat = standard.clone();
+    flat.size_mm = 0.0;
+    let mut same_name = p.text_styles[1].clone();
+    same_name.name = standard.name.clone();
+    let mut same_id = p.text_styles[2].clone();
+    same_id.id = standard.id;
+    let mut unnamed = p.text_styles[3].clone();
+    unnamed.name = " ".into();
+    let styles = vec![
+        flat.clone(),
+        standard.clone(),
+        same_name,
+        same_id,
+        unnamed,
+        p.text_styles[3].clone(),
+    ];
+    let problems: Vec<(usize, &str)> = text_style_problems(&styles)
+        .iter()
+        .map(|(index, reason)| (*index, reason.key()))
+        .collect();
+    assert_eq!(
+        problems,
+        [
+            (0, "model-error-text-style-size"),
+            (2, "model-error-text-style-duplicate-name"),
+            (3, "model-error-duplicate-text-style-id"),
+            (4, "model-error-text-style-name"),
+        ]
+    );
+    assert_eq!(
+        check_text_styles(&styles).unwrap_err(),
+        text_style_problems(&styles)[0].1,
+        "the check fails with the first problem"
+    );
+    let kept: Vec<TextStyle> = styles
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| ![0, 2, 3, 4].contains(index))
+        .map(|(_, style)| style.clone())
+        .collect();
+    assert_eq!(check_text_styles(&kept), Ok(()));
+    assert_eq!(kept, [standard, p.text_styles[3].clone()]);
+}
+
+/// NFR-REL-004, UI-012, ANN-007: a text whose style the project does not
+/// have is an integrity problem that names the text; a text whose style
+/// exists is none.
+#[test]
+fn a_text_whose_style_is_missing_is_an_integrity_problem() {
+    let mut p = default_metric_project();
+    let text = p.new_text(p.storeys.ground(), Default::default(), "Hall", 0);
+    let id = text.id;
+    History::default()
+        .execute(&mut p, Command::AddElements(vec![text]))
+        .unwrap();
+    assert_eq!(p.integrity_problems(), []);
+    p.elements[&id].kind.set_text_style(TextStyleId::new());
+    let problems = p.integrity_problems();
+    assert_eq!(problems.len(), 1, "{problems:#?}");
+    assert_eq!(problems[0].element, Some(id));
+    assert_eq!(problems[0].relation, None);
+    assert_eq!(problems[0].message.key(), "model-problem-text-style-missing");
+    assert_eq!(problems[0].message.arg("name"), Some(&Arg::Text("TX-001".into())));
+}
+
+/// ANN-007: the text style of an element can be replaced, as its material
+/// can; a kind without text styles ignores it.
+#[test]
+fn a_texts_style_is_replaced_and_other_kinds_ignore_it() {
+    let p = default_metric_project();
+    let mut text = p.new_text(p.storeys.ground(), Default::default(), "Hall", 0);
+    let heading = p.text_styles[3].id;
+    text.kind.set_text_style(heading);
+    assert_eq!(text.kind.text_style(), Some(heading));
+    let mut wall = p.new_wall(
+        p.storeys.ground(),
+        Default::default(),
+        archicraft_model::glam::DVec2::X,
+        0,
+    );
+    let before = wall.clone();
+    wall.kind.set_text_style(heading);
+    assert_eq!(wall, before);
+    assert_eq!(wall.kind.text_style(), None);
 }

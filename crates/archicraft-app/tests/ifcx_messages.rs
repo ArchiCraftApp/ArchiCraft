@@ -47,6 +47,7 @@ fn representatives() -> Vec<Message> {
         "ifcx-format-version-invalid",
         "ifcx-tool-material-missing",
         "ifcx-tool-layer-missing",
+        "ifcx-text-styles-none",
         "ifcx-group-listed-twice",
         "ifcx-group-parent-missing",
         "ifcx-group-cycle",
@@ -114,6 +115,7 @@ fn representatives() -> Vec<Message> {
             .count("to", 2)
             .nested("change", reason()),
         Message::new("ifcx-migration-adds-spaces"),
+        Message::new("ifcx-migration-adds-texts"),
         Message::new("ifcx-skipped")
             .nested("record", Message::new("ifcx-record-project"))
             .nested("reason", reason()),
@@ -124,6 +126,7 @@ fn representatives() -> Vec<Message> {
         count("ifcx-record-layer", "index"),
         count("ifcx-record-view", "index"),
         count("ifcx-record-group", "index"),
+        count("ifcx-record-text-style", "index"),
         count("ifcx-record-annotation", "index"),
         text("ifcx-record-storey", "name"),
         text("ifcx-record-element", "name"),
@@ -169,6 +172,9 @@ fn representatives() -> Vec<Message> {
             .text("type", "FLOOR")
             .text("class", "IfcWall"),
         text("ifcx-element-material-missing", "name"),
+        text("ifcx-text-style-missing", "name"),
+        text("ifcx-tool-text-style-missing", "name"),
+        nested("ifcx-text-styles-template-used", "reason"),
         Message::new("ifcx-relation-target-missing")
             .text("relation", "host")
             .text("text", "0e3b6c2a-…"),

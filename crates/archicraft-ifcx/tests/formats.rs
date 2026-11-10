@@ -7,7 +7,9 @@
 //! hash test fails when their bytes change. `format-1.ifcx` is a copy of the
 //! two-storey-shell golden as written at FORMAT_VERSION 1 in `ifcx_alpha`,
 //! `format-2.ifcx` one of the two-storey-shell-with-spaces golden as written
-//! at FORMAT_VERSION 2, the format that added spaces (SPC-001).
+//! at FORMAT_VERSION 2, the format that added spaces (SPC-001), and
+//! `format-3.ifcx` one of the annotations golden as written at
+//! FORMAT_VERSION 3, the format that added texts and text styles (ANN-007).
 
 #![allow(clippy::unwrap_used)]
 
@@ -18,7 +20,8 @@ use std::path::{Path, PathBuf};
 use archicraft_geometry::ModelGeometry;
 use archicraft_ifcx::{Severity, WRITTEN_VERSION, validate};
 use archicraft_model::glam::DVec2;
-use archicraft_model::{BoundarySource, ElementKind, KindTag};
+use archicraft_model::template::{default_metric_project, template_text_styles};
+use archicraft_model::{AnchorPos, BoundarySource, ElementKind, KindTag};
 
 use common::options;
 
@@ -42,9 +45,10 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// an earlier release really wrote.
 #[test]
 fn frozen_format_fixtures_never_change() {
-    let frozen: [(&str, usize, u64); 2] = [
+    let frozen: [(&str, usize, u64); 3] = [
         ("format-1.ifcx", 36_786, 0x4b1c_2083_91de_01b8),
         ("format-2.ifcx", 43_980, 0xf858_2581_17c9_fc49),
+        ("format-3.ifcx", 44_960, 0xbe04_c6db_2e23_1a7d),
     ];
     let mut found: Vec<String> = std::fs::read_dir(formats_dir())
         .unwrap()
@@ -65,10 +69,11 @@ fn frozen_format_fixtures_never_change() {
     }
 }
 
-/// IFX-091, IFX-062: a file written at format 1 is migrated to the current
-/// format and loads into the project it holds, with no problem but one info
-/// per migration step, the step that adds spaces (SPC-001) among them, and
-/// reports the IFCX version it was read as.
+/// IFX-091, IFX-062, ANN-007: a file written at format 1 is migrated to
+/// the current format and loads into the project it holds, with no problem
+/// but one info per migration step, the steps that add spaces (SPC-001)
+/// and texts among them, gains the template's text styles and reports the
+/// IFCX version it was read as.
 #[test]
 fn format_1_migrates_and_loads_into_the_expected_project() {
     let loaded = archicraft_ifcx::load(&format_1()).unwrap();
@@ -79,10 +84,18 @@ fn format_1_migrates_and_loads_into_the_expected_project() {
         loaded.problems
     );
     assert!(steps.iter().all(|s| s.starts_with("ifcx-migrated(")), "{steps:#?}");
-    assert!(
-        steps.iter().any(|s| s.ends_with("change=ifcx-migration-adds-spaces)")),
-        "{steps:#?}"
-    );
+    for change in ["ifcx-migration-adds-spaces", "ifcx-migration-adds-texts"] {
+        assert!(
+            steps.iter().any(|s| s.ends_with(&format!("change={change})"))),
+            "{steps:#?}"
+        );
+    }
+    assert_eq!(loaded.project.text_styles, template_text_styles());
+    // The text tool's defaults are the template's, on the file's layer.
+    let slot = loaded.project.tool_defaults.get(KindTag::Text).unwrap();
+    let template = default_metric_project();
+    assert_eq!(slot.kind, template.tool_defaults.get(KindTag::Text).unwrap().kind);
+    assert_eq!(loaded.project.layer(slot.layer).unwrap().name, "2D construction");
     assert!(!loaded.newer_format);
     assert_eq!(loaded.source_version, "ifcx_alpha");
     assert_eq!(loaded.migrated_from, Some(1));
@@ -147,6 +160,76 @@ fn format_2_loads_its_spaces() {
     );
     let slot = project.tool_defaults.get(KindTag::Space).unwrap();
     assert!(matches!(&slot.kind, ElementKind::Space(s) if s.long_name == "Raum {n}"));
+    assert_eq!(project.text_styles, template_text_styles());
+    assert_eq!(loaded.migrated_from, Some(2));
+    assert!(project.integrity_problems().is_empty());
+}
+
+/// A text's name, content, anchor position, angle, size override and style
+/// name.
+type TextSummary<'a> = (&'a str, &'a str, AnchorPos, f64, Option<f64>, &'a str);
+
+/// IFX-091, IFX-062, ANN-007: a file written at format 3 loads into the
+/// project it holds with no problem but the reports of later migration
+/// steps: its three texts with their contents, anchor positions, angles,
+/// size overrides and styles, and the text styles.
+#[test]
+fn format_3_loads_its_texts_and_styles() {
+    let bytes = std::fs::read(formats_dir().join("format-3.ifcx")).unwrap();
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(
+        loaded.problems.iter().all(|p| p.severity == Severity::Info),
+        "{:#?}",
+        loaded.problems
+    );
+    let project = &loaded.project;
+    let texts: Vec<TextSummary<'_>> = project
+        .elements
+        .values()
+        .filter_map(|e| {
+            let t = e.as_text()?;
+            let style = project.text_style(t.style)?;
+            Some((
+                e.name.as_str(),
+                t.content.as_str(),
+                t.anchor_pos,
+                t.angle,
+                t.size_mm,
+                style.name.as_str(),
+            ))
+        })
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            (
+                "TX-001",
+                "Living room",
+                AnchorPos::BottomLeft,
+                0.0,
+                None,
+                "Standard 2.5 mm"
+            ),
+            (
+                "TX-002",
+                "Kitchen\n12.5 m²\nTiled floor",
+                AnchorPos::Center,
+                0.0,
+                Some(3.5),
+                "Standard 2.5 mm"
+            ),
+            (
+                "TX-003",
+                "Landing",
+                AnchorPos::MiddleLeft,
+                std::f64::consts::FRAC_PI_6,
+                None,
+                "Heading 5.0 mm"
+            ),
+        ]
+    );
+    assert_eq!(project.text_styles, template_text_styles());
+    assert_eq!(project.counters.get(KindTag::Text), 3);
     assert!(project.integrity_problems().is_empty());
 }
 

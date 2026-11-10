@@ -10,8 +10,8 @@
 //! lay the text out.
 //!
 //! Like the other model enums they keep serde's default variant names. Files
-//! are to store them through [`TextAlign::code`] and [`AnchorPos::code`]
-//! (nothing writes them yet), so renaming a variant never changes a file.
+//! store them through [`TextAlign::code`] and [`AnchorPos::code`], so
+//! renaming a variant never changes a file.
 
 use std::collections::HashSet;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
@@ -57,19 +57,39 @@ impl TextStyle {
 /// Checks a project's text styles (ANN-007): each must pass
 /// [`TextStyle::check`], and no two may share a name or an identity, so
 /// that texts refer to exactly one style and users can tell them apart.
+/// Fails with the first of [`text_style_problems`].
 pub fn check_text_styles(styles: &[TextStyle]) -> Result<(), Message> {
+    match text_style_problems(styles).into_iter().next() {
+        Some((_, reason)) => Err(reason),
+        None => Ok(()),
+    }
+}
+
+/// Every style of `styles` that breaks a rule of [`check_text_styles`], by
+/// its index, in list order, with the reason (ANN-007): one that fails
+/// [`TextStyle::check`], and one that repeats the name or the identity of
+/// an earlier style without a problem. A style with a problem claims no
+/// name or identity, so the list without the named styles passes the
+/// check; a reader drops them with the reason (PRJ-008).
+pub fn text_style_problems(styles: &[TextStyle]) -> Vec<(usize, Message)> {
     let mut names = HashSet::new();
     let mut ids = HashSet::new();
-    for style in styles {
-        style.check()?;
-        if !names.insert(style.name.as_str()) {
-            return Err(Message::new("model-error-text-style-duplicate-name").text("name", style.name.clone()));
-        }
-        if !ids.insert(style.id) {
-            return Err(Message::new("model-error-duplicate-text-style-id").text("name", style.name.clone()));
-        }
+    let mut problems = Vec::new();
+    for (index, style) in styles.iter().enumerate() {
+        let problem = if let Err(reason) = style.check() {
+            Some(reason)
+        } else if names.contains(style.name.as_str()) {
+            Some(Message::new("model-error-text-style-duplicate-name").text("name", style.name.clone()))
+        } else if ids.contains(&style.id) {
+            Some(Message::new("model-error-duplicate-text-style-id").text("name", style.name.clone()))
+        } else {
+            names.insert(style.name.as_str());
+            ids.insert(style.id);
+            None
+        };
+        problems.extend(problem.map(|reason| (index, reason)));
     }
-    Ok(())
+    problems
 }
 
 /// The reading direction of a text at `angle`, in radians counter-clockwise
@@ -103,7 +123,7 @@ pub enum TextAlign {
 impl TextAlign {
     pub const ALL: [TextAlign; 3] = [TextAlign::Left, TextAlign::Center, TextAlign::Right];
 
-    /// The name files are to store.
+    /// The name files store.
     pub fn code(self) -> &'static str {
         match self {
             TextAlign::Left => "left",
@@ -149,7 +169,7 @@ impl AnchorPos {
         AnchorPos::BottomRight,
     ];
 
-    /// The name files are to store.
+    /// The name files store.
     pub fn code(self) -> &'static str {
         match self {
             AnchorPos::TopLeft => "top_left",

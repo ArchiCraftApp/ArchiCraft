@@ -11,7 +11,10 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::Dummy;
 use archicraft_model::samples::{self, CatalogueEntry, FIXTURE_NAMESPACE, FixtureBuilder, STAND_IN_SIZES};
 use archicraft_model::template::{default_metric_project, default_metric_project_with};
-use archicraft_model::{Element, ElementId, IfcClass, KindTag, LayerId, Position, PredefinedType, Project};
+use archicraft_model::{
+    AnchorPos, DraftingView, Element, ElementId, IfcClass, KindTag, LayerId, Position, PredefinedType, Project,
+    StoreyId,
+};
 use uuid::Uuid;
 
 /// Every identity of a project: spatial structure, resources, elements and
@@ -58,7 +61,12 @@ fn the_catalogue_lists_the_reference_samples() {
     let names: Vec<&str> = samples::catalogue().iter().map(|(name, _)| *name).collect();
     assert_eq!(
         names,
-        ["walls-and-slab", "two-storey-shell", "two-storey-shell-with-spaces"]
+        [
+            "walls-and-slab",
+            "two-storey-shell",
+            "two-storey-shell-with-spaces",
+            "annotations"
+        ]
     );
     let mut seen = HashSet::new();
     for (name, build) in samples::catalogue() {
@@ -356,4 +364,70 @@ fn a_stand_in_of_20000_has_exactly_20000_elements() {
         .map(|w| w.start.x.max(w.end.x))
         .fold(f64::MIN, f64::max);
     assert!(max_x > 3.0 * block_x, "four blocks along +X: {max_x} vs {block_x}");
+}
+
+/// A text's name, content, number of lines, anchor position, size override
+/// and style name.
+type TextSummary<'a> = (&'a str, &'a str, usize, AnchorPos, Option<f64>, &'a str);
+
+/// ANN-007, ANN-010: the annotation sample is the two-storey shell with
+/// three texts, a reference model: a one-line text with the text tool's
+/// defaults, a three-line text centred on its anchor with a size override,
+/// and a rotated text in the heading style on the upper storey. Each
+/// belongs to the plan view of its storey and the project is valid.
+#[test]
+fn the_annotation_sample_is_the_shell_with_three_texts() {
+    let p = samples::annotation_sample();
+    assert_eq!(p.info.name, "Two-storey shell with annotations");
+    assert!(p.integrity_problems().is_empty());
+    let shell = samples::two_storey_shell();
+    let walls_and_slabs = p.elements.values().filter(|e| e.as_text().is_none()).count();
+    assert_eq!(walls_and_slabs, shell.elements.len());
+    let texts: Vec<_> = p.elements.values().filter_map(|e| Some((e, e.as_text()?))).collect();
+    let summary: Vec<TextSummary<'_>> = texts
+        .iter()
+        .map(|(e, t)| {
+            (
+                e.name.as_str(),
+                t.content.as_str(),
+                t.content.lines().count(),
+                t.anchor_pos,
+                t.size_mm,
+                p.text_style(t.style).unwrap().name.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (
+                "TX-001",
+                "Living room",
+                1,
+                AnchorPos::BottomLeft,
+                None,
+                "Standard 2.5 mm"
+            ),
+            (
+                "TX-002",
+                "Kitchen\n12.5 m²\nTiled floor",
+                3,
+                AnchorPos::Center,
+                Some(3.5),
+                "Standard 2.5 mm"
+            ),
+            ("TX-003", "Landing", 1, AnchorPos::MiddleLeft, None, "Heading 5.0 mm"),
+        ]
+    );
+    let angles: Vec<f64> = texts.iter().map(|(_, t)| t.angle).collect();
+    assert_eq!(angles, [0.0, 0.0, std::f64::consts::FRAC_PI_6]);
+    let ground = p.storeys.ground();
+    let upper = p.storeys.relative(ground, 1).unwrap().id;
+    let homes: Vec<StoreyId> = texts.iter().map(|(e, _)| e.storey).collect();
+    assert_eq!(homes, [ground, ground, upper]);
+    for (e, t) in &texts {
+        assert_eq!(t.view, DraftingView::plan(e.storey), "{}", e.name);
+        assert_eq!(p.layer(e.layer).unwrap().name, "2D construction");
+    }
+    assert_eq!(p.counters.get(KindTag::Text), 3);
 }

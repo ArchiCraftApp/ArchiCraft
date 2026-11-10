@@ -727,12 +727,20 @@ fn present_and_skipped(value: &Value, outcome: &ReadOutcome, collection: &str) -
         let mut value = value.clone();
         project_attr(&mut value)[key].as_array().map_or(0, Vec::len)
     };
+    // The elements of the kinds that are not nodes, such as texts, are the
+    // entries of their storey's annotations (ANN-010).
+    let entries: usize = nodes
+        .iter()
+        .filter_map(|n| n["attributes"]["archicraft::annotations"].as_array())
+        .map(Vec::len)
+        .sum();
     let present = match collection {
         "material" => project("materials"),
         "layer" => project("layers"),
         "view" => project("views"),
+        "text-style" => project("textStyles"),
         "storey" => with_attribute("archicraft::storey"),
-        _ => with_attribute("archicraft::element"),
+        _ => with_attribute("archicraft::element") + entries,
     };
     let skipped = outcome
         .problems
@@ -751,6 +759,7 @@ fn loaded(project: &Project, collection: &str) -> usize {
         "material" => project.materials.len(),
         "layer" => project.layers.len(),
         "view" => project.views.len(),
+        "text-style" => project.text_styles.len(),
         "storey" => project.storeys.as_slice().len(),
         _ => project.elements.len(),
     }
@@ -769,7 +778,7 @@ fn no_record_disappears_silently() {
         let bytes = std::fs::read(&path).unwrap();
         let value: Value = serde_json::from_slice(&bytes).unwrap();
         let outcome = archicraft_ifcx::load(&bytes).unwrap();
-        for collection in ["material", "layer", "view", "storey", "element"] {
+        for collection in ["material", "layer", "view", "text-style", "storey", "element"] {
             let (present, skipped) = present_and_skipped(&value, &outcome, collection);
             assert_eq!(
                 loaded(&outcome.project, collection) + skipped,

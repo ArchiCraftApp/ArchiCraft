@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 
 use archicraft_model::material::{FillPattern, MaterialCategory};
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, VolumeUnit};
-use archicraft_model::{KindTag, Position, PredefinedType};
+use archicraft_model::{KindTag, Position, PredefinedType, TextAlign};
 
 use super::kinds::{self, Codec, annotations};
 use super::relations;
@@ -27,8 +27,9 @@ use super::writer::IFCX_VERSION;
 use crate::container::{Header, IfcxFile};
 
 /// Version of the ArchiCraft schema written by this release: format 2
-/// stores spaces (SPC-001; [`super::migrate::MIGRATIONS`]).
-pub const FORMAT_VERSION: u32 = 2;
+/// stores spaces (SPC-001), format 3 texts and the project's text styles
+/// (ANN-007; [`super::migrate::MIGRATIONS`]).
+pub const FORMAT_VERSION: u32 = 3;
 
 pub const PROJECT: &str = "archicraft::project";
 pub const STOREY: &str = "archicraft::storey";
@@ -37,7 +38,7 @@ pub const ELEMENT: &str = "archicraft::element";
 /// The key of the group counter among the name counters (ELM-015).
 pub const GROUP_COUNTER: &str = "group";
 
-fn real() -> Value {
+pub(crate) fn real() -> Value {
     json!({"dataType": "Real"})
 }
 
@@ -45,7 +46,7 @@ pub(crate) fn length() -> Value {
     json!({"dataType": "Real", "quantityKind": "Length"})
 }
 
-fn angle() -> Value {
+pub(crate) fn angle() -> Value {
     json!({"dataType": "Real", "quantityKind": "Plane angle"})
 }
 
@@ -197,6 +198,20 @@ fn tool_defaults(present: &[&dyn Codec]) -> Value {
     object(&slots)
 }
 
+/// The project's text styles (ANN-007), each with its identity, name, size
+/// in paper millimetres, alignment and line spacing as a multiple of the
+/// size. Every project has them: files of earlier formats get the
+/// template's on migration.
+fn text_styles() -> Value {
+    array(object(&[
+        ("id", string()),
+        ("name", string()),
+        ("sizeMm", real()),
+        ("align", enumeration(TextAlign::ALL.map(TextAlign::code))),
+        ("lineSpacing", real()),
+    ]))
+}
+
 /// The drafting grid of the plan views (INP-013). Optional, because files
 /// written before it existed do not have it.
 fn plan_grid() -> Value {
@@ -282,6 +297,7 @@ fn project(present: &[&dyn Codec]) -> Value {
                 ),
             ])),
         ),
+        ("textStyles", text_styles()),
         ("toolDefaults", tool_defaults(present)),
         (
             "views",

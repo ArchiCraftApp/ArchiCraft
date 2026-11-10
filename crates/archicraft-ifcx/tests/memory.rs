@@ -144,8 +144,11 @@ fn rejecting_a_damaged_file_needs_a_small_multiple_of_the_file_size() {
 
 /// NFR-SEC-003: validation checks a raw attribute value while it reads it,
 /// without a JSON tree of it: a body mesh of more than 20 MB of text is
-/// validated in a peak heap of a hundredth of its text, where its tree took
-/// about eighteen times its text.
+/// validated in a peak heap of at most a hundredth of its text above what
+/// validating the same file without the mesh needs, where its tree took
+/// about eighteen times its text. The baseline, the file's declarations and
+/// nodes, grows with the declared `archicraft::` schema, not with the
+/// attribute, so it is measured rather than budgeted.
 #[test]
 fn validating_a_large_attribute_builds_no_tree_of_it() {
     let _serial = MEASURING.lock().unwrap_or_else(|e| e.into_inner());
@@ -153,16 +156,23 @@ fn validating_a_large_attribute_builds_no_tree_of_it() {
     assert!(bytes.len() > LARGE_ATTRIBUTE, "the file has only {} bytes", bytes.len());
     let file = validate::parse_raw(&bytes).expect("the file parses");
     // The bundled schemas are parsed once, on first use.
-    assert!(validate::validate(&validate::parse_raw(&golden_compact()).expect("parses")).is_empty());
+    let golden = golden_compact();
+    let small = validate::parse_raw(&golden).expect("parses");
+    assert!(validate::validate(&small).is_empty());
+    let before = memory_probe::start();
+    assert!(validate::validate(&small).is_empty());
+    let baseline = memory_probe::peak() - before;
     let before = memory_probe::start();
     let problems = validate::validate(&file);
     let peak = memory_probe::peak() - before;
     assert!(problems.is_empty(), "{problems:?}");
+    let above = peak.saturating_sub(baseline);
     assert!(
-        peak <= bytes.len() / 100,
-        "validating {} bytes needed a peak of {peak} bytes, {:.3} times the file",
+        above <= bytes.len() / 100,
+        "validating {} bytes needed a peak of {peak} bytes, {above} above the {baseline} of the file without the \
+         mesh, {:.3} times the file",
         bytes.len(),
-        peak as f64 / bytes.len() as f64
+        above as f64 / bytes.len() as f64
     );
 }
 

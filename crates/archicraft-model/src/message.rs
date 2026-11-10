@@ -169,6 +169,7 @@ pub const ALL_KEYS: &[&str] = &[
     "model-problem-home-storey-missing",
     "model-problem-layer-missing",
     "model-problem-material-missing",
+    "model-problem-text-style-missing",
     "model-problem-relation-end-missing",
     "model-problem-relation-ends-missing",
     // Relations (relations.rs, Relation::label_key).

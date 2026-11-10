@@ -18,7 +18,8 @@ use crate::kinds::{BoundarySource, ReferenceLine};
 use crate::layer::Layer;
 use crate::project::{DefaultsSlot, Project};
 use crate::storey::Storey;
-use crate::template::default_metric_project_with;
+use crate::template::{TEXT_STYLES, default_metric_project_with, template_text_style_id};
+use crate::text::AnchorPos;
 
 /// Namespace of the name-based (version 5) identities of [`FixtureBuilder`].
 pub const FIXTURE_NAMESPACE: Uuid = Uuid::from_u128(0x6d1f_4c1e_8a3b_5e27_9c4d_2b7a_0f15_e3c8);
@@ -190,6 +191,13 @@ impl FixtureBuilder {
     pub fn space(&mut self, storey: StoreyId, outer: Vec<DVec2>, holes: Vec<Vec<DVec2>>) -> ElementId {
         let space = self.project.new_space(storey, outer, holes, 0).kind;
         self.element(storey, space)
+    }
+
+    /// A text reading `content` with its anchor at `anchor` and the text
+    /// tool's defaults, in the plan view of `storey` (ANN-007).
+    pub fn text(&mut self, storey: StoreyId, anchor: DVec2, content: &str) -> ElementId {
+        let text = self.project.new_text(storey, anchor, content, 0).kind;
+        self.element(storey, text)
     }
 
     /// Changes an element. An element not added yet is changed before it is
@@ -399,6 +407,35 @@ pub fn two_storey_shell_with_spaces() -> Project {
     b.finish()
 }
 
+/// [`two_storey_shell`] with three texts (ANN-007), a reference model
+/// stored in the ArchiCraft namespace only (ANN-010). On the ground storey
+/// "Living room" with the text tool's defaults and a three-line note on the
+/// kitchen, centred on its anchor, at 3.5 mm instead of its style's 2.5 mm;
+/// on the upper storey "Landing" in the heading style, turned by 30 degrees
+/// and anchored at the middle of its left edge. Dimensions join it later
+/// (archicraft-1edt).
+pub fn annotation_sample() -> Project {
+    let mut b = FixtureBuilder::new("annotations").titled("Two-storey shell with annotations");
+    let [ground, upper] = add_two_storey_shell(&mut b);
+    b.text(ground, DVec2::new(2.5, 4.0), "Living room");
+    let kitchen = b.text(ground, DVec2::new(8.5, 3.0), "Kitchen\n12.5 m²\nTiled floor");
+    b.edit(kitchen, |e| {
+        if let Some(text) = e.as_text_mut() {
+            text.anchor_pos = AnchorPos::Center;
+            text.size_mm = Some(3.5);
+        }
+    });
+    let landing = b.text(upper, DVec2::new(7.5, 1.6), "Landing");
+    b.edit(landing, |e| {
+        if let Some(text) = e.as_text_mut() {
+            text.anchor_pos = AnchorPos::MiddleLeft;
+            text.angle = std::f64::consts::FRAC_PI_6;
+            text.style = template_text_style_id(TEXT_STYLES[3].0);
+        }
+    });
+    b.finish()
+}
+
 /// Adds the storeys and elements of [`two_storey_shell`]; returns the
 /// ground and the upper storey.
 fn add_two_storey_shell(b: &mut FixtureBuilder) -> [StoreyId; 2] {
@@ -438,6 +475,7 @@ const CATALOGUE: &[CatalogueEntry] = &[
     ("walls-and-slab", storey_with_walls_and_slab),
     ("two-storey-shell", two_storey_shell),
     ("two-storey-shell-with-spaces", two_storey_shell_with_spaces),
+    ("annotations", annotation_sample),
 ];
 
 /// The reference-model samples by file name, the single list behind the

@@ -167,6 +167,9 @@ pub trait Kind: Sized {
         None
     }
 
+    /// Replaces the text style; does nothing for a kind without one.
+    fn set_text_style(&mut self, _style: TextStyleId) {}
+
     /// Range checks (ELM-017, NFR-REL-005) and references to storeys, for
     /// an element on `home`, such as the binding of a 2D element to a view
     /// of its home storey (ANN-002). Returns the payload with normalised
@@ -368,6 +371,13 @@ macro_rules! kinds {
             pub fn text_style(&self) -> Option<TextStyleId> {
                 match self {
                     $($(#[$meta])* ElementKind::$Payload(k) => k.text_style(),)+
+                }
+            }
+
+            /// See [`Kind::set_text_style`].
+            pub fn set_text_style(&mut self, style: TextStyleId) {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.set_text_style(style),)+
                 }
             }
 

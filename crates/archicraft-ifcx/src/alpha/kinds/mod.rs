@@ -334,11 +334,6 @@ pub enum Stored {
     Relations,
     /// A field of the file header.
     Header(&'static str),
-    /// Not in the file yet: the reader takes the template's value. Only for
-    /// a field that no command changes, so a project always holds the
-    /// template's value: the text styles (ANN-007), until the format stores
-    /// them (archicraft-u4vm.2.2).
-    Template,
 }
 
 /// Where the file keeps each top-level serde field of
@@ -354,7 +349,7 @@ pub const PROJECT_FIELDS: &[(&str, &[Stored])] = &[
     ("storeys", &[Stored::Node("Storey"), Stored::Member("groundStorey")]),
     ("layers", &[Stored::Member("layers")]),
     ("materials", &[Stored::Member("materials"), Stored::Node("Material")]),
-    ("text_styles", &[Stored::Template]),
+    ("text_styles", &[Stored::Member("textStyles")]),
     ("elements", &[Stored::Elements, Stored::Annotations]),
     ("groups", &[Stored::Member("groups")]),
     ("relations", &[Stored::Relations]),

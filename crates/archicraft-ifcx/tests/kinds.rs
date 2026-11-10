@@ -167,7 +167,10 @@ fn a_missing_counter_of_a_kind_without_a_tool_reads_as_zero() {
     let written = project_attribute(&file)["counters"].as_object().unwrap();
     assert!(!written.contains_key("dummy"), "{written:?}");
     let declared = members(&members(project_declaration(&file))["counters"]);
-    assert_eq!(declared.keys().collect::<Vec<_>>(), ["wall", "slab", "space", "group"]);
+    assert_eq!(
+        declared.keys().collect::<Vec<_>>(),
+        ["wall", "slab", "space", "text", "group"]
+    );
     let loaded = archicraft_ifcx::load(&save(&p)).unwrap();
     assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
     assert_eq!(loaded.project.counters.get(KindTag::Dummy), 0);
@@ -219,7 +222,10 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     let bytes = save(&p);
     let file: Value = serde_json::from_slice(&bytes).unwrap();
     let slots = project_attribute(&file)["toolDefaults"].as_object().unwrap();
-    assert_eq!(slots.keys().collect::<Vec<_>>(), ["wall", "slab", "space", "dummy"]);
+    assert_eq!(
+        slots.keys().collect::<Vec<_>>(),
+        ["wall", "slab", "space", "text", "dummy"]
+    );
     let slot = slots["dummy"].as_object().unwrap();
     assert_eq!(
         slot.keys().collect::<Vec<_>>(),
@@ -239,7 +245,10 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     assert_eq!(slot["panicOnEvaluate"], false);
     assert_eq!(slot["siteLevel"], true);
     let declared = members(&members(project_declaration(&file))["toolDefaults"]);
-    assert_eq!(declared.keys().collect::<Vec<_>>(), ["wall", "slab", "space", "dummy"]);
+    assert_eq!(
+        declared.keys().collect::<Vec<_>>(),
+        ["wall", "slab", "space", "text", "dummy"]
+    );
     assert_eq!(
         members(&declared["dummy"]).keys().collect::<Vec<_>>(),
         slot.keys()
@@ -251,7 +260,7 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     let counters = members(&members(project_declaration(&file))["counters"]);
     assert_eq!(
         counters.keys().collect::<Vec<_>>(),
-        ["wall", "slab", "space", "dummy", "group"]
+        ["wall", "slab", "space", "text", "dummy", "group"]
     );
     assert!(
         !project_attribute(&file)["counters"]

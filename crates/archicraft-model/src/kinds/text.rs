@@ -117,6 +117,10 @@ impl Kind for Text {
         Some(self.style)
     }
 
+    fn set_text_style(&mut self, style: TextStyleId) {
+        self.style = style;
+    }
+
     /// A placed text must have a visible character; the tool's defaults
     /// have no content until the user types it (ANN-007).
     fn check_complete(&self) -> Result<(), Message> {

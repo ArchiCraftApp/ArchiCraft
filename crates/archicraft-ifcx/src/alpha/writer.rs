@@ -16,7 +16,7 @@ use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
 use archicraft_model::project::NameCounters;
 use archicraft_model::relations::RelationStore;
-use archicraft_model::{Element, Group, KindTag, Layer, MaterialId, PredefinedType, Project};
+use archicraft_model::{Element, Group, KindTag, Layer, MaterialId, PredefinedType, Project, TextStyle};
 use indexmap::IndexMap;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -156,6 +156,17 @@ fn material_record(m: &Material) -> Value {
     })
 }
 
+/// A text style of the project (ANN-007), its alignment by code.
+pub(crate) fn text_style_record(s: &TextStyle) -> Value {
+    json!({
+        "id": s.id.to_string(),
+        "name": s.name,
+        "sizeMm": s.size_mm,
+        "align": s.align.code(),
+        "lineSpacing": s.line_spacing,
+    })
+}
+
 /// A group entry of the project (ELM-015); `parent` only for a nested group.
 fn group_record(g: &Group) -> Value {
     let mut record = json!({
@@ -211,6 +222,7 @@ fn project_attribute(p: &Project, warnings: &mut Vec<Problem>) -> Value {
         "groundStorey": p.storeys.ground().to_string(),
         "layers": p.layers.iter().map(layer_record).collect::<Vec<_>>(),
         "materials": p.materials.iter().map(material_record).collect::<Vec<_>>(),
+        "textStyles": p.text_styles.iter().map(text_style_record).collect::<Vec<_>>(),
         "toolDefaults": tool_defaults(p, warnings),
         "views": p.views.iter().map(|v| json!({
             "id": v.id.to_string(),
