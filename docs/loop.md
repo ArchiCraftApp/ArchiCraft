@@ -48,15 +48,21 @@ bead gets the label `human` and the session pauses (`scripts/loop/pause.sh "<rea
 
 `/bead-loop [count] [parallel] [epic] [loop]` (`.claude/skills/bead-loop/SKILL.md`) runs in an
 orchestrator session that never edits code, and only one such session runs at a time: two
-pick the same beads and coordinate through the user. In the desktop app, sessions start only
-in a turn the user triggered, never in one a sub-session's report triggered (user decisions of
-2026-10-20). So each user turn (`/bead-loop` or "continue") sweeps and starts a whole batch at
-once: up to `parallel` (default 3) ready beads, each in its own fresh session and worktree with
-`/bead <id>`, whose crate labels overlap neither each other nor beads still in progress. Beads
-labelled `loop` are picked only when the user passes `loop`, at most one per batch and none
-while another loop bead's PR is open, because loop beads edit the same files. A red `main` (the
-sweep's `ATTENTION windows` line or a failed CI run on `main`) becomes a P0 bead labelled
-`red-main` that starts first in the next batch, without asking.
+pick the same beads and coordinate through the user. Each user turn (`/bead-loop` or
+"continue") sweeps and starts a whole batch at once, and so does the report turn once the whole
+batch reported, until `count` beads counted (user decision of 2026-11-09; until then a report
+turn started nothing, after the user decisions of 2026-10-20). The desktop app lets a turn that
+sub-sessions' reports triggered start sessions only when it follows the user's own turn or
+another such turn; after many of them in a row, or after a stopped or failed turn, it refuses,
+and the orchestrator ends with "continue" for the user. The app continues the orchestrator only
+when none of its sessions is still working, so batches run in lockstep: a slot that frees up
+early stays empty until the whole batch reported. A batch holds up to `parallel` (default 3)
+ready beads, each in its own fresh session and worktree with `/bead <id>`, whose crate labels
+overlap neither each other nor beads still in progress. Beads labelled `loop` are picked only
+when the user passes `loop`, at most one per batch and none while another loop bead's PR is
+open, because loop beads edit the same files. A red `main` (the sweep's `ATTENTION windows`
+line or a failed CI run on `main`) becomes a P0 bead labelled `red-main` that starts first in
+the next batch, without asking.
 
 **Tiers: model and effort per bead.** Every bead runs at a tier, its label `tier:<x>`:
 `medium`, `high`, `xhigh` and `max` are Claude Opus 5.5 at that effort, `fable` is Claude
@@ -80,10 +86,10 @@ record `effort` per message). Each bead's close note (`Close: tier <x>, <n> revi
 gate failures, …`) is the data to calibrate the rubric with. Multi-agent workflows stay out of
 the loop: one session per bead.
 
-Turns triggered by the bead sessions' reports only verify each PR and auto-merge and report.
-Nobody waits on a merge: the app's PR monitor wakes a session on a CI failure, a conflict or
-a review comment, never on a merge. A bead counts once its PR is open with auto-merge on, is in
-the merge queue, or waits for the user (see below); a bead blocked by a bead whose PR is still open is not ready
+Turns triggered by the bead sessions' reports verify each PR and auto-merge, start the next
+batch and report. Nobody waits on a merge: the app's PR monitor wakes a session on a CI
+failure, a conflict or a review comment, never on a merge. A bead counts once its PR is open
+with auto-merge on, is in the merge queue, or waits for the user (see below); a bead blocked by a bead whose PR is still open is not ready
 and goes into a later batch, and the sweep closes merged beads. The run stops after `count`
 beads or when an epic's tasks are all closed.
 
