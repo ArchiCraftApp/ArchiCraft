@@ -8,6 +8,7 @@
 use indexmap::IndexMap;
 use uuid::Uuid;
 
+use crate::changes::ChangeLog;
 use crate::element::KindTag;
 use crate::ids::{BuildingId, LayerId, MaterialId, ProjectId, SiteId, StoreyId, TextStyleId, ViewId};
 use crate::layer::Layer;
@@ -471,6 +472,7 @@ pub fn default_metric_project_with(ids: &mut dyn FnMut(&str) -> Uuid) -> Project
         group_counter: 0,
         data_version: 0,
         revision: 0,
+        changes: ChangeLog::default(),
     }
 }
 

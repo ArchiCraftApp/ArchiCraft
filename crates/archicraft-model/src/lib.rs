@@ -5,6 +5,7 @@
 //! through a [`command::Command`] executed by a [`command::History`]
 //! (NFR-MNT-001).
 
+pub mod changes;
 pub mod command;
 pub mod drafting_view;
 pub mod drawing;
@@ -30,6 +31,7 @@ pub mod transform;
 pub mod units;
 pub mod validate;
 
+pub use changes::{ChangeLog, ElementStamp};
 pub use command::{Command, CommandError, History};
 pub use drafting_view::DraftingView;
 pub use drawing::DrawingScale;
