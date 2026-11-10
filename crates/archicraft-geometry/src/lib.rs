@@ -16,6 +16,7 @@ pub mod plan;
 pub mod section;
 pub mod slice;
 pub mod space;
+pub mod sweep;
 pub mod triangulate;
 pub mod wall;
 
@@ -42,8 +43,12 @@ pub enum GeometryError {
     /// `model-error-polygon-self-intersection`), or a `geometry-polygon-`
     /// message of the triangulation.
     InvalidPolygon(Message),
-    /// The element is lower than the model tolerance.
-    InvalidExtent,
+    /// The element has no extent to make a body of. The value is the
+    /// message that says why: `geometry-no-height`
+    /// ([`GeometryError::no_height`]) for an element lower than the model
+    /// tolerance, or one of the [`sweep`](sweep::sweep)'s for a member whose
+    /// end cuts leave no length or whose axis is undefined.
+    InvalidExtent(Message),
     /// The element's home storey is not in the storey list.
     MissingHomeStorey,
     /// A storey the element's top or bottom is linked to is not in the
@@ -54,11 +59,16 @@ pub enum GeometryError {
 }
 
 impl GeometryError {
+    /// The element is lower than the model tolerance.
+    pub fn no_height() -> Self {
+        Self::InvalidExtent(Message::new("geometry-no-height"))
+    }
+
     /// The problem as a `geometry-` message (NFR-L10N-001).
     pub fn message(&self) -> Message {
         match self {
             Self::InvalidPolygon(reason) => Message::new("geometry-invalid-polygon").nested("reason", reason.clone()),
-            Self::InvalidExtent => Message::new("geometry-no-height"),
+            Self::InvalidExtent(reason) => reason.clone(),
             Self::MissingHomeStorey => Message::new("geometry-home-storey-missing"),
             Self::MissingLinkedStorey => Message::new("geometry-linked-storey-missing"),
             Self::UnsupportedKind(kind) => Message::new("geometry-kind-unsupported").kind("kind", *kind),

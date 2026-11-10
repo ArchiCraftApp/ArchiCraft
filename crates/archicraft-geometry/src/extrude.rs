@@ -20,7 +20,7 @@ fn signed_area(ring: &[DVec2]) -> f64 {
 /// enforced earlier by validation.
 pub fn extrude(outer: &[DVec2], holes: &[Vec<DVec2>], z0: f64, z1: f64) -> Result<TriMesh, GeometryError> {
     if z1 - z0 < MODEL_TOLERANCE || !z0.is_finite() || !z1.is_finite() {
-        return Err(GeometryError::InvalidExtent);
+        return Err(GeometryError::no_height());
     }
     let mut outer = outer.to_vec();
     if signed_area(&outer) < 0.0 {

@@ -23,6 +23,7 @@ fn representatives() -> Vec<Message> {
         "geometry-home-storey-missing",
         "geometry-linked-storey-missing",
         "geometry-evaluation-panicked",
+        "geometry-member-axis-undefined",
         "geometry-polygon-too-few-points",
         "geometry-polygon-not-finite",
         "geometry-polygon-coordinate-range",
@@ -35,6 +36,8 @@ fn representatives() -> Vec<Message> {
     messages.extend([
         Message::new("geometry-invalid-polygon").nested("reason", Message::new("geometry-polygon-no-area")),
         Message::new("geometry-kind-unsupported").kind("kind", KindTag::Wall),
+        Message::new("geometry-end-cuts-cross").length("min", 0.001),
+        Message::new("geometry-end-cut-parallel").angle("min", 1.0_f64.to_radians()),
     ]);
     messages
 }
@@ -76,7 +79,19 @@ fn geometry_errors_render_in_english() {
             GeometryError::InvalidPolygon(Message::new("geometry-polygon-no-area")),
             "the outline is invalid: it has no area",
         ),
-        (GeometryError::InvalidExtent, "the element has no height"),
+        (GeometryError::no_height(), "the element has no height"),
+        (
+            GeometryError::InvalidExtent(Message::new("geometry-end-cuts-cross").length("min", 0.001)),
+            "the end cuts cross or come closer than 1.000 mm",
+        ),
+        (
+            GeometryError::InvalidExtent(Message::new("geometry-end-cut-parallel").angle("min", 1.0_f64.to_radians())),
+            "an end cut meets the member's axis at less than 1.00°",
+        ),
+        (
+            GeometryError::InvalidExtent(Message::new("geometry-member-axis-undefined")),
+            "the member's axis or orientation is undefined",
+        ),
         (GeometryError::MissingHomeStorey, "the home storey is missing"),
         (GeometryError::MissingLinkedStorey, "the linked storey is missing"),
         (
