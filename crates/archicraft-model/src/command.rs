@@ -1,5 +1,5 @@
 //! Command objects and the undo history (NFR-MNT-001, UND-001, UND-002,
-//! UND-005, STR-005, ELM-015).
+//! UND-005, STR-005, ELM-015, SRS 3.3).
 //!
 //! Every change to a project is a [`Command`]. Executing a command first plans
 //! it against the current project, which validates it and produces a list of
@@ -9,7 +9,7 @@
 //! and identities stay stable. Commands are serialisable, so they can be
 //! logged and replayed.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
@@ -17,11 +17,12 @@ use thiserror::Error;
 
 use crate::element::{Element, KindTag};
 use crate::group::Group;
-use crate::ids::{ElementId, GroupId, LayerId, MaterialId, StoreyId};
+use crate::ids::{ElementId, GroupId, LayerId, MaterialId, RelationId, StoreyId};
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
 use crate::project::{DefaultsSlot, Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
+use crate::relations::Relation;
 use crate::storey::{MAX_CUT_PLANE_HEIGHT, Storey, StoreyList};
 use crate::tolerance::near_zero;
 use crate::transform::{PlanTransform, TransformError};
@@ -112,6 +113,13 @@ pub enum Command {
         group: GroupId,
         name: String,
     },
+    /// Records an explicit relation between two elements (SRS 3.3), once
+    /// [`check_relation`] accepts it. A derived storey link follows from the
+    /// elements and is refused.
+    InsertRelation(Relation),
+    /// Removes the explicit relation with this identity (SRS 3.3). A derived
+    /// storey link is refused.
+    RemoveRelation(RelationId),
 }
 
 /// Why a command was rejected. Each variant carries a message key with its
@@ -183,6 +191,8 @@ impl Command {
             Command::Group { .. } => Message::new("model-label-group"),
             Command::Ungroup { .. } => Message::new("model-label-ungroup"),
             Command::RenameGroup { .. } => Message::new("model-label-rename-group"),
+            Command::InsertRelation(_) => Message::new("model-label-insert-relation"),
+            Command::RemoveRelation(_) => Message::new("model-label-remove-relation"),
         }
     }
 
@@ -352,6 +362,24 @@ impl Command {
                     ..old.clone()
                 })])
             }
+            Command::InsertRelation(relation) => {
+                check_relation(project, relation)?;
+                Ok(vec![Edit::InsertRelation(*relation)])
+            }
+            Command::RemoveRelation(id) => {
+                if project.relations.contains(*id) {
+                    Ok(vec![Edit::RemoveRelation(*id)])
+                } else if project
+                    .elements
+                    .keys()
+                    .flat_map(|e| project.relations.relations_of(*e))
+                    .any(|r| r.is_derived() && r.id() == *id)
+                {
+                    Err(invalid("model-error-relation-derived"))
+                } else {
+                    Err(not_found("model-error-relation-not-found"))
+                }
+            }
         }
     }
 }
@@ -366,6 +394,77 @@ fn find_group(project: &Project, id: GroupId) -> Result<&Group, CommandError> {
     project
         .group(id)
         .ok_or_else(|| not_found("model-error-group-not-found"))
+}
+
+/// Checks that `relation` can be recorded (SRS 3.3, NFR-REL-005): it is an
+/// explicit relation, both ends are elements of the project and they differ,
+/// it is not recorded yet (a junction neither the other way round, as it is
+/// symmetric), and a host relation gives its hosted element its only host
+/// without closing a cycle of hosts, so that hosted elements nest under
+/// their hosts. Every refusal is [`CommandError::Invalid`] naming the kind
+/// of relation and, where it exists, the element.
+fn check_relation(project: &Project, relation: &Relation) -> Result<(), CommandError> {
+    let Some((first, second)) = relation.ends() else {
+        return Err(invalid("model-error-relation-derived"));
+    };
+    let kind = || Message::new(relation.label_key());
+    let (Some(dependent), Some(_)) = (project.element(first), project.element(second)) else {
+        return Err(CommandError::Invalid(
+            Message::new("model-error-relation-end-missing").nested("relation", kind()),
+        ));
+    };
+    let named = |key| Message::new(key).text("name", &dependent.name);
+    let refuse = |key| CommandError::Invalid(named(key).nested("relation", kind()));
+    if first == second {
+        return Err(refuse("model-error-relation-self"));
+    }
+    let reversed = match *relation {
+        Relation::Junction { a, b } => Some(Relation::Junction { a: b, b: a }),
+        _ => None,
+    };
+    if std::iter::once(*relation)
+        .chain(reversed)
+        .any(|r| project.relations.contains(r.id()))
+    {
+        return Err(refuse("model-error-relation-duplicate"));
+    }
+    if let Relation::Host { hosted, host } = *relation {
+        if project.relations.host_of(hosted).is_some() {
+            return Err(CommandError::Invalid(named("model-error-host-twice")));
+        }
+        // With one host per element the hosts above `host` form a chain; it
+        // ends at an element without a host, or at `hosted` for a cycle. A
+        // file's own cycle, not repaired at load (NFR-REL-004), ends the
+        // walk when it comes round.
+        let mut seen = HashSet::new();
+        let mut above = Some(host);
+        while let Some(element) = above {
+            if element == hosted {
+                return Err(CommandError::Invalid(named("model-error-host-cycle")));
+            }
+            if !seen.insert(element) {
+                break;
+            }
+            above = project.relations.host_of(element);
+        }
+    }
+    Ok(())
+}
+
+/// An [`Edit::RemoveRelation`] for every explicit relation of an element
+/// that `edits` remove (SRS 3.3), each once, in identity order. They go
+/// before the element removals, so that undo puts the elements back before
+/// their relations and no relation is left dangling.
+fn remove_relations_of(project: &Project, edits: &[Edit]) -> Vec<Edit> {
+    let relations: BTreeSet<RelationId> = edits
+        .iter()
+        .filter_map(|edit| match edit {
+            Edit::RemoveElement { id } => Some(*id),
+            _ => None,
+        })
+        .flat_map(|id| project.relations.ids_touching(id))
+        .collect();
+    relations.into_iter().map(Edit::RemoveRelation).collect()
 }
 
 fn storey_edit(project: &Project, list: StoreyList) -> Result<Vec<Edit>, CommandError> {
@@ -465,11 +564,13 @@ fn plan_add_elements(project: &Project, elements: &[Element]) -> Result<Vec<Edit
     Ok(edits)
 }
 
+/// Removes elements with their explicit relations (SRS 3.3) and the groups
+/// they leave empty (ELM-015).
 fn plan_delete_elements(project: &Project, ids: &[ElementId]) -> Result<Vec<Edit>, CommandError> {
     if ids.is_empty() {
         return Err(CommandError::NoChange);
     }
-    let mut edits = Vec::with_capacity(ids.len());
+    let mut removals = Vec::with_capacity(ids.len());
     for (i, id) in ids.iter().enumerate() {
         if ids[..i].contains(id) {
             continue;
@@ -478,8 +579,10 @@ fn plan_delete_elements(project: &Project, ids: &[ElementId]) -> Result<Vec<Edit
         if let Some(reason) = project.edit_lock_reason(element) {
             return Err(CommandError::Locked(reason));
         }
-        edits.push(Edit::RemoveElement { id: *id });
+        removals.push(Edit::RemoveElement { id: *id });
     }
+    let mut edits = remove_relations_of(project, &removals);
+    edits.extend(removals);
     edits.extend(remove_emptied_groups(project, &edits));
     Ok(edits)
 }
@@ -730,9 +833,13 @@ fn plan_delete_storey(project: &Project, storey: StoreyId, mode: StoreyElements)
         edits.push(Edit::SetToolDefaults(defaults));
     }
     check_linked_heights(project, &list, &edits)?;
-    edits.extend(remove_emptied_groups(project, &edits));
-    edits.push(Edit::SetStoreys(list));
-    Ok(edits)
+    // SRS 3.3: the deleted elements' relations go first, as for
+    // `plan_delete_elements`.
+    let mut planned = remove_relations_of(project, &edits);
+    planned.extend(edits);
+    planned.extend(remove_emptied_groups(project, &planned));
+    planned.push(Edit::SetStoreys(list));
+    Ok(planned)
 }
 
 fn check_layer(layer: &Layer) -> Result<(), CommandError> {
@@ -878,7 +985,8 @@ fn check_settings(settings: &ProjectSettings) -> Result<(), CommandError> {
 }
 
 /// A primitive, invertible change. Edits are produced by [`Command::plan`] and
-/// applied by [`History`].
+/// applied by [`History`]. `InsertRelation` and `RemoveRelation` record and
+/// remove an explicit relation (SRS 3.3), each the other's inverse.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Edit {
     InsertElement { index: usize, element: Element },
@@ -901,16 +1009,22 @@ pub enum Edit {
     RemoveGroup { id: GroupId },
     ReplaceGroup(Group),
     SetGroupCounter(u32),
+    InsertRelation(Relation),
+    RemoveRelation(RelationId),
 }
 
 impl Edit {
-    /// Applies the edit and returns its inverse.
+    /// Applies the edit and returns its inverse. An edit that inserts,
+    /// removes or replaces an element updates the relation store's index
+    /// for that element (STR-006), so that the index stays exact through
+    /// undo and redo.
     pub fn apply(self, project: &mut Project) -> Result<Edit, CommandError> {
         let inverse = match self {
             Edit::InsertElement { index, element } => {
                 let id = element.id;
                 let index = index.min(project.elements.len());
                 project.elements.shift_insert(index, id, element);
+                project.relations.update_element(id, project.elements.get(&id));
                 Edit::RemoveElement { id }
             }
             Edit::RemoveElement { id } => {
@@ -918,14 +1032,18 @@ impl Edit {
                     .elements
                     .shift_remove_full(&id)
                     .ok_or_else(|| not_found("model-error-element-not-found"))?;
+                project.relations.update_element(id, None);
                 Edit::InsertElement { index, element }
             }
             Edit::ReplaceElement(element) => {
+                let id = element.id;
                 let slot = project
                     .elements
-                    .get_mut(&element.id)
+                    .get_mut(&id)
                     .ok_or_else(|| not_found("model-error-element-not-found"))?;
-                Edit::ReplaceElement(std::mem::replace(slot, element))
+                let old = std::mem::replace(slot, element);
+                project.relations.update_element(id, Some(slot));
+                Edit::ReplaceElement(old)
             }
             Edit::SetStoreys(list) => Edit::SetStoreys(std::mem::replace(&mut project.storeys, list)),
             Edit::InsertLayer { index, layer } => {
@@ -1012,6 +1130,21 @@ impl Edit {
             Edit::SetGroupCounter(counter) => {
                 Edit::SetGroupCounter(std::mem::replace(&mut project.group_counter, counter))
             }
+            Edit::InsertRelation(relation) => {
+                if relation.is_derived() {
+                    return Err(invalid("model-error-relation-derived"));
+                }
+                if !project.relations.insert(relation) {
+                    return Err(invalid("model-error-relation-duplicate"));
+                }
+                Edit::RemoveRelation(relation.id())
+            }
+            Edit::RemoveRelation(id) => Edit::InsertRelation(
+                project
+                    .relations
+                    .remove(id)
+                    .ok_or_else(|| not_found("model-error-relation-not-found"))?,
+            ),
         };
         project.revision += 1;
         Ok(inverse)
@@ -1046,6 +1179,19 @@ pub struct Transaction {
     forward: Vec<Edit>,
     /// Inverse edits, already in the order they must be applied.
     inverse: Vec<Edit>,
+}
+
+impl Transaction {
+    /// The edits that carried the command out, in the order they were
+    /// applied; redo applies them again.
+    pub fn forward(&self) -> &[Edit] {
+        &self.forward
+    }
+
+    /// The edits that undo the command, in the order undo applies them.
+    pub fn inverse(&self) -> &[Edit] {
+        &self.inverse
+    }
 }
 
 /// A line of the command journal, for logs and crash reports: the command
@@ -1177,6 +1323,12 @@ impl History {
     /// with the starting project they replay the session.
     pub fn applied_commands(&self) -> impl Iterator<Item = &Command> {
         self.undo.iter().map(|t| &t.command)
+    }
+
+    /// The transactions that produced the current state, oldest first, with
+    /// their edits.
+    pub fn transactions(&self) -> impl Iterator<Item = &Transaction> {
+        self.undo.iter()
     }
 
     /// Recent executed, undone and redone commands, oldest first.

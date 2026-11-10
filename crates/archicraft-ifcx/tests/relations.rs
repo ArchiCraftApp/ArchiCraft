@@ -6,8 +6,10 @@
 
 mod common;
 
+use std::collections::BTreeSet;
+
 use archicraft_ifcx::validate::{self, Severity};
-use archicraft_model::{ElementId, Project, Relation, samples};
+use archicraft_model::{Command, ElementId, History, Project, Relation, TopLink, samples};
 use serde_json::{Value, json};
 
 use common::{edit, node_index, save};
@@ -20,12 +22,13 @@ fn id_of(project: &Project, name: &str) -> ElementId {
 }
 
 /// The walls-and-slab sample with a Host relation from W-001 to W-002,
-/// inserted straight into the store (the relation commands are a later
-/// slice), and the two ids.
+/// recorded by command, and the two ids.
 fn sample_with_a_host_relation() -> (Project, ElementId, ElementId) {
     let mut project = samples::storey_with_walls_and_slab();
     let (hosted, host) = (id_of(&project, "W-001"), id_of(&project, "W-002"));
-    assert!(project.relations.insert(Relation::Host { hosted, host }));
+    History::default()
+        .execute(&mut project, Command::InsertRelation(Relation::Host { hosted, host }))
+        .unwrap();
     (project, hosted, host)
 }
 
@@ -197,4 +200,62 @@ fn a_relation_listed_twice_is_read_once_and_reported() {
             && text.contains("ifcx-relation-listed-twice"),
         "{text}"
     );
+}
+
+/// SRS 3.3, STR-006: a load rebuilds the derived relation index once, after
+/// every element and relation is read, so the storey dependents are right
+/// once the file is open: the elements homed on each storey and those whose
+/// top is linked to it by its identity, as in the saved project.
+#[test]
+fn a_load_rebuilds_the_relation_index_once() {
+    let mut project = samples::two_storey_shell();
+    let mut history = History::default();
+    let (ground, upper) = (project.storeys.ground(), project.storeys.as_slice()[1].id);
+    let mut linked = project
+        .elements_on(ground)
+        .find(|e| e.as_wall().is_some())
+        .unwrap()
+        .clone();
+    if let Some(wall) = linked.as_wall_mut() {
+        wall.top = TopLink::Storey {
+            storey: upper,
+            offset: -0.2,
+        };
+    }
+    let linked_id = linked.id;
+    history
+        .execute(&mut project, Command::UpdateElements(vec![linked]))
+        .unwrap();
+    let (hosted, host) = (id_of(&project, "W-002"), id_of(&project, "W-003"));
+    history
+        .execute(&mut project, Command::InsertRelation(Relation::Host { hosted, host }))
+        .unwrap();
+
+    let loaded = archicraft_ifcx::load(&save(&project)).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    let p = &loaded.project;
+    #[cfg(debug_assertions)]
+    assert_eq!(p.relations.rebuild_count(), 1, "one full rebuild per load");
+    assert!(p.relations.storey_dependents(upper).contains(&linked_id));
+    for storey in p.storeys.iter() {
+        let expected: BTreeSet<ElementId> = p
+            .elements
+            .values()
+            .filter(|e| e.storey == storey.id || e.kind.storey_links().iter().any(|l| l.storey == storey.id))
+            .map(|e| e.id)
+            .collect();
+        assert!(!expected.is_empty(), "{}", storey.name);
+        assert_eq!(p.relations.storey_dependents(storey.id), expected, "{}", storey.name);
+        assert_eq!(
+            p.relations.storey_dependents(storey.id),
+            project.relations.storey_dependents(storey.id),
+            "{}",
+            storey.name
+        );
+    }
+    assert!(
+        p.relations.same_index(&project.relations),
+        "the loaded project's index is the saved project's"
+    );
+    assert_eq!(p.relations.host_of(hosted), Some(host));
 }

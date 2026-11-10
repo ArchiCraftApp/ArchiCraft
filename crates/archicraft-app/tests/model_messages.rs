@@ -51,6 +51,8 @@ fn representatives() -> Vec<Message> {
             "model-label-group",
             "model-label-ungroup",
             "model-label-rename-group",
+            "model-label-insert-relation",
+            "model-label-remove-relation",
         ]
         .map(Message::new),
     );
@@ -134,6 +136,8 @@ fn error_representatives() -> Vec<Message> {
         "model-error-group-not-found",
         "model-error-group-name",
         "model-error-group-change",
+        "model-error-relation-derived",
+        "model-error-relation-not-found",
         "model-error-polygon-points",
         "model-error-polygon-area",
         "model-error-polygon-self-intersection",
@@ -210,6 +214,11 @@ fn error_representatives() -> Vec<Message> {
             .count("count", 1)
             .length("max", 1000.0),
         named("model-error-transform-unsupported"),
+        Message::new("model-error-relation-end-missing").nested("relation", Message::new("model-relation-trim")),
+        named("model-error-relation-self").nested("relation", Message::new("model-relation-junction")),
+        named("model-error-relation-duplicate").nested("relation", Message::new("model-relation-host")),
+        named("model-error-host-twice"),
+        named("model-error-host-cycle"),
         named("model-error-element-locked"),
         named("model-error-layer-locked").text("layer", "Walls"),
         named("model-problem-home-storey-missing"),

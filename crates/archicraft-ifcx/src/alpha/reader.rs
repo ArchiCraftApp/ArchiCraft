@@ -36,6 +36,8 @@
 //! The element nodes are read first, storey by storey, then the nodes'
 //! explicit relations, then the annotation entries, which may need both
 //! (a dimension's binding), and last the relations that name an entry.
+//! Then the project builds its derived relation index once (SRS 3.3,
+//! STR-006), which the edits keep up to date from then on.
 //!
 //! An opened file holds its attribute values as raw JSON text
 //! ([`crate::validate::parse_raw`]); the reader parses the attributes it
@@ -1535,6 +1537,9 @@ fn read_migrated<A: AttributeValue>(
     // known.
     let entry_relations = annotations::read(&mut project, &nodes, &storey_entries, &mut problems);
     relations::settle(&mut project, waiting.into_iter().chain(entry_relations), &mut problems);
+    // SRS 3.3, STR-006: the relation index, once every element and relation
+    // is in.
+    project.rebuild_indexes();
     project.counters = read_counters(
         data.counters.as_ref().map_err(Clone::clone),
         &project,

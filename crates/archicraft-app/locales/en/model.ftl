@@ -44,6 +44,8 @@ model-label-location = Change project location
 model-label-group = Group
 model-label-ungroup = Ungroup
 model-label-rename-group = Rename group
+model-label-insert-relation = Add relation
+model-label-remove-relation = Remove relation
 
 ## Element kinds: the label (a name on its own, such as a heading) and the
 ## noun inside a sentence, with $count selecting the plural.
@@ -128,6 +130,15 @@ model-error-duplicate-group-id = A group with this ID already exists.
 model-error-group-not-found = The group does not exist.
 model-error-group-name = A group needs a name.
 model-error-group-change = An element joins or leaves a group only through Group and Ungroup.
+# Relations between elements (SRS 3.3). $relation is the name of the kind of
+# relation (model-relation-*), $name the element that depends on the other.
+model-error-relation-derived = Storey links follow from the elements' storeys and cannot be added or removed.
+model-error-relation-not-found = The relation does not exist.
+model-error-relation-end-missing = The { $relation } relation refers to an element that does not exist.
+model-error-relation-self = { $name } cannot have a { $relation } relation with itself.
+model-error-relation-duplicate = { $name } already has this { $relation } relation.
+model-error-host-twice = { $name } already has a host.
+model-error-host-cycle = { $name } cannot be hosted by an element it hosts.
 
 ## Element validation (ELM-017, EDT-018, EDT-019). $kind is an element kind
 ## noun, $class an IFC class name such as IfcWall.
