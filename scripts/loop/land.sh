@@ -49,11 +49,15 @@ body="$(mktemp "${TMPDIR:-/tmp}/loop-pr.XXXXXX")"
     echo
     if [ -s "$(loop_dir)/review.md" ]; then loop_nest_headings 3 "$(loop_dir)/review.md"; else echo "(no review notes)"; fi
     echo
-    since="$(loop_changed_since_review "$tree" | sed 's/.*/`&`/' | paste -sd ' ' - || true)"
-    if [ -z "$since" ]; then
+    if loop_stamp_valid review.ok "$tree"; then
         echo "Local gate and review passed on tree \`$tree\`."
-    else
+    elif loop_review_prose_only "$tree"; then
+        since="$(loop_changed_since_review "$tree" | sed 's/.*/`&`/' | paste -sd ' ' - || true)"
         echo "Local gate passed on tree \`$tree\`; the review passed before these changes to prose only: $since."
+    else
+        # A review that a rebase carried over (loop_review_rebased, archicraft-qpy17).
+        prose="$(loop_rebased_prose_changes "$tree" | sed 's/.*/`&`/' | paste -sd ' ' - || true)"
+        echo "Local gate passed on tree \`$tree\`; the review passed on the same change before the rebase onto \`$(git rev-parse --short "$(loop_fork_point)")\`, hunk for hunk outside the prose${prose:+, with prose that differs from what it saw: $prose}."
     fi
     # Its settings take effect only when the user runs it, and only from the merged main: they may
     # rely on workflows this PR brings (docs/loop.md, Setup). A PR that auto-merges needs that step

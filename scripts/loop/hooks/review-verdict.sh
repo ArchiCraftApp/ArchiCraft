@@ -64,7 +64,9 @@ if [ -n "$verdict" ] || [ ! -f "$dir/review.ok" ]; then
 fi
 
 if [ "$verdict" = PASS ] && loop_stamp_valid gate.ok "$tree"; then
-    loop_stamp_write review.ok "$tree" "$bead"
+    # With the fork point of the reviewed change, so a rebase that leaves it as it was keeps the
+    # review (loop_review_rebased).
+    loop_stamp_write review.ok "$tree" "$bead" "$(loop_fork_point)"
     jq -n --arg m "Review PASS stamped for $bead (tree ${tree:0:12})." '{systemMessage: $m}'
 elif [ "$verdict" = PASS ]; then
     jq -n --arg m "Review PASS not stamped for $bead: the tree has no passing gate (it changed after scripts/loop/gate.sh). Run the gate, then review again." '{systemMessage: $m}'
