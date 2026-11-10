@@ -127,15 +127,6 @@ fn change<K: Vertical>(element: &mut Element, change: impl FnOnce(&mut VerticalL
     }
 }
 
-/// The top of a link as the code of the `top_mode` field.
-fn top_mode(top: TopLink) -> &'static str {
-    match top {
-        TopLink::Fixed { .. } => "fixed",
-        TopLink::Storey { .. } => "storey",
-        TopLink::Relative { .. } => "relative",
-    }
-}
-
 /// The new top of an element of kind `K` on `home` for the top mode `mode`:
 /// a fixed height or a storey link that keeps the current top elevation
 /// (the storey above the home storey, else the storey at the top), or the
@@ -143,8 +134,8 @@ fn top_mode(top: TopLink) -> &'static str {
 fn top_for_mode(element: &Element, link: VerticalLink, mode: &str, project: &Project) -> TopLink {
     let (bottom, top) = project.vertical_extent(element).unwrap_or((0.0, 3.0));
     match mode {
-        "fixed" => TopLink::Fixed { height: top - bottom },
-        "storey" => {
+        TopLink::FIXED => TopLink::Fixed { height: top - bottom },
+        TopLink::STOREY => {
             let s = project
                 .storeys
                 .relative(element.storey, 1)
@@ -154,13 +145,20 @@ fn top_for_mode(element: &Element, link: VerticalLink, mode: &str, project: &Pro
                 offset: top - s.elevation,
             }
         }
-        "relative" => TopLink::Relative {
+        TopLink::RELATIVE => TopLink::Relative {
             storeys: 1,
             offset: 0.0,
         },
         _ => link.top,
     }
 }
+
+/// The labels of [`TopLink::CODES`] in the `top_mode` field.
+const TOP_MODE_LABELS: [&str; 3] = [
+    "model-top-mode-fixed",
+    "model-top-mode-storey",
+    "model-top-mode-relative",
+];
 
 /// The storey offsets the `linked_storey` field offers (ELM-006).
 const LINKED_STOREYS: [i32; 6] = [-2, -1, 0, 1, 2, 3];
@@ -189,7 +187,7 @@ pub(crate) const fn fields<K: Vertical>(height_message: &'static str) -> [FieldS
             "top_mode",
             "model-field-top-mode",
             Section::Geometry,
-            |e, _| K::link_of(e).map(|l| FieldValue::Code(top_mode(l.top))),
+            |e, _| K::link_of(e).map(|l| FieldValue::Code(l.top.code())),
             |e, v, project| {
                 if let (Some(mode), Some(link)) = (fields::code(v), K::link_of(e)) {
                     let top = top_for_mode(e, link, mode, project);
@@ -197,13 +195,11 @@ pub(crate) const fn fields<K: Vertical>(height_message: &'static str) -> [FieldS
                 }
             },
             |_, _| {
-                [
-                    ("fixed", "model-top-mode-fixed"),
-                    ("storey", "model-top-mode-storey"),
-                    ("relative", "model-top-mode-relative"),
-                ]
-                .map(|(code, key)| (FieldValue::Code(code), fields::message(key)))
-                .to_vec()
+                TopLink::CODES
+                    .into_iter()
+                    .zip(TOP_MODE_LABELS)
+                    .map(|(code, key)| (FieldValue::Code(code), fields::message(key)))
+                    .collect()
             },
         ),
         FieldSpec::new(

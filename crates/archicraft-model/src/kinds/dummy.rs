@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use super::{
     Container, Kind, KindDescriptor, KindTag, PartSpec, StoreyLinkRef, Vertical, VerticalLink, plan_bounds_of, vertical,
 };
-use crate::fields::FieldSpec;
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
+use crate::fields::FieldSpec;
 use crate::ids::{ElementId, MaterialId, StoreyId};
 use crate::message::Message;
 use crate::project::Project;

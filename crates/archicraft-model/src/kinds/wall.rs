@@ -52,6 +52,25 @@ impl ReferenceLine {
         }
     }
 
+    /// The locations the `reference_line` field offers, in display order; a
+    /// custom location stands for every offset.
+    pub const ALL: [ReferenceLine; 4] = [
+        ReferenceLine::Outside,
+        ReferenceLine::Center,
+        ReferenceLine::Inside,
+        ReferenceLine::Custom(0.0),
+    ];
+
+    /// The location with the code `code` ([`Self::code`]); the code
+    /// `custom` gives a custom location at `custom_offset` from the exterior
+    /// face. `None` for an unknown code.
+    pub fn from_code(code: &str, custom_offset: f64) -> Option<Self> {
+        Self::ALL.into_iter().find(|r| r.code() == code).map(|r| match r {
+            ReferenceLine::Custom(_) => ReferenceLine::Custom(custom_offset),
+            other => other,
+        })
+    }
+
     /// The location's code in the `reference_line` field, as in files.
     pub fn code(self) -> &'static str {
         match self {
@@ -170,14 +189,6 @@ impl Vertical for Wall {
     }
 }
 
-/// The reference line locations the `reference_line` field offers.
-const REFERENCE_LINES: [ReferenceLine; 4] = [
-    ReferenceLine::Outside,
-    ReferenceLine::Center,
-    ReferenceLine::Inside,
-    ReferenceLine::Custom(0.0),
-];
-
 const HEIGHT_FIELDS: [FieldSpec; 6] = vertical::fields::<Wall>("model-error-wall-height-range");
 
 /// The wall's parameters (WAL-001, WAL-003, ELM-006), ranged as
@@ -203,18 +214,15 @@ const FIELDS: &[FieldSpec] = &[
         |e, _| e.as_wall().map(|w| FieldValue::Code(w.reference_line.code())),
         |e, v, _| {
             let Some(w) = e.as_wall_mut() else { return };
-            w.reference_line = match fields::code(v) {
-                Some("outside") => ReferenceLine::Outside,
-                Some("center") => ReferenceLine::Center,
-                Some("inside") => ReferenceLine::Inside,
-                // A custom offset starts where the line is, so it does not
-                // move the wall.
-                Some("custom") => ReferenceLine::Custom(-w.reference_line.face_offsets(w.thickness).0),
-                _ => w.reference_line,
-            };
+            // A custom offset starts where the line is, so it does not move
+            // the wall.
+            let current = -w.reference_line.face_offsets(w.thickness).0;
+            if let Some(line) = fields::code(v).and_then(|c| ReferenceLine::from_code(c, current)) {
+                w.reference_line = line;
+            }
         },
         |_, _| {
-            REFERENCE_LINES
+            ReferenceLine::ALL
                 .iter()
                 .map(|r| (FieldValue::Code(r.code()), fields::message(r.label_key())))
                 .collect()

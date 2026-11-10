@@ -16,7 +16,7 @@ use crate::message::Message;
 
 pub(crate) fn top_link_schema() -> Value {
     schema::object(&[
-        ("link", schema::enumeration(["fixed", "storey", "relative"])),
+        ("link", schema::enumeration(TopLink::CODES)),
         ("value", schema::length()),
         ("storey", schema::optional(schema::reference())),
         ("relative", schema::optional(schema::integer())),
@@ -24,7 +24,7 @@ pub(crate) fn top_link_schema() -> Value {
 }
 
 pub(crate) fn reference_line_schema() -> Value {
-    schema::enumeration(["outside", "center", "inside", "custom"])
+    schema::enumeration(ReferenceLine::ALL.map(ReferenceLine::code))
 }
 
 /// The drafting view of a 2D element (ANN-002): its type and, for a plan
@@ -88,21 +88,17 @@ pub(crate) fn read_outline(attr: &Object, report: &mut Report<'_>) -> Result<Out
 
 pub(crate) fn top_link_value(top: TopLink) -> Value {
     match top {
-        TopLink::Fixed { height } => json!({"link": "fixed", "value": height}),
-        TopLink::Storey { storey, offset } => json!({"link": "storey", "value": offset, "storey": storey.to_string()}),
-        TopLink::Relative { storeys, offset } => json!({"link": "relative", "value": offset, "relative": storeys}),
+        TopLink::Fixed { height } => json!({"link": top.code(), "value": height}),
+        TopLink::Storey { storey, offset } => {
+            json!({"link": top.code(), "value": offset, "storey": storey.to_string()})
+        }
+        TopLink::Relative { storeys, offset } => json!({"link": top.code(), "value": offset, "relative": storeys}),
     }
 }
 
 /// Adds `referenceLine`, and `referenceOffset` for a custom line.
 pub(crate) fn write_reference_line(map: &mut Map<String, Value>, line: ReferenceLine) {
-    let code = match line {
-        ReferenceLine::Outside => "outside",
-        ReferenceLine::Center => "center",
-        ReferenceLine::Inside => "inside",
-        ReferenceLine::Custom(_) => "custom",
-    };
-    map.insert("referenceLine".into(), json!(code));
+    map.insert("referenceLine".into(), json!(line.code()));
     if let ReferenceLine::Custom(offset) = line {
         map.insert("referenceOffset".into(), json!(offset));
     }
@@ -111,12 +107,12 @@ pub(crate) fn write_reference_line(map: &mut Map<String, Value>, line: Reference
 pub(crate) fn read_top_link(map: &Object) -> Result<TopLink, Message> {
     let value = real(map, "value")?;
     match text(map, "link")?.as_str() {
-        "fixed" => Ok(TopLink::Fixed { height: value }),
-        "storey" => Ok(TopLink::Storey {
+        TopLink::FIXED => Ok(TopLink::Fixed { height: value }),
+        TopLink::STOREY => Ok(TopLink::Storey {
             storey: StoreyId::from_uuid(uuid(map, "storey")?),
             offset: value,
         }),
-        "relative" => Ok(TopLink::Relative {
+        TopLink::RELATIVE => Ok(TopLink::Relative {
             storeys: i32::try_from(integer(map, "relative")?)
                 .map_err(|_| about("ifcx-field-out-of-range", "relative"))?,
             offset: value,
@@ -126,12 +122,11 @@ pub(crate) fn read_top_link(map: &Object) -> Result<TopLink, Message> {
 }
 
 pub(crate) fn read_reference_line(map: &Object) -> Result<ReferenceLine, Message> {
-    match text(map, "referenceLine")?.as_str() {
-        "outside" => Ok(ReferenceLine::Outside),
-        "center" => Ok(ReferenceLine::Center),
-        "inside" => Ok(ReferenceLine::Inside),
-        "custom" => Ok(ReferenceLine::Custom(real(map, "referenceOffset")?)),
-        other => Err(about("ifcx-field-unknown-value", "referenceLine").text("value", other)),
+    let code = text(map, "referenceLine")?;
+    match ReferenceLine::from_code(&code, 0.0) {
+        Some(ReferenceLine::Custom(_)) => Ok(ReferenceLine::Custom(real(map, "referenceOffset")?)),
+        Some(line) => Ok(line),
+        None => Err(about("ifcx-field-unknown-value", "referenceLine").text("value", code)),
     }
 }
 

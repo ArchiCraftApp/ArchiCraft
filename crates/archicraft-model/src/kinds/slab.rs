@@ -24,6 +24,17 @@ pub enum SlabReference {
 }
 
 impl SlabReference {
+    /// The reference faces in display order.
+    pub const ALL: [SlabReference; 2] = [SlabReference::Top, SlabReference::Bottom];
+
+    /// Message key of the face's name (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
+        match self {
+            SlabReference::Top => "model-slab-reference-top",
+            SlabReference::Bottom => "model-slab-reference-bottom",
+        }
+    }
+
     pub fn code(self) -> &'static str {
         match self {
             SlabReference::Top => "top",
@@ -124,10 +135,10 @@ const FIELDS: &[FieldSpec] = &[
             }
         },
         |_, _| {
-            vec![
-                (FieldValue::Code("top"), fields::message("model-slab-reference-top")),
-                (FieldValue::Code("bottom"), fields::message("model-slab-reference-bottom")),
-            ]
+            SlabReference::ALL
+                .iter()
+                .map(|r| (FieldValue::Code(r.code()), fields::message(r.label_key())))
+                .collect()
         },
     ),
     FieldSpec::new(

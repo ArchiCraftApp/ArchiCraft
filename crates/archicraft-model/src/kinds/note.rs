@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::{Kind, KindDescriptor, KindTag, plan_bounds_of};
 use crate::drafting_view::{DraftingView, zero_height_extent};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction};
+use crate::fields::{self, FieldSpec, FieldType, FieldValue, Section};
 use crate::ids::{ElementId, StoreyId};
 use crate::message::Message;
 use crate::project::Project;
@@ -60,6 +61,44 @@ impl Note {
     }
 }
 
+/// The plan point, ranged as [`validate::check_point`] checks it (ELM-017).
+const FIELDS: &[FieldSpec] = &[
+    FieldSpec::new(
+        "x",
+        "model-field-x",
+        Section::Geometry,
+        FieldType::Elevation,
+        |e, _| e.as_note().map(|n| FieldValue::Length(n.at.x)),
+        |e, v, _| {
+            if let (Some(n), Some(v)) = (e.as_note_mut(), fields::length(v)) {
+                n.at.x = v;
+            }
+        },
+    )
+    .ranged(
+        -validate::MAX_COORDINATE,
+        validate::MAX_COORDINATE,
+        "model-error-coordinates-range",
+    ),
+    FieldSpec::new(
+        "y",
+        "model-field-y",
+        Section::Geometry,
+        FieldType::Elevation,
+        |e, _| e.as_note().map(|n| FieldValue::Length(n.at.y)),
+        |e, v, _| {
+            if let (Some(n), Some(v)) = (e.as_note_mut(), fields::length(v)) {
+                n.at.y = v;
+            }
+        },
+    )
+    .ranged(
+        -validate::MAX_COORDINATE,
+        validate::MAX_COORDINATE,
+        "model-error-coordinates-range",
+    ),
+];
+
 impl Kind for Note {
     /// Table 5-1: an `IfcAnnotation`; names `NT-001`, `NT-002`, …; no
     /// drawing tool, no body, and stored outside the IFCX node tree like
@@ -78,7 +117,7 @@ impl Kind for Note {
         ifcx_node: false,
         construction: false,
         template_defaults: None,
-        fields: &[],
+        fields: FIELDS,
     };
 
     /// The point must be within the model's range, and the view must be the

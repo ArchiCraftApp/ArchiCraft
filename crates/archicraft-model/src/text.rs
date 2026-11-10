@@ -188,6 +188,21 @@ impl AnchorPos {
         Self::ALL.into_iter().find(|a| a.code() == code)
     }
 
+    /// Message key of the position's name (NFR-L10N-001).
+    pub fn label_key(self) -> &'static str {
+        match self {
+            AnchorPos::TopLeft => "model-anchor-top-left",
+            AnchorPos::TopCenter => "model-anchor-top-center",
+            AnchorPos::TopRight => "model-anchor-top-right",
+            AnchorPos::MiddleLeft => "model-anchor-middle-left",
+            AnchorPos::Center => "model-anchor-center",
+            AnchorPos::MiddleRight => "model-anchor-middle-right",
+            AnchorPos::BottomLeft => "model-anchor-bottom-left",
+            AnchorPos::BottomCenter => "model-anchor-bottom-center",
+            AnchorPos::BottomRight => "model-anchor-bottom-right",
+        }
+    }
+
     /// Where the position lies across the block's width: 0 at the left edge,
     /// 0.5 in the middle, 1 at the right edge.
     pub fn x_fraction(self) -> f64 {
