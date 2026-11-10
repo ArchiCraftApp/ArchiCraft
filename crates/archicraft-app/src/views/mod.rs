@@ -4,6 +4,7 @@ pub mod annotation_draw;
 pub mod camera;
 pub mod plan;
 pub mod render3d;
+pub mod transfer;
 pub mod view3d;
 
 use crate::commands::{CommandCtx, Origin, Registry, Target, edit};

@@ -47,6 +47,13 @@ table (`commands/d8.rs`) and the OS-reserved tables (`commands/os_reserved.rs`);
 - **Space held is contour detection, provisionally** (INP-018; D.8 names no key). Alt picks the
   clicked edge only, but Alt with Space held is Alt+Space, the window menu on Windows and Linux:
   there, switch detection on with Design ▸ Contour detection and Alt-click without Space.
+- **Alt-click picks up, Alt+Primary-click injects parameters** (ELM-003), as in the reference
+  product. They are modifier gestures of a click, not key bindings: the keymap holds them per
+  transfer mode (`Keymap::transfer_gesture`), so they can be remapped. Primary-click alone stays
+  the selection of a drawing tool, an Alt-drag still orbits a 3D view, and while contour
+  detection is on Alt-click keeps picking the clicked edge only. Many Linux window managers take
+  Alt-click (and Alt-drag) for moving windows; there, the latched transfer modes are the
+  dependable path (the Edit menu's Pick up and Inject commands, archicraft-xasp.2).
 - Opening, stair and free-form solid share a letter with a related tool and take Shift: door D and
   opening Shift+D, slab S and stair Shift+S, measure M and free-form solid Shift+M.
 

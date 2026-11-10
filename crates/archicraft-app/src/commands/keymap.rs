@@ -12,11 +12,16 @@ use std::collections::HashMap;
 use egui::{Key, Modifiers};
 
 use super::{Binding, CommandId, Registry};
+use crate::input::Modifiers as Held;
+use crate::views::transfer::TransferMode;
 
-/// The bindings that differ from the registry's defaults.
+/// The bindings that differ from the registry's defaults, and the modifier
+/// gestures of the parameter transfer (ELM-003): the modifiers held for a
+/// click that picks up or injects settings instead of selecting.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Keymap {
     overrides: HashMap<CommandId, Vec<Binding>>,
+    gestures: HashMap<TransferMode, Held>,
 }
 
 impl Keymap {
@@ -24,6 +29,18 @@ impl Keymap {
     /// [fixed](super::CommandSpec::fixed) command keeps its defaults.
     pub fn set(&mut self, id: CommandId, bindings: Vec<Binding>) {
         self.overrides.insert(id, bindings);
+    }
+
+    /// Makes a click with `modifiers` held run the transfer `mode`
+    /// (ELM-003) instead of its default gesture.
+    pub fn set_transfer_gesture(&mut self, mode: TransferMode, modifiers: Held) {
+        self.gestures.insert(mode, modifiers);
+    }
+
+    /// The modifiers held for a click that runs the transfer `mode` now:
+    /// the keymap's own, otherwise [`TransferMode::default_gesture`].
+    pub fn transfer_gesture(&self, mode: TransferMode) -> Held {
+        self.gestures.get(&mode).copied().unwrap_or(mode.default_gesture())
     }
 
     /// The bindings that run `id` now: its own from the keymap, otherwise

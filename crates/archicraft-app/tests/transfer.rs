@@ -1,0 +1,393 @@
+//! ELM-003: parameter pick-up and inject in the plan and 3D views. Alt-click
+//! picks an element's settings up into the active tool's defaults,
+//! Alt+Primary-click injects the tool's defaults into an element or the
+//! selection; between kinds only the compatible settings go, and the status
+//! line says what was skipped and why. A latched mode needs no modifiers.
+
+#![allow(clippy::unwrap_used)]
+
+mod common;
+
+use archicraft_app::ArchiCraftApp;
+use archicraft_app::tools::ToolKind;
+use archicraft_app::views::transfer::TransferMode;
+use archicraft_app::views::view3d::pick;
+use archicraft_app::workspace::{Pane, Request};
+use archicraft_model::glam::DVec2;
+use archicraft_model::{Command, Element, ElementId, IfcClass, KindTag, LayerId, MaterialId};
+use common::harness;
+use egui::os::OperatingSystem;
+use egui::{CursorIcon, Event, Key, Modifiers, PointerButton};
+use egui_kittest::Harness;
+
+type App = Harness<'static, ArchiCraftApp>;
+
+/// Alt (Option on macOS), the pick-up gesture.
+const ALT: Modifiers = Modifiers::ALT;
+
+/// Alt+Primary, the inject gesture, with this platform's Primary key.
+fn alt_primary() -> Modifiers {
+    let mut m = Modifiers::ALT | Modifiers::COMMAND;
+    if OperatingSystem::from_target_os().is_mac() {
+        m.mac_cmd = true;
+    } else {
+        m.ctrl = true;
+    }
+    m
+}
+
+/// A 4 m wall from (0, `y`) to (4, `y`) on the ground storey.
+fn wall(harness: &mut App, y: f64, nth: u32) -> Element {
+    let p = &harness.state_mut().workspace().doc.project;
+    p.new_wall(p.storeys.ground(), DVec2::new(0.0, y), DVec2::new(4.0, y), nth)
+}
+
+/// A 2 m square slab from (6, 0) on the ground storey.
+fn slab(harness: &mut App) -> Element {
+    let p = &harness.state_mut().workspace().doc.project;
+    let outline = vec![
+        DVec2::new(6.0, 0.0),
+        DVec2::new(8.0, 0.0),
+        DVec2::new(8.0, 2.0),
+        DVec2::new(6.0, 2.0),
+    ];
+    p.new_slab(p.storeys.ground(), outline, Vec::new(), 0)
+}
+
+/// Adds `elements` in one change and returns their ids.
+fn add(harness: &mut App, elements: Vec<Element>) -> Vec<ElementId> {
+    let ids = elements.iter().map(|e| e.id).collect();
+    assert!(harness.state_mut().workspace().execute(Command::AddElements(elements)));
+    harness.run_steps(2);
+    ids
+}
+
+/// A layer other than the wall defaults' own, and a material other than
+/// the wall and the slab defaults' own, so that a transfer of either shows.
+fn other_layer_and_material(harness: &mut App) -> (LayerId, MaterialId) {
+    let p = &harness.state_mut().workspace().doc.project;
+    let defaults = p.new_element(KindTag::Wall, p.storeys.ground(), 0).unwrap();
+    let slab = p.new_element(KindTag::Slab, p.storeys.ground(), 0).unwrap();
+    let layer = p.layers.iter().find(|l| l.id != defaults.layer).unwrap().id;
+    let taken = [defaults.as_wall().unwrap().material, slab.as_slab().unwrap().material];
+    let material = p.materials.iter().find(|m| !taken.contains(&m.id)).unwrap().id;
+    (layer, material)
+}
+
+/// A 0.365 m wall at `y` on another layer and of another material than the
+/// wall defaults.
+fn thick_wall(harness: &mut App, y: f64) -> Element {
+    let (layer, material) = other_layer_and_material(harness);
+    let mut e = wall(harness, y, 0);
+    e.layer = layer;
+    let w = e.as_wall_mut().unwrap();
+    w.thickness = 0.365;
+    w.material = material;
+    e
+}
+
+/// The screen position of the plan point `p` in the active plan view.
+fn plan_point(harness: &mut App, p: DVec2) -> egui::Pos2 {
+    let ws = harness.state_mut().workspace();
+    let state = &ws.plan_views[&ws.active_storey];
+    state.camera.to_screen(state.last_rect, p)
+}
+
+/// Clicks the primary button at `pos` with `modifiers` held, then releases
+/// them.
+fn click_with(harness: &mut App, pos: egui::Pos2, modifiers: Modifiers) {
+    harness.event(Event::ModifiersChanged(modifiers));
+    harness.hover_at(pos);
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers,
+        });
+    }
+    harness.run_steps(2);
+    harness.event(Event::ModifiersChanged(Modifiers::NONE));
+    harness.run_steps(1);
+}
+
+fn select_tool(harness: &mut App, tool: ToolKind) {
+    harness.state_mut().workspace().select_tool(tool);
+    harness.run_steps(2);
+}
+
+fn element(harness: &mut App, id: ElementId) -> Element {
+    harness.state_mut().workspace().doc.project.element(id).unwrap().clone()
+}
+
+/// The wall tool's defaults as an element.
+fn wall_defaults(harness: &mut App) -> Element {
+    let p = &harness.state_mut().workspace().doc.project;
+    p.new_element(KindTag::Wall, p.storeys.ground(), 0).unwrap()
+}
+
+fn status(harness: &mut App) -> String {
+    let ws = harness.state_mut().workspace();
+    ws.status.as_ref().map(|s| s.text.clone()).unwrap_or_default()
+}
+
+/// ELM-003 (epic: pick-up and inject between walls): with the wall tool, an
+/// Alt-click on a 0.365 m wall makes its thickness, material and layer the
+/// wall defaults, and an Alt+Primary-click on another wall injects them;
+/// both undo in one step each.
+#[test]
+fn alt_click_picks_up_a_wall_and_alt_primary_click_injects_it_into_another() {
+    let mut harness = harness("transfer-walls");
+    let source = thick_wall(&mut harness, 0.0);
+    let (layer, material) = (source.layer, source.as_wall().unwrap().material);
+    let target = wall(&mut harness, 3.0, 1);
+    let target_thickness = target.as_wall().unwrap().thickness;
+    assert_ne!(target_thickness, 0.365);
+    let ids = add(&mut harness, vec![source, target]);
+    select_tool(&mut harness, ToolKind::Wall);
+
+    let on_source = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+    click_with(&mut harness, on_source, ALT);
+    let defaults = wall_defaults(&mut harness);
+    assert_eq!(defaults.as_wall().unwrap().thickness, 0.365);
+    assert_eq!(defaults.as_wall().unwrap().material, material);
+    assert_eq!(defaults.layer, layer);
+    let name = element(&mut harness, ids[0]).name;
+    let text = status(&mut harness);
+    assert!(
+        text.starts_with("Picked up ") && text.ends_with(&format!(" settings from {name}")),
+        "{text}"
+    );
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Wall);
+    assert!(
+        harness.state_mut().workspace().selection.is_empty(),
+        "the click selected nothing"
+    );
+
+    let on_target = plan_point(&mut harness, DVec2::new(2.0, 3.0));
+    click_with(&mut harness, on_target, alt_primary());
+    let injected = element(&mut harness, ids[1]);
+    assert_eq!(injected.as_wall().unwrap().thickness, 0.365);
+    assert_eq!(injected.as_wall().unwrap().material, material);
+    assert_eq!(injected.layer, layer);
+    let text = status(&mut harness);
+    assert!(text.starts_with("Injected ") && text.contains(&injected.name), "{text}");
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Wall);
+
+    harness.state_mut().workspace().undo();
+    assert_eq!(
+        element(&mut harness, ids[1]).as_wall().unwrap().thickness,
+        target_thickness
+    );
+    assert_ne!(element(&mut harness, ids[1]).layer, layer, "undo restores the target");
+    harness.state_mut().workspace().undo();
+    assert_ne!(wall_defaults(&mut harness).layer, layer, "undo restores the defaults");
+}
+
+/// ELM-003 (epic: only compatible settings transfer): the wall defaults
+/// injected into a slab give it their thickness, material, layer and
+/// position but not the IFC class, and the status line names the IFC class
+/// as skipped.
+#[test]
+fn injecting_wall_defaults_into_a_slab_transfers_only_the_compatible_settings() {
+    let mut harness = harness("transfer-slab");
+    let source = thick_wall(&mut harness, 0.0);
+    let s = slab(&mut harness);
+    let ids = add(&mut harness, vec![source, s]);
+    select_tool(&mut harness, ToolKind::Wall);
+    let on_source = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+    click_with(&mut harness, on_source, ALT);
+    let defaults = wall_defaults(&mut harness);
+    let before = element(&mut harness, ids[1]);
+    assert_ne!(before.as_slab().unwrap().material, defaults.as_wall().unwrap().material);
+    assert_ne!(before.as_slab().unwrap().thickness, 0.365);
+    assert_ne!(before.layer, defaults.layer);
+
+    // The slab lies below the cut plane: it is picked at its outline.
+    let on_slab = plan_point(&mut harness, DVec2::new(8.0, 1.0));
+    click_with(&mut harness, on_slab, alt_primary());
+    let after = element(&mut harness, ids[1]);
+    let slab = after.as_slab().unwrap();
+    assert_eq!(slab.thickness, 0.365);
+    assert_eq!(slab.material, defaults.as_wall().unwrap().material);
+    assert_eq!(after.layer, defaults.layer);
+    assert_eq!(after.position, defaults.position);
+    assert_eq!(after.ifc_class, before.ifc_class);
+    assert_ne!(after.ifc_class, IfcClass::Wall);
+    assert_eq!(slab.outline, before.as_slab().unwrap().outline, "the geometry stays");
+    let text = status(&mut harness);
+    assert!(
+        text.starts_with("Injected ") && text.contains(&format!("settings into {}", after.name)),
+        "{text}"
+    );
+    assert!(text.contains("IFC class not allowed"), "{text}");
+}
+
+/// ELM-003: a pick-up while the wall tool has a chain in progress keeps the
+/// chain's points; the transfer state sits beside the tool.
+#[test]
+fn a_pick_up_keeps_the_input_in_progress() {
+    let mut harness = harness("transfer-chain");
+    let source = thick_wall(&mut harness, 0.0);
+    add(&mut harness, vec![source]);
+    select_tool(&mut harness, ToolKind::Wall);
+    let start = plan_point(&mut harness, DVec2::new(1.0, 5.0));
+    click_with(&mut harness, start, Modifiers::NONE);
+    assert_eq!(harness.state_mut().workspace().tool.points.len(), 1);
+    let on_source = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+    click_with(&mut harness, on_source, ALT);
+    assert_eq!(wall_defaults(&mut harness).as_wall().unwrap().thickness, 0.365);
+    assert_eq!(harness.state_mut().workspace().tool.points.len(), 1, "the chain stays");
+}
+
+/// ELM-003: inject into a selected element goes into every element of the
+/// selection, and a locked element alone is refused with the lock's reason
+/// (ELM-013).
+#[test]
+fn inject_into_the_selection_and_a_locked_element() {
+    let mut harness = harness("transfer-selection");
+    let source = thick_wall(&mut harness, 0.0);
+    let a = wall(&mut harness, 3.0, 1);
+    let b = wall(&mut harness, 6.0, 2);
+    let mut locked = wall(&mut harness, 9.0, 3);
+    locked.locked = true;
+    let ids = add(&mut harness, vec![source, a, b, locked]);
+    select_tool(&mut harness, ToolKind::Wall);
+    let on_source = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+    click_with(&mut harness, on_source, ALT);
+
+    harness.state_mut().workspace().selection = [ids[1], ids[2], ids[3]].into_iter().collect();
+    harness.run_steps(2);
+    let on_a = plan_point(&mut harness, DVec2::new(2.0, 3.0));
+    click_with(&mut harness, on_a, alt_primary());
+    for id in [ids[1], ids[2]] {
+        assert_eq!(element(&mut harness, id).as_wall().unwrap().thickness, 0.365);
+    }
+    assert_ne!(element(&mut harness, ids[3]).as_wall().unwrap().thickness, 0.365);
+    let text = status(&mut harness);
+    assert!(
+        text.contains("2 elements") && text.contains("1 locked element was skipped"),
+        "{text}"
+    );
+
+    harness.state_mut().workspace().selection.clear();
+    harness.run_steps(2);
+    let on_locked = plan_point(&mut harness, DVec2::new(2.0, 9.0));
+    click_with(&mut harness, on_locked, alt_primary());
+    assert_ne!(element(&mut harness, ids[3]).as_wall().unwrap().thickness, 0.365);
+    let ws = harness.state_mut().workspace();
+    let status = ws.status.as_ref().unwrap();
+    assert!(status.error && status.text.contains("locked"), "{}", status.text);
+}
+
+/// ELM-003: in a 3D view, an Alt-click with the selection tool picks the
+/// wall up into the wall defaults through the handler the plan uses and
+/// activates the wall tool.
+#[test]
+fn alt_click_in_a_3d_view_picks_up_into_the_clicked_kind() {
+    let mut harness = harness("transfer-3d");
+    let source = thick_wall(&mut harness, 0.0);
+    let ids = add(&mut harness, vec![source]);
+    let on_source = open_3d_at(&mut harness, ids[0]);
+    click_with(&mut harness, on_source, ALT);
+    assert_eq!(wall_defaults(&mut harness).as_wall().unwrap().thickness, 0.365);
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Wall);
+    assert!(harness.state_mut().workspace().selection.is_empty());
+
+    let target = wall(&mut harness, 3.0, 1);
+    let target = add(&mut harness, vec![target])[0];
+    let on_target = open_3d_at(&mut harness, target);
+    click_with(&mut harness, on_target, alt_primary());
+    assert_eq!(element(&mut harness, target).as_wall().unwrap().thickness, 0.365);
+}
+
+/// ELM-003: a latched pick-up needs no modifiers and stays after its clicks
+/// until Esc; then a click selects again.
+#[test]
+fn a_latched_mode_works_without_modifiers_until_esc() {
+    let mut harness = harness("transfer-latch");
+    let source = thick_wall(&mut harness, 0.0);
+    let other = wall(&mut harness, 3.0, 1);
+    let ids = add(&mut harness, vec![source, other]);
+    select_tool(&mut harness, ToolKind::Wall);
+    harness.state_mut().workspace().transfer.latch(TransferMode::PickUp);
+    for _ in 0..2 {
+        let on_source = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+        click_with(&mut harness, on_source, Modifiers::NONE);
+        assert_eq!(wall_defaults(&mut harness).as_wall().unwrap().thickness, 0.365);
+        assert_eq!(
+            harness.state_mut().workspace().transfer.latched(),
+            Some(TransferMode::PickUp)
+        );
+    }
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().transfer.latched(), None);
+    assert_eq!(
+        harness.state_mut().workspace().tool.kind,
+        ToolKind::Wall,
+        "Esc only ends the latch"
+    );
+
+    select_tool(&mut harness, ToolKind::Select);
+    let on_other = plan_point(&mut harness, DVec2::new(2.0, 3.0));
+    click_with(&mut harness, on_other, Modifiers::NONE);
+    assert!(harness.state_mut().workspace().selection.contains(&ids[1]));
+}
+
+/// Opens the first 3D view and returns a screen point of it whose ray hits
+/// `element` first.
+fn open_3d_at(harness: &mut App, element: ElementId) -> egui::Pos2 {
+    let ws = harness.state_mut().workspace();
+    let view = ws.doc.project.views.first().unwrap().id;
+    ws.requests.push(Request::OpenPane(Pane::View3d(view)));
+    harness.run_steps(3);
+    let ws = harness.state_mut().workspace();
+    assert_eq!(ws.active_pane, Some(Pane::View3d(view)));
+    let geometry = ws.doc.geometry();
+    let state = &ws.views_3d[&view];
+    let rect = state.last_rect();
+    for iy in 1..60 {
+        for ix in 1..60 {
+            let p = rect.min + egui::vec2(rect.width() * ix as f32 / 60.0, rect.height() * iy as f32 / 60.0);
+            let (origin, dir) = state.camera.ray(rect, p);
+            if pick(&ws.doc.project, &geometry, origin, dir).is_some_and(|(id, _)| id == element) {
+                return p;
+            }
+        }
+    }
+    panic!("no point of the 3D view shows {element:?}");
+}
+
+/// The cursor icon of the last frame.
+fn cursor(harness: &App) -> CursorIcon {
+    harness.output().platform_output.cursor_icon
+}
+
+/// Holds `modifiers` with the pointer at `pos` for a few frames.
+fn hover_holding(harness: &mut App, pos: egui::Pos2, modifiers: Modifiers) {
+    harness.event(Event::ModifiersChanged(modifiers));
+    harness.hover_at(pos);
+    harness.run_steps(2);
+}
+
+/// ELM-003: holding a gesture over the plan shows its pointer, the
+/// crosshair of the eyedropper for pick-up and the copy pointer for inject,
+/// and releasing it returns to the selection tool's own.
+#[test]
+fn a_held_gesture_shows_its_pointer() {
+    let mut harness = harness("transfer-cursor");
+    let source = thick_wall(&mut harness, 0.0);
+    add(&mut harness, vec![source]);
+    let over = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+    hover_holding(&mut harness, over, Modifiers::NONE);
+    let plain = cursor(&harness);
+    assert!(!matches!(plain, CursorIcon::Crosshair | CursorIcon::Copy), "{plain:?}");
+    hover_holding(&mut harness, over, ALT);
+    assert_eq!(cursor(&harness), CursorIcon::Crosshair);
+    hover_holding(&mut harness, over, alt_primary());
+    assert_eq!(cursor(&harness), CursorIcon::Copy);
+    hover_holding(&mut harness, over, Modifiers::NONE);
+    assert_eq!(cursor(&harness), plain);
+}

@@ -131,6 +131,65 @@ status-selected =
        *[other] { $count_text } elements selected
     }
 
+## Parameter transfer (ELM-003): picking an element's settings up into a
+## tool's defaults and injecting a tool's defaults into elements
+
+# $count: the settings picked up, for the plural; $count_text: the same
+# number in the user's number format; $name: the element's name, such as
+# W-003.
+status-picked-up =
+    { $count ->
+        [one] Picked up { $count_text } setting from { $name }
+       *[other] Picked up { $count_text } settings from { $name }
+    }
+# $name: the element whose settings the tool's defaults already had.
+status-picked-up-unchanged = The tool's defaults already have the settings of { $name }
+# $total: the source's settings, for the plural; $applied_text: the settings
+# the element took and $total_text: the source's settings, both in the
+# user's number format; $name: the element's name, such as SL-002.
+status-injected =
+    { $total ->
+        [one] Injected { $applied_text } of { $total_text } setting into { $name }
+       *[other] Injected { $applied_text } of { $total_text } settings into { $name }
+    }
+# $injected: the message status-injected; $skipped: the settings the element
+# did not take, each a status-transfer-skip- message, separated by commas.
+status-injected-skipped = { $injected } ({ $skipped })
+# $count: the elements, for the plural; $count_text: the same number in the
+# user's number format.
+status-injected-many =
+    { $count ->
+        [one] Injected the settings into { $count_text } element
+       *[other] Injected the settings into { $count_text } elements
+    }
+# $name: the element that had the settings already.
+status-injected-unchanged = { $name } already has these settings
+# $count: the elements, for the plural; $count_text: the same number in the
+# user's number format.
+status-injected-unchanged-many =
+    { $count ->
+        [one] { $count_text } element already has these settings
+       *[other] { $count_text } elements already have these settings
+    }
+# $injected: one of the status-injected messages; $count: the locked
+# elements of the selection, for the plural; $count_text: the same number in
+# the user's number format.
+status-injected-locked =
+    { $count ->
+        [one] { $injected }; { $count_text } locked element was skipped
+       *[other] { $injected }; { $count_text } locked elements were skipped
+    }
+# Inject with the selection or the measure tool active: no tool defaults to
+# inject.
+status-inject-no-defaults = Choose the tool whose settings to inject
+# $field: the label of a setting the target did not take, such as IFC class.
+status-transfer-skip-not-offered = { $field } not allowed
+# $field: the label of a setting that does not apply to the target as it is.
+status-transfer-skip-inapplicable = { $field } not applicable
+# $field: the label of a setting whose value the target rejects; $reason:
+# why.
+status-transfer-skip-invalid = { $field }: { $reason }
+
 ## Status bar (UI-001): the prompt while no tool step is in progress, the
 ## problem count and the cursor in a plan
 

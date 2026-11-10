@@ -48,6 +48,23 @@ pub enum ToolKind {
 }
 
 impl ToolKind {
+    /// The element kind whose defaults the tool places, none for the
+    /// selection and the measure tool (ELM-001).
+    pub fn element_kind(self) -> Option<KindTag> {
+        match self {
+            ToolKind::Select | ToolKind::Measure => None,
+            ToolKind::Wall => Some(KindTag::Wall),
+            ToolKind::Slab => Some(KindTag::Slab),
+            ToolKind::Space => Some(KindTag::Space),
+            ToolKind::Text => Some(KindTag::Text),
+        }
+    }
+
+    /// The tool that places elements of `kind`, if there is one.
+    pub fn for_kind(kind: KindTag) -> Option<ToolKind> {
+        ToolKind::ALL.into_iter().find(|tool| tool.element_kind() == Some(kind))
+    }
+
     pub const ALL: [ToolKind; 6] = [
         ToolKind::Select,
         ToolKind::Wall,
@@ -1430,5 +1447,17 @@ mod tests {
         assert!((space.net_area() - 12.0).abs() < 1e-9);
         assert_eq!(space.long_name, "Room 1");
         assert!(!tool.cancel_step(), "nothing left to cancel");
+    }
+
+    /// The tools and the kinds they place map both ways.
+    #[test]
+    fn tools_map_to_their_element_kinds_and_back() {
+        for tool in ToolKind::ALL {
+            if let Some(kind) = tool.element_kind() {
+                assert_eq!(ToolKind::for_kind(kind), Some(tool));
+            }
+        }
+        assert_eq!(ToolKind::Select.element_kind(), None);
+        assert_eq!(ToolKind::Measure.element_kind(), None);
     }
 }
