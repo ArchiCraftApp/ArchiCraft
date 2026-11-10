@@ -306,7 +306,10 @@ pub(crate) fn segment_distance(p: DVec2, a: DVec2, b: DVec2) -> f64 {
     p.distance(a + ab * t)
 }
 
-fn segments_intersect(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> bool {
+/// True if the segments `a b` and `c d` cross: the ends of each lie on
+/// different sides of the other's line, an end on the line counting as right
+/// of it.
+pub(crate) fn segments_intersect(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> bool {
     let o = |p: DVec2, q: DVec2, r: DVec2| (q - p).perp_dot(r - p);
     let (d1, d2, d3, d4) = (o(c, d, a), o(c, d, b), o(a, b, c), o(a, b, d));
     (d1 > 0.0) != (d2 > 0.0) && (d3 > 0.0) != (d4 > 0.0)

@@ -26,6 +26,8 @@ use archicraft_model::tolerance::{JOIN_TOLERANCE, is_parallel, near_zero};
 use archicraft_model::{ElementId, ReferenceLine, StoreyId};
 use glam::DVec2;
 
+use crate::contact::ContactIndex;
+
 /// The input of junction resolution for one wall.
 #[derive(Clone, Debug)]
 pub struct WallInput {
@@ -204,51 +206,85 @@ fn point_segment_distance(p: DVec2, a: DVec2, b: DVec2) -> (f64, f64) {
     (p.distance(a + ab * t), t)
 }
 
-fn resolve_end(walls: &[WallInput], index: usize, at_end: bool) -> EndCorners {
-    let wall = &walls[index];
+/// How a point touches a reference line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Touch {
+    /// At the line's start (`false`) or end (`true`).
+    End(bool),
+    /// On the line, away from its ends.
+    Body,
+}
+
+/// How `p` touches the reference line from `start` to `end`: closer than
+/// [`JOIN_TOLERANCE`] to its start, else to its end, else to the line
+/// (NFR-ACC-003).
+fn touch(p: DVec2, start: DVec2, end: DVec2) -> Option<Touch> {
+    if start.distance(p) < JOIN_TOLERANCE {
+        Some(Touch::End(false))
+    } else if end.distance(p) < JOIN_TOLERANCE {
+        Some(Touch::End(true))
+    } else if point_segment_distance(p, start, end).0 < JOIN_TOLERANCE {
+        Some(Touch::Body)
+    } else {
+        None
+    }
+}
+
+/// True if `p` touches the reference line from `start` to `end`: a wall
+/// end at `p` can join that wall.
+pub(crate) fn touches(p: DVec2, start: DVec2, end: DVec2) -> bool {
+    touch(p, start, end).is_some()
+}
+
+/// Resolves one end of `wall` against `candidates`, which hold at least
+/// every wall whose reference line touches the end (and may hold `wall`
+/// itself). Each candidate other than `wall` is counted in `tests`. The
+/// result does not depend on the order of the candidates: the end joins only
+/// if exactly one of them touches it.
+fn resolve_end(wall: &WallInput, at_end: bool, candidates: &[&WallInput], tests: &mut usize) -> EndCorners {
     let p = wall.endpoint(at_end);
-    let mut end_contacts: Vec<(usize, bool)> = Vec::new();
-    let mut body_contacts: Vec<usize> = Vec::new();
-    for (j, other) in walls.iter().enumerate() {
-        if j == index || !wall.overlaps_vertically(other) {
+    let mut end_contacts: Vec<(&WallInput, bool)> = Vec::new();
+    let mut body_contacts: Vec<&WallInput> = Vec::new();
+    for &other in candidates {
+        if other.id == wall.id {
             continue;
         }
-        if other.start.distance(p) < JOIN_TOLERANCE {
-            end_contacts.push((j, false));
-        } else if other.end.distance(p) < JOIN_TOLERANCE {
-            end_contacts.push((j, true));
-        } else {
-            let (distance, _) = point_segment_distance(p, other.start, other.end);
-            if distance < JOIN_TOLERANCE {
-                body_contacts.push(j);
-            }
+        *tests += 1;
+        if !wall.overlaps_vertically(other) {
+            continue;
+        }
+        match touch(p, other.start, other.end) {
+            Some(Touch::End(other_at_end)) => end_contacts.push((other, other_at_end)),
+            Some(Touch::Body) => body_contacts.push(other),
+            None => {}
         }
     }
     let joined = match (end_contacts.as_slice(), body_contacts.as_slice()) {
-        ([(j, other_at_end)], []) => l_junction(wall, at_end, &walls[*j], *other_at_end),
-        ([], [j]) => t_junction(wall, at_end, &walls[*j]),
+        ([(other, other_at_end)], []) => l_junction(wall, at_end, other, *other_at_end),
+        ([], [through]) => t_junction(wall, at_end, through),
         _ => None,
     };
     joined.unwrap_or_else(|| square_end(wall, at_end))
 }
 
-/// Computes the footprint of every wall, with junctions resolved.
+/// The footprint of `wall` with both ends resolved against the walls
+/// `candidates` returns for the end point (see [`resolve_end`]), counting
+/// the candidate tests in `tests`.
+pub(crate) fn resolve_footprint<'a>(
+    wall: &WallInput,
+    candidates: impl Fn(DVec2) -> Vec<&'a WallInput>,
+    tests: &mut usize,
+) -> Footprint {
+    let start = resolve_end(wall, false, &candidates(wall.start), tests);
+    let end = resolve_end(wall, true, &candidates(wall.end), tests);
+    [start.exterior, end.exterior, end.interior, start.interior]
+}
+
+/// Computes the footprint of every wall, with junctions resolved. Each end
+/// is resolved against the walls that a [`ContactIndex`] finds at it rather
+/// than every wall of its storey (NFR-PERF-006).
 pub fn footprints(walls: &[WallInput]) -> HashMap<ElementId, Footprint> {
-    // Index walls by storey so that large models do not compare every pair.
-    let mut by_storey: HashMap<StoreyId, Vec<usize>> = HashMap::new();
-    for (i, w) in walls.iter().enumerate() {
-        by_storey.entry(w.storey).or_default().push(i);
-    }
-    let mut result = HashMap::with_capacity(walls.len());
-    for indices in by_storey.values() {
-        let group: Vec<WallInput> = indices.iter().map(|&i| walls[i].clone()).collect();
-        for (k, wall) in group.iter().enumerate() {
-            let start = resolve_end(&group, k, false);
-            let end = resolve_end(&group, k, true);
-            result.insert(wall.id, [start.exterior, end.exterior, end.interior, start.interior]);
-        }
-    }
-    result
+    ContactIndex::new(walls.iter().cloned()).resolve_all().footprints
 }
 
 #[cfg(test)]
@@ -403,5 +439,284 @@ mod tests {
         b.top = 6.0;
         let fps = footprints(&[a.clone(), b]);
         assert!(close(fps[&a.id][2], (5.0, 0.3)));
+    }
+
+    /// The junction pass before the contact index: every end of a wall
+    /// against every other wall of its storey, in the order of the slice.
+    /// The oracle that [`footprints`] must match bit for bit.
+    fn pair_scan(walls: &[WallInput]) -> HashMap<ElementId, Footprint> {
+        fn resolve_end(walls: &[WallInput], index: usize, at_end: bool) -> EndCorners {
+            let wall = &walls[index];
+            let p = wall.endpoint(at_end);
+            let mut end_contacts: Vec<(usize, bool)> = Vec::new();
+            let mut body_contacts: Vec<usize> = Vec::new();
+            for (j, other) in walls.iter().enumerate() {
+                if j == index || !wall.overlaps_vertically(other) {
+                    continue;
+                }
+                if other.start.distance(p) < JOIN_TOLERANCE {
+                    end_contacts.push((j, false));
+                } else if other.end.distance(p) < JOIN_TOLERANCE {
+                    end_contacts.push((j, true));
+                } else {
+                    let (distance, _) = point_segment_distance(p, other.start, other.end);
+                    if distance < JOIN_TOLERANCE {
+                        body_contacts.push(j);
+                    }
+                }
+            }
+            let joined = match (end_contacts.as_slice(), body_contacts.as_slice()) {
+                ([(j, other_at_end)], []) => l_junction(wall, at_end, &walls[*j], *other_at_end),
+                ([], [j]) => t_junction(wall, at_end, &walls[*j]),
+                _ => None,
+            };
+            joined.unwrap_or_else(|| square_end(wall, at_end))
+        }
+
+        let mut by_storey: HashMap<StoreyId, Vec<usize>> = HashMap::new();
+        for (i, w) in walls.iter().enumerate() {
+            by_storey.entry(w.storey).or_default().push(i);
+        }
+        let mut result = HashMap::with_capacity(walls.len());
+        for indices in by_storey.values() {
+            let group: Vec<WallInput> = indices.iter().map(|&i| walls[i].clone()).collect();
+            for (k, wall) in group.iter().enumerate() {
+                let start = resolve_end(&group, k, false);
+                let end = resolve_end(&group, k, true);
+                result.insert(wall.id, [start.exterior, end.exterior, end.interior, start.interior]);
+            }
+        }
+        result
+    }
+
+    /// Fails unless both maps hold the same walls with the same corners, bit
+    /// for bit.
+    fn assert_same_bits(actual: &HashMap<ElementId, Footprint>, expected: &HashMap<ElementId, Footprint>, what: &str) {
+        assert_eq!(actual.len(), expected.len(), "{what}: walls");
+        let bits = |fp: &Footprint| fp.map(|c| [c.x.to_bits(), c.y.to_bits()]);
+        for (id, footprint) in expected {
+            let got = actual
+                .get(id)
+                .unwrap_or_else(|| panic!("{what}: no footprint for {id}"));
+            assert_eq!(bits(got), bits(footprint), "{what}: {id}: {got:?} != {footprint:?}");
+        }
+    }
+
+    /// The configurations of the junction tests above, and the edge cases
+    /// of contact: ends exactly at and just inside the tolerance, three walls
+    /// at a node, crossings, a zero-length wall, collinear and diagonal walls,
+    /// a closed ring, and walls on another storey.
+    fn junction_cases() -> Vec<(&'static str, Vec<WallInput>)> {
+        use ReferenceLine::{Center, Inside, Outside};
+        let on_another_storey = |mut w: WallInput| {
+            w.storey = StoreyId::new();
+            w
+        };
+        let above = |mut w: WallInput| {
+            w.bottom = 3.0;
+            w.top = 6.0;
+            w
+        };
+        let just_inside = JOIN_TOLERANCE * (1.0 - f64::EPSILON);
+        vec![
+            ("free wall", vec![wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside)]),
+            (
+                "L junction",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    wall((5.0, 0.0), (5.0, 4.0), 0.3, Outside),
+                ],
+            ),
+            (
+                "L junction, centre lines of two thicknesses",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.25, Center),
+                    wall((5.0, 0.0), (5.0, 4.0), 0.4, Center),
+                ],
+            ),
+            (
+                "L junction, opposite directions",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Center),
+                    wall((5.0, 4.0), (5.0, 0.0), 0.3, Center),
+                ],
+            ),
+            (
+                "T junction",
+                vec![
+                    wall((0.0, 0.0), (10.0, 0.0), 0.3, Outside),
+                    wall((5.0, 0.0), (5.0, 4.0), 0.2, Center),
+                ],
+            ),
+            (
+                "ends 5 µm apart",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    wall((5.0, 0.000_005), (5.0, 4.0), 0.3, Outside),
+                    wall((5.000_003, 4.000_004), (0.0, 4.0), 0.3, Outside),
+                ],
+            ),
+            (
+                "ends 20 µm apart",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    wall((5.0, 0.000_020), (5.0, 4.0), 0.3, Outside),
+                    wall((10.0, 0.0), (15.0, 0.0), 0.3, Outside),
+                    wall((15.000_020, 0.0), (15.0, 4.0), 0.3, Outside),
+                ],
+            ),
+            (
+                "ends exactly the tolerance apart",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    wall((5.0, JOIN_TOLERANCE), (5.0, 4.0), 0.3, Outside),
+                    wall((10.0, 0.0), (15.0, 0.0), 0.3, Outside),
+                    wall((15.0 + JOIN_TOLERANCE, 0.0), (15.0, 4.0), 0.3, Outside),
+                ],
+            ),
+            (
+                "ends just inside the tolerance",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    wall((5.0, just_inside), (5.0, 4.0), 0.3, Outside),
+                    wall((10.0, 0.0), (15.0, 0.0), 0.3, Outside),
+                    wall((15.0, -just_inside), (15.0, -4.0), 0.3, Inside),
+                ],
+            ),
+            (
+                "T junctions 5 µm and 20 µm from the reference line",
+                vec![
+                    wall((0.0, 0.0), (10.0, 0.0), 0.3, Outside),
+                    wall((5.0, 0.000_005), (5.0, 4.0), 0.2, Center),
+                    wall((7.0, 0.000_020), (7.0, 4.0), 0.2, Center),
+                ],
+            ),
+            (
+                "nearly parallel",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    wall((5.0, 0.0), (10.0, 0.000_025), 0.3, Outside),
+                ],
+            ),
+            (
+                "above each other on one storey",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    above(wall((5.0, 0.0), (5.0, 4.0), 0.3, Outside)),
+                ],
+            ),
+            (
+                "on another storey",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    on_another_storey(wall((5.0, 0.0), (5.0, 4.0), 0.3, Outside)),
+                    on_another_storey(wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside)),
+                ],
+            ),
+            (
+                "three walls at a node",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Center),
+                    wall((5.0, 0.0), (5.0, 4.0), 0.3, Center),
+                    wall((5.0, 0.0), (9.0, -3.0), 0.3, Center),
+                ],
+            ),
+            (
+                "an end on two reference lines",
+                vec![
+                    wall((0.0, 0.0), (10.0, 0.0), 0.3, Center),
+                    wall((0.0, 0.0), (10.0, 10.0), 0.3, Center),
+                    wall((5.0, 0.0), (5.0, -4.0), 0.3, Center),
+                    wall((5.0, 5.0), (5.0, 9.0), 0.3, Center),
+                ],
+            ),
+            (
+                "crossing walls",
+                vec![
+                    wall((0.0, 0.0), (10.0, 0.0), 0.3, Center),
+                    wall((5.0, -4.0), (5.0, 4.0), 0.3, Center),
+                    wall((5.0, 4.0), (9.0, 8.0), 0.3, Center),
+                ],
+            ),
+            (
+                "zero-length wall at a node",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    wall((5.0, 0.0), (5.0, 4.0), 0.3, Outside),
+                    wall((5.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    wall((2.0, 0.0), (2.0, 0.0), 0.3, Center),
+                ],
+            ),
+            (
+                "collinear and overlapping",
+                vec![
+                    wall((0.0, 0.0), (5.0, 0.0), 0.3, Outside),
+                    wall((5.0, 0.0), (10.0, 0.0), 0.3, Outside),
+                    wall((3.0, 0.0), (7.0, 0.0), 0.2, Center),
+                ],
+            ),
+            (
+                "diagonal walls",
+                vec![
+                    wall((0.0, 0.0), (3.0, 4.0), 0.3, Outside),
+                    wall((3.0, 4.0), (8.0, -1.0), 0.25, Inside),
+                    wall((1.5, 2.0), (-2.5, 5.0), 0.2, Center),
+                    wall((8.0, -1.0), (0.0, 0.0), 0.3, Outside),
+                ],
+            ),
+            (
+                "closed ring with an interior wall",
+                vec![
+                    wall((0.0, 0.0), (12.0, 0.0), 0.3, Outside),
+                    wall((12.0, 0.0), (12.0, 9.0), 0.3, Outside),
+                    wall((12.0, 9.0), (0.0, 9.0), 0.3, Outside),
+                    wall((0.0, 9.0), (0.0, 0.0), 0.3, Outside),
+                    wall((6.0, 0.0), (6.0, 9.0), 0.2, Center),
+                    wall((6.0, 4.0), (12.0, 4.0), 0.2, Center),
+                ],
+            ),
+        ]
+    }
+
+    /// NFR-PERF-006, NFR-ACC-003: on every junction case, the footprints
+    /// found through the contact index equal the pair scan bit for bit, in
+    /// the walls' order and reversed.
+    #[test]
+    fn footprints_through_the_index_equal_the_pair_scan_on_the_junction_cases() {
+        for (name, walls) in junction_cases() {
+            let reversed: Vec<WallInput> = walls.iter().rev().cloned().collect();
+            let expected = pair_scan(&walls);
+            assert_same_bits(&footprints(&walls), &expected, name);
+            assert_same_bits(&footprints(&reversed), &pair_scan(&reversed), name);
+            assert_same_bits(&footprints(&reversed), &expected, name);
+        }
+    }
+
+    /// NFR-PERF-006: on the RM-M stand-in, the footprints found through the
+    /// contact index equal the pair scan bit for bit, in the walls' order and
+    /// reversed.
+    #[test]
+    fn footprints_through_the_index_equal_the_pair_scan_on_the_5000_stand_in() {
+        let walls = crate::kinds::wall::wall_inputs(&archicraft_model::samples::stand_in(5_000));
+        let reversed: Vec<WallInput> = walls.iter().rev().cloned().collect();
+        let expected = pair_scan(&walls);
+        // Most walls of the stand-in join a neighbour, so the comparison
+        // covers L and T junctions, not only square ends.
+        let joined = walls
+            .iter()
+            .filter(|w| expected[&w.id] != pair_scan(std::slice::from_ref(w))[&w.id])
+            .count();
+        assert!(joined * 2 > walls.len(), "{joined} of {} walls joined", walls.len());
+        assert_same_bits(&footprints(&walls), &expected, "stand_in(5_000)");
+        assert_same_bits(
+            &footprints(&reversed),
+            &pair_scan(&reversed),
+            "stand_in(5_000) reversed",
+        );
+        assert_same_bits(
+            &footprints(&reversed),
+            &expected,
+            "stand_in(5_000) reversed against forward",
+        );
     }
 }

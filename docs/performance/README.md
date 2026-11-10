@@ -162,6 +162,23 @@ models too slow for CI set `ci: false`, and the CI gate runs only `ci` models. `
 (`crates/archicraft-model/src/fixtures.rs`), so it passes the generic model, geometry and IFCX
 checks of docs/testing.md.
 
+## Timing smoke tests
+
+Some tests print a duration instead of asserting one. They show the order of magnitude of a path
+that has no bench yet, and they are `#[ignore]`d, so that `cargo test` does not run them in the
+test build. Run them in a release build with their output:
+
+```bash
+cargo test --release -p archicraft-geometry --test stand_ins -- --ignored --nocapture
+```
+
+| Test | What it prints | Target |
+|---|---|---|
+| `full_evaluation_of_the_20000_stand_in_timing` (`crates/archicraft-geometry/tests/stand_ins.rs`) | `ModelGeometry::evaluate` of `samples::stand_in(20_000)` and its junction pass alone, with the candidate tests of the pass and the number a scan over every pair of walls per storey would make | NFR-PERF-006 |
+
+Their numbers are not measurements under the [protocol](#measurement-protocol) and are not kept
+as results files; the counts they print are asserted by the tests next to them.
+
 ## Measuring the running application
 
 The benches above cannot see frame rates or the latency a user feels. Builds with the
