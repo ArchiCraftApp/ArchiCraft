@@ -163,6 +163,18 @@ const TOP_MODE_LABELS: [&str; 3] = [
 /// The storey offsets the `linked_storey` field offers (ELM-006).
 const LINKED_STOREYS: [i32; 6] = [-2, -1, 0, 1, 2, 3];
 
+/// The keys of the base and top fields of [`fields`], in their order: one
+/// group that together sets the vertical extent, which settings transfer
+/// keeps or restores as a whole (ELM-003).
+pub(crate) const FIELD_KEYS: [&str; 6] = [
+    "base_offset",
+    "top_mode",
+    "height",
+    "top_storey",
+    "linked_storey",
+    "top_offset",
+];
+
 /// The base and top fields of a vertical kind `K` (ELM-005, ELM-006), in
 /// the order of the properties panel: base offset, top mode, height (fixed
 /// tops), top storey (storey links), linked storey (relative links) and top
@@ -171,7 +183,7 @@ const LINKED_STOREYS: [i32; 6] = [-2, -1, 0, 1, 2, 3];
 pub(crate) const fn fields<K: Vertical>(height_message: &'static str) -> [FieldSpec; 6] {
     [
         FieldSpec::new(
-            "base_offset",
+            FIELD_KEYS[0],
             "model-field-base-offset",
             Section::Geometry,
             FieldType::Elevation,
@@ -184,7 +196,7 @@ pub(crate) const fn fields<K: Vertical>(height_message: &'static str) -> [FieldS
         )
         .ranged(-MAX_OFFSET, MAX_OFFSET, "model-error-base-offset-range"),
         FieldSpec::choice(
-            "top_mode",
+            FIELD_KEYS[1],
             "model-field-top-mode",
             Section::Geometry,
             |e, _| K::link_of(e).map(|l| FieldValue::Code(l.top.code())),
@@ -203,7 +215,7 @@ pub(crate) const fn fields<K: Vertical>(height_message: &'static str) -> [FieldS
             },
         ),
         FieldSpec::new(
-            "height",
+            FIELD_KEYS[2],
             "model-field-height",
             Section::Geometry,
             FieldType::Length,
@@ -219,7 +231,7 @@ pub(crate) const fn fields<K: Vertical>(height_message: &'static str) -> [FieldS
         )
         .ranged(MIN_HEIGHT, MAX_HEIGHT, height_message),
         FieldSpec::choice(
-            "top_storey",
+            FIELD_KEYS[3],
             "model-field-top-storey",
             Section::Geometry,
             |e, _| match K::link_of(e)?.top {
@@ -238,7 +250,7 @@ pub(crate) const fn fields<K: Vertical>(height_message: &'static str) -> [FieldS
             fields::storey_options,
         ),
         FieldSpec::choice(
-            "linked_storey",
+            FIELD_KEYS[4],
             "model-field-linked-storey",
             Section::Geometry,
             |e, _| match K::link_of(e)?.top {
@@ -272,7 +284,7 @@ pub(crate) const fn fields<K: Vertical>(height_message: &'static str) -> [FieldS
             "model-error-linked-storey-range",
         ),
         FieldSpec::new(
-            "top_offset",
+            FIELD_KEYS[5],
             "model-field-top-offset",
             Section::Geometry,
             FieldType::Elevation,

@@ -32,6 +32,7 @@ fn representatives() -> Vec<Message> {
         count("model-label-create-elements"),
         count("model-label-delete-elements"),
         count("model-label-edit-elements"),
+        count("model-label-inject-settings"),
         count("model-label-move-elements"),
     ];
     messages.extend(
@@ -61,6 +62,7 @@ fn representatives() -> Vec<Message> {
             "model-label-rename-group",
             "model-label-insert-relation",
             "model-label-remove-relation",
+            "model-label-pick-up-settings",
         ]
         .map(Message::new),
     );
@@ -242,6 +244,7 @@ fn error_representatives() -> Vec<Message> {
             .count("count", 1)
             .length("max", 1000.0),
         named("model-error-transform-unsupported"),
+        Message::new("model-error-transfer-unsupported"),
         Message::new("model-error-relation-end-missing").nested("relation", Message::new("model-relation-trim")),
         named("model-error-relation-self").nested("relation", Message::new("model-relation-junction")),
         named("model-error-relation-duplicate").nested("relation", Message::new("model-relation-host")),

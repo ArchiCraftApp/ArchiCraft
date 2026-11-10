@@ -62,6 +62,7 @@ impl Note {
 }
 
 /// The plan point, ranged as [`validate::check_point`] checks it (ELM-017).
+/// It places the note, so settings transfer never copies it (ELM-003).
 const FIELDS: &[FieldSpec] = &[
     FieldSpec::new(
         "x",
@@ -79,7 +80,8 @@ const FIELDS: &[FieldSpec] = &[
         -validate::MAX_COORDINATE,
         validate::MAX_COORDINATE,
         "model-error-coordinates-range",
-    ),
+    )
+    .not_transferred(),
     FieldSpec::new(
         "y",
         "model-field-y",
@@ -96,7 +98,8 @@ const FIELDS: &[FieldSpec] = &[
         -validate::MAX_COORDINATE,
         validate::MAX_COORDINATE,
         "model-error-coordinates-range",
-    ),
+    )
+    .not_transferred(),
 ];
 
 impl Kind for Note {
