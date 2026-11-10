@@ -16,8 +16,8 @@ use archicraft_model::units::{
     AngleUnit, AreaUnit, LengthUnit, NumberFormat, ParseError, SlopeFormat, UnitSettings, VolumeUnit, format_length,
 };
 use archicraft_model::{
-    IfcClass, KindTag, Message, ParametricShape, Position, PredefinedType, ProfileDimension, ReferenceLine,
-    StructuralFunction,
+    AnchorPos, IfcClass, KindTag, Message, ParametricShape, Position, PredefinedType, ProfileDimension, ReferenceLine,
+    SlabReference, StructuralFunction,
 };
 use catalogue_check::{assert_catalogue_matches, variables_of_pattern};
 use fluent_syntax::ast::Entry;
@@ -87,15 +87,7 @@ fn label_representatives() -> Vec<Message> {
     keys.extend(StructuralFunction::ALL.map(StructuralFunction::label_key));
     keys.extend(ParametricShape::ALL.iter().map(ParametricShape::label_key));
     keys.extend(ProfileDimension::ALL.map(ProfileDimension::label_key));
-    keys.extend(
-        [
-            ReferenceLine::Outside,
-            ReferenceLine::Center,
-            ReferenceLine::Inside,
-            ReferenceLine::Custom(0.1),
-        ]
-        .map(ReferenceLine::label_key),
-    );
+    keys.extend(ReferenceLine::ALL.map(ReferenceLine::label_key));
     keys.extend(field_label_keys());
     let mut messages: Vec<Message> = keys.into_iter().map(Message::new).collect();
     messages.push(Message::new("model-top-linked-storey").text("storeys", "+1"));
@@ -126,13 +118,13 @@ fn field_label_keys() -> Vec<&'static str> {
         keys.extend(spec.defaults_label);
     }
     keys.extend(Position::ALL.map(Position::label_key));
+    keys.extend(SlabReference::ALL.map(SlabReference::label_key));
+    keys.extend(AnchorPos::ALL.map(AnchorPos::label_key));
     keys.extend([
         "model-predefined-type-none",
         "model-top-mode-fixed",
         "model-top-mode-storey",
         "model-top-mode-relative",
-        "model-slab-reference-top",
-        "model-slab-reference-bottom",
     ]);
     keys
 }

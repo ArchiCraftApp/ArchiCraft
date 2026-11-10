@@ -391,6 +391,25 @@ pub enum TopLink {
 }
 
 impl TopLink {
+    /// The code of a fixed height, in the `top_mode` field and in files.
+    pub const FIXED: &'static str = "fixed";
+    /// The code of a link to a storey.
+    pub const STOREY: &'static str = "storey";
+    /// The code of a link relative to the home storey.
+    pub const RELATIVE: &'static str = "relative";
+    /// The codes of the three kinds of top, in display order (ELM-006).
+    pub const CODES: [&'static str; 3] = [Self::FIXED, Self::STOREY, Self::RELATIVE];
+
+    /// The code of the kind of top: [`Self::FIXED`], [`Self::STOREY`] or
+    /// [`Self::RELATIVE`].
+    pub fn code(self) -> &'static str {
+        match self {
+            TopLink::Fixed { .. } => Self::FIXED,
+            TopLink::Storey { .. } => Self::STOREY,
+            TopLink::Relative { .. } => Self::RELATIVE,
+        }
+    }
+
     /// Absolute elevation of the top of an element on `home` whose base is
     /// at the absolute elevation `base` (ELM-006). Storey links are resolved
     /// against `storeys`, so linked tops follow storey edits (STR-006).

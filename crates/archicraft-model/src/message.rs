@@ -307,6 +307,16 @@ pub const ALL_KEYS: &[&str] = &[
     "model-field-top-offset",
     "model-field-slab-reference",
     "model-field-elevation-offset",
+    "model-field-room-name",
+    "model-field-default-name",
+    "model-field-number",
+    "model-field-content",
+    "model-field-text-style",
+    "model-field-text-size",
+    "model-field-anchor-position",
+    "model-field-angle",
+    "model-field-x",
+    "model-field-y",
     "model-predefined-type-none",
     "model-position-undefined",
     "model-position-exterior",
@@ -317,6 +327,16 @@ pub const ALL_KEYS: &[&str] = &[
     "model-top-linked-storey",
     "model-slab-reference-top",
     "model-slab-reference-bottom",
+    // Text anchor positions (AnchorPos::label_key, ANN-007).
+    "model-anchor-top-left",
+    "model-anchor-top-center",
+    "model-anchor-top-right",
+    "model-anchor-middle-left",
+    "model-anchor-center",
+    "model-anchor-middle-right",
+    "model-anchor-bottom-left",
+    "model-anchor-bottom-center",
+    "model-anchor-bottom-right",
 ];
 
 /// Every argument name a [`Message`] of this crate uses. Names are

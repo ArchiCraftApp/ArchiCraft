@@ -11,8 +11,9 @@
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
-use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, VerticalLink, transform_outline};
+use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, Vertical, VerticalLink, transform_outline, vertical};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
+use crate::fields::{FieldSpec, FieldType, FieldValue, Section};
 use crate::ids::StoreyId;
 use crate::message::Message;
 use crate::outline::Outline;
@@ -122,6 +123,58 @@ impl Project {
     }
 }
 
+impl Vertical for Space {
+    fn link_of(element: &Element) -> Option<VerticalLink> {
+        element.as_space().map(|s| s.link)
+    }
+
+    fn set_link_of(element: &mut Element, link: VerticalLink) {
+        if let Some(space) = element.as_space_mut() {
+            space.link = link;
+        }
+    }
+}
+
+const HEIGHT_FIELDS: [FieldSpec; 6] = vertical::fields::<Space>("model-error-space-height-range");
+
+/// The space's parameters (SPC-001): the room name, which for the tool's
+/// defaults is the default name with `{n}` for the space's number in its
+/// kind, the number and the base and top, ranged as
+/// [`validate::validate_space`] checks them (ELM-017).
+const FIELDS: &[FieldSpec] = &[
+    FieldSpec::new(
+        "long_name",
+        "model-field-room-name",
+        Section::Kind,
+        FieldType::Text,
+        |e, _| e.as_space().map(|s| FieldValue::Text(s.long_name.clone())),
+        |e, v, _| {
+            if let (Some(s), FieldValue::Text(v)) = (e.as_space_mut(), v) {
+                s.long_name.clone_from(v);
+            }
+        },
+    )
+    .with_defaults_label("model-field-default-name"),
+    FieldSpec::new(
+        "number",
+        "model-field-number",
+        Section::Kind,
+        FieldType::Text,
+        |e, _| e.as_space().map(|s| FieldValue::Text(s.number.clone())),
+        |e, v, _| {
+            if let (Some(s), FieldValue::Text(v)) = (e.as_space_mut(), v) {
+                s.number.clone_from(v);
+            }
+        },
+    ),
+    HEIGHT_FIELDS[0],
+    HEIGHT_FIELDS[1],
+    HEIGHT_FIELDS[2],
+    HEIGHT_FIELDS[3],
+    HEIGHT_FIELDS[4],
+    HEIGHT_FIELDS[5],
+];
+
 impl Kind for Space {
     /// ELM-011, Table 5-1: always an `IfcSpace`; ELM-019: names `SP-001`,
     /// `SP-002`, …; a body without a material and no construction element.
@@ -139,7 +192,7 @@ impl Kind for Space {
         ifcx_node: true,
         construction: false,
         template_defaults: Some(template_defaults),
-        fields: &[],
+        fields: FIELDS,
     };
 
     /// Normalises the boundary (EDT-018); a positive height is checked

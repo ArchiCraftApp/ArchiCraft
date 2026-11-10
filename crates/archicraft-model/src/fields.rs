@@ -7,10 +7,11 @@
 //! spec is UI-free data (NFR-MNT-002): a stable key, a message key for the
 //! label, the dialog section, the value type, the accepted range with the
 //! validator's message, and plain function pointers that read, write and
-//! enumerate values, so descriptors stay `const`. One renderer in the
-//! application draws every kind from these specs, for the tool defaults and
-//! the selection alike (ELM-001), and other generic code, such as transfer of
-//! settings or selection criteria, matches elements through the same getters.
+//! enumerate values, so descriptors stay `const`. The specs are meant for
+//! one renderer in the application that draws every kind, for the tool
+//! defaults and the selection alike (ELM-001), and for other generic code,
+//! such as transfer of settings or selection criteria, that matches elements
+//! through the same getters.
 //!
 //! A getter returning `None` hides the field for that element, for example
 //! the height of a wall whose top is linked to a storey.
@@ -89,10 +90,9 @@ pub enum OptionLabel {
 }
 
 /// The values a numeric field, or a choice of counts, accepts, inclusive,
-/// and the message key the
-/// validator rejects other values with (ELM-017, NFR-REL-005). The kind's
-/// validator checks the same limits, through the constants of
-/// [`crate::validate`].
+/// and the message key the validator rejects other values with (ELM-017,
+/// NFR-REL-005). The kind's validator checks the same limits, through the
+/// constants of [`crate::validate`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FieldRange {
     pub min: f64,
@@ -180,6 +180,24 @@ impl FieldSpec {
     pub const fn ranged(self, min: f64, max: f64, message: &'static str) -> Self {
         Self {
             range: Some(FieldRange { min, max, message }),
+            ..self
+        }
+    }
+
+    /// The field with the label `label` while the tool defaults are
+    /// edited, such as "Default name" for a space's room name.
+    pub const fn with_defaults_label(self, label: &'static str) -> Self {
+        Self {
+            defaults_label: Some(label),
+            ..self
+        }
+    }
+
+    /// The field shown for placed elements only, not for the tool defaults,
+    /// like a text's content.
+    pub const fn placed_only(self) -> Self {
+        Self {
+            placed_only: true,
             ..self
         }
     }

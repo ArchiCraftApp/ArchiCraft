@@ -13,8 +13,11 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::{Dummy, KINDS, Note};
 use archicraft_model::message::ALL_KEYS;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::validate::validate_element;
-use archicraft_model::{Element, KindTag, Position, Project, ReferenceLine, StructuralFunction, TopLink};
+use archicraft_model::validate::{MAX_COORDINATE, validate_element};
+use archicraft_model::{
+    AnchorPos, Element, ElementId, KindTag, Position, Project, ReferenceLine, SlabReference, StoreyId,
+    StructuralFunction, TopLink,
+};
 use common::{ground, wall};
 
 /// Every declared field: each kind's, then the common ones.
@@ -43,8 +46,8 @@ fn samples(p: &Project) -> Vec<Element> {
     let material = p.materials[0].id;
     vec![
         wall(p, (0.0, 0.0), (5.0, 0.0)),
-        p.new_slab(g, square, Vec::new(), 0),
-        p.new_element(KindTag::Space, g, 0).unwrap(),
+        p.new_slab(g, square.clone(), Vec::new(), 0),
+        p.new_space(g, square, Vec::new(), 0),
         p.new_text(g, DVec2::ZERO, "Hello", 0),
         Dummy::new(DVec2::ZERO, DVec2::ONE, material).into_element(p, g, 0),
         Note::new(g, DVec2::ZERO, "Note").into_element(p, g, 0),
@@ -72,18 +75,32 @@ fn variants(p: &Project) -> Vec<Element> {
     out
 }
 
-/// The kinds whose fields archicraft-m3me.3 declares; that bead empties
-/// the list.
-const UNDECLARED: [KindTag; 3] = [KindTag::Space, KindTag::Text, KindTag::Note];
+/// The samples cover every kind, so the tests below reach every
+/// declared field.
+#[test]
+fn the_samples_cover_every_kind() {
+    let p = default_metric_project();
+    let tags: HashSet<KindTag> = samples(&p).iter().map(Element::tag).collect();
+    assert_eq!(tags, KindTag::ALL.iter().copied().collect());
+}
+
+/// Asserts that `covered` holds every field of every kind, and every common
+/// field for some kind, whose type `is_tested` accepts.
+fn assert_every_key_covered(covered: &HashSet<(KindTag, &str)>, is_tested: impl Fn(&FieldSpec) -> bool) {
+    for (tag, d) in KindTag::ALL.iter().zip(KINDS) {
+        for f in d.fields.iter().filter(|f| is_tested(f)) {
+            assert!(covered.contains(&(*tag, f.key)), "{} {} was not tested", d.code, f.key);
+        }
+    }
+    for f in COMMON_FIELDS.iter().filter(|f| is_tested(f)) {
+        assert!(covered.iter().any(|(_, k)| *k == f.key), "{} was not tested", f.key);
+    }
+}
 
 /// UI-003: every kind shows something in 'Geometry and positioning'.
 #[test]
 fn every_kind_declares_a_geometry_field() {
-    for (tag, d) in KindTag::ALL.iter().zip(KINDS) {
-        if UNDECLARED.contains(tag) {
-            assert!(d.fields.is_empty(), "{} is declared: drop it from UNDECLARED", d.code);
-            continue;
-        }
+    for d in KINDS {
         assert!(
             d.fields.iter().any(|f| f.section == Section::Geometry),
             "{} has no geometry field",
@@ -149,11 +166,13 @@ fn choice_fields_have_options_that_round_trip() {
         assert_eq!(f.options.is_some(), f.field_type == FieldType::Choice, "{}", f.key);
     }
     let p = default_metric_project();
+    let mut covered = HashSet::new();
     for e in variants(&p) {
         for f in fields_of(&e).filter(|f| f.field_type == FieldType::Choice) {
             if (f.get)(&e, &p).is_none() {
                 continue;
             }
+            covered.insert((e.tag(), f.key));
             let options = (f.options.unwrap())(&p, &e);
             assert!(!options.is_empty(), "{:?} {}: no options", e.tag(), f.key);
             for (value, label) in options {
@@ -166,6 +185,7 @@ fn choice_fields_have_options_that_round_trip() {
             }
         }
     }
+    assert_every_key_covered(&covered, |f| f.field_type == FieldType::Choice);
 }
 
 /// A value of the field's type inside its range, different from `current`.
@@ -190,9 +210,11 @@ fn other_value(f: &FieldSpec, current: &FieldValue) -> FieldValue {
 #[test]
 fn setters_write_what_getters_read() {
     let p = default_metric_project();
+    let mut covered = HashSet::new();
     for e in variants(&p) {
         for f in fields_of(&e).filter(|f| f.field_type != FieldType::Choice) {
             let Some(current) = (f.get)(&e, &p) else { continue };
+            covered.insert((e.tag(), f.key));
             let value = other_value(f, &current);
             assert_ne!(value, current, "{}", f.key);
             let mut changed = e.clone();
@@ -200,6 +222,7 @@ fn setters_write_what_getters_read() {
             assert_eq!((f.get)(&changed, &p), Some(value), "{:?} {}", e.tag(), f.key);
         }
     }
+    assert_every_key_covered(&covered, |f| f.field_type != FieldType::Choice);
 }
 
 /// A getter returning `None` hides the field: the height only for a fixed
@@ -351,6 +374,12 @@ fn declared_ranges_are_the_validators_limits() {
         (KindTag::Slab, "thickness"),
         (KindTag::Slab, "elevation_offset"),
         (KindTag::Dummy, "height"),
+        (KindTag::Space, "base_offset"),
+        (KindTag::Space, "height"),
+        (KindTag::Space, "linked_storey"),
+        (KindTag::Space, "top_offset"),
+        (KindTag::Note, "x"),
+        (KindTag::Note, "y"),
     ] {
         assert!(checked.contains(&expected), "{expected:?} was not checked");
     }
@@ -400,26 +429,27 @@ fn position_and_structural_function_are_coded_choices() {
 
 /// ELM-012, ELM-020: generic matching through the getters alone, as display
 /// override criteria and preset selection will use it, finds the exterior
-/// load-bearing walls and slabs.
+/// load-bearing walls and slabs among a project's elements.
 #[test]
 fn the_getters_select_exterior_load_bearing_elements() {
-    let p = default_metric_project();
+    let mut p = default_metric_project();
     let base = samples(&p);
-    let make = |i: usize, position: Position, structural: StructuralFunction| Element {
-        position,
-        structural,
-        ..base[i].clone()
-    };
-    let elements = [
-        ("wall A", make(0, Position::Exterior, StructuralFunction::LoadBearing)),
-        (
-            "wall B",
-            make(0, Position::Exterior, StructuralFunction::NonLoadBearing),
-        ),
-        ("wall C", make(0, Position::Interior, StructuralFunction::LoadBearing)),
-        ("slab D", make(1, Position::Exterior, StructuralFunction::LoadBearing)),
-        ("slab E", make(1, Position::Undefined, StructuralFunction::Undefined)),
-    ];
+    for (i, name, position, structural) in [
+        (0, "wall A", Position::Exterior, StructuralFunction::LoadBearing),
+        (0, "wall B", Position::Exterior, StructuralFunction::NonLoadBearing),
+        (0, "wall C", Position::Interior, StructuralFunction::LoadBearing),
+        (1, "slab D", Position::Exterior, StructuralFunction::LoadBearing),
+        (1, "slab E", Position::Undefined, StructuralFunction::Undefined),
+    ] {
+        let e = Element {
+            id: ElementId::new(),
+            name: name.into(),
+            position,
+            structural,
+            ..base[i].clone()
+        };
+        p.elements.insert(e.id, e);
+    }
     let matches = |e: &Element, criteria: &[(&str, FieldValue)]| {
         criteria
             .iter()
@@ -429,10 +459,124 @@ fn the_getters_select_exterior_load_bearing_elements() {
         ("position", FieldValue::Code("exterior")),
         ("structural_function", FieldValue::Code("load-bearing")),
     ];
-    let selected: Vec<&str> = elements
-        .iter()
-        .filter(|(_, e)| matches(e, &criteria))
-        .map(|(name, _)| *name)
+    let selected: Vec<&str> = p
+        .elements
+        .values()
+        .filter(|e| matches(e, &criteria))
+        .map(|e| e.name.as_str())
         .collect();
     assert_eq!(selected, ["wall A", "slab D"]);
+}
+
+/// SPC-001: a space's room name is labelled 'Default name' while the space
+/// tool's defaults are edited; the number and the shared base and top
+/// fields follow it.
+#[test]
+fn a_space_declares_its_name_number_and_heights() {
+    let keys: Vec<&str> = KindTag::Space.descriptor().fields.iter().map(|f| f.key).collect();
+    assert_eq!(
+        keys,
+        [
+            "long_name",
+            "number",
+            "base_offset",
+            "top_mode",
+            "height",
+            "top_storey",
+            "linked_storey",
+            "top_offset"
+        ]
+    );
+    let name = &KindTag::Space.descriptor().fields[0];
+    assert_eq!(
+        (name.section, name.label, name.defaults_label),
+        (Section::Kind, "model-field-room-name", Some("model-field-default-name"))
+    );
+    assert!(KindTag::Space.descriptor().fields.iter().all(|f| !f.placed_only));
+    let height = KindTag::Space
+        .descriptor()
+        .fields
+        .iter()
+        .find(|f| f.key == "height")
+        .unwrap();
+    assert_eq!(height.range.unwrap().message, "model-error-space-height-range");
+}
+
+/// ANN-007: a text's content is several lines and shown for placed texts
+/// only; the size is optional; the anchor position offers the nine
+/// positions with their names; anchor and angle are geometry.
+#[test]
+fn a_text_declares_content_style_size_anchor_and_angle() {
+    let p = default_metric_project();
+    let text = &samples(&p)[3];
+    let fields = KindTag::Text.descriptor().fields;
+    let f = |key: &str| fields.iter().find(|f| f.key == key).unwrap();
+    assert_eq!(
+        fields.iter().map(|f| f.key).collect::<Vec<_>>(),
+        ["content", "text_style", "size", "anchor_position", "angle"]
+    );
+    assert_eq!(f("content").field_type, FieldType::MultilineText);
+    assert!(f("content").placed_only);
+    assert!(fields.iter().filter(|f| f.key != "content").all(|f| !f.placed_only));
+    assert_eq!(f("size").field_type, FieldType::OptionalSize);
+    assert_eq!(f("anchor_position").section, Section::Geometry);
+    assert_eq!(
+        (f("angle").section, f("angle").field_type),
+        (Section::Geometry, FieldType::Angle)
+    );
+    let anchors = (f("anchor_position").options.unwrap())(&p, text);
+    let expected: Vec<(FieldValue, &str)> = AnchorPos::ALL
+        .iter()
+        .map(|a| (FieldValue::Code(a.code()), a.label_key()))
+        .collect();
+    let actual: Vec<(FieldValue, &str)> = anchors
+        .into_iter()
+        .map(|(v, l)| match l {
+            OptionLabel::Message(m) => (v, m.key()),
+            OptionLabel::Name(n) => panic!("anchor named {n}"),
+        })
+        .collect();
+    assert_eq!(actual, expected);
+    let styles = (f("text_style").options.unwrap())(&p, text);
+    assert_eq!(styles.len(), p.text_styles.len());
+}
+
+/// ELM-017: the note test kind's point is ranged as the validator checks
+/// coordinates.
+#[test]
+fn the_note_kind_declares_its_point() {
+    for f in KindTag::Note.descriptor().fields {
+        assert_eq!(f.section, Section::Geometry);
+        let range = f.range.unwrap();
+        assert_eq!((range.min, range.max), (-MAX_COORDINATE, MAX_COORDINATE));
+    }
+}
+
+/// WAL-003, ELM-006, SLB-001: the enumerations' codes read back through
+/// their `from_code`, and a custom reference line takes the given offset.
+#[test]
+fn enumeration_codes_read_back() {
+    for line in ReferenceLine::ALL {
+        let expected = match line {
+            ReferenceLine::Custom(_) => ReferenceLine::Custom(0.25),
+            other => other,
+        };
+        assert_eq!(ReferenceLine::from_code(line.code(), 0.25), Some(expected));
+    }
+    assert_eq!(ReferenceLine::from_code("diagonal", 0.0), None);
+    for r in SlabReference::ALL {
+        assert_eq!(SlabReference::from_code(r.code()), Some(r));
+    }
+    let tops = [
+        TopLink::Fixed { height: 3.0 },
+        TopLink::Storey {
+            storey: StoreyId::new(),
+            offset: 0.0,
+        },
+        TopLink::Relative {
+            storeys: 1,
+            offset: 0.0,
+        },
+    ];
+    assert_eq!(tops.map(TopLink::code), TopLink::CODES);
 }

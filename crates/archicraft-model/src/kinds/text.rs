@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::{Kind, KindDescriptor, KindTag, plan_bounds_of};
 use crate::drafting_view::{DraftingView, zero_height_extent};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction};
+use crate::fields::{self, FieldSpec, FieldType, FieldValue, OptionLabel, Section};
 use crate::ids::{StoreyId, TextStyleId};
 use crate::message::Message;
 use crate::project::{DefaultsSlot, Project};
@@ -93,6 +94,85 @@ impl Project {
     }
 }
 
+/// The text's parameters (ANN-007): content, style and size override in
+/// the kind's section, anchor position and angle in the geometry. The
+/// validator accepts any finite angle and any positive size, so neither has
+/// a bounded range. The tool's defaults have no content: each text gets its
+/// own when placed.
+const FIELDS: &[FieldSpec] = &[
+    FieldSpec::new(
+        "content",
+        "model-field-content",
+        Section::Kind,
+        FieldType::MultilineText,
+        |e, _| e.as_text().map(|t| FieldValue::Text(t.content.clone())),
+        |e, v, _| {
+            if let (Some(t), FieldValue::Text(v)) = (e.as_text_mut(), v) {
+                t.content.clone_from(v);
+            }
+        },
+    )
+    .placed_only(),
+    FieldSpec::choice(
+        "text_style",
+        "model-field-text-style",
+        Section::Kind,
+        |e, _| e.as_text().map(|t| FieldValue::TextStyle(t.style)),
+        |e, v, _| {
+            if let (Some(t), FieldValue::TextStyle(s)) = (e.as_text_mut(), v) {
+                t.style = *s;
+            }
+        },
+        |p, _| {
+            p.text_styles
+                .iter()
+                .map(|s| (FieldValue::TextStyle(s.id), OptionLabel::Name(s.name.clone())))
+                .collect()
+        },
+    ),
+    FieldSpec::new(
+        "size",
+        "model-field-text-size",
+        Section::Kind,
+        FieldType::OptionalSize,
+        |e, _| e.as_text().map(|t| FieldValue::OptionalSize(t.size_mm)),
+        |e, v, _| {
+            if let (Some(t), FieldValue::OptionalSize(v)) = (e.as_text_mut(), v) {
+                t.size_mm = *v;
+            }
+        },
+    ),
+    FieldSpec::choice(
+        "anchor_position",
+        "model-field-anchor-position",
+        Section::Geometry,
+        |e, _| e.as_text().map(|t| FieldValue::Code(t.anchor_pos.code())),
+        |e, v, _| {
+            if let (Some(t), Some(p)) = (e.as_text_mut(), fields::code(v).and_then(AnchorPos::from_code)) {
+                t.anchor_pos = p;
+            }
+        },
+        |_, _| {
+            AnchorPos::ALL
+                .iter()
+                .map(|p| (FieldValue::Code(p.code()), fields::message(p.label_key())))
+                .collect()
+        },
+    ),
+    FieldSpec::new(
+        "angle",
+        "model-field-angle",
+        Section::Geometry,
+        FieldType::Angle,
+        |e, _| e.as_text().map(|t| FieldValue::Angle(t.angle)),
+        |e, v, _| {
+            if let (Some(t), FieldValue::Angle(v)) = (e.as_text_mut(), v) {
+                t.angle = *v;
+            }
+        },
+    ),
+];
+
 impl Kind for Text {
     /// Table 5-1: always an `IfcAnnotation`; ELM-019: names `TX-001`,
     /// `TX-002`, …; made with the text tool; no body, no material, no
@@ -112,7 +192,7 @@ impl Kind for Text {
         ifcx_node: false,
         construction: false,
         template_defaults: Some(template_defaults),
-        fields: &[],
+        fields: FIELDS,
     };
 
     fn text_style(&self) -> Option<TextStyleId> {

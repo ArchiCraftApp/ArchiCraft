@@ -59,7 +59,7 @@ impl KindCodec for Slab {
             ("thickness", schema::length()),
             (
                 "reference",
-                schema::enumeration([SlabReference::Top.code(), SlabReference::Bottom.code()]),
+                schema::enumeration(SlabReference::ALL.map(SlabReference::code)),
             ),
             ("offset", schema::length()),
         ]
