@@ -162,6 +162,7 @@ fn command_ids_are_pinned() {
             "tool.wall",
             "tool.slab",
             "tool.space",
+            "tool.text",
             "tool.measure",
             "tool.wall.mode.single",
             "tool.wall.mode.chain",
@@ -225,10 +226,10 @@ fn primary_binding_follows_the_platform() {
 /// The default shortcuts, each the first binding of its command: the 23 of
 /// the former `ui/actions.rs`, with Problems moved off Primary+Shift+P for
 /// the command palette, Preferences, Group and Ungroup (ELM-015) and the
-/// Measure tool (MEA-001, docs/keymap.md), the Space tool (SPC-001), and
-/// Zoom in and out on Primary+= and Primary+- (UI-001). Primary is Cmd on
-/// macOS and Ctrl elsewhere.
-const DEFAULT_SHORTCUTS: [(&str, Binding); 30] = [
+/// Measure tool (MEA-001, docs/keymap.md), the Space tool (SPC-001), the
+/// Text tool (ANN-007), and Zoom in and out on Primary+= and Primary+-
+/// (UI-001). Primary is Cmd on macOS and Ctrl elsewhere.
+const DEFAULT_SHORTCUTS: [(&str, Binding); 31] = [
     ("file.new", Binding::primary(Key::N)),
     ("file.open", Binding::primary(Key::O)),
     ("file.save", Binding::primary(Key::S)),
@@ -246,6 +247,7 @@ const DEFAULT_SHORTCUTS: [(&str, Binding); 30] = [
     ("tool.wall", Binding::key(Key::W)),
     ("tool.slab", Binding::key(Key::S)),
     ("tool.space", Binding::key(Key::A)),
+    ("tool.text", Binding::key(Key::T)),
     ("tool.measure", Binding::key(Key::M)),
     ("edit.settings", Binding::primary(Key::T)),
     ("view.zoom-in", Binding::primary(Key::Equals)),
@@ -297,7 +299,7 @@ fn registry_keeps_the_default_shortcuts() {
             assert_eq!(spec.scope == Scope::Canvas, off_while_drawing, "{id}");
         }
     }
-    assert_eq!(bound, 33);
+    assert_eq!(bound, 34);
     assert_eq!(spec("edit.redo").default_bindings[1], Binding::primary(Key::Y));
     assert_eq!(
         spec("view.switch-plan-3d").default_bindings[1],
@@ -664,7 +666,7 @@ fn menus_follow_group_and_order() {
     );
     assert_eq!(
         menu("design"),
-        "tool.select tool.wall tool.slab tool.space tool.measure | design/wall-mode/ tool.wall.mode.single \
+        "tool.select tool.wall tool.slab tool.space tool.text tool.measure | design/wall-mode/ tool.wall.mode.single \
          tool.wall.mode.chain tool.wall.mode.rectangle tool.wall.mode.rotated-rectangle design/slab-mode/ \
          tool.slab.mode.polygon tool.slab.mode.rectangle tool.slab.mode.rotated-rectangle design/space-mode/ \
          tool.space.mode.detect tool.space.mode.polygon tool.space.mode.rectangle | tool.contour-detection"
@@ -785,7 +787,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             }
         }
     }
-    assert_eq!(ids.len(), 13, "{ids:?}");
+    assert_eq!(ids.len(), 14, "{ids:?}");
     let mut icons = HashSet::new();
     for id in ids {
         let icon = spec(id.as_str())
@@ -798,9 +800,9 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
 }
 
 /// UI-001: the toolbox is the registry's toolbox places: Select under
-/// Selection, Wall, Slab and Space under Modelling, and Fit, Orbit, Plan/3D and
-/// Measure under the view tools; no tool is 2D or annotation yet, so that
-/// group has no separator. Each label is a catalogue key.
+/// Selection, Wall, Slab and Space under Modelling, Text under 2D and
+/// annotation (ANN-007), and Fit, Orbit, Plan/3D and Measure under the view
+/// tools. Each label is a catalogue key.
 #[test]
 fn the_toolbox_groups_come_from_the_registry() {
     let groups: Vec<(ToolGroup, Vec<&str>)> = Registry::get()
@@ -813,6 +815,7 @@ fn the_toolbox_groups_come_from_the_registry() {
         [
             (ToolGroup::Selection, vec!["tool.select"]),
             (ToolGroup::Modelling, vec!["tool.wall", "tool.slab", "tool.space"]),
+            (ToolGroup::Annotation2d, vec!["tool.text"]),
             (
                 ToolGroup::View,
                 vec!["view.fit-window", "view.orbit", "view.switch-plan-3d", "tool.measure"]
@@ -842,7 +845,7 @@ fn every_toolbox_tool_has_an_icon_and_an_explanation() {
         .into_iter()
         .flat_map(|(_, tools)| tools)
         .collect();
-    assert_eq!(tools.len(), 8);
+    assert_eq!(tools.len(), 9);
     for spec in tools {
         let id = spec.id;
         assert!(spec.icon.is_some(), "{id} has no icon");

@@ -185,6 +185,7 @@ toolbox-select = Select
 toolbox-wall = Wall
 toolbox-slab = Slab
 toolbox-space = Space
+toolbox-text = Text
 toolbox-fit = Fit
 toolbox-orbit = Orbit
 toolbox-plan-3d = Plan/3D
@@ -225,6 +226,8 @@ browser-new-basement = -{ $number } Basement
 # Beside the element under the cursor in a plan; $name: the element's name,
 # for example W-1; $kind: its kind, for example Wall.
 view-plan-hover = { $name } · { $kind }
+# The accessible name of the inline editor of a text in a plan (ANN-007).
+view-plan-text-editor = Text
 # Shown in a 3D view when the computer has no usable graphics adapter.
 view-3d-no-gpu = 3D views need a GPU (wgpu), which is not available.
 # The corner label of a 3D view; $projection: view-projection-perspective or

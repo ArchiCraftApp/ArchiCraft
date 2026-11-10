@@ -7,12 +7,14 @@
 //! Tools are point-input consumers (`InputConsumer`, INP-001). With contour
 //! detection on, the wall and slab tools create their elements from a picked
 //! contour instead (INP-018); the space tool detects rooms bounded by walls
-//! (SPC-001).
+//! (SPC-001). The text tool's click opens an inline editor at the anchor
+//! (ANN-007).
 
 mod contour;
 mod measure;
 mod slab;
 mod space;
+mod text;
 mod user_origin;
 mod wall;
 
@@ -27,6 +29,7 @@ pub use contour::{Accepts, Contour, ContourDetection};
 pub use measure::{MeasureMode, MeasureTool, Measurement};
 pub use slab::SlabMode;
 pub use space::{SpaceDetection, SpaceMode};
+pub use text::TextEditor;
 pub use user_origin::UserOriginTool;
 pub use wall::WallMode;
 
@@ -38,16 +41,19 @@ pub enum ToolKind {
     Slab,
     /// Spaces, detected inside walls or drawn (SPC-001).
     Space,
+    /// Texts, typed in an inline editor at the clicked anchor (ANN-007).
+    Text,
     /// Measures distances and angles, creating nothing (MEA-001).
     Measure,
 }
 
 impl ToolKind {
-    pub const ALL: [ToolKind; 5] = [
+    pub const ALL: [ToolKind; 6] = [
         ToolKind::Select,
         ToolKind::Wall,
         ToolKind::Slab,
         ToolKind::Space,
+        ToolKind::Text,
         ToolKind::Measure,
     ];
 
@@ -57,6 +63,7 @@ impl ToolKind {
             ToolKind::Wall => "Wall",
             ToolKind::Slab => "Slab",
             ToolKind::Space => "Space",
+            ToolKind::Text => "Text",
             ToolKind::Measure => "Measure",
         }
     }
@@ -79,6 +86,10 @@ pub struct ToolState {
     pub detection: ContourDetection,
     /// The rooms the space tool detects (SPC-001).
     pub space: SpaceDetection,
+    /// The open inline text editor (ANN-007): opened by the text tool's
+    /// click or a double-click on a text, so also with the selection tool.
+    /// Changing tools commits it, nothing else in the tool state touches it.
+    pub editor: Option<TextEditor>,
 }
 
 impl Default for ToolState {
@@ -93,6 +104,7 @@ impl Default for ToolState {
             measure: MeasureTool::default(),
             detection: ContourDetection::default(),
             space: SpaceDetection::default(),
+            editor: None,
         }
     }
 }
@@ -241,7 +253,7 @@ impl ToolState {
     /// How many points complete the current operation, if fixed.
     fn needed(&self) -> Option<usize> {
         match self.kind {
-            ToolKind::Select | ToolKind::Measure => None,
+            ToolKind::Select | ToolKind::Text | ToolKind::Measure => None,
             ToolKind::Wall => match self.wall_mode {
                 WallMode::Single | WallMode::Rectangle => Some(2),
                 WallMode::RotatedRectangle => Some(3),
@@ -282,7 +294,7 @@ impl ToolState {
         let on = match self.kind {
             ToolKind::Wall | ToolKind::Slab => self.detection.is_on(),
             ToolKind::Space => self.space_mode == SpaceMode::Detect || self.detection.is_on(),
-            ToolKind::Select | ToolKind::Measure => false,
+            ToolKind::Select | ToolKind::Text | ToolKind::Measure => false,
         };
         on && self.points.is_empty()
     }
@@ -340,6 +352,30 @@ impl ToolState {
         })
     }
 
+    /// The text tool's step (ANN-007, NFR-USE-003): a point for the anchor,
+    /// typed or clicked, then the content in the open editor.
+    fn text_step(&self) -> StepSpec {
+        if self.editor.is_some() {
+            let hints = vec![
+                KeyHint::new("Enter", tr!("prompt-text-key-newline")),
+                KeyHint::new("Ctrl/Cmd+Enter", tr!("prompt-text-key-commit")),
+                KeyHint::new("Esc", tr!("prompt-text-key-cancel")),
+            ];
+            return StepSpec {
+                hints,
+                ..StepSpec::new(tr!("prompt-text-type"), Expect::Point)
+            };
+        }
+        let hints = vec![
+            KeyHint::new("0–9", "types the coordinates"),
+            KeyHint::new("P", "switches polar and Cartesian"),
+        ];
+        StepSpec {
+            hints,
+            ..StepSpec::new(tr!("prompt-text-anchor"), Expect::Point)
+        }
+    }
+
     fn is_chain(&self) -> bool {
         self.kind == ToolKind::Wall && self.wall_mode == WallMode::Chain
     }
@@ -372,7 +408,7 @@ impl ToolState {
     /// Backspace and Esc remove them without touching the project (UND-003);
     /// a click on another storey ends the open chain and starts a new one.
     fn add_point(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
-        if matches!(self.kind, ToolKind::Select | ToolKind::Measure)
+        if matches!(self.kind, ToolKind::Select | ToolKind::Text | ToolKind::Measure)
             || (self.kind == ToolKind::Space && self.outline_mode().is_none())
         {
             return Outcome::Continue;
@@ -519,6 +555,7 @@ impl InputConsumer for ToolState {
         let (prompt, repeat): (String, bool) = match self.kind {
             ToolKind::Select => return None,
             ToolKind::Measure => return self.measure.step(),
+            ToolKind::Text => return Some(self.text_step()),
             ToolKind::Space => match (self.space_mode, n) {
                 (SpaceMode::Rectangle, 0) => (tr!("prompt-space-rectangle-first"), false),
                 (SpaceMode::Rectangle, _) => (tr!("prompt-space-rectangle-next"), false),
@@ -629,6 +666,13 @@ impl InputConsumer for ToolState {
     fn commit(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
         match self.kind {
             ToolKind::Measure => self.measure.commit(project, storey, point),
+            // ANN-007: the anchor; the editor's commit creates the text.
+            ToolKind::Text => {
+                if self.editor.is_none() {
+                    self.editor = Some(TextEditor::new(project, storey, point));
+                }
+                Outcome::Continue
+            }
             ToolKind::Space if self.detecting() => self.room(storey, point).map_or(Outcome::Continue, |trace| {
                 Outcome::Execute(Command::AddElements(trace.elements(project, storey)))
             }),

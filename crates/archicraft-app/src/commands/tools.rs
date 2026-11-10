@@ -1,6 +1,6 @@
 //! The tools of the Design menu, their geometry methods and contour
-//! detection (UI-001, UI-017, WAL-001, SLB-001, SPC-001, MEA-001, INP-018,
-//! EDT-020).
+//! detection (UI-001, UI-017, WAL-001, SLB-001, SPC-001, ANN-007, MEA-001,
+//! INP-018, EDT-020).
 
 use egui::Key;
 
@@ -14,6 +14,8 @@ pub const WALL: CommandId = CommandId::new("tool.wall");
 pub const SLAB: CommandId = CommandId::new("tool.slab");
 /// The space tool (SPC-001).
 pub const SPACE: CommandId = CommandId::new("tool.space");
+/// The text tool (ANN-007).
+pub const TEXT: CommandId = CommandId::new("tool.text");
 /// The measure tool (MEA-001), also a toolbar button (UI-011).
 pub const MEASURE: CommandId = CommandId::new("tool.measure");
 
@@ -39,6 +41,7 @@ pub fn command(kind: ToolKind) -> CommandId {
         ToolKind::Wall => WALL,
         ToolKind::Slab => SLAB,
         ToolKind::Space => SPACE,
+        ToolKind::Text => TEXT,
         ToolKind::Measure => MEASURE,
     }
 }
@@ -100,10 +103,18 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             icons::SPACE,
             (ToolGroup::Modelling, 2, "toolbox-space"),
         ),
+        // T for text, the first tool of the 2D and annotation group.
+        tool(
+            ToolKind::Text,
+            4,
+            Key::T,
+            icons::TEXT,
+            (ToolGroup::Annotation2d, 0, "toolbox-text"),
+        ),
         // The measure tool sits with the view tools: it changes nothing.
         tool(
             ToolKind::Measure,
-            4,
+            5,
             Key::M,
             icons::MEASURE,
             (ToolGroup::View, 3, "toolbox-measure"),

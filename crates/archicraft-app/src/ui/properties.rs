@@ -54,6 +54,7 @@ fn gather(ws: &Workspace) -> Option<Editing> {
             ToolKind::Wall => KindTag::Wall,
             ToolKind::Slab => KindTag::Slab,
             ToolKind::Space => KindTag::Space,
+            ToolKind::Text => KindTag::Text,
         };
         return Some(Editing {
             subject: Subject::Defaults(kind),
@@ -525,7 +526,9 @@ fn anchor_pos_label(pos: AnchorPos) -> String {
 
 /// The fields of texts (ANN-007): the content (several lines), the style,
 /// the size in millimetres (empty for the style's size), the anchor
-/// position and the angle. Each committed change is one step (ELM-001).
+/// position and the angle. Each committed change is one step (ELM-001). The
+/// text tool's defaults have no content: each text gets its own in the
+/// inline editor, so their strip has no Content row.
 fn text_fields(ui: &mut Ui, f: &mut Fields<'_>) {
     if !f.targets.iter().any(|e| e.as_text().is_some()) {
         return;
@@ -533,21 +536,23 @@ fn text_fields(ui: &mut Ui, f: &mut Fields<'_>) {
     let texts = |targets: &[Element]| -> Vec<archicraft_model::Text> {
         targets.iter().filter_map(Element::as_text).cloned().collect()
     };
-    let field = f.id.with("text-content");
-    f.row_of(ui, "Content", |ui, f| {
-        let value = common(texts(f.targets).into_iter().map(|t| t.content));
-        match widgets::multiline_text(ui, field, value.as_deref(), f.width(140.0)).1 {
-            Edited::Changed(content) => {
-                for t in f.targets.iter_mut().filter_map(text_mut) {
-                    t.content.clone_from(&content);
+    if f.selection {
+        let field = f.id.with("text-content");
+        f.row_of(ui, "Content", |ui, f| {
+            let value = common(texts(f.targets).into_iter().map(|t| t.content));
+            match widgets::multiline_text(ui, field, value.as_deref(), f.width(140.0)).1 {
+                Edited::Changed(content) => {
+                    for t in f.targets.iter_mut().filter_map(text_mut) {
+                        t.content.clone_from(&content);
+                    }
+                    f.changed = true;
                 }
-                f.changed = true;
+                Edited::Invalid(e) => f.error = Some(e),
+                Edited::Unchanged => {}
             }
-            Edited::Invalid(e) => f.error = Some(e),
-            Edited::Unchanged => {}
-        }
-        Some(field)
-    });
+            Some(field)
+        });
+    }
     let project = f.project;
     let styles: Vec<(TextStyleId, String)> = project.text_styles.iter().map(|s| (s.id, s.name.clone())).collect();
     f.choice(
@@ -1115,6 +1120,8 @@ fn tool_modes(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
         ToolKind::Wall => WallMode::ALL.map(commands::tools::wall_mode).to_vec(),
         ToolKind::Slab => SlabMode::ALL.map(commands::tools::slab_mode).to_vec(),
         ToolKind::Space => SpaceMode::ALL.map(commands::tools::space_mode).to_vec(),
+        // ANN-007: the anchor snaps like any point, with the division.
+        ToolKind::Text => Vec::new(),
         // MEA-001: a new mode starts a new measurement.
         ToolKind::Measure => {
             for mode in MeasureMode::ALL {

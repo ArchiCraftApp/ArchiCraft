@@ -26,7 +26,7 @@ use crate::input::{
     InputSettings, KeyInput, Modifiers, Outcome, PointInput, PointerEvent, Resolved, SnapIndex, SnapKind, SurfaceFrame,
     TrackerMode, ViewSurface,
 };
-use crate::tools::{ToolKind, ToolState};
+use crate::tools::{TextEditor, ToolKind, ToolState};
 use crate::workspace::{Consumer, InputFrames, Pane, Request, Workspace};
 
 /// Per-view state of a plan view.
@@ -76,6 +76,17 @@ pub struct PlanViewState {
     /// The quads of the selected texts drawn highlighted last frame
     /// (ANN-007, SEL-001).
     pub selected_texts: Vec<[Pos2; 4]>,
+    /// A press in the view committed the open text editor (ANN-007): until
+    /// the button is released, the press and its click do nothing else.
+    editor_press: bool,
+    /// What the last click of the selection tool hit, which the second
+    /// click of a double-click acts on: the first click may have changed
+    /// the panels around the view, moving the plan under the pointer. A
+    /// click the selection tool does not take clears it.
+    last_hit: Option<ElementId>,
+    /// The screen rectangle of the open text editor last frame and its font
+    /// size in points (ANN-007).
+    pub editor: Option<(Rect, f32)>,
 }
 
 impl Default for PlanViewState {
@@ -101,6 +112,9 @@ impl Default for PlanViewState {
             stamps: Vec::new(),
             texts: Vec::new(),
             selected_texts: Vec::new(),
+            editor_press: false,
+            last_hit: None,
+            editor: None,
         }
     }
 }
@@ -446,14 +460,16 @@ fn text_block(project: &Project, text: &Text) -> Option<TextBlock> {
 
 /// Lays out the texts of `storey`'s plan view for this frame at paper size
 /// at the view's drawing scale (ANN-007, VIEW-013). Texts too small to read
-/// are left out.
+/// are left out, as is the text `editing` the inline editor shows.
 fn layout_texts(
     ctx: &egui::Context,
     project: &Project,
     storey: StoreyId,
     state: &PlanViewState,
+    editing: Option<ElementId>,
 ) -> Vec<(ElementId, LaidOutText)> {
     storey_texts(project, storey)
+        .filter(|(id, _)| Some(*id) != editing)
         .filter_map(|(id, text)| Some((id, state.layout_text(ctx, &text_block(project, text)?)?)))
         .collect()
 }
@@ -965,7 +981,8 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         &ws.doc.project.settings.units,
         &ws.prefs.number_format(),
     );
-    state.texts = layout_texts(ui.ctx(), &ws.doc.project, storey, &state);
+    let editing = ws.tool.editor.as_ref().map(TextEditor::element);
+    state.texts = layout_texts(ui.ctx(), &ws.doc.project, storey, &state, editing);
     let palette = Palette::new(ui.visuals());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, palette.paper);
@@ -1039,9 +1056,36 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         }
     }
 
-    // Clicks of the selection tool.
-    if response.clicked_by(PointerButton::Primary)
+    // ANN-007: a press in the view, outside the open text editor, commits
+    // it; neither the press nor its click does anything else.
+    if ws.tool.editor.is_some() && response.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
+        ws.commit_text_editor();
+        state.editor_press = true;
+    }
+    // With the Text tool, a click on a text edits it rather than placing a
+    // new one (ANN-007).
+    if ws.tool.kind == ToolKind::Text
+        && ws.active_consumer == Consumer::Tool
+        && ws.tool.editor.is_none()
+        && !state.editor_press
+        && response.clicked_by(PointerButton::Primary)
+        && let Some(pos) = pointer
+        && let Some((id, _)) = state.texts.iter().rev().find(|(_, text)| text.hit(pos))
+    {
+        ws.edit_text(*id);
+        state.editor_press = true;
+    }
+    let swallowed = state.editor_press;
+    if !ui.input(|i| i.pointer.primary_down()) {
+        state.editor_press = false;
+    }
+
+    // Clicks of the selection tool; a double-click on a text opens its
+    // editor (ANN-007).
+    let clicked = response.clicked_by(PointerButton::Primary);
+    if clicked
         && selecting
+        && !swallowed
         && let Some(world) = cursor_world
     {
         let shift = ui.input(|i| i.modifiers.shift);
@@ -1059,13 +1103,36 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         };
         state.pick = Some((world, index));
         // A grouped element selects its group; Shift toggles it whole
-        // (ELM-015).
-        let hit = candidates.get(index % candidates.len().max(1)).copied();
-        ws.click_select(hit, shift);
+        // (ELM-015). The second click of a double-click acts on what the
+        // first selected.
+        let double = response.double_clicked_by(PointerButton::Primary);
+        let hit = match (double, state.last_hit) {
+            (true, Some(first)) => Some(first),
+            _ => {
+                let hit = candidates.get(index % candidates.len().max(1)).copied();
+                ws.click_select(hit, shift);
+                hit
+            }
+        };
+        state.last_hit = hit;
+        if double
+            && let Some(id) = hit
+            && ws.doc.project.element(id).is_some_and(|e| e.as_text().is_some())
+        {
+            ws.edit_text(id);
+        }
+    } else if clicked {
+        // A click the selection tool did not take, such as one that
+        // committed the open text editor, selected nothing: the second click
+        // of a double-click acts on what it hits itself.
+        state.last_hit = None;
     }
     // Points from the primary button in the chosen input mode (INP-020): a
     // press that becomes a drag takes its point where the button went down.
-    if !selecting && let Some(input) = &input {
+    if !selecting
+        && !swallowed
+        && let Some(input) = &input
+    {
         let at = |p: Option<Pos2>| p.and_then(|p| surface.to_plane(screen(p)));
         let (press_origin, latest) = ui.input(|i| (i.pointer.press_origin(), i.pointer.latest_pos()));
         // The second click of a double-click is a click too; a pick
@@ -1265,7 +1332,103 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     }
 
     response.context_menu(|ui| context_menu(ui, ws));
+    state.editor = text_editor(ui, ws, &state, storey);
     ws.plan_views.insert(storey, state);
+}
+
+/// The open text editor's font size on screen in points (ANN-007): the
+/// text's drawn size, kept between these bounds so that it stays readable
+/// and fits the view.
+const EDITOR_MIN_PT: f32 = 9.0;
+const EDITOR_MAX_PT: f32 = 72.0;
+
+/// Shows the open inline text editor when its text lies on `storey`
+/// (ANN-007): a multi-line field at the anchor, placed by the text's anchor
+/// position, in the text's drawn size where practical. Plain Enter starts a
+/// new line, Ctrl/Cmd+Enter and a loss of focus commit the content as one
+/// undo step, Esc cancels. While the field has focus, typed keys stay text:
+/// single-key shortcuts are off (UI-008) and the view's keys are not handled.
+/// Returns the editor's screen rectangle and font size.
+fn text_editor(ui: &Ui, ws: &mut Workspace, state: &PlanViewState, storey: StoreyId) -> Option<(Rect, f32)> {
+    let editor = ws.tool.editor.as_ref().filter(|e| e.storey() == storey)?;
+    let text = editor.text.as_text()?;
+    let size_mm = ws
+        .doc
+        .project
+        .text_style(text.style)
+        .map_or(STAMP_SIZE_MM, |style| text.effective_size_mm(style));
+    let size = (state.scale.paper_mm_to_model(size_mm) * state.camera.scale) as f32;
+    let size = size.clamp(EDITOR_MIN_PT, EDITOR_MAX_PT);
+    let align = |fraction: f64| match fraction {
+        f if f < 0.25 => egui::Align::Min,
+        f if f > 0.75 => egui::Align::Max,
+        _ => egui::Align::Center,
+    };
+    let pivot = Align2([align(text.anchor_pos.x_fraction()), align(text.anchor_pos.y_fraction())]);
+    let anchor = state.camera.to_screen(state.last_rect, text.anchor);
+    // The field's own id for each opening: egui reports a lost focus for two
+    // frames, and keeps the cursor and the field's undo per id, none of which
+    // must reach the next editor. The area keeps one id, as egui never
+    // forgets an area.
+    let id = egui::Id::new("plan-text-editor").with(editor.opening);
+    let font = FontId::proportional(size);
+    let ctx = ui.ctx().clone();
+    let focused = ctx.memory(|m| m.has_focus(id));
+    // Taken before the field sees them: Ctrl/Cmd+Enter would start a line.
+    let commit_key = focused && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, Key::Enter));
+    let escape = focused && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape));
+    let editor = ws.tool.editor.as_mut()?;
+    let width = editor
+        .content
+        .split('\n')
+        .map(|line| {
+            ui.painter()
+                .layout_no_wrap(line.to_owned(), font.clone(), Color32::PLACEHOLDER)
+                .size()
+                .x
+        })
+        .fold(0.0, f32::max)
+        + size;
+    let area = egui::Area::new(egui::Id::new("plan-text-editor-area"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(anchor)
+        .pivot(pivot)
+        .constrain(false)
+        .show(&ctx, |ui| {
+            egui::TextEdit::multiline(&mut editor.content)
+                .id(id)
+                // Esc cancels the editor rather than only dropping its focus.
+                .event_filter(egui::EventFilter {
+                    horizontal_arrows: true,
+                    vertical_arrows: true,
+                    escape: true,
+                    tab: false,
+                })
+                .font(font)
+                .desired_rows(1)
+                .desired_width(width.max(size * 4.0))
+                .show(ui)
+                .response
+        });
+    let response = area.inner;
+    ctx.accesskit_node_builder(id, |node| node.set_label(crate::tr!("view-plan-text-editor")));
+    // The focus waits for a frame without a click: the click that opened the
+    // editor would take it away again, as a click elsewhere.
+    if editor.wants_focus && !ctx.input(|i| i.pointer.any_pressed() || i.pointer.any_released()) {
+        editor.wants_focus = false;
+        response.request_focus();
+    }
+    if escape || commit_key || response.lost_focus() {
+        // The view takes the keys again.
+        response.surrender_focus();
+        if escape {
+            ws.cancel_text_editor();
+        } else {
+            ws.commit_text_editor();
+        }
+        return None;
+    }
+    Some((area.response.rect, size))
 }
 
 /// Draws the lines and points of the measure tool's measurement picked on
