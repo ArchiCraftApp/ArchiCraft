@@ -6,6 +6,7 @@
 
 pub mod contact;
 pub mod contour;
+pub mod dirty;
 pub mod evaluate;
 pub mod extrude;
 pub mod kinds;
@@ -21,6 +22,7 @@ use archicraft_model::KindTag;
 use message::Message;
 
 pub use contour::{Chain, ContourGraph, ContourOptions, PlanSegmentSource, Region};
+pub use dirty::{DirtySet, dirty_set};
 pub use evaluate::{
     BodyPart, ElementGeometry, MATERIAL_LESS_COLOR, MATERIAL_LESS_OPACITY, ModelGeometry, PartGeometry,
 };
