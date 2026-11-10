@@ -602,7 +602,7 @@ mod tests {
 
     use super::*;
     use crate::input::targets::tests::index_of;
-    use crate::tools::{SlabMode, ToolKind, ToolState, WallMode};
+    use crate::tools::{SlabMode, SpaceMode, ToolKind, ToolState, WallMode};
 
     /// The model length of one screen pixel in [`Env`].
     const PIXEL: f64 = 0.01;
@@ -1271,6 +1271,13 @@ mod tests {
             };
             tools.push((tool, points));
         }
+        // SPC-001: the space tool's drawn methods are the slab tool's.
+        for (mode, points) in [(SpaceMode::Polygon, &four), (SpaceMode::Rectangle, &two)] {
+            let mut tool = ToolState::default();
+            tool.select(ToolKind::Space);
+            tool.space_mode = mode;
+            tools.push((tool, points.clone()));
+        }
         for (mut tool, points) in tools {
             let mut env = Env::new();
             let mut input = PointInput::default();
@@ -1352,6 +1359,51 @@ mod tests {
             env.key(&mut input, &mut tool, KeyInput::Escape),
             Effect::NothingToCancel
         );
+    }
+
+    /// SPC-001, NFR-USE-002, INP-001, INP-003: the space tool's polygon
+    /// method takes typed lengths like the slab tool's: 4 m east, then 3 m
+    /// north. Esc removes the last corner and creates nothing; Enter closes
+    /// the boundary into one space with a drawn boundary, the one command of
+    /// one undo step.
+    #[test]
+    fn the_space_polygon_takes_typed_lengths_and_esc_cancels_a_step() {
+        let mut env = Env::new();
+        let mut input = PointInput::default();
+        let mut tool = ToolState::default();
+        tool.select(ToolKind::Space);
+        tool.space_mode = SpaceMode::Polygon;
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        for (length, towards) in [("4", DVec2::new(1.0, 0.0)), ("3", DVec2::new(4.0, 1.0))] {
+            env.key(&mut input, &mut tool, text(length));
+            let ctx = env.ctx(&tool);
+            input.resolve(towards, Modifiers::default(), &ctx);
+            assert_eq!(env.key(&mut input, &mut tool, KeyInput::Enter), Effect::None);
+        }
+        env.click(&mut input, &mut tool, (1.0, 3.0));
+        assert_eq!(env.key(&mut input, &mut tool, KeyInput::Escape), Effect::None);
+        assert_eq!(tool.points, [DVec2::ZERO, DVec2::new(4.0, 0.0), DVec2::new(4.0, 3.0)]);
+        assert!(env.project.elements.is_empty(), "Esc creates nothing");
+        env.click(&mut input, &mut tool, (0.0, 3.0));
+
+        let ctx = env.ctx(&tool);
+        let Effect::Execute(Command::AddElements(elements)) = input.key(KeyInput::Enter, &mut tool, &ctx) else {
+            panic!("Enter closes the boundary")
+        };
+        let mut history = History::default();
+        history
+            .execute(&mut env.project, Command::AddElements(elements))
+            .unwrap();
+        assert_eq!(history.undo_len(), 1);
+        let spaces: Vec<_> = env.project.elements.values().filter_map(|e| e.as_space()).collect();
+        assert_eq!(spaces.len(), 1);
+        assert_eq!(spaces[0].source, archicraft_model::BoundarySource::Drawn);
+        let corners = [(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)].map(|(x, y)| DVec2::new(x, y));
+        let boundary = spaces[0].boundary.to_points().0;
+        assert_eq!(boundary.len(), 4);
+        for (q, e) in boundary.iter().zip(corners) {
+            assert!(q.distance(e) < 1e-12, "{boundary:?}");
+        }
     }
 
     /// INP-003, INP-004, INP-006: a typed distance, then a typed angle, from

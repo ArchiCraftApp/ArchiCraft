@@ -1,16 +1,19 @@
 //! The tools of the Design menu, their geometry methods and contour
-//! detection (UI-001, UI-017, WAL-001, SLB-001, MEA-001, INP-018, EDT-020).
+//! detection (UI-001, UI-017, WAL-001, SLB-001, SPC-001, MEA-001, INP-018,
+//! EDT-020).
 
 use egui::Key;
 
 use super::{Binding, Category, CommandId, CommandSpec, Registry, Scope, ToolGroup};
 use crate::ArchiCraftApp;
-use crate::tools::{SlabMode, ToolKind, WallMode};
+use crate::tools::{SlabMode, SpaceMode, ToolKind, WallMode};
 use crate::ui::icons;
 
 pub const SELECT: CommandId = CommandId::new("tool.select");
 pub const WALL: CommandId = CommandId::new("tool.wall");
 pub const SLAB: CommandId = CommandId::new("tool.slab");
+/// The space tool (SPC-001).
+pub const SPACE: CommandId = CommandId::new("tool.space");
 /// The measure tool (MEA-001), also a toolbar button (UI-011).
 pub const MEASURE: CommandId = CommandId::new("tool.measure");
 
@@ -24,6 +27,9 @@ pub const WALL_MODE: &str = "tool.wall.mode";
 /// The family of the slab tool's geometry methods, one command per
 /// [`SlabMode`]: `tool.slab.mode.<code>`.
 pub const SLAB_MODE: &str = "tool.slab.mode";
+/// The family of the space tool's geometry methods, one command per
+/// [`SpaceMode`]: `tool.space.mode.<code>`.
+pub const SPACE_MODE: &str = "tool.space.mode";
 
 /// The command that selects the tool `kind`, which the toolbox buttons
 /// invoke (UI-001).
@@ -32,6 +38,7 @@ pub fn command(kind: ToolKind) -> CommandId {
         ToolKind::Select => SELECT,
         ToolKind::Wall => WALL,
         ToolKind::Slab => SLAB,
+        ToolKind::Space => SPACE,
         ToolKind::Measure => MEASURE,
     }
 }
@@ -44,6 +51,11 @@ pub fn wall_mode(mode: WallMode) -> CommandId {
 /// The command that switches the slab tool to `mode` (SLB-001).
 pub fn slab_mode(mode: SlabMode) -> CommandId {
     Registry::get().member(SLAB_MODE, mode.code())
+}
+
+/// The command that switches the space tool to `mode` (SPC-001).
+pub fn space_mode(mode: SpaceMode) -> CommandId {
+    Registry::get().member(SPACE_MODE, mode.code())
 }
 
 pub(super) fn specs() -> Vec<CommandSpec> {
@@ -80,10 +92,18 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             icons::SLAB,
             (ToolGroup::Modelling, 1, "toolbox-slab"),
         ),
+        // A for the area of a room: R cycles the wall reference line.
+        tool(
+            ToolKind::Space,
+            3,
+            Key::A,
+            icons::SPACE,
+            (ToolGroup::Modelling, 2, "toolbox-space"),
+        ),
         // The measure tool sits with the view tools: it changes nothing.
         tool(
             ToolKind::Measure,
-            3,
+            4,
             Key::M,
             icons::MEASURE,
             (ToolGroup::View, 3, "toolbox-measure"),
@@ -108,6 +128,15 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         )
         .menu("design/slab-mode", 1, order)
         .checked_when(move |cx| cx.slab_mode == mode)
+    }));
+    specs.extend((0..).zip(SpaceMode::ALL).map(|(order, mode)| {
+        CommandSpec::with(
+            CommandId::member(SPACE_MODE, mode.code()),
+            Category::Design,
+            move |app, _, _| set_mode(app, ToolKind::Space, |tool| tool.space_mode = mode),
+        )
+        .menu("design/space-mode", 1, order)
+        .checked_when(move |cx| cx.space_mode == mode)
     }));
     specs.push(
         CommandSpec::with(CONTOUR_DETECTION, Category::Design, |app, _, _| {

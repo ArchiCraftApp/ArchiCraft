@@ -18,6 +18,7 @@ menu-help = Help
 # The submenus of the geometry methods (Design) and the 3D views (View).
 menu-design-wall-mode = Wall method
 menu-design-slab-mode = Slab method
+menu-design-space-mode = Space method
 menu-view-display-mode = Display mode
 menu-view-view-preset = View presets
 
@@ -183,6 +184,7 @@ toolbox-view-tools = View tools
 toolbox-select = Select
 toolbox-wall = Wall
 toolbox-slab = Slab
+toolbox-space = Space
 toolbox-fit = Fit
 toolbox-orbit = Orbit
 toolbox-plan-3d = Plan/3D

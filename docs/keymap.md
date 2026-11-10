@@ -113,6 +113,7 @@ table (`commands/d8.rs`) and the OS-reserved tables (`commands/os_reserved.rs`);
 | Next zoom | `Cmd+CloseBracket` | `Ctrl+CloseBracket` | not while typing | `view.next-zoom` |
 | Problems | `Shift+Cmd+M` | `Ctrl+Shift+M` | always | `view.problems` |
 | Selection tool | `V` | `V` | not while typing or drawing | `tool.select` |
+| Space tool | `A` | `A` | not while typing or drawing | `tool.space` |
 | Cycle wall reference line | `R` | `R` | not while typing, matched by the plan view | `tool.wall.cycle-reference-line` |
 | Cycle overlapping elements | `Tab` | `Tab` | not while typing or drawing, matched by the plan view | `canvas.cycle-candidates` |
 | Next typed field | `Tab` | `Tab` | only while drawing, matched by the plan view | `input.next-field` |

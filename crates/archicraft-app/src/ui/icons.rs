@@ -16,6 +16,7 @@ use egui::{Context, ImageSource, include_image};
 pub const SELECT: ImageSource<'static> = include_image!("../../assets/icons/select.svg");
 pub const WALL: ImageSource<'static> = include_image!("../../assets/icons/wall.svg");
 pub const SLAB: ImageSource<'static> = include_image!("../../assets/icons/slab.svg");
+pub const SPACE: ImageSource<'static> = include_image!("../../assets/icons/space.svg");
 pub const FIT: ImageSource<'static> = include_image!("../../assets/icons/fit.svg");
 pub const ORBIT: ImageSource<'static> = include_image!("../../assets/icons/orbit.svg");
 pub const PLAN_3D: ImageSource<'static> = include_image!("../../assets/icons/plan-3d.svg");
@@ -27,8 +28,8 @@ pub const UNGROUP: ImageSource<'static> = include_image!("../../assets/icons/ung
 pub const MEASURE: ImageSource<'static> = include_image!("../../assets/icons/measure.svg");
 
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 12] = [
-    SELECT, WALL, SLAB, FIT, ORBIT, PLAN_3D, UNDO, REDO, SAVE, GROUP, UNGROUP, MEASURE,
+pub const ALL: [ImageSource<'static>; 13] = [
+    SELECT, WALL, SLAB, SPACE, FIT, ORBIT, PLAN_3D, UNDO, REDO, SAVE, GROUP, UNGROUP, MEASURE,
 ];
 
 /// Installs the loader that rasterises the icons for the screen's pixels

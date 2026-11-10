@@ -6,7 +6,7 @@ use archicraft_model::project::Projection;
 use archicraft_model::{ElementId, StoreyId};
 
 use super::Keymap;
-use crate::tools::{SlabMode, ToolKind, WallMode};
+use crate::tools::{SlabMode, SpaceMode, ToolKind, WallMode};
 use crate::ui::dialogs::Dialogs;
 use crate::views::render3d::DisplayMode;
 use crate::workspace::{Pane, Workspace};
@@ -38,11 +38,12 @@ pub struct CommandCtx {
     pub problems_open: bool,
     pub reference_lines_shown: bool,
     pub user_origin_placed: bool,
-    /// The active tool and the geometry methods of the wall and slab tools
-    /// (WAL-001, SLB-001).
+    /// The active tool and the geometry methods of the wall, slab and space
+    /// tools (WAL-001, SLB-001, SPC-001).
     pub tool: ToolKind,
     pub wall_mode: WallMode,
     pub slab_mode: SlabMode,
+    pub space_mode: SpaceMode,
     /// Contour detection is on, toggled or held (INP-018).
     pub contour_detection: bool,
     /// The state of the active 3D view, if a 3D view is active.
@@ -86,6 +87,7 @@ impl CommandCtx {
             tool: ws.tool.kind,
             wall_mode: ws.tool.wall_mode,
             slab_mode: ws.tool.slab_mode,
+            space_mode: ws.tool.space_mode,
             contour_detection: ws.tool.detection.is_on(),
             view3d,
             material_selected: dialogs.materials

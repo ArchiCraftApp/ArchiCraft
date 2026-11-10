@@ -5,7 +5,7 @@ use egui::{Key, KeyboardShortcut, Modifiers};
 
 use super::*;
 use crate::i18n::Localizer;
-use crate::tools::{SlabMode, WallMode};
+use crate::tools::{SlabMode, SpaceMode, WallMode};
 use crate::views::camera::ViewPreset;
 use crate::views::render3d::DisplayMode;
 
@@ -66,6 +66,7 @@ fn every_command_is_complete() {
     let family = |prefix: &str| ids.iter().filter(|id| id.starts_with(prefix)).count();
     assert_eq!(family("tool.wall.mode."), WallMode::ALL.len());
     assert_eq!(family("tool.slab.mode."), SlabMode::ALL.len());
+    assert_eq!(family("tool.space.mode."), SpaceMode::ALL.len());
     assert_eq!(family("view3d.display."), DisplayMode::ALL.len());
     assert_eq!(family("view3d.preset."), ViewPreset::ALL.len());
     let member = |id: CommandId, family: &str, code: &str| assert_eq!(id.as_str(), format!("{family}.{code}"));
@@ -74,6 +75,9 @@ fn every_command_is_complete() {
     }
     for m in SlabMode::ALL {
         member(tools::slab_mode(m), tools::SLAB_MODE, m.code());
+    }
+    for m in SpaceMode::ALL {
+        member(tools::space_mode(m), tools::SPACE_MODE, m.code());
     }
     for m in DisplayMode::ALL {
         member(view3d::display(m), view3d::DISPLAY, m.code());
@@ -157,6 +161,7 @@ fn command_ids_are_pinned() {
             "tool.select",
             "tool.wall",
             "tool.slab",
+            "tool.space",
             "tool.measure",
             "tool.wall.mode.single",
             "tool.wall.mode.chain",
@@ -165,6 +170,9 @@ fn command_ids_are_pinned() {
             "tool.slab.mode.polygon",
             "tool.slab.mode.rectangle",
             "tool.slab.mode.rotated-rectangle",
+            "tool.space.mode.detect",
+            "tool.space.mode.polygon",
+            "tool.space.mode.rectangle",
             "tool.contour-detection",
             "project.storeys",
             "project.layers",
@@ -217,10 +225,10 @@ fn primary_binding_follows_the_platform() {
 /// The default shortcuts, each the first binding of its command: the 23 of
 /// the former `ui/actions.rs`, with Problems moved off Primary+Shift+P for
 /// the command palette, Preferences, Group and Ungroup (ELM-015) and the
-/// Measure tool (MEA-001, docs/keymap.md), and Zoom in and out on
-/// Primary+= and Primary+- (UI-001). Primary is Cmd on macOS and Ctrl
-/// elsewhere.
-const DEFAULT_SHORTCUTS: [(&str, Binding); 29] = [
+/// Measure tool (MEA-001, docs/keymap.md), the Space tool (SPC-001), and
+/// Zoom in and out on Primary+= and Primary+- (UI-001). Primary is Cmd on
+/// macOS and Ctrl elsewhere.
+const DEFAULT_SHORTCUTS: [(&str, Binding); 30] = [
     ("file.new", Binding::primary(Key::N)),
     ("file.open", Binding::primary(Key::O)),
     ("file.save", Binding::primary(Key::S)),
@@ -237,6 +245,7 @@ const DEFAULT_SHORTCUTS: [(&str, Binding); 29] = [
     ("tool.select", Binding::key(Key::V)),
     ("tool.wall", Binding::key(Key::W)),
     ("tool.slab", Binding::key(Key::S)),
+    ("tool.space", Binding::key(Key::A)),
     ("tool.measure", Binding::key(Key::M)),
     ("edit.settings", Binding::primary(Key::T)),
     ("view.zoom-in", Binding::primary(Key::Equals)),
@@ -288,7 +297,7 @@ fn registry_keeps_the_default_shortcuts() {
             assert_eq!(spec.scope == Scope::Canvas, off_while_drawing, "{id}");
         }
     }
-    assert_eq!(bound, 32);
+    assert_eq!(bound, 33);
     assert_eq!(spec("edit.redo").default_bindings[1], Binding::primary(Key::Y));
     assert_eq!(
         spec("view.switch-plan-3d").default_bindings[1],
@@ -655,9 +664,10 @@ fn menus_follow_group_and_order() {
     );
     assert_eq!(
         menu("design"),
-        "tool.select tool.wall tool.slab tool.measure | design/wall-mode/ tool.wall.mode.single tool.wall.mode.chain \
-         tool.wall.mode.rectangle tool.wall.mode.rotated-rectangle design/slab-mode/ tool.slab.mode.polygon \
-         tool.slab.mode.rectangle tool.slab.mode.rotated-rectangle | tool.contour-detection"
+        "tool.select tool.wall tool.slab tool.space tool.measure | design/wall-mode/ tool.wall.mode.single \
+         tool.wall.mode.chain tool.wall.mode.rectangle tool.wall.mode.rotated-rectangle design/slab-mode/ \
+         tool.slab.mode.polygon tool.slab.mode.rectangle tool.slab.mode.rotated-rectangle design/space-mode/ \
+         tool.space.mode.detect tool.space.mode.polygon tool.space.mode.rectangle | tool.contour-detection"
     );
     assert_eq!(
         menu("project"),
@@ -775,7 +785,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             }
         }
     }
-    assert_eq!(ids.len(), 12, "{ids:?}");
+    assert_eq!(ids.len(), 13, "{ids:?}");
     let mut icons = HashSet::new();
     for id in ids {
         let icon = spec(id.as_str())
@@ -788,7 +798,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
 }
 
 /// UI-001: the toolbox is the registry's toolbox places: Select under
-/// Selection, Wall and Slab under Modelling, and Fit, Orbit, Plan/3D and
+/// Selection, Wall, Slab and Space under Modelling, and Fit, Orbit, Plan/3D and
 /// Measure under the view tools; no tool is 2D or annotation yet, so that
 /// group has no separator. Each label is a catalogue key.
 #[test]
@@ -802,7 +812,7 @@ fn the_toolbox_groups_come_from_the_registry() {
         groups,
         [
             (ToolGroup::Selection, vec!["tool.select"]),
-            (ToolGroup::Modelling, vec!["tool.wall", "tool.slab"]),
+            (ToolGroup::Modelling, vec!["tool.wall", "tool.slab", "tool.space"]),
             (
                 ToolGroup::View,
                 vec!["view.fit-window", "view.orbit", "view.switch-plan-3d", "tool.measure"]
@@ -832,7 +842,7 @@ fn every_toolbox_tool_has_an_icon_and_an_explanation() {
         .into_iter()
         .flat_map(|(_, tools)| tools)
         .collect();
-    assert_eq!(tools.len(), 7);
+    assert_eq!(tools.len(), 8);
     for spec in tools {
         let id = spec.id;
         assert!(spec.icon.is_some(), "{id} has no icon");

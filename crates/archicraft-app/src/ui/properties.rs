@@ -19,7 +19,7 @@ use super::command_widgets::command_button;
 use super::widgets::{self, Edited, common};
 use crate::commands::{self, CommandCtx, CommandId, Origin, Registry, Target};
 use crate::input::{DivisionMode, DivisionScope, EQUAL_PARTS, PointInput};
-use crate::tools::{MeasureMode, SlabMode, ToolKind, WallMode};
+use crate::tools::{MeasureMode, SlabMode, SpaceMode, ToolKind, WallMode};
 use crate::tr;
 use crate::workspace::{Request, Workspace};
 
@@ -53,6 +53,7 @@ fn gather(ws: &Workspace) -> Option<Editing> {
             ToolKind::Select | ToolKind::Measure => return None,
             ToolKind::Wall => KindTag::Wall,
             ToolKind::Slab => KindTag::Slab,
+            ToolKind::Space => KindTag::Space,
         };
         return Some(Editing {
             subject: Subject::Defaults(kind),
@@ -813,11 +814,12 @@ fn section(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
 
 /// Geometry methods of the active tool, shown at the start of the strip:
 /// the commands of the mode family, checked for the current mode (WAL-001,
-/// SLB-001, UI-017).
+/// SLB-001, SPC-001, UI-017).
 fn tool_modes(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
     let modes: Vec<CommandId> = match ws.tool.kind {
         ToolKind::Wall => WallMode::ALL.map(commands::tools::wall_mode).to_vec(),
         ToolKind::Slab => SlabMode::ALL.map(commands::tools::slab_mode).to_vec(),
+        ToolKind::Space => SpaceMode::ALL.map(commands::tools::space_mode).to_vec(),
         // MEA-001: a new mode starts a new measurement.
         ToolKind::Measure => {
             for mode in MeasureMode::ALL {

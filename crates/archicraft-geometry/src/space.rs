@@ -84,6 +84,11 @@ impl SpaceRegions {
     /// The smallest region around `seed`, counter-clockwise, with the outer
     /// boundaries of the walls standing free in it as islands, clockwise
     /// like the holes of a slab (SPC-001, INP-018).
+    ///
+    /// A seed exactly on a wall face is decided by the even-odd test of the
+    /// footprint, so it gives the room on some faces and
+    /// [`RegionError::SeedInFootprint`] on others: pick with the cursor as it
+    /// is, not with a point snapped onto a wall face, as the space tool does.
     pub fn region_at(&self, seed: DVec2) -> Result<Region, RegionError> {
         if self.footprints.iter().any(|corners| ring_contains(corners, seed)) {
             return Err(RegionError::SeedInFootprint);

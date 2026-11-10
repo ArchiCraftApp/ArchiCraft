@@ -560,6 +560,7 @@ impl Workspace {
             ToolKind::Select | ToolKind::Measure => None,
             ToolKind::Wall => Some(archicraft_model::KindTag::Wall),
             ToolKind::Slab => Some(archicraft_model::KindTag::Slab),
+            ToolKind::Space => Some(archicraft_model::KindTag::Space),
         };
         let storey = match self.active_pane {
             Some(Pane::Plan(s)) => Some(s),

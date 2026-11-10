@@ -510,10 +510,10 @@ fn the_shortcuts_window_lists_every_binding() {
         .filter(|s| !s.default_bindings.is_empty())
         .count();
     // The 23 former actions, Preferences, Group and Ungroup (ELM-015), the
-    // Measure tool, Zoom in and out (UI-001) and the 7 local commands of
-    // the plan view, the key held for contour detection among them
-    // (INP-018).
-    assert_eq!(rows, 36);
+    // Measure and Space tools, Zoom in and out (UI-001) and the 7 local
+    // commands of the plan view, the key held for contour detection among
+    // them (INP-018).
+    assert_eq!(rows, 37);
     for spec in Registry::get().specs() {
         if !spec.default_bindings.is_empty() {
             assert_present(&harness, &keys(&spec.default_bindings));
@@ -591,6 +591,7 @@ fn the_toolbox_and_the_toolbar_draw_their_icons_for_the_screen() {
         icons::SELECT,
         icons::WALL,
         icons::SLAB,
+        icons::SPACE,
         icons::FIT,
         icons::ORBIT,
         icons::PLAN_3D,
@@ -1588,7 +1589,7 @@ fn every_default_shortcut_invokes_its_command() {
             }
         }
     }
-    assert_eq!(pressed, 2 * 32);
+    assert_eq!(pressed, 2 * 33);
 }
 
 /// UI-008, INP-003: while a tool takes point input the single-key shortcuts,

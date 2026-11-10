@@ -73,3 +73,16 @@ prompt-contour-wall = Walls from a contour: click on an edge or a chain of edges
 prompt-contour-key-hold = held traces a contour
 prompt-contour-key-edge = picks the clicked edge only
 prompt-contour-key-cancel = turns contour detection off
+
+## The space tool (SPC-001): the default long name of a new space, $n its
+## number among the spaces (ELM-019); the prompts of detecting a room and of
+## drawing its boundary.
+
+tool-space-default-name = Room { $n }
+prompt-space-detect = Space: click inside a room bounded by walls
+prompt-space-region-open = Region is open: click inside a room closed by walls
+prompt-space-in-wall = The point lies in a wall: click inside a room
+prompt-space-polygon-first = Space: click the first corner of the boundary
+prompt-space-polygon-next = Space: click the next corner or type a distance
+prompt-space-rectangle-first = Space rectangle: click the first corner
+prompt-space-rectangle-next = Space rectangle: click the opposite corner or type a distance

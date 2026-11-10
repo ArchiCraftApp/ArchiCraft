@@ -916,14 +916,21 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     if ws.tool.detection.held && !hold_keys.iter().any(|b| ui.input(|i| i.key_down(b.key))) {
         ws.tool.detection.held = false;
     }
+    // The space tool picks rooms from the storey's wall footprints at the
+    // cursor as it is, never snapped onto a wall face (SPC-001).
     if ws.active_consumer == Consumer::Tool
         && ws.tool.detecting()
-        && cursor_world.is_some()
+        && let Some(cursor) = cursor_world
         && let Some(input) = &input
     {
-        let graph = ws.doc.contour_graph(storey);
-        ws.tool.detection.set_source(storey, graph, input.radius);
-        ws.tool.detection.edge_only = mods.alt;
+        if ws.tool.kind == ToolKind::Space {
+            let regions = ws.doc.space_regions(storey);
+            ws.tool.space.set_source(regions, cursor);
+        } else {
+            let graph = ws.doc.contour_graph(storey);
+            ws.tool.detection.set_source(storey, graph, input.radius);
+            ws.tool.detection.edge_only = mods.alt;
+        }
     }
 
     // Clicks of the selection tool.
@@ -1240,15 +1247,15 @@ fn handle_keys(
 /// and nothing is typed (WAL-007); Tab for point input while it takes the
 /// keys or cycles snap candidates, otherwise for the overlapping candidates
 /// under the cursor (SEL-001); Backspace, Enter and Esc for point input;
-/// the key held for contour detection while the wall or slab tool is active
-/// and nothing is typed (INP-018).
+/// the key held for contour detection while the wall, slab or space tool is
+/// active and nothing is typed (INP-018).
 fn local_commands(ws: &Workspace) -> Vec<CommandId> {
     let mut ids = Vec::new();
     let tool = ws.active_consumer == Consumer::Tool && ws.input.typed.is_empty();
     if tool && ws.tool.kind == ToolKind::Wall {
         ids.push(view_keys::CYCLE_REFERENCE_LINE);
     }
-    if tool && matches!(ws.tool.kind, ToolKind::Wall | ToolKind::Slab) {
+    if tool && matches!(ws.tool.kind, ToolKind::Wall | ToolKind::Slab | ToolKind::Space) {
         ids.push(view_keys::HOLD_CONTOUR_DETECTION);
     }
     if ws.input.captures_keys(ws.consumer()) || (ws.takes_points() && ws.input.cycles()) {

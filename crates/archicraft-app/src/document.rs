@@ -9,6 +9,7 @@ use std::time::SystemTime;
 use archicraft_geometry::ModelGeometry;
 use archicraft_geometry::contour::{ContourGraph, ContourOptions};
 use archicraft_geometry::plan::{PlanDrawing, ViewRange, plan_drawing};
+use archicraft_geometry::space::SpaceRegions;
 use archicraft_ifcx::{Problem, WriteOptions};
 use archicraft_model::{Command, CommandError, History, Message, Project, StoreyId};
 
@@ -34,6 +35,11 @@ pub struct Document {
     contours: HashMap<StoreyId, (u64, Arc<ContourGraph>)>,
     /// How many contour graphs were built, for tests of the cache.
     contour_builds: usize,
+    /// The regions the space tool detects rooms in, per storey, with the
+    /// revision they were built for (SPC-001).
+    space_regions: HashMap<StoreyId, (u64, Arc<SpaceRegions>)>,
+    /// How many space regions were built, for tests of the cache.
+    space_region_builds: usize,
 }
 
 impl Document {
@@ -50,6 +56,8 @@ impl Document {
             plans: HashMap::new(),
             contours: HashMap::new(),
             contour_builds: 0,
+            space_regions: HashMap::new(),
+            space_region_builds: 0,
         }
     }
 
@@ -107,6 +115,7 @@ impl Document {
             self.geometry = Arc::new(ModelGeometry::evaluate(&self.project));
             self.plans.clear();
             self.contours.clear();
+            self.space_regions.clear();
         }
         self.geometry.clone()
     }
@@ -149,6 +158,28 @@ impl Document {
     /// How many contour graphs [`Document::contour_graph`] has built.
     pub fn contour_builds(&self) -> usize {
         self.contour_builds
+    }
+
+    /// The regions of a storey that the space tool detects rooms in
+    /// (SPC-001, INP-018), built from the footprints of the storey's walls on
+    /// first use and kept until the model's revision changes, so hovering
+    /// never builds them per frame.
+    pub fn space_regions(&mut self, storey: StoreyId) -> Arc<SpaceRegions> {
+        let revision = self.project.revision;
+        if let Some((rev, regions)) = self.space_regions.get(&storey)
+            && *rev == revision
+        {
+            return regions.clone();
+        }
+        let regions = Arc::new(SpaceRegions::build(&self.project, storey));
+        self.space_region_builds += 1;
+        self.space_regions.insert(storey, (revision, regions.clone()));
+        regions
+    }
+
+    /// How many space regions [`Document::space_regions`] has built.
+    pub fn space_region_builds(&self) -> usize {
+        self.space_region_builds
     }
 
     /// True if the geometry, and the plan of `storey` if given, are
