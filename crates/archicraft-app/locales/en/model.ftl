@@ -78,6 +78,11 @@ model-kind-text-noun = { $count ->
         [one] text
        *[other] texts
     }
+model-kind-column = Column
+model-kind-column-noun = { $count ->
+        [one] column
+       *[other] columns
+    }
 # The test kind of the model's test builds; never shown in a release.
 model-kind-test = Test element
 model-kind-test-noun = { $count ->
@@ -180,6 +185,11 @@ model-error-wall-height-range = The wall height must be between { $min } and { $
 model-error-space-height-range = The space height must be between { $min } and { $max }.
 model-error-linked-storey-range = The linked storey must be at most { $max_text } storeys away.
 model-error-wall-top-storey-missing = The storey the wall top is linked to does not exist.
+model-error-column-section-range = The column's width, depth and diameter must be between { $min } and { $max }.
+model-error-column-rotation = The column rotation must be a finite number.
+model-error-column-cut-angle = An end cut of a column must be tilted by less than { $max }.
+model-error-column-height-range = The column height must be between { $min } and { $max }.
+model-error-column-top-storey-missing = The storey the column top is linked to does not exist.
 model-error-element-name = An element needs a name.
 model-error-home-storey-missing = The element's home storey does not exist.
 model-error-element-layer-missing = The element's layer does not exist.

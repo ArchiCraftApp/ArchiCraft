@@ -58,9 +58,10 @@ fn members(declaration: &Value) -> BTreeSet<&str> {
 /// A field added without a mapping, or a kind without a sample payload
 /// here, fails the test. A kind that is not an IFCX node (ANN-010) declares
 /// its members under its kind code in the entries of
-/// `archicraft::annotations`, not as an attribute of its own. No kind's
-/// codec is a placeholder, and the text styles are `textStyles` (ANN-007)
-/// and the profiles `profiles` of `archicraft::project` (PRF-004).
+/// `archicraft::annotations`, not as an attribute of its own. Only the
+/// column's codec is a placeholder (until archicraft-i4gl.3), and the text
+/// styles are `textStyles` (ANN-007) and the profiles `profiles` of
+/// `archicraft::project` (PRF-004).
 #[test]
 fn every_project_field_is_persisted() {
     let project = samples::storey_with_walls_and_slab();
@@ -105,12 +106,18 @@ fn every_project_field_is_persisted() {
     payloads.insert(KindTag::Space, serde_json::to_value(&space.kind).unwrap());
     let text = project.new_text(project.storeys.ground(), DVec2::ONE, "Hall", 0);
     payloads.insert(KindTag::Text, serde_json::to_value(&text.kind).unwrap());
+    let column = project.new_column(project.storeys.ground(), DVec2::ONE, 0.0, 0);
+    payloads.insert(KindTag::Column, serde_json::to_value(&column.kind).unwrap());
     assert_eq!(
         payloads.keys().copied().collect::<BTreeSet<_>>(),
         KindTag::ALL.iter().copied().collect(),
         "a sample payload of every kind"
     );
-    assert_eq!(placeholders(), [], "the kinds that store nothing yet");
+    assert_eq!(
+        placeholders(),
+        [KindTag::Column],
+        "the kinds that store nothing yet: columns until archicraft-i4gl.3"
+    );
     let tables = fields();
     assert_eq!(tables.len(), KindTag::ALL.len());
     for (tag, table) in tables {

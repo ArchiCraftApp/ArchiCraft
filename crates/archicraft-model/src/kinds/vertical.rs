@@ -1,9 +1,10 @@
 //! The base and top of vertical elements (ELM-005, ELM-006, STR-004,
 //! STR-006).
 //!
-//! Walls use it today; columns, curtain walls, stairs and storey-spanning
-//! openings reuse the same type and helpers, so that storey links, relinking
-//! and deleting a linked storey behave alike for every vertical kind.
+//! Walls, spaces and columns use it; curtain walls, stairs and
+//! storey-spanning openings will reuse the same type and helpers, so that
+//! storey links, relinking and deleting a linked storey behave alike for
+//! every vertical kind.
 
 use serde::{Deserialize, Serialize};
 

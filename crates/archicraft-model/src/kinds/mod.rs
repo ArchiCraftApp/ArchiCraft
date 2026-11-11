@@ -48,9 +48,12 @@ use crate::storey::StoreyList;
 use crate::template::TemplateContext;
 use crate::transform::{PlanTransform, TransformError};
 
+mod member;
 mod vertical;
 pub(crate) use vertical::FIELD_KEYS as VERTICAL_FIELD_KEYS;
 
+pub use self::column::{ColumnCut, MAX_CUT_ANGLE_DEG};
+pub use self::member::{Anchor, CrossSection};
 pub use self::slab::SlabReference;
 pub use self::space::BoundarySource;
 pub(crate) use self::vertical::Vertical;
@@ -572,6 +575,7 @@ kinds! {
     slab => Slab (as_slab, as_slab_mut),
     space => Space (as_space, as_space_mut),
     text => Text (as_text, as_text_mut),
+    column => Column (as_column, as_column_mut),
     #[cfg(feature = "test-kinds")] dummy => Dummy (as_dummy, as_dummy_mut),
     #[cfg(feature = "test-kinds")] note => Note (as_note, as_note_mut),
 }

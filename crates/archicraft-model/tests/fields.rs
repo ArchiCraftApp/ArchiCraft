@@ -49,6 +49,7 @@ fn samples(p: &Project) -> Vec<Element> {
         p.new_slab(g, square.clone(), Vec::new(), 0),
         p.new_space(g, square, Vec::new(), 0),
         p.new_text(g, DVec2::ZERO, "Hello", 0),
+        p.new_column(g, DVec2::ONE, 0.0, 0),
         Dummy::new(DVec2::ZERO, DVec2::ONE, material).into_element(p, g, 0),
         Note::new(g, DVec2::ZERO, "Note").into_element(p, g, 0),
     ]

@@ -238,6 +238,7 @@ codecs! {
     slab => Slab,
     space => Space,
     text => Text,
+    column => Column,
     #[cfg(feature = "test-kinds")] dummy => Dummy,
     #[cfg(feature = "test-kinds")] note => Note,
 }

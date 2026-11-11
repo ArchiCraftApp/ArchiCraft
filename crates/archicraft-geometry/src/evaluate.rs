@@ -71,7 +71,8 @@ pub struct PartGeometry {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct ElementGeometry {
     pub parts: Vec<BodyPart>,
-    /// Reference line of walls (IFX-035); empty for other kinds.
+    /// Reference line of walls and axis of columns (IFX-035); empty for
+    /// other kinds.
     pub axis: Vec<DVec3>,
     /// The bodies of the parts of a compound element, one per entry of the
     /// model's `Kind::parts` in its order (IFX-016); empty for simple kinds.

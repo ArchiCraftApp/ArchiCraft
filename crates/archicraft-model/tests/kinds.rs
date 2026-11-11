@@ -15,14 +15,14 @@ use archicraft_model::template::{TemplateContext, default_metric_project};
 use archicraft_model::{Arg, Command, CommandError, History, IfcClass, KindTag};
 use common::{ground, wall};
 
-/// The registry lists wall, slab, space and text, plus the test kinds (tests
-/// always build with the feature `test-kinds`, tests/test_kinds_feature.rs),
-/// in the order of `KindTag::ALL`, and each tag's descriptor is its registry
-/// entry.
+/// The registry lists wall, slab, space, text and column, plus the test
+/// kinds (tests always build with the feature `test-kinds`,
+/// tests/test_kinds_feature.rs), in the order of `KindTag::ALL`, and each
+/// tag's descriptor is its registry entry.
 #[test]
-fn the_registry_has_wall_slab_space_and_text() {
+fn the_registry_has_wall_slab_space_text_and_column() {
     let codes: Vec<&str> = KINDS.iter().map(|d| d.code).collect();
-    assert_eq!(codes, ["wall", "slab", "space", "text", "dummy", "note"]);
+    assert_eq!(codes, ["wall", "slab", "space", "text", "column", "dummy", "note"]);
     assert_eq!(KINDS.len(), KindTag::ALL.len());
     for (tag, descriptor) in KindTag::ALL.iter().zip(KINDS) {
         // Codes are unique (below), so equal codes mean the same entry.
@@ -168,6 +168,7 @@ fn every_kind_declares_its_body_and_its_ifcx_node() {
             ("slab", true, true),
             ("space", true, true),
             ("text", false, false),
+            ("column", true, true),
             ("dummy", true, true),
             ("note", false, false),
         ]
@@ -175,7 +176,8 @@ fn every_kind_declares_its_body_and_its_ifcx_node() {
 }
 
 /// SPC-001, INP-018: every descriptor declares whether its elements are
-/// construction elements. Walls, slabs and the test kind's boxes are;
+/// construction elements. Walls, slabs, columns and the test kind's boxes
+/// are;
 /// spaces, which describe a room, texts and the body-less test kind are
 /// not.
 #[test]
@@ -188,6 +190,7 @@ fn every_kind_declares_whether_it_is_a_construction_element() {
             ("slab", true),
             ("space", false),
             ("text", false),
+            ("column", true),
             ("dummy", true),
             ("note", false),
         ]
@@ -271,6 +274,62 @@ fn the_text_kind_has_its_own_descriptor_and_defaults() {
         element.kind.plan_bounds(),
         Some((DVec2::new(1.0, 2.0), DVec2::new(1.0, 2.0)))
     );
+}
+
+/// COL-001, COL-003, ELM-011, ELM-019, Appendix D.2: a column is an
+/// `IfcColumn` by default with `IfcMember` selectable, named `C-001`,
+/// `C-002`, …, made with a tool; its tool's template slot is 0.30 × 0.30 m
+/// reinforced concrete on the structure layer, anchored at the centre, not
+/// turned, cut horizontally at both ends, with the base at the storey and
+/// the top linked to the home storey + 1.
+#[test]
+fn the_column_kind_has_its_own_descriptor_and_defaults() {
+    use archicraft_model::kinds::{Anchor, ColumnCut, CrossSection, VerticalLink};
+    use archicraft_model::{Element, TopLink};
+
+    let d = KindTag::Column.descriptor();
+    assert_eq!(
+        (d.code, d.name_prefix, d.node_prefix, d.has_tool),
+        ("column", "C", "Column", true)
+    );
+    assert_eq!(
+        (d.default_class, d.ifc_classes),
+        (IfcClass::Column, IfcClass::COLUMN_CLASSES)
+    );
+    assert!(d.has_body && d.ifcx_node && d.construction);
+    let p = default_metric_project();
+    let slot = p.tool_defaults.get(KindTag::Column).unwrap();
+    assert_eq!(p.layer(slot.layer).unwrap().name, "Structure");
+    assert_eq!(slot.ifc_class, IfcClass::Column);
+    let element = p.new_column(ground(&p), DVec2::new(1.0, 2.0), 0.25, 0);
+    assert_eq!(element.name, "C-001");
+    assert_eq!(element.layer, slot.layer);
+    let column = Element::as_column(&element).unwrap();
+    assert_eq!((column.position, column.rotation), (DVec2::new(1.0, 2.0), 0.25));
+    assert_eq!(
+        column.section,
+        CrossSection::Rectangular {
+            width: 0.3,
+            height: 0.3
+        }
+    );
+    assert_eq!(p.material(column.material).unwrap().name, "Reinforced concrete");
+    assert_eq!(column.anchor, Anchor::Centre);
+    assert_eq!(
+        column.link,
+        VerticalLink {
+            base_offset: 0.0,
+            top: TopLink::Relative {
+                storeys: 1,
+                offset: 0.0
+            },
+        }
+    );
+    assert_eq!(
+        (column.top_cut, column.bottom_cut),
+        (ColumnCut::Horizontal, ColumnCut::Horizontal)
+    );
+    assert_eq!(element.kind.material(), Some(column.material));
 }
 
 /// ANN-002, ELM-019: the body-less test kind is an `IfcAnnotation` (Table

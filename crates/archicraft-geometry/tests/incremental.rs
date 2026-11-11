@@ -11,7 +11,7 @@ use archicraft_geometry::wall::WallInput;
 use archicraft_geometry::{ModelGeometry, dirty_set};
 use archicraft_model::command::{StoreyElements, relink_to_storey};
 use archicraft_model::glam::DVec2;
-use archicraft_model::kinds::Dummy;
+use archicraft_model::kinds::{Anchor, ColumnCut, CrossSection, Dummy};
 use archicraft_model::samples::{self, FixtureBuilder};
 use archicraft_model::{
     Command, Element, ElementId, History, JOIN_TOLERANCE, Position, Project, ReferenceLine, Relation, Storey, StoreyId,
@@ -640,14 +640,16 @@ enum Op {
     Host,
     Failing,
     Settings,
+    AddColumn,
+    ColumnEdit,
 }
 
 /// The edits with their weights, out of 100.
-const OPS: [(Op, usize); 16] = [
-    (Op::Move, 18),
-    (Op::Thickness, 8),
-    (Op::ReferenceLine, 8),
-    (Op::Delete, 8),
+const OPS: [(Op, usize); 18] = [
+    (Op::Move, 14),
+    (Op::Thickness, 6),
+    (Op::ReferenceLine, 6),
+    (Op::Delete, 6),
     (Op::Add, 10),
     (Op::StoreyElevation, 6),
     (Op::StoreyHeight, 4),
@@ -660,6 +662,8 @@ const OPS: [(Op, usize); 16] = [
     (Op::Host, 4),
     (Op::Failing, 1),
     (Op::Settings, 1),
+    (Op::AddColumn, 4),
+    (Op::ColumnEdit, 6),
 ];
 
 /// One edit of the property test: what it was, whether the project took
@@ -792,6 +796,8 @@ impl Session {
                 (accepted, format!("{} ({elements:?})", storey.name))
             }
             Op::Host | Op::Failing => self.hosted(op),
+            Op::AddColumn => self.added_column(),
+            Op::ColumnEdit => self.changed_column(),
             Op::Settings => {
                 let mut settings = self.project.settings.clone();
                 settings.tessellation.chord_deviation = self.rng.pick(&[0.001, 0.002, 0.004]);
@@ -883,6 +889,95 @@ impl Session {
             self.run(Command::AddElements(vec![wall])),
             format!("from {start} to {end}"),
         )
+    }
+
+    /// Adds a column (COL-001) at an end or the middle of a wall, turned or
+    /// not, rectangular or circular.
+    fn added_column(&mut self) -> (bool, String) {
+        let (storey, at) = match self.wall() {
+            Some(element) => {
+                let wall = element.as_wall().expect("a wall");
+                let at = self.rng.pick(&[0.0, 0.5, 1.0]);
+                (element.storey, wall.start.lerp(wall.end, at))
+            }
+            None => (self.storey().id, DVec2::ZERO),
+        };
+        let rotation = self.rng.pick(&[0.0, 0.3, std::f64::consts::FRAC_PI_2]);
+        let mut column = self.project.new_column(storey, at, rotation, 0);
+        column.id = ElementId::from_uuid(self.ids.id("column"));
+        if self.rng.coin() {
+            column.as_column_mut().expect("a column").section = CrossSection::Circular { diameter: 0.4 };
+        }
+        (
+            self.run(Command::AddElements(vec![column])),
+            format!("at {at}, turned by {rotation}"),
+        )
+    }
+
+    /// Changes a column's rotation, anchor, section, end cuts or top link.
+    fn changed_column(&mut self) -> (bool, String) {
+        let ids: Vec<ElementId> = self
+            .project
+            .elements
+            .values()
+            .filter(|e| e.as_column().is_some())
+            .map(|e| e.id)
+            .collect();
+        if ids.is_empty() {
+            return (false, String::new());
+        }
+        let mut element = self.project.elements[&ids[self.rng.below(ids.len())]].clone();
+        let storey = self.storey().id;
+        let what = self.rng.below(6);
+        let cuts = [ColumnCut::Horizontal, ColumnCut::Angle(0.2), ColumnCut::Angle(-0.35)];
+        let column = element.as_column_mut().expect("a column");
+        let change = match what {
+            0 => {
+                column.rotation = self.rng.pick(&[0.0, 0.3, 1.2]);
+                format!("rotation {}", column.rotation)
+            }
+            1 => {
+                column.anchor = self.rng.pick(&Anchor::ALL);
+                format!("{:?}", column.anchor)
+            }
+            2 => {
+                column.section = self.rng.pick(&[
+                    CrossSection::Rectangular {
+                        width: 0.3,
+                        height: 0.3,
+                    },
+                    CrossSection::Rectangular {
+                        width: 0.25,
+                        height: 0.5,
+                    },
+                    CrossSection::Circular { diameter: 0.4 },
+                ]);
+                format!("{:?}", column.section)
+            }
+            3 => {
+                column.top_cut = self.rng.pick(&cuts);
+                format!("top {:?}", column.top_cut)
+            }
+            4 => {
+                column.bottom_cut = self.rng.pick(&cuts);
+                format!("bottom {:?}", column.bottom_cut)
+            }
+            _ => {
+                column.link.top = match self.rng.below(3) {
+                    0 => TopLink::Fixed {
+                        height: self.rng.pick(&[2.5, 3.0]),
+                    },
+                    1 => TopLink::Storey { storey, offset: 0.0 },
+                    _ => TopLink::Relative {
+                        storeys: self.rng.pick(&[1, 2]),
+                        offset: 0.0,
+                    },
+                };
+                format!("{:?}", column.link.top)
+            }
+        };
+        let description = format!("{} to {change}", element.name);
+        (self.run(Command::UpdateElements(vec![element])), description)
     }
 
     /// Changes a storey's elevation or height, with or without the storeys
@@ -981,7 +1076,8 @@ fn assert_changes_listed(
 /// on `stand_in(1_000)` (moves, thickness, reference line, delete, add,
 /// storey elevation and height, relinking the top and the home storey,
 /// undo, redo, inserted and deleted storeys, hosted and failing elements,
-/// settings), evaluated incrementally after every edit and once for the
+/// settings, added columns and their rotation, anchor, section, end cuts
+/// and top link (COL-001, COL-003)), evaluated incrementally after every edit and once for the
 /// whole sequence, give the elements, parts, children, axes and problems of
 /// a fresh `ModelGeometry::evaluate`, bit for bit (`TriMesh ==`). Each
 /// assertion prints the seed and the edits so far. The sequences take every
