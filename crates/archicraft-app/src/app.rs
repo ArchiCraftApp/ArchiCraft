@@ -104,9 +104,10 @@ pub struct ArchiCraftApp {
     /// (NFR-L10N-001).
     localizer: Rc<Localizer>,
     released: Vec<View3dState>,
-    /// The largest file opened or recovered (Appendix D.9, NFR-SEC-003);
-    /// lowered only by tests.
-    file_size_limit: u64,
+    /// A lower limit than Appendix D.9's for the files opened or recovered
+    /// (NFR-SEC-003), set only by tests; `None` reads them with
+    /// [`archicraft_ifcx::load_path`] and its limit.
+    file_size_limit: Option<u64>,
     /// When set, [`ArchiCraftApp::invoke`] records invocations here instead
     /// of running them (tests).
     recorder: Option<Vec<Invocation>>,
@@ -187,7 +188,7 @@ impl ArchiCraftApp {
             theme: None,
             localizer: Rc::new(Localizer::english()),
             released: Vec::new(),
-            file_size_limit: archicraft_ifcx::validate::MAX_FILE_SIZE as u64,
+            file_size_limit: None,
             recorder: None,
             save_dialog: None,
             _log: log,
@@ -229,10 +230,20 @@ impl ArchiCraftApp {
         self.prompt.as_ref().map(Prompt::title)
     }
 
-    /// Lowers the file size limit, so that tests can open an oversized file
-    /// without writing 2 GB.
+    /// For tests: lowers the file size limit, so that they can open an
+    /// oversized file without writing 2 GB.
+    #[doc(hidden)]
     pub fn set_file_size_limit(&mut self, limit: u64) {
-        self.file_size_limit = limit;
+        self.file_size_limit = Some(limit);
+    }
+
+    /// Reads the project file at `path` with the size limit of Appendix D.9
+    /// (NFR-SEC-003), or the lower one a test set.
+    fn load_path(&self, path: &Path) -> Result<archicraft_ifcx::ReadOutcome, Problem> {
+        match self.file_size_limit {
+            Some(limit) => archicraft_ifcx::load_path_with_limit(path, limit),
+            None => archicraft_ifcx::load_path(path),
+        }
     }
 
     /// Switches the user-interface language from the next frame on
@@ -262,7 +273,7 @@ impl ArchiCraftApp {
     /// migrated by the reader; the load report and the status line say so
     /// (IFX-062).
     pub fn open_path(&mut self, path: &Path) {
-        match archicraft_ifcx::load_path_with_limit(path, self.file_size_limit) {
+        match self.load_path(path) {
             Ok(outcome) => {
                 let doc = Document::opened(
                     outcome.project,
@@ -412,7 +423,8 @@ impl ArchiCraftApp {
             Then::Recover(index) => {
                 if index < self.recovery.len() {
                     let abandoned = self.recovery.remove(index);
-                    match archicraft_ifcx::load_path_with_limit(&abandoned.model, self.file_size_limit)
+                    match self
+                        .load_path(&abandoned.model)
                         .map_err(|p| self.ws.render(&p.located()))
                     {
                         Ok(outcome) => {

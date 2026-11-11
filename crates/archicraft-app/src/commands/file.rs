@@ -4,6 +4,7 @@ use egui::Key;
 
 use super::{Binding, Category, CommandId, CommandSpec, Handler, Scope};
 use crate::app::Then;
+use crate::ui::dialogs::PreferencesDraft;
 use crate::ui::icons;
 
 /// Open…, which the File menu follows with the Open recent submenu.
@@ -34,8 +35,13 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         file("file.close", |app, ctx, _| app.guard(ctx, Then::Close))
             .menu("file", 1, 2)
             .bind(Binding::primary(Key::W)),
+        // UI-008: pressed again while the window is open, the shortcut keeps
+        // the draft.
         file("file.preferences", |app, _, _| {
-            app.dialogs.preferences = Some(app.ws.prefs.clone());
+            let prefs = &app.ws.prefs;
+            app.dialogs
+                .preferences
+                .get_or_insert_with(|| PreferencesDraft::new(prefs.clone()));
         })
         .menu("file", 2, 0)
         .bind(Binding::primary(Key::Comma)),

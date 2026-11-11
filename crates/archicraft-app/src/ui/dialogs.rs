@@ -4,7 +4,7 @@
 use archicraft_model::command::StoreyElements;
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use archicraft_model::project::Location;
-use archicraft_model::units::{NumberFormat, format_length};
+use archicraft_model::units::format_length;
 use archicraft_model::{Command, Layer, LayerId, MaterialId, ProjectInfo, ProjectSettings, StoreyId};
 use egui::{Context, Id, RichText, Ui};
 
@@ -36,6 +36,24 @@ pub struct ProjectDraft {
     pub location: Location,
 }
 
+/// The open Preferences window: the preferences it opened with and the
+/// user's edits to them, which OK applies (UI-008).
+#[derive(Clone, Debug)]
+pub struct PreferencesDraft {
+    opened: Preferences,
+    edited: Preferences,
+}
+
+impl PreferencesDraft {
+    /// A draft that starts from the applied preferences `prefs`.
+    pub fn new(prefs: Preferences) -> Self {
+        Self {
+            opened: prefs.clone(),
+            edited: prefs,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Dialogs {
     pub storeys: bool,
@@ -50,7 +68,7 @@ pub struct Dialogs {
     pub selected_material: Option<MaterialId>,
     pub delete_material: Option<(MaterialId, Option<MaterialId>)>,
     pub project: Option<ProjectDraft>,
-    pub preferences: Option<Preferences>,
+    pub preferences: Option<PreferencesDraft>,
     pub settings: bool,
     pub shortcuts: bool,
     pub about: bool,
@@ -89,7 +107,7 @@ impl Dialogs {
         self.settings_window(ctx, ws);
         self.shortcuts_window(ctx);
         self.about_window(ctx);
-        self.preferences_window(ctx, &ws.prefs.number_format())
+        self.preferences_window(ctx, &ws.prefs)
     }
 
     fn storeys_window(&mut self, ctx: &Context, ws: &mut Workspace, cx: &CommandCtx) {
@@ -662,10 +680,16 @@ impl Dialogs {
             .show(ctx, |ui| about::contents(ui, icon.as_ref()));
     }
 
-    /// The Preferences window. Its numbers use `nf`, the number format of
-    /// the applied preferences, until OK applies the draft (NFR-L10N-004).
-    fn preferences_window(&mut self, ctx: &Context, nf: &NumberFormat) -> Option<Preferences> {
-        let mut draft = self.preferences.take()?;
+    /// The Preferences window. Its numbers use the number format of
+    /// `applied`, the applied preferences, until OK applies the draft
+    /// (NFR-L10N-004). OK returns `applied` with the window's edits, so
+    /// what changed meanwhile outside the window stays.
+    fn preferences_window(&mut self, ctx: &Context, applied: &Preferences) -> Option<Preferences> {
+        let PreferencesDraft {
+            opened,
+            edited: mut draft,
+        } = self.preferences.take()?;
+        let nf = &applied.number_format();
         let mut open = true;
         let mut result = None;
         let mut close = false;
@@ -779,7 +803,7 @@ impl Dialogs {
             ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("OK").clicked() {
-                    result = Some(draft.clone());
+                    result = Some(applied.with_edits(&opened, &draft));
                     close = true;
                 }
                 if ui.button("Cancel").clicked() {
@@ -788,7 +812,7 @@ impl Dialogs {
             });
         });
         if open && !close {
-            self.preferences = Some(draft);
+            self.preferences = Some(PreferencesDraft { opened, edited: draft });
         }
         result
     }

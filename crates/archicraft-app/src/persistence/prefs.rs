@@ -168,6 +168,67 @@ impl Preferences {
         self
     }
 
+    /// These preferences with the edits a dialog made: every field that
+    /// `edited` changed from `opened`, the preferences the dialog opened
+    /// with, takes its edited value, and every other field keeps its value
+    /// here. So a non-modal dialog's OK does not revert what changed
+    /// meanwhile outside it, such as the toolbox's columns (UI-015), the
+    /// recent projects or the division mode (INP-010).
+    pub fn with_edits(&self, opened: &Preferences, edited: &Preferences) -> Preferences {
+        let mut merged = self.clone();
+        // Destructured in full, so that a new field cannot be forgotten.
+        let Preferences {
+            author,
+            autosave_minutes,
+            backups,
+            undo_steps,
+            theme,
+            decimal_separator,
+            digit_grouping,
+            snap_radius,
+            angle_increment_deg,
+            constraint_reference,
+            input_mode,
+            snap_step,
+            input,
+            tracker_xyz,
+            show_reference_lines,
+            indented_ifcx,
+            toolbox_columns,
+            recent,
+            last_crash_report,
+        } = edited;
+        macro_rules! take_edited {
+            ($($field:ident),* $(,)?) => {
+                $(if *$field != opened.$field {
+                    merged.$field = $field.clone();
+                })*
+            };
+        }
+        take_edited!(
+            author,
+            autosave_minutes,
+            backups,
+            undo_steps,
+            theme,
+            decimal_separator,
+            digit_grouping,
+            snap_radius,
+            angle_increment_deg,
+            constraint_reference,
+            input_mode,
+            snap_step,
+            input,
+            tracker_xyz,
+            show_reference_lines,
+            indented_ifcx,
+            toolbox_columns,
+            recent,
+            last_crash_report,
+        );
+        merged
+    }
+
     /// Moves `path` to the top of the recent projects.
     pub fn add_recent(&mut self, path: &Path) {
         self.recent.retain(|p| p != path);
@@ -208,6 +269,32 @@ impl Preferences {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// UI-015, INP-010: a dialog's edits apply over the current preferences;
+    /// fields the dialog left as it opened them keep what changed meanwhile,
+    /// and a field changed on both sides takes the dialog's edit.
+    #[test]
+    fn with_edits_applies_only_the_changed_fields() {
+        let opened = Preferences::default();
+        let mut edited = opened.clone();
+        edited.author = "Edited".into();
+        edited.theme = ThemeChoice::Dark;
+        edited.show_reference_lines = true;
+        let mut current = opened.clone();
+        current.toolbox_columns = 2;
+        current.add_recent(Path::new("/p/meanwhile.ifcx"));
+        current.input.division = crate::input::DivisionMode::Equal(4);
+        current.show_reference_lines = false;
+        current.author = "Meanwhile".into();
+
+        let merged = current.with_edits(&opened, &edited);
+        let mut expected = current.clone();
+        expected.author = "Edited".into();
+        expected.theme = ThemeChoice::Dark;
+        expected.show_reference_lines = true;
+        assert_eq!(merged, expected);
+        assert_eq!(current.with_edits(&opened, &opened), current, "no edit changes nothing");
+    }
 
     #[test]
     fn round_trip_and_recent_list() {
