@@ -351,6 +351,7 @@ pub const PROJECT_FIELDS: &[(&str, &[Stored])] = &[
     ("storeys", &[Stored::Node("Storey"), Stored::Member("groundStorey")]),
     ("layers", &[Stored::Member("layers")]),
     ("materials", &[Stored::Member("materials"), Stored::Node("Material")]),
+    ("profiles", &[Stored::Member("profiles")]),
     ("text_styles", &[Stored::Member("textStyles")]),
     ("elements", &[Stored::Elements, Stored::Annotations]),
     ("groups", &[Stored::Member("groups")]),

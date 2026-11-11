@@ -16,9 +16,15 @@ use serde_json::Value;
 
 use common::{edit, node_index, samples, save};
 
+/// IFX-061: every file this release writes validates on its own, the
+/// sample catalogue's and the profile sample's, whose profile records the
+/// declarations describe (PRF-004). That every member of the records is
+/// declared, which validation does not check, is
+/// `ifx_061_every_archicraft_attribute_has_a_complete_value_description`
+/// (tests/done_requirements.rs).
 #[test]
 fn written_files_validate_without_problems() {
-    for project in samples() {
+    for project in samples().into_iter().chain([common::profile_sample()]) {
         let bytes = save(&project);
         let file = validate::parse(&bytes).unwrap();
         let problems = validate::validate(&file);
@@ -1510,4 +1516,403 @@ fn the_structural_function_is_declared_as_an_optional_enumeration() {
     for kind in ["wall", "slab"] {
         assert_eq!(members(&slots[kind])["structuralFunction"], declared, "{kind}");
     }
+}
+
+/// The bit patterns of every number of `profiles` the file stores: the
+/// origins, the parametric dimensions and the ring points, in order.
+fn profile_bits(profiles: &[archicraft_model::Profile]) -> Vec<u64> {
+    use archicraft_model::ProfileShape;
+
+    let mut bits = Vec::new();
+    for profile in profiles {
+        bits.extend([profile.origin.x, profile.origin.y].map(f64::to_bits));
+        match &profile.shape {
+            ProfileShape::Parametric { shape, .. } => {
+                bits.extend(shape.dimensions().into_iter().map(|(_, value)| value.to_bits()));
+            }
+            ProfileShape::Custom { regions } => {
+                for region in regions {
+                    for point in std::iter::once(&region.outer).chain(&region.holes).flatten() {
+                        bits.extend([point.x.to_bits(), point.y.to_bits()]);
+                    }
+                }
+            }
+        }
+    }
+    bits
+}
+
+/// PRF-004, PRF-005, PRJ-007, IFX-060, IFX-011, NFR-ACC-002: a project with
+/// a profile of every parametric shape, a custom profile of two regions of
+/// different materials, one with a hole, and a catalogue profile saves and
+/// loads equal, in list order: identities, names, origins, usage flags,
+/// catalogue designations, dimensions and ring points, these bit for bit.
+/// An element that uses a profile, the test kind standing in for a column,
+/// keeps its reference.
+#[test]
+fn profiles_round_trip() {
+    use archicraft_model::kinds::Dummy;
+    use archicraft_model::{Command, History, ParametricShape, ProfileShape};
+
+    let mut project = common::profile_sample();
+    let codes: Vec<&str> = project
+        .profiles
+        .iter()
+        .filter_map(|p| match &p.shape {
+            ProfileShape::Parametric { shape, .. } => Some(shape.code()),
+            ProfileShape::Custom { .. } => None,
+        })
+        .collect();
+    for shape in ParametricShape::ALL {
+        assert!(codes.contains(&shape.code()), "{codes:?}");
+    }
+    let custom = project
+        .profiles
+        .iter()
+        .find(|p| p.name == common::CUSTOM_PROFILE)
+        .unwrap();
+    let ProfileShape::Custom { regions } = &custom.shape else {
+        panic!("{custom:?}");
+    };
+    assert_eq!(regions.len(), 2);
+    assert_ne!(regions[0].material, regions[1].material);
+    assert_eq!(regions[0].holes.len(), 1);
+    let catalogue = project.profiles.iter().find(|p| p.catalogue.is_some()).unwrap().id;
+
+    let column = Dummy {
+        profile: Some(catalogue),
+        ..Dummy::new(DVec2::ZERO, DVec2::ONE, project.materials[0].id)
+    };
+    let element = column.into_element(&project, project.storeys.ground(), 0);
+    History::default()
+        .execute(&mut project, Command::AddElements(vec![element]))
+        .unwrap();
+
+    let loaded = archicraft_ifcx::load(&save(&project)).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert_eq!(loaded.project.profiles, project.profiles);
+    assert_eq!(profile_bits(&loaded.project.profiles), profile_bits(&project.profiles));
+    let used = loaded.project.elements.values().find_map(|e| e.as_dummy()?.profile);
+    assert_eq!(used, Some(catalogue));
+    let mut expected = project.clone();
+    expected.revision = 0;
+    expected.data_version = 7;
+    assert_eq!(loaded.project, expected);
+}
+
+/// The profile sample saved, with `change` applied to the `profiles` array
+/// of its project attribute.
+fn with_profile_records(project: &archicraft_model::Project, change: impl FnOnce(&mut Vec<Value>)) -> Vec<u8> {
+    edit(project, |v| {
+        change(
+            v["data"][0]["attributes"]["archicraft::project"]["profiles"]
+                .as_array_mut()
+                .unwrap(),
+        );
+    })
+}
+
+/// The one problem of `loaded`, asserted to have `severity`.
+fn only_problem(loaded: &archicraft_ifcx::ReadOutcome, severity: Severity) -> String {
+    assert_eq!(loaded.problems.len(), 1, "{:#?}", loaded.problems);
+    assert_eq!(loaded.problems[0].severity, severity, "{:#?}", loaded.problems);
+    loaded.problems[0].message.to_string()
+}
+
+/// The one problem the reader reports for `loaded`, asserted to have
+/// `severity`, besides validation's report of a value that breaks its
+/// declaration (IFX-061), which a record of the wrong type also gets.
+fn only_reader_problem(loaded: &archicraft_ifcx::ReadOutcome, severity: Severity) -> String {
+    let (validation, reader): (Vec<_>, Vec<_>) = loaded
+        .problems
+        .iter()
+        .partition(|p| p.message.to_string().starts_with("ifcx-attribute-invalid("));
+    assert!(validation.len() <= 1, "{validation:#?}");
+    assert_eq!(reader.len(), 1, "{:#?}", loaded.problems);
+    assert_eq!(reader[0].severity, severity, "{reader:#?}");
+    reader[0].message.to_string()
+}
+
+/// PRF-004, PRF-005, PRJ-008, IFX-083: a profile that breaks the model's
+/// rules, a rectangle of negative width, is skipped with one error that
+/// names it and gives the model's reason; the other profiles load.
+#[test]
+fn a_profile_with_a_negative_width_is_skipped_with_one_error_naming_it() {
+    use archicraft_model::{ParametricShape, ProfileShape};
+
+    let project = common::profile_sample();
+    let at = project
+        .profiles
+        .iter()
+        .position(|p| {
+            matches!(
+                p.shape,
+                ProfileShape::Parametric {
+                    shape: ParametricShape::Rectangle { .. },
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    let bytes = with_profile_records(&project, |records| {
+        records[at]["shape"]["dimensions"]["width"] = (-0.3).into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let message = only_problem(&loaded, Severity::Error);
+    assert!(message.starts_with("ifcx-skipped("), "{message}");
+    assert!(message.contains(&project.profiles[at].name), "{message}");
+    assert!(message.contains("model-error-profile-dimension-range"), "{message}");
+    let mut expected = project.profiles.clone();
+    expected.remove(at);
+    assert_eq!(loaded.project.profiles, expected);
+}
+
+/// PRF-004, PRJ-008: a region, or a parametric shape, made of a material
+/// the project does not have loads with the project's first material and
+/// one warning that names the profile; the rest of the profile is kept.
+#[test]
+fn an_unknown_profile_material_is_repaired_with_one_warning() {
+    use archicraft_model::{MaterialId, ProfileShape};
+
+    let project = common::profile_sample();
+    let first = project.materials[0].id;
+    let custom = project
+        .profiles
+        .iter()
+        .position(|p| p.name == common::CUSTOM_PROFILE)
+        .unwrap();
+    let bytes = with_profile_records(&project, |records| {
+        records[custom]["shape"]["regions"][1]["material"] = MaterialId::new().to_string().into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let message = only_problem(&loaded, Severity::Warning);
+    assert!(message.starts_with("ifcx-repaired("), "{message}");
+    assert!(message.contains(common::CUSTOM_PROFILE), "{message}");
+    assert!(message.contains("ifcx-profile-material-missing"), "{message}");
+    let mut expected = project.profiles.clone();
+    if let ProfileShape::Custom { regions } = &mut expected[custom].shape {
+        regions[1].material = first;
+    }
+    assert_eq!(loaded.project.profiles, expected);
+
+    let bytes = with_profile_records(&project, |records| {
+        records[0]["shape"]["material"] = MaterialId::new().to_string().into();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let message = only_problem(&loaded, Severity::Warning);
+    assert!(message.contains(&project.profiles[0].name), "{message}");
+    assert!(message.contains("ifcx-profile-material-missing"), "{message}");
+    assert_eq!(loaded.project.profiles[0].materials(), [first]);
+    assert_eq!(loaded.project.profiles[1..], project.profiles[1..]);
+}
+
+/// PRF-004, PRJ-008, IFX-011: a later record of a loaded profile's
+/// identity is skipped with one error that names it, before the rest of it
+/// is read, so the first record is kept and the twin's own defects go
+/// unreported. A record whose earlier twin was rejected is the profile.
+#[test]
+fn a_duplicate_profile_id_is_reported_and_the_first_record_kept() {
+    use archicraft_model::MaterialId;
+
+    let project = common::profile_sample();
+    let bytes = with_profile_records(&project, |records| {
+        let mut twin = records[0].clone();
+        twin["name"] = "Twin".into();
+        // Each repaired with a warning if the twin were read.
+        twin["shape"]["material"] = MaterialId::new().to_string().into();
+        twin["shape"]["dimensions"]["diameter"] = 0.2.into();
+        records.push(twin);
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let message = only_problem(&loaded, Severity::Error);
+    assert!(message.starts_with("ifcx-skipped("), "{message}");
+    assert!(message.contains("ifcx-profile-listed-twice"), "{message}");
+    assert!(message.contains("Twin"), "{message}");
+    assert_eq!(loaded.project.profiles, project.profiles);
+
+    let bytes = with_profile_records(&project, |records| {
+        let mut twin = records[0].clone();
+        twin["name"] = "Twin".into();
+        records[0]["shape"]["dimensions"]["width"] = (-0.3).into();
+        records.push(twin);
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let message = only_problem(&loaded, Severity::Error);
+    assert!(message.contains("model-error-profile-dimension-range"), "{message}");
+    let mut expected = project.profiles.clone();
+    let mut twin = expected.remove(0);
+    twin.name = "Twin".into();
+    expected.push(twin);
+    assert_eq!(loaded.project.profiles, expected);
+}
+
+/// PRF-004, PRF-005, PRJ-008, IFX-083: a profile record that cannot be read
+/// is skipped with one error: not an object, without an identity or a
+/// name, of a shape this release does not know, without a dimension its
+/// shape needs or a ring of its regions. A field that has a default takes
+/// it with one warning: the usage flags and the origin; a catalogue
+/// designation that is not text, a dimension the shape does not have and a
+/// member of the other kind of shape, the regions of a parametric shape or
+/// the material of a custom one, are left out with one (IFX-083).
+/// Validation reports a value of the wrong type on its own as well
+/// (IFX-061).
+#[test]
+fn unreadable_profile_records_are_skipped_or_repaired_with_one_report() {
+    use archicraft_model::{MaterialId, ProfileUsage};
+
+    let project = common::profile_sample();
+    let custom = project
+        .profiles
+        .iter()
+        .position(|p| p.name == common::CUSTOM_PROFILE)
+        .unwrap();
+    // Profile 0 is the rectangle.
+    type Change = Box<dyn Fn(&mut Vec<Value>)>;
+    let skipped: Vec<(&str, Change)> = vec![
+        ("ifcx-not-object", Box::new(|r| r[0] = "rectangle".into())),
+        (
+            "ifcx-field-missing(key=\"id\")",
+            Box::new(|r| {
+                r[0].as_object_mut().unwrap().remove("id");
+            }),
+        ),
+        (
+            "ifcx-field-not-text(key=\"name\")",
+            Box::new(|r| r[0]["name"] = 5.into()),
+        ),
+        (
+            "ifcx-field-unknown-value(key=\"kind\", value=\"hexagon\")",
+            Box::new(|r| r[0]["shape"]["kind"] = "hexagon".into()),
+        ),
+        (
+            "ifcx-field-missing(key=\"height\")",
+            Box::new(|r| {
+                r[0]["shape"]["dimensions"].as_object_mut().unwrap().remove("height");
+            }),
+        ),
+        (
+            "ifcx-field-point(key=\"outer\"",
+            Box::new(move |r| r[custom]["shape"]["regions"][1]["outer"] = "square".into()),
+        ),
+        (
+            "ifcx-field-point(key=\"holes\"",
+            Box::new(move |r| r[custom]["shape"]["regions"][0]["holes"] = Value::Array(vec![1.into()])),
+        ),
+    ];
+    for (reason, change) in &skipped {
+        let loaded = archicraft_ifcx::load(&with_profile_records(&project, change)).unwrap();
+        let message = only_reader_problem(&loaded, Severity::Error);
+        assert!(
+            message.starts_with("ifcx-skipped(") && message.contains(reason),
+            "{reason}: {message}"
+        );
+        assert_eq!(loaded.project.profiles.len(), project.profiles.len() - 1, "{reason}");
+    }
+
+    // Profile 4 is the I shape with an origin, 8 the Z shape with other
+    // usage flags than the default, the last the catalogue profile.
+    let last = project.profiles.len() - 1;
+    assert_ne!(project.profiles[8].usage, ProfileUsage::default());
+    type Repair = fn(&mut archicraft_model::Profile);
+    let repaired: Vec<(&str, usize, Change, Repair)> = vec![
+        (
+            "ifcx-default-used",
+            8,
+            Box::new(|r| r[8]["usage"]["walls"] = "yes".into()),
+            |p| p.usage.walls = ProfileUsage::default().walls,
+        ),
+        (
+            "ifcx-default-used",
+            8,
+            Box::new(|r| {
+                r[8].as_object_mut().unwrap().remove("usage");
+            }),
+            |p| p.usage = ProfileUsage::default(),
+        ),
+        (
+            "ifcx-default-used",
+            4,
+            Box::new(|r| r[4]["origin"] = Value::Array(vec![1.into()])),
+            |p| p.origin = DVec2::ZERO,
+        ),
+        (
+            "ifcx-left-out",
+            last,
+            Box::new(move |r| r[last]["catalogue"] = 5.into()),
+            |p| p.catalogue = None,
+        ),
+        (
+            "ifcx-profile-member-unused(key=\"diameter\")",
+            0,
+            Box::new(|r| r[0]["shape"]["dimensions"]["diameter"] = 0.2.into()),
+            |_| {},
+        ),
+        (
+            "ifcx-profile-member-unused(key=\"regions\")",
+            0,
+            Box::new(|r| r[0]["shape"]["regions"] = Value::Array(Vec::new())),
+            |_| {},
+        ),
+        (
+            "ifcx-profile-member-unused(key=\"material\")",
+            custom,
+            Box::new(move |r| r[custom]["shape"]["material"] = MaterialId::new().to_string().into()),
+            |_| {},
+        ),
+    ];
+    for (reason, at, change, repair) in &repaired {
+        let loaded = archicraft_ifcx::load(&with_profile_records(&project, change)).unwrap();
+        let message = only_reader_problem(&loaded, Severity::Warning);
+        assert!(
+            message.starts_with("ifcx-repaired(") && message.contains(reason),
+            "{reason}: {message}"
+        );
+        let mut expected = project.profiles.clone();
+        repair(&mut expected[*at]);
+        assert_eq!(loaded.project.profiles, expected, "{reason}");
+    }
+}
+
+/// PRF-004, IFX-062: a file without a `profiles` member, as every file
+/// before format 5 is, loads without profiles and without a problem.
+#[test]
+fn a_file_without_profiles_loads_without_any_and_without_a_problem() {
+    let project = samples::storey_with_walls_and_slab();
+    let bytes = edit(&project, |v| {
+        let attr = v["data"][0]["attributes"]["archicraft::project"]
+            .as_object_mut()
+            .unwrap();
+        assert_eq!(attr.remove("profiles"), Some(Value::Array(Vec::new())));
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
+    assert!(loaded.project.profiles.is_empty());
+}
+
+/// PRF-004, PRJ-008: an element's profile that the file does not hold is
+/// left out of the element with one warning; the element loads.
+#[test]
+fn an_element_profile_the_file_does_not_hold_is_left_out_with_one_warning() {
+    use archicraft_model::kinds::Dummy;
+    use archicraft_model::{Command, History};
+
+    let mut project = common::profile_sample();
+    let last = project.profiles.len() - 1;
+    let column = Dummy {
+        profile: Some(project.profiles[last].id),
+        ..Dummy::new(DVec2::ZERO, DVec2::ONE, project.materials[0].id)
+    };
+    let element = column.into_element(&project, project.storeys.ground(), 0);
+    History::default()
+        .execute(&mut project, Command::AddElements(vec![element.clone()]))
+        .unwrap();
+    let bytes = with_profile_records(&project, |records| {
+        records.pop();
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let message = only_problem(&loaded, Severity::Warning);
+    assert!(message.contains("ifcx-element-profile-missing"), "{message}");
+    assert!(message.contains(&element.name), "{message}");
+    let read = loaded.project.element(element.id).and_then(|e| e.as_dummy()).unwrap();
+    assert_eq!(read.profile, None);
 }

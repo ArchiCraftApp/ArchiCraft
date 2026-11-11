@@ -2,9 +2,11 @@
 //! ELM-006), behind the cargo feature `test-kinds` like the kind itself. It
 //! proves that a kind's attribute is one codec module plus one line in the
 //! codec list: the rectangle, the defaults slot's members (the vertical link
-//! and the flags of the registry tests) and the material, which a dummy
-//! without one leaves out (SPC-001, ANN-007).
+//! and the flags of the registry tests), the material, which a dummy
+//! without one leaves out (SPC-001, ANN-007), and the profile it uses as a
+//! column would, by identity, only when it has one (PRF-004).
 
+use archicraft_model::ProfileId;
 use archicraft_model::kinds::{Dummy, VerticalLink};
 use serde_json::{Map, Value, json};
 
@@ -29,12 +31,14 @@ impl KindCodec for Dummy {
         ("parts", &["parts"]),
         ("panic_on_evaluate", &["panicOnEvaluate"]),
         ("site_level", &["siteLevel"]),
+        ("profile", &["profile"]),
     ];
 
     fn schema() -> Value {
         let mut fields = vec![("origin", schema::point2()), ("size", schema::point2())];
         fields.extend(Self::slot_schema());
         fields.push(("material", schema::optional(schema::reference())));
+        fields.push(("profile", schema::optional(schema::string())));
         schema::object(&fields)
     }
 
@@ -46,13 +50,17 @@ impl KindCodec for Dummy {
         if let Some(material) = self.material {
             map.insert("material".into(), json!(material.to_string()));
         }
+        if let Some(profile) = self.profile {
+            map.insert("profile".into(), json!(profile.to_string()));
+        }
         map
     }
 
     /// Without a valid rectangle there is no element; every other member is
     /// repaired with a report to what [`Dummy::new`] gives: no base offset,
     /// a fixed top 1 m up, no flags. Without a material member the dummy
-    /// has no material.
+    /// has no material, and without a profile member no profile; a profile
+    /// the project does not have is left out, reported.
     fn read(attr: &Object, context: &ReadContext<'_>, report: &mut Report<'_>) -> Result<Self, Message> {
         let fallback = Dummy::without_material(
             reader::field(attr, "origin").and_then(reader::point)?,
@@ -62,6 +70,16 @@ impl KindCodec for Dummy {
         dummy.material = attr
             .contains_key("material")
             .then(|| read_material(attr, context, report));
+        dummy.profile = report
+            .optional(attr, "profile", reader::uuid)
+            .map(ProfileId::from_uuid)
+            .filter(|profile| {
+                let known = context.project.profile(*profile).is_some();
+                if !known {
+                    report.repaired(Message::new("ifcx-element-profile-missing"));
+                }
+                known
+            });
         Ok(dummy)
     }
 

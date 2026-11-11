@@ -95,9 +95,10 @@ fn a_dummy_element_with_each_top_link_round_trips() {
 /// IFX-060, IFX-061, ELM-019: a dummy element's node carries
 /// `archicraft::element` and `archicraft::dummy` with the codec's members
 /// (the rectangle, the vertical link, the flags, the material); the file
-/// declares the attribute, lists the kind in the kind enumeration and
-/// declares the counter of this kind without a tool as optional, which the
-/// writer writes once it is non-zero.
+/// declares the attribute with these members and the optional `profile`,
+/// which a dummy without a profile leaves out (PRF-004), lists the kind in
+/// the kind enumeration and declares the counter of this kind without a
+/// tool as optional, which the writer writes once it is non-zero.
 #[test]
 fn a_dummy_element_is_written_through_its_codec_and_declared() {
     let (project, ids, upper) = shell_with_a_dummy_per_top_link();
@@ -135,11 +136,17 @@ fn a_dummy_element_is_written_through_its_codec_and_declared() {
 
     let declared = file["schemas"].as_object().unwrap();
     assert!(declared.contains_key("archicraft::dummy"), "{:?}", declared.keys());
+    let mut members_written: Vec<&str> = written.iter().map(|k| k.as_str()).collect();
+    members_written.push("profile");
     assert_eq!(
         members(&declared["archicraft::dummy"]["value"])
             .keys()
             .collect::<Vec<_>>(),
-        written
+        members_written
+    );
+    assert_eq!(
+        members(&declared["archicraft::dummy"]["value"])["profile"],
+        serde_json::json!({"dataType": "String", "optional": true})
     );
     let kinds = &members(&declared["archicraft::element"]["value"])["kind"]["enumRestrictions"]["options"];
     assert_eq!(kinds, &serde_json::json!(["wall", "slab", "space", "dummy"]));

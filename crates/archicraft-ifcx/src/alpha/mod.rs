@@ -4,6 +4,7 @@
 
 pub mod kinds;
 pub mod migrate;
+pub(crate) mod profiles;
 pub mod reader;
 pub mod relations;
 pub mod schema;

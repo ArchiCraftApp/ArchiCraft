@@ -59,8 +59,8 @@ fn members(declaration: &Value) -> BTreeSet<&str> {
 /// here, fails the test. A kind that is not an IFCX node (ANN-010) declares
 /// its members under its kind code in the entries of
 /// `archicraft::annotations`, not as an attribute of its own. No kind's
-/// codec is a placeholder, and the text styles are `textStyles` of
-/// `archicraft::project` (ANN-007).
+/// codec is a placeholder, and the text styles are `textStyles` (ANN-007)
+/// and the profiles `profiles` of `archicraft::project` (PRF-004).
 #[test]
 fn every_project_field_is_persisted() {
     let project = samples::storey_with_walls_and_slab();
@@ -83,6 +83,8 @@ fn every_project_field_is_persisted() {
     }
     let text_styles = PROJECT_FIELDS.iter().find(|(field, _)| *field == "text_styles");
     assert_eq!(text_styles, Some(&("text_styles", &[Stored::Member("textStyles")][..])));
+    let profiles = PROJECT_FIELDS.iter().find(|(field, _)| *field == "profiles");
+    assert_eq!(profiles, Some(&("profiles", &[Stored::Member("profiles")][..])));
 
     let mut payloads: BTreeMap<KindTag, Value> = BTreeMap::new();
     for element in project.elements.values() {

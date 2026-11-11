@@ -6,7 +6,7 @@
 
 use archicraft_model::glam::DVec2;
 use archicraft_model::outline::Outline;
-use archicraft_model::{DraftingView, MaterialId, ReferenceLine, StoreyId, TextStyleId, TopLink};
+use archicraft_model::{DraftingView, MaterialId, Project, ReferenceLine, StoreyId, TextStyleId, TopLink};
 use serde_json::{Map, Value, json};
 
 use super::ReadContext;
@@ -133,16 +133,25 @@ pub(crate) fn read_reference_line(map: &Object) -> Result<ReferenceLine, Message
 /// The element's `material`: the project's first material, reported, when
 /// the reference is invalid or names no material (PRJ-008).
 pub(crate) fn read_material(attr: &Object, context: &ReadContext<'_>, report: &mut Report<'_>) -> MaterialId {
-    let project = context.project;
-    let id = report.or(
-        uuid(attr, "material").map(MaterialId::from_uuid),
-        project.materials[0].id,
-    );
+    material_or_first(attr, context.project, "ifcx-element-material-missing", report)
+}
+
+/// The `material` of `attr`, or `project`'s first material: an unreadable
+/// reference is reported as such, one that names no material of `project`
+/// with the message `missing`, which names the first material (PRJ-008).
+pub(crate) fn material_or_first(
+    attr: &Object,
+    project: &Project,
+    missing: &'static str,
+    report: &mut Report<'_>,
+) -> MaterialId {
+    let first = &project.materials[0];
+    let id = report.or(uuid(attr, "material").map(MaterialId::from_uuid), first.id);
     if project.material(id).is_some() {
         id
     } else {
-        report.repaired(Message::new("ifcx-element-material-missing").text("name", project.materials[0].name.clone()));
-        project.materials[0].id
+        report.repaired(Message::new(missing).text("name", first.name.clone()));
+        first.id
     }
 }
 
