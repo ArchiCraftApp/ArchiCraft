@@ -303,6 +303,7 @@ fn error_representatives() -> Vec<Message> {
         Message::new("model-error-profile-points").count("max", 10_000),
         Message::new("model-error-profile-regions").count("max", 32),
         max("model-error-profile-size", 10.0),
+        max("model-error-profile-position", 10.0),
         Message::new("model-error-profile-crossings").count("max", 100_000),
         Message::new("model-error-profile-region")
             .count("number", 2)
