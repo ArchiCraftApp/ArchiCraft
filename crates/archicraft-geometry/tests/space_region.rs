@@ -1,14 +1,20 @@
-//! Space boundaries detected from walls (SPC-001, INP-018): the region
-//! around a seed in the contour graph of a storey's wall footprints.
+//! Space boundaries detected from walls and columns (SPC-001, INP-018): the
+//! region around a seed in the contour graph of a storey's wall and column
+//! footprints.
 
 #![allow(clippy::unwrap_used)]
 
+use std::f64::consts::FRAC_PI_6;
+
 use archicraft_geometry::space::{RegionError, SpaceRegions, space_region};
 use archicraft_model::glam::DVec2;
+use archicraft_model::kinds::{Anchor, Column, CrossSection};
 use archicraft_model::outline::Outline;
 use archicraft_model::samples::two_storey_shell_with_shaft;
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Command, History, MODEL_TOLERANCE, Project, ReferenceLine, StoreyId};
+use archicraft_model::{
+    Command, Element, History, MODEL_TOLERANCE, Profile, ProfileRegion, Project, ReferenceLine, StoreyId,
+};
 
 fn v(x: f64, y: f64) -> DVec2 {
     DVec2::new(x, y)
@@ -224,4 +230,250 @@ fn a_gap_below_the_tolerance_closes_a_room_and_a_wider_one_leaves_it_open() {
 
     let (project, ground) = room_closed_with_a_gap(20e-6);
     assert_eq!(space_region(&project, ground, seed), Err(RegionError::Unbounded));
+}
+
+/// A column for [`walled_room`]: its position, its rotation and the change
+/// of the column tool's defaults that gives its section.
+type ColumnAt<'a> = (DVec2, f64, &'a dyn Fn(&mut Column));
+
+/// Four walls 20 cm thick referenced at their centres around the 5 m x 4 m
+/// rectangle from the origin, 4.8 m x 3.8 m inside; with `gap` the west wall
+/// is two walls with their square ends 30 cm apart, from y 1.85 to 2.15.
+/// `columns` are added on the ground storey.
+fn walled_room(gap: bool, columns: &[ColumnAt<'_>]) -> (Project, StoreyId) {
+    let mut project = default_metric_project();
+    let ground = project.storeys.ground();
+    let mut lines = vec![
+        (v(0.0, 0.0), v(5.0, 0.0)),
+        (v(5.0, 0.0), v(5.0, 4.0)),
+        (v(5.0, 4.0), v(0.0, 4.0)),
+    ];
+    if gap {
+        lines.extend([(v(0.0, 4.0), v(0.0, 2.15)), (v(0.0, 1.85), v(0.0, 0.0))]);
+    } else {
+        lines.push((v(0.0, 4.0), v(0.0, 0.0)));
+    }
+    let mut elements: Vec<Element> = lines
+        .iter()
+        .zip(0..)
+        .map(|(&(start, end), nth)| {
+            let mut element = project.new_wall(ground, start, end, nth);
+            let wall = element.as_wall_mut().unwrap();
+            wall.thickness = 0.2;
+            wall.reference_line = ReferenceLine::Center;
+            element
+        })
+        .collect();
+    for (&(position, rotation, change), nth) in columns.iter().zip(0..) {
+        let mut element = project.new_column(ground, position, rotation, nth);
+        change(element.as_column_mut().unwrap());
+        elements.push(element);
+    }
+    History::default()
+        .execute(&mut project, Command::AddElements(elements))
+        .unwrap();
+    (project, ground)
+}
+
+/// A rectangular section `width` x `height`.
+fn rectangular(width: f64, height: f64) -> impl Fn(&mut Column) {
+    move |column: &mut Column| column.section = CrossSection::Rectangular { width, height }
+}
+
+/// A circular section of `diameter`.
+fn circular(diameter: f64) -> impl Fn(&mut Column) {
+    move |column: &mut Column| column.section = CrossSection::Circular { diameter }
+}
+
+/// The plan corners of a `width` x `height` rectangle centred on `centre`
+/// and turned by `rotation`, counter-clockwise.
+fn turned_rectangle(centre: DVec2, width: f64, height: f64, rotation: f64) -> Vec<DVec2> {
+    let turn = DVec2::from_angle(rotation);
+    let (x, y) = (width / 2.0, height / 2.0);
+    [v(-x, -y), v(x, -y), v(x, y), v(-x, y)]
+        .into_iter()
+        .map(|p| centre + turn.rotate(p))
+        .collect()
+}
+
+/// The inner area of [`walled_room`] without columns or gap.
+const WALLED_ROOM_AREA: f64 = 4.8 * 3.8;
+
+/// SPC-001: columns standing free in a room bounded by four walls become
+/// holes of the detected space, clockwise like a slab's holes, each the
+/// column's outline: a 0.30 m square, a 0.40 m x 0.20 m rectangle turned by
+/// 30 degrees and a 0.30 m circle as the column's body tessellates it. The
+/// net area is the room's less the columns'; a seed in a column is refused.
+#[test]
+fn columns_standing_free_in_a_room_become_its_holes() {
+    let square = v(2.5, 2.0);
+    let turned = v(1.0, 1.0);
+    let round = v(4.0, 3.0);
+    let (project, ground) = walled_room(
+        false,
+        &[
+            (square, 0.0, &rectangular(0.3, 0.3)),
+            (turned, FRAC_PI_6, &rectangular(0.4, 0.2)),
+            (round, 0.0, &circular(0.3)),
+        ],
+    );
+    let boundary = space_region(&project, ground, v(3.0, 1.0)).unwrap();
+    let (outer, holes) = boundary.to_points();
+    assert_ring(&outer, &rectangle(v(0.1, 0.1), v(4.9, 3.9)));
+    assert_eq!(holes.len(), 3, "{holes:?}");
+    assert!(boundary.holes().iter().all(|hole| !hole.is_counter_clockwise()));
+
+    let hole_through = |p: DVec2| {
+        holes
+            .iter()
+            .find(|hole| hole.iter().any(|q| q.distance(p) < 0.25))
+            .unwrap_or_else(|| panic!("no hole near {p}: {holes:?}"))
+    };
+    for (centre, width, height, rotation) in [(square, 0.3, 0.3, 0.0), (turned, 0.4, 0.2, FRAC_PI_6)] {
+        let mut expected = turned_rectangle(centre, width, height, rotation);
+        expected.reverse();
+        assert_ring(hole_through(centre), &expected);
+    }
+    let circle = hole_through(round);
+    assert!(circle.len() >= 16, "{circle:?}");
+    for p in circle {
+        assert!((p.distance(round) - 0.15).abs() < MODEL_TOLERANCE, "{p}");
+    }
+    assert!(
+        circle
+            .iter()
+            .any(|p| p.distance(round + v(0.15, 0.0)) < MODEL_TOLERANCE)
+    );
+    // The shoelace area of the clockwise ring, negated.
+    let circle_area = -(0..circle.len())
+        .map(|i| circle[i].perp_dot(circle[(i + 1) % circle.len()]))
+        .sum::<f64>()
+        / 2.0;
+    assert!(
+        circle_area < std::f64::consts::PI * 0.15 * 0.15 && circle_area > 0.06,
+        "{circle_area}"
+    );
+    let area = WALLED_ROOM_AREA - 0.09 - 0.08 - circle_area;
+    assert!((boundary.area() - area).abs() < 1e-6, "{}", boundary.area());
+
+    for seed in [
+        square,
+        square + v(0.14, -0.14),
+        turned,
+        turned + DVec2::from_angle(FRAC_PI_6) * 0.19,
+        round,
+        round + v(0.0, 0.14),
+    ] {
+        assert_eq!(
+            space_region(&project, ground, seed),
+            Err(RegionError::SeedInFootprint),
+            "{seed}"
+        );
+    }
+    // Just outside the turned column's corner along its unturned box.
+    assert_eq!(space_region(&project, ground, turned + v(0.0, 0.19)).unwrap(), boundary);
+}
+
+/// SPC-001: the west wall of the room has a 30 cm gap through which the
+/// room is open, so a seed in it is unbounded. A 0.30 m square column whose
+/// faces meet the walls' square ends closes the room; it stands 5 cm into
+/// the room beyond the walls' inner face. A square turned by 45 degrees
+/// and a circle, each overlapping the wall ends, close it alike.
+#[test]
+fn a_column_filling_the_gap_in_a_wall_line_closes_the_room() {
+    let seed = v(2.5, 2.0);
+    let (open, ground) = walled_room(true, &[]);
+    assert_eq!(space_region(&open, ground, seed), Err(RegionError::Unbounded));
+
+    let gap = v(0.0, 2.0);
+    let (closed, ground) = walled_room(true, &[(gap, 0.0, &rectangular(0.3, 0.3))]);
+    let boundary = space_region(&closed, ground, seed).unwrap();
+    assert!(boundary.holes().is_empty());
+    assert_ring(
+        &boundary.to_points().0,
+        &[
+            v(0.1, 0.1),
+            v(4.9, 0.1),
+            v(4.9, 3.9),
+            v(0.1, 3.9),
+            v(0.1, 2.15),
+            v(0.15, 2.15),
+            v(0.15, 1.85),
+            v(0.1, 1.85),
+        ],
+    );
+    let area = WALLED_ROOM_AREA - 0.05 * 0.3;
+    assert!((boundary.area() - area).abs() < 1e-6, "{}", boundary.area());
+    assert_eq!(space_region(&closed, ground, gap), Err(RegionError::SeedInFootprint));
+
+    for change in [
+        (
+            std::f64::consts::FRAC_PI_4,
+            &rectangular(0.4, 0.4) as &dyn Fn(&mut Column),
+        ),
+        (0.0, &circular(0.4)),
+    ] {
+        let (closed, ground) = walled_room(true, &[(gap, change.0, change.1)]);
+        let boundary = space_region(&closed, ground, seed).unwrap();
+        assert!(boundary.holes().is_empty());
+        // The column takes a little of the room, less than its own area.
+        let taken = WALLED_ROOM_AREA - boundary.area();
+        assert!(taken > 0.0 && taken < 0.16, "{taken}");
+        assert_eq!(space_region(&closed, ground, gap), Err(RegionError::SeedInFootprint));
+    }
+}
+
+/// SPC-001, PRF-004: a column whose section is a custom profile of two
+/// touching plates forming an L is one hole of the room, the outline of the
+/// L, anchored at its bottom left corner; a column on another storey is
+/// none.
+#[test]
+fn a_profile_column_is_a_hole_with_the_profile_outline() {
+    let (mut project, ground) = walled_room(false, &[]);
+    let upper = storey(&project, 1);
+    let material = project.materials[0].id;
+    let plate = |min: DVec2, max: DVec2| ProfileRegion {
+        outer: rectangle(min, max),
+        holes: Vec::new(),
+        material,
+    };
+    let profile = Profile::custom(
+        "L",
+        vec![plate(v(0.0, 0.0), v(0.3, 0.1)), plate(v(0.0, 0.1), v(0.1, 0.3))],
+    );
+    let mut history = History::default();
+    history
+        .execute(&mut project, Command::AddProfile(profile.clone()))
+        .unwrap();
+    let mut elements = Vec::new();
+    for (on, at, nth) in [(ground, v(3.5, 1.0), 0), (upper, v(2.0, 2.0), 1)] {
+        let mut element = project.new_column(on, at, 0.0, nth);
+        let column = element.as_column_mut().unwrap();
+        column.section = CrossSection::Profile(profile.id);
+        column.anchor = Anchor::BottomLeft;
+        elements.push(element);
+    }
+    history.execute(&mut project, Command::AddElements(elements)).unwrap();
+
+    let boundary = space_region(&project, ground, v(1.0, 1.0)).unwrap();
+    let (_, holes) = boundary.to_points();
+    assert_eq!(holes.len(), 1, "{holes:?}");
+    let mut l = [
+        v(0.0, 0.0),
+        v(0.3, 0.0),
+        v(0.3, 0.1),
+        v(0.1, 0.1),
+        v(0.1, 0.3),
+        v(0.0, 0.3),
+    ]
+    .map(|p| p + v(3.5, 1.0));
+    l.reverse();
+    assert_ring(&holes[0], &l);
+    let area = WALLED_ROOM_AREA - 0.05;
+    assert!((boundary.area() - area).abs() < 1e-6, "{}", boundary.area());
+    assert_eq!(
+        space_region(&project, ground, v(3.55, 1.2)),
+        Err(RegionError::SeedInFootprint)
+    );
+    assert_eq!(space_region(&project, ground, v(3.7, 1.2)).unwrap(), boundary);
 }
