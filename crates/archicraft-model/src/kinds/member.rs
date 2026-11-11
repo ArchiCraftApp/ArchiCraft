@@ -3,50 +3,77 @@
 //!
 //! A member is swept from its cross-section along its axis. The section is
 //! drawn in the profile plane (x to the right, y up, metres; see
-//! [`crate::profile`]), centred on its bounding box; the member's axis runs
-//! through one of nine points of that box, its [`Anchor`].
+//! [`crate::profile`]): a rectangle or circle centred on its bounding box, or
+//! a profile of the project in its own profile coordinates. The member's
+//! axis runs through one of nine points of the section's bounding box or,
+//! for a profile, through the profile's insertion origin: its [`Anchor`].
 
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
 
+use crate::ids::ProfileId;
+
 /// The cross-section of a member (COL-001): a rectangle `width` × `height`
-/// or a circle of `diameter`, centred on its bounding box. `height` is the
-/// section's size along y, which is a column's depth in plan.
+/// or a circle of `diameter`, centred on its bounding box, or a profile of
+/// the project (PRF-004), in its profile coordinates and made of its region
+/// materials. `height` is the section's size along y, which is a column's
+/// depth in plan.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CrossSection {
-    Rectangular { width: f64, height: f64 },
-    Circular { diameter: f64 },
+    Rectangular {
+        width: f64,
+        height: f64,
+    },
+    Circular {
+        diameter: f64,
+    },
+    /// The profile with this ID; its shape and bounds are the project's
+    /// ([`crate::profile::Profile::bounds`]).
+    Profile(ProfileId),
 }
 
 impl CrossSection {
     /// The size of the bounding box: width along x, height along y (a
-    /// circle's diameter in both).
-    pub fn size(&self) -> DVec2 {
+    /// circle's diameter in both). `None` for a profile, whose size is the
+    /// project's.
+    pub fn size(&self) -> Option<DVec2> {
         match *self {
-            CrossSection::Rectangular { width, height } => DVec2::new(width, height),
-            CrossSection::Circular { diameter } => DVec2::splat(diameter),
+            CrossSection::Rectangular { width, height } => Some(DVec2::new(width, height)),
+            CrossSection::Circular { diameter } => Some(DVec2::splat(diameter)),
+            CrossSection::Profile(_) => None,
         }
     }
 
-    /// The bounding box as (min, max), centred on zero.
-    pub fn bounds(&self) -> (DVec2, DVec2) {
-        let half = self.size() / 2.0;
-        (-half, half)
+    /// The bounding box as (min, max), centred on zero. `None` for a
+    /// profile, whose bounds are the project's.
+    pub fn bounds(&self) -> Option<(DVec2, DVec2)> {
+        let half = self.size()? / 2.0;
+        Some((-half, half))
     }
 
-    /// The section's dimensions with their values, for range checks.
+    /// The profile of a profile section.
+    pub fn profile(&self) -> Option<ProfileId> {
+        match *self {
+            CrossSection::Profile(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// The section's dimensions with their values, for range checks; none
+    /// for a profile, which its own validation checks.
     pub(crate) fn dimensions(&self) -> Vec<f64> {
         match *self {
             CrossSection::Rectangular { width, height } => vec![width, height],
             CrossSection::Circular { diameter } => vec![diameter],
+            CrossSection::Profile(_) => Vec::new(),
         }
     }
 }
 
 /// The point of a member's cross-section its axis runs through (COL-001):
-/// a corner, an edge midpoint or the centre of the section's bounding box.
-/// For a circle these are the points of its bounding box, so
-/// [`Anchor::Centre`] is the circle's centre.
+/// a corner, an edge midpoint or the centre of the section's bounding box,
+/// or a profile's insertion origin. For a circle the nine are the points of
+/// its bounding box, so [`Anchor::Centre`] is the circle's centre.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Anchor {
     TopLeft,
@@ -59,6 +86,10 @@ pub enum Anchor {
     BottomLeft,
     BottomCentre,
     BottomRight,
+    /// The insertion origin of a profile section
+    /// ([`crate::profile::Profile::origin`], PRF-004). Validation stores it
+    /// as [`Anchor::Centre`] on a rectangular or circular section.
+    ProfileOrigin,
 }
 
 impl Anchor {
@@ -77,12 +108,14 @@ impl Anchor {
     ];
 
     /// The anchor's place in [`Anchor::ALL`]: 0 for the top left to 8 for
-    /// the bottom right.
+    /// the bottom right; 4, the centre's, for [`Anchor::ProfileOrigin`].
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|a| *a == self).unwrap_or(4)
     }
 
-    /// The anchor's point of the box from `min` to `max`.
+    /// The anchor's point of the box from `min` to `max`; the centre for
+    /// [`Anchor::ProfileOrigin`], which the box does not know (see
+    /// `Column::anchor_point`).
     pub fn point(self, (min, max): (DVec2, DVec2)) -> DVec2 {
         let centre = (min + max) / 2.0;
         let index = self.index();
@@ -92,8 +125,12 @@ impl Anchor {
     /// The anchor on the other side of the section's x axis: top and bottom
     /// swap, the middle row stays. A mirror in plan maps a section that is
     /// symmetric about its x axis onto itself with its anchor flipped so.
+    /// [`Anchor::ProfileOrigin`] stays.
     #[must_use]
     pub fn flipped_vertically(self) -> Self {
+        if self == Anchor::ProfileOrigin {
+            return self;
+        }
         let index = self.index();
         Self::ALL[(2 - index / 3) * 3 + index % 3]
     }
@@ -111,7 +148,8 @@ mod tests {
             width: 0.4,
             height: 0.2,
         }
-        .bounds();
+        .bounds()
+        .unwrap();
         let points: Vec<(f64, f64)> = Anchor::ALL.iter().map(|a| a.point(bounds).into()).collect();
         assert_eq!(
             points,
@@ -140,5 +178,6 @@ mod tests {
         for anchor in Anchor::ALL {
             assert_eq!(anchor.flipped_vertically().flipped_vertically(), anchor);
         }
+        assert_eq!(Anchor::ProfileOrigin.flipped_vertically(), Anchor::ProfileOrigin);
     }
 }

@@ -1463,13 +1463,15 @@ fn stamp_changes(project: &mut Project, inverse: &Edit) {
     }
 }
 
-/// Stamps the elements that use `profile` (PRF-004), see [`stamp_changes`].
+/// Stamps `profile` and the elements that use it (PRF-004), see
+/// [`stamp_changes`].
 fn stamp_profile_users(
     changes: &mut ChangeLog,
     elements: &IndexMap<ElementId, Element>,
     profile: ProfileId,
     revision: u64,
 ) {
+    changes.stamp_profile(profile, revision);
     for element in elements.values().filter(|e| e.kind.profiles().contains(&profile)) {
         changes.stamp_element(element.id, revision, false);
     }

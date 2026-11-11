@@ -6,12 +6,23 @@
 //! [`VerticalLink`] (ELM-006), so a top linked to a storey follows storey
 //! edits (STR-006). Each end is cut horizontally or by a plane at an angle
 //! ([`ColumnCut`]); the geometry crate sweeps the section between the two
-//! planes. Profile cross-sections are archicraft-i4gl.2.
+//! planes.
 //!
-//! **Plan coordinates.** A section point `p` (section coordinates, centred
-//! on its bounding box; see [`crate::profile`]) lies in plan at
+//! **Plan coordinates.** A section point `p` (section coordinates: centred
+//! on its bounding box for a rectangle or circle, the profile's coordinates
+//! for a profile; see [`crate::profile`]) lies in plan at
 //! `position + rotate(p - anchor point, rotation)`: with no rotation the
 //! section's x and y run along the world's X and Y.
+//!
+//! **Profile sections (PRF-004).** A column with [`CrossSection::Profile`]
+//! refers to the profile by ID, so its size and its anchor point are the
+//! project's: the methods that need them take the profile
+//! ([`Column::profile`] looks it up). The [`Kind::plan_bounds`] hook does not
+//! see the project, so for a profile column it gives the axis point only, and
+//! [`Project::plan_bounds`] gives the bounds of the profile's box in plan,
+//! which a profile edit moves without touching the column. The column's own
+//! material stays when a profile is chosen, so switching back to a
+//! rectangle or circle keeps it; the profile's regions bring their own.
 
 use glam::DVec2;
 use serde::{Deserialize, Serialize};
@@ -20,8 +31,9 @@ use super::member::{Anchor, CrossSection};
 use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, Vertical, VerticalLink, plan_bounds_of, vertical};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
 use crate::fields::FieldSpec;
-use crate::ids::{MaterialId, StoreyId};
+use crate::ids::{MaterialId, ProfileId, StoreyId};
 use crate::message::Message;
+use crate::profile::{Profile, ProfileUsage};
 use crate::project::{DefaultsSlot, Project};
 use crate::storey::StoreyList;
 use crate::template::TemplateContext;
@@ -84,14 +96,52 @@ pub struct Column {
 }
 
 impl Column {
-    /// The anchor point in section coordinates.
-    pub fn anchor_point(&self) -> DVec2 {
-        self.anchor.point(self.section.bounds())
+    /// The profile of a profile section in `project`, if it has it.
+    pub fn profile<'p>(&self, project: &'p Project) -> Option<&'p Profile> {
+        project.profile(self.section.profile()?)
     }
 
-    /// The plan point of the section point `p` (section coordinates).
-    pub fn to_plan(&self, p: DVec2) -> DVec2 {
-        self.position + DVec2::from_angle(self.rotation).rotate(p - self.anchor_point())
+    /// The section's bounding box in section coordinates as (min, max). For
+    /// a profile section it is the bounds of `profile`, the column's profile
+    /// ([`Column::profile`]), and `None` without it; `profile` is ignored for
+    /// other sections.
+    pub fn section_bounds(&self, profile: Option<&Profile>) -> Option<(DVec2, DVec2)> {
+        match self.section {
+            CrossSection::Profile(_) => profile?.bounds(),
+            _ => self.section.bounds(),
+        }
+    }
+
+    /// The anchor point in section coordinates: the anchor's point of the
+    /// section's bounding box, or the insertion origin of `profile` for
+    /// [`Anchor::ProfileOrigin`] (PRF-004). `profile` is as for
+    /// [`Column::section_bounds`].
+    pub fn anchor_point(&self, profile: Option<&Profile>) -> Option<DVec2> {
+        match (self.section, self.anchor) {
+            (CrossSection::Profile(_), Anchor::ProfileOrigin) => profile.map(|p| p.origin),
+            _ => Some(self.anchor.point(self.section_bounds(profile)?)),
+        }
+    }
+
+    /// The plan point of the section point `p` (section coordinates), for
+    /// the anchor point `anchor` ([`Column::anchor_point`]).
+    pub fn to_plan(&self, anchor: DVec2, p: DVec2) -> DVec2 {
+        self.position + DVec2::from_angle(self.rotation).rotate(p - anchor)
+    }
+
+    /// Smallest and largest plan coordinates of the section: the rotated
+    /// corners of its bounding box, or a circle's centre plus and minus its
+    /// radius. `profile` is as for [`Column::section_bounds`]; `None` for a
+    /// profile section without it.
+    pub fn plan_bounds_with(&self, profile: Option<&Profile>) -> Option<(DVec2, DVec2)> {
+        let anchor = self.anchor_point(profile)?;
+        let (min, max) = self.section_bounds(profile)?;
+        if let CrossSection::Circular { diameter } = self.section {
+            let centre = self.to_plan(anchor, DVec2::ZERO);
+            let radius = DVec2::splat(diameter / 2.0);
+            return Some((centre - radius, centre + radius));
+        }
+        plan_bounds_of([min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)].map(|p| self.to_plan(anchor, p)))
     }
 }
 
@@ -141,6 +191,17 @@ impl Project {
         }
         element
     }
+
+    /// Smallest and largest plan coordinates `element` covers: the
+    /// [`Kind::plan_bounds`] hook, except for a profile column, whose bounds
+    /// need its profile from this project (PRF-004; see the module
+    /// documentation). `None` if it has no points.
+    pub fn plan_bounds(&self, element: &Element) -> Option<(DVec2, DVec2)> {
+        match element.as_column() {
+            Some(column) if column.section.profile().is_some() => column.plan_bounds_with(column.profile(self)),
+            _ => element.kind.plan_bounds(),
+        }
+    }
 }
 
 impl Vertical for Column {
@@ -187,12 +248,35 @@ impl Kind for Column {
         self.material = material;
     }
 
+    /// The profile of a profile section (PRF-004).
+    fn profiles(&self) -> Vec<ProfileId> {
+        self.section.profile().into_iter().collect()
+    }
+
+    fn replace_profile(&mut self, from: ProfileId, to: ProfileId) -> bool {
+        match &mut self.section {
+            CrossSection::Profile(profile) if *profile == from => {
+                *profile = to;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Only profiles usable by columns (PRF-004).
+    fn accepts_profile(&self, usage: ProfileUsage) -> bool {
+        usage.columns
+    }
+
     /// Range checks (ELM-017): the position within the coordinate range,
     /// every section dimension between [`MIN_THICKNESS`] and
     /// [`MAX_THICKNESS`], a finite rotation, cut angles below
     /// [`MAX_CUT_ANGLE_DEG`], the base and top as for walls, and a linked
     /// storey that exists. Cut planes that cross within the section depend
-    /// on the height and are found by the geometry.
+    /// on the height and are found by the geometry. A profile section's
+    /// profile is checked by [`validate::validate_prototype`] (PRF-004);
+    /// [`Anchor::ProfileOrigin`] on another section is stored as
+    /// [`Anchor::Centre`].
     fn validate(&self, _home: StoreyId, storeys: &StoreyList) -> Result<Self, Message> {
         validate::check_point(self.position)?;
         if self
@@ -227,14 +311,24 @@ impl Kind for Column {
         if self.link.missing_storey(storeys).is_some() {
             return Err(Message::new("model-error-column-top-storey-missing"));
         }
-        Ok(self.clone())
+        let mut column = self.clone();
+        if column.anchor == Anchor::ProfileOrigin && column.section.profile().is_none() {
+            column.anchor = Anchor::Centre;
+        }
+        Ok(column)
     }
 
     /// Moves the position; a rotation turns the section with it, and a
-    /// mirror gives the mirror image: the section is symmetric about its x
-    /// axis, so the image is the section turned to the mirrored x axis with
-    /// its anchor flipped across that axis and its cuts tilted the other way.
+    /// mirror gives the mirror image: a rectangle or circle is symmetric
+    /// about its x axis, so the image is the section turned to the mirrored
+    /// x axis with its anchor flipped across that axis and its cuts tilted
+    /// the other way. A profile need not be symmetric and its mirror image is
+    /// another profile, so a profile column refuses a mirror and stays
+    /// unchanged.
     fn transform(&mut self, transform: &PlanTransform) -> Result<(), TransformError> {
+        if transform.is_mirror() && self.section.profile().is_some() {
+            return Err(TransformError::Unsupported);
+        }
         self.position = transform.apply(self.position);
         if transform.is_translation() {
             return Ok(());
@@ -281,18 +375,10 @@ impl Kind for Column {
     }
 
     /// The rotated section's corners, or a circle's centre plus and minus
-    /// its radius.
+    /// its radius. A profile column's size is its profile's, which this hook
+    /// does not see: it gives the axis point only, and
+    /// [`Project::plan_bounds`] the profile's box (PRF-004).
     fn plan_bounds(&self) -> Option<(DVec2, DVec2)> {
-        let (min, max) = self.section.bounds();
-        match self.section {
-            CrossSection::Rectangular { .. } => {
-                plan_bounds_of([min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)].map(|p| self.to_plan(p)))
-            }
-            CrossSection::Circular { diameter } => {
-                let centre = self.to_plan(DVec2::ZERO);
-                let radius = DVec2::splat(diameter / 2.0);
-                Some((centre - radius, centre + radius))
-            }
-        }
+        self.plan_bounds_with(None).or(Some((self.position, self.position)))
     }
 }

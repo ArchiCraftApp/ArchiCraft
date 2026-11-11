@@ -1,6 +1,7 @@
-//! The bodies of columns (COL-001, COL-003, IFX-035): the cross-section,
-//! anchored and turned, swept up the axis between the end cuts, with the
-//! axis from the bottom cut to the top cut, in storey coordinates.
+//! The bodies of columns (COL-001, COL-003, PRF-004, IFX-035): the
+//! cross-section, a rectangle, a circle or a profile, anchored and turned,
+//! swept up the axis between the end cuts, with the axis from the bottom cut
+//! to the top cut, in storey coordinates.
 
 #![allow(clippy::unwrap_used)]
 
@@ -10,7 +11,9 @@ use archicraft_geometry::{ElementGeometry, ModelGeometry};
 use archicraft_model::glam::{DVec2, DVec3};
 use archicraft_model::kinds::{Anchor, Column, ColumnCut, CrossSection, VerticalLink};
 use archicraft_model::template::default_metric_project;
-use archicraft_model::{Command, Element, History, Project, TopLink};
+use archicraft_model::{
+    Command, Element, History, MaterialId, ParametricShape, Profile, ProfileRegion, Project, TopLink,
+};
 
 /// A project with the D.2 column at `position` on `storey` (0 the ground
 /// storey, 1 the first floor), changed by `change`, and the column's
@@ -205,4 +208,167 @@ fn the_axis_runs_from_the_bottom_to_the_top_through_the_position() {
     let (lo, hi) = upper.bounds().unwrap();
     assert_near(lo, DVec3::new(x - 0.3, y - 0.3, 0.0));
     assert_near(hi, DVec3::new(x, y, 3.0));
+}
+
+/// The project `p` with `profile`, made of its materials, and the D.2
+/// column at `position` on the ground storey using it as its section,
+/// changed by `change`, and the column's evaluated geometry (PRF-004).
+fn profile_column(
+    mut p: Project,
+    profile: &Profile,
+    position: DVec2,
+    change: impl FnOnce(&mut Column),
+) -> (Project, History, Element, ElementGeometry) {
+    let mut h = History::default();
+    h.execute(&mut p, Command::AddProfile(profile.clone())).unwrap();
+    let mut element = p.new_column(p.storeys.ground(), position, 0.0, 0);
+    element.as_column_mut().unwrap().section = CrossSection::Profile(profile.id);
+    change(element.as_column_mut().unwrap());
+    h.execute(&mut p, Command::AddElements(vec![element.clone()])).unwrap();
+    let geometry = ModelGeometry::evaluate(&p);
+    assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+    let body = geometry.get(element.id).unwrap().clone();
+    (p, h, element, body)
+}
+
+/// IPE 300 (EN 10365): h 300, b 150, tw 7.1, tf 10.7, r 15 mm.
+fn ipe_300() -> ParametricShape {
+    ParametricShape::IShape {
+        height: 0.3,
+        width: 0.15,
+        web: 0.0071,
+        flange: 0.0107,
+        root_radius: 0.015,
+    }
+}
+
+/// A custom region: the rectangle from `min` to `max` of `material`.
+fn plate(min: DVec2, max: DVec2, material: MaterialId) -> ProfileRegion {
+    ProfileRegion {
+        outer: vec![min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)],
+        holes: Vec::new(),
+        material,
+    }
+}
+
+/// The area of the profile's section at the default tessellation.
+fn section_area(p: &Project, profile: &Profile) -> f64 {
+    archicraft_geometry::section::profile_section(profile, &p.settings.tessellation)
+        .unwrap()
+        .area()
+}
+
+/// COL-001, PRF-004: with `Anchor::ProfileOrigin` the profile's insertion
+/// origin, here (0.05, 0.10) of a 0.20 × 0.40 m plate from (0, 0), lies on
+/// the column's position; turned by 90°, the section turns about it.
+#[test]
+fn the_profile_origin_anchor_puts_that_profile_point_on_the_position() {
+    let p = default_metric_project();
+    let material = p.materials[0].id;
+    let profile = Profile {
+        origin: DVec2::new(0.05, 0.10),
+        ..Profile::custom("Plate", vec![plate(DVec2::ZERO, DVec2::new(0.2, 0.4), material)])
+    };
+    let position = DVec2::new(1.0, 1.0);
+    let (_, _, _, body) = profile_column(p.clone(), &profile, position, |c| c.anchor = Anchor::ProfileOrigin);
+    let (lo, hi) = body.bounds().unwrap();
+    assert_near(lo, DVec3::new(0.95, 0.90, 0.0));
+    assert_near(hi, DVec3::new(1.15, 1.30, 3.0));
+    assert_eq!(body.axis, [position.extend(0.0), position.extend(3.0)]);
+
+    let (_, _, _, turned) = profile_column(p.clone(), &profile, position, |c| {
+        c.anchor = Anchor::ProfileOrigin;
+        c.rotation = PI / 2.0;
+    });
+    let (lo, hi) = turned.bounds().unwrap();
+    assert_near(lo, DVec3::new(0.70, 0.95, 0.0));
+    assert_near(hi, DVec3::new(1.10, 1.15, 3.0));
+
+    let (_, _, _, corner) = profile_column(p, &profile, position, |c| c.anchor = Anchor::BottomLeft);
+    let (lo, _) = corner.bounds().unwrap();
+    assert_near(lo, DVec3::new(1.0, 1.0, 0.0));
+}
+
+/// COL-001, PRF-004, PRF-005: an IPE 300 profile column is one closed part
+/// `Body` of the profile's material, not the column's, whose volume is the
+/// section's area times the height.
+#[test]
+fn an_ipe_300_profile_column_is_one_closed_body() {
+    let p = default_metric_project();
+    let steel = p.materials.iter().find(|m| m.name == "Steel").unwrap().id;
+    let profile = Profile::parametric("IPE 300", ipe_300(), steel);
+    let (p, _, element, body) = profile_column(p, &profile, DVec2::new(4.0, 2.0), |_| {});
+    assert_ne!(
+        element.kind.material(),
+        Some(steel),
+        "the column keeps its own material"
+    );
+    assert_eq!(body.parts.len(), 1);
+    let part = &body.parts[0];
+    assert_eq!((part.name.as_str(), part.material), ("Body", Some(steel)));
+    part.mesh.check_closed().unwrap();
+    let area = section_area(&p, &profile);
+    assert!((area - 0.00538).abs() < 0.0001, "IPE 300 is about 53.8 cm²: {area}");
+    assert!(relative(body.volume(), area * 3.0) < 1e-9, "{}", body.volume());
+    let (lo, hi) = body.bounds().unwrap();
+    assert_near(lo, DVec3::new(3.925, 1.85, 0.0));
+    assert_near(hi, DVec3::new(4.075, 2.15, 3.0));
+}
+
+/// COL-001, PRF-004: a custom profile of two regions makes a column of two
+/// closed parts `Region_1` and `Region_2` in the profile's region order,
+/// each of its region's material.
+#[test]
+fn a_two_region_profile_column_has_a_part_per_region() {
+    let p = default_metric_project();
+    let (concrete, steel) = (p.materials[0].id, p.materials[1].id);
+    let profile = Profile::custom(
+        "Composite",
+        vec![
+            plate(DVec2::new(-0.2, -0.2), DVec2::new(0.2, 0.0), concrete),
+            plate(DVec2::new(-0.2, 0.0), DVec2::new(0.2, 0.1), steel),
+        ],
+    );
+    let (_, _, _, body) = profile_column(p, &profile, DVec2::ZERO, |_| {});
+    let parts: Vec<(&str, Option<MaterialId>)> = body.parts.iter().map(|q| (q.name.as_str(), q.material)).collect();
+    assert_eq!(parts, [("Region_1", Some(concrete)), ("Region_2", Some(steel))]);
+    for part in &body.parts {
+        part.mesh.check_closed().unwrap();
+    }
+    assert!(
+        relative(body.volume(), (0.08 + 0.04) * 3.0) < 1e-12,
+        "{}",
+        body.volume()
+    );
+}
+
+/// PRF-004: editing a profile updates every element that uses it, so
+/// UpdateProfile raising an I-profile from IPE 300 to 400 mm changes the
+/// evaluated volume of the column using it, incrementally as in full, and
+/// undo brings the old volume back.
+#[test]
+fn updating_a_profile_changes_the_columns_that_use_it() {
+    let p = default_metric_project();
+    let steel = p.materials.iter().find(|m| m.name == "Steel").unwrap().id;
+    let profile = Profile::parametric("IPE 300", ipe_300(), steel);
+    let (mut p, mut h, element, body) = profile_column(p, &profile, DVec2::ZERO, |_| {});
+    let before = ModelGeometry::evaluate(&p);
+    let mut taller = profile.clone();
+    if let archicraft_model::ProfileShape::Parametric {
+        shape: ParametricShape::IShape { height, .. },
+        ..
+    } = &mut taller.shape
+    {
+        *height = 0.4;
+    }
+    h.execute(&mut p, Command::UpdateProfile(taller.clone())).unwrap();
+    let updated = ModelGeometry::evaluate_incremental(&p, &before);
+    assert!(updated.changed.contains(&element.id), "the column is re-evaluated");
+    let volume = updated.get(element.id).unwrap().volume();
+    assert!(relative(volume, section_area(&p, &taller) * 3.0) < 1e-9, "{volume}");
+    assert!(volume > body.volume() * 1.1, "{volume} is more than {}", body.volume());
+    assert_eq!(updated.get(element.id), ModelGeometry::evaluate(&p).get(element.id));
+    h.undo(&mut p).unwrap();
+    let undone = ModelGeometry::evaluate_incremental(&p, &updated);
+    assert!(relative(undone.get(element.id).unwrap().volume(), body.volume()) < 1e-12);
 }
