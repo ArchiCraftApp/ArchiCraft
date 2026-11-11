@@ -95,3 +95,14 @@ prompt-text-type = Text: type the text, a click outside places it
 prompt-text-key-newline = starts a new line
 prompt-text-key-commit = places the text
 prompt-text-key-cancel = cancels the text
+
+## The column tool (COL-002): the prompts of its position and rotation
+## steps, and prompt-column-key-*, the key hints shown after them.
+
+prompt-column-position = Column: click where the column stands or type its coordinates
+prompt-column-rotation = Column: click the direction of its rotation or type the angle
+prompt-column-key-coordinates = types the coordinates
+prompt-column-key-polar = switches polar and Cartesian
+prompt-column-key-angle = types the angle
+prompt-column-key-constrain = constrains angles
+prompt-column-key-cancel = drops the position

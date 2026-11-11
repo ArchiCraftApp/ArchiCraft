@@ -18,7 +18,7 @@ use super::fields::Fields;
 use super::widgets::{self, Edited, common};
 use crate::commands::{self, CommandCtx, CommandId, Origin, Registry, Target};
 use crate::input::{DivisionMode, DivisionScope, EQUAL_PARTS};
-use crate::tools::{MeasureMode, SlabMode, SpaceMode, ToolKind, WallMode};
+use crate::tools::{ColumnMode, MeasureMode, SlabMode, SpaceMode, ToolKind, WallMode};
 use crate::tr;
 use crate::workspace::{Request, Workspace};
 
@@ -509,13 +509,14 @@ fn section(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
 
 /// Geometry methods of the active tool, shown at the start of the strip:
 /// the commands of the mode family, checked for the current mode (WAL-001,
-/// SLB-001, SPC-001, UI-017), or the measure modes (MEA-001), followed by
+/// SLB-001, SPC-001, COL-002, UI-017), or the measure modes (MEA-001), followed by
 /// the 'Division' control of every tool but Select (INP-010).
 fn tool_modes(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
     let modes: Vec<CommandId> = match ws.tool.kind {
         ToolKind::Wall => WallMode::ALL.map(commands::tools::wall_mode).to_vec(),
         ToolKind::Slab => SlabMode::ALL.map(commands::tools::slab_mode).to_vec(),
         ToolKind::Space => SpaceMode::ALL.map(commands::tools::space_mode).to_vec(),
+        ToolKind::Column => ColumnMode::ALL.map(commands::tools::column_mode).to_vec(),
         // ANN-007: the anchor snaps like any point, with the division.
         ToolKind::Text => Vec::new(),
         // MEA-001: a new mode starts a new measurement.

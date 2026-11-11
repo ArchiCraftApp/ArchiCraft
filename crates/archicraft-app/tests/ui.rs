@@ -21,12 +21,13 @@ use archicraft_app::views::render3d::DisplayMode;
 use archicraft_app::workspace::{Consumer, Pane};
 use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
+use archicraft_model::kinds::{Anchor, CrossSection};
 use archicraft_model::project::Projection;
 use archicraft_model::units::{AngleUnit, LengthUnit, ParseError, format_area, format_length};
 use archicraft_model::validate::{MAX_THICKNESS, MIN_THICKNESS};
 use archicraft_model::{
     Command, ElementId, ElementKind, IfcClass, KindTag, Material, PredefinedType, ProjectSettings, ReferenceLine,
-    StoreyId, StructuralFunction,
+    StoreyId, StructuralFunction, TopLink,
 };
 use common::{assert_present, data_dir, harness, harness_at, harness_in};
 use egui::accesskit::{Role, Toggled};
@@ -510,10 +511,10 @@ fn the_shortcuts_window_lists_every_binding() {
         .filter(|s| !s.default_bindings.is_empty())
         .count();
     // The 23 former actions, Preferences, Group and Ungroup (ELM-015), the
-    // Measure, Space and Text tools, Zoom in and out (UI-001) and the 7
-    // local commands of the plan view, the key held for contour detection
-    // among them (INP-018).
-    assert_eq!(rows, 38);
+    // Measure, Space, Text and Column tools, Zoom in and out (UI-001) and
+    // the 7 local commands of the plan view, the key held for contour
+    // detection among them (INP-018).
+    assert_eq!(rows, 39);
     for spec in Registry::get().specs() {
         if !spec.default_bindings.is_empty() {
             assert_present(&harness, &keys(&spec.default_bindings));
@@ -604,6 +605,7 @@ fn the_toolbox_and_the_toolbar_draw_their_icons_for_the_screen() {
         icons::WALL,
         icons::SLAB,
         icons::SPACE,
+        icons::COLUMN,
         icons::TEXT,
         icons::FIT,
         icons::ORBIT,
@@ -1063,6 +1065,78 @@ fn a_wall_mode_from_the_palette_shows_in_the_strip() {
     assert_eq!(harness.state_mut().workspace().tool.wall_mode, WallMode::Chain);
     assert_eq!(selected(&harness, "Chain"), Some(Toggled::True));
     assert_eq!(selected(&harness, "Single"), Some(Toggled::False));
+}
+
+/// COL-002, Appendix D.2 and D.8: the toolbox shows the Column tool, C
+/// selects it with its methods Single (checked) and Rotated in the strip,
+/// and one click in the plan creates C-001 on the active storey at the
+/// clicked point with the column tool's defaults, 0.30 x 0.30 m reinforced
+/// concrete on the Structure layer, centred, unrotated, its top linked to
+/// the storey above, as one undo step.
+#[test]
+fn the_column_tool_places_a_column_with_one_click() {
+    let mut harness = harness("column-tool");
+    toolbox_button(&harness, "Column");
+    harness.key_press(Key::C);
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state_mut().workspace().tool.kind,
+        ToolKind::Column,
+        "C selects it"
+    );
+    let checked = |harness: &Harness<'static, ArchiCraftApp>| {
+        ["Single", "Rotated"].map(|label| {
+            harness
+                .get(By::new().role(Role::Button).label(label))
+                .accesskit_node()
+                .toggled()
+        })
+    };
+    assert_eq!(checked(&harness), [Some(Toggled::True), Some(Toggled::False)]);
+
+    let target = DVec2::new(2.0, 3.0);
+    let pos = {
+        let ws = harness.state_mut().workspace();
+        let state = &ws.plan_views[&ws.active_storey];
+        state.camera.to_screen(state.last_rect, target)
+    };
+    click_at(&mut harness, pos);
+    let ws = harness.state_mut().workspace();
+    let project = &ws.doc.project;
+    assert_eq!(ws.doc.history.undo_len(), 1, "one undo step");
+    let columns: Vec<_> = project.elements.values().filter(|e| e.as_column().is_some()).collect();
+    let [element] = columns[..] else {
+        panic!("one click creates one column: {columns:?}")
+    };
+    assert_eq!(element.name, "C-001");
+    assert_eq!(element.storey, ws.active_storey);
+    let column = element.as_column().unwrap();
+    assert!(column.position.distance(target) < 0.05, "{:?}", column.position);
+    let slot = project.tool_defaults.get(KindTag::Column).unwrap();
+    let ElementKind::Column(defaults) = &slot.kind else {
+        panic!("a column slot")
+    };
+    let mut expected = defaults.clone();
+    expected.position = column.position;
+    assert_eq!(column, &expected, "the column tool's defaults");
+    assert_eq!(element.layer, slot.layer);
+    assert_eq!(project.layer(element.layer).unwrap().name, "Structure");
+    assert_eq!(project.material(column.material).unwrap().name, "Reinforced concrete");
+    assert_eq!(
+        column.section,
+        CrossSection::Rectangular {
+            width: 0.3,
+            height: 0.3
+        }
+    );
+    assert_eq!((column.anchor, column.rotation), (Anchor::Centre, 0.0));
+    assert_eq!(
+        column.link.top,
+        TopLink::Relative {
+            storeys: 1,
+            offset: 0.0
+        }
+    );
 }
 
 /// SPC-001, UI-017: with the space tool active, the properties strip shows
@@ -1616,7 +1690,7 @@ fn invoked_by_shortcut(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<&'s
 
 /// UI-008, HW-003, UI-017: every default binding of the registry, among
 /// them the 23 shortcuts of the former action list, Preferences, Group and
-/// Ungroup, Zoom in and out, M (measure), Primary+Y (redo), Backspace
+/// Ungroup, Zoom in and out, M (measure), C (column), Primary+Y (redo), Backspace
 /// (delete) and Primary+3 (plan/3D), invokes its command when its keys are
 /// pressed, on macOS and elsewhere. The plan view runs its local commands
 /// itself (`the_plan_views_local_keys_run_their_commands`).
@@ -1639,7 +1713,7 @@ fn every_default_shortcut_invokes_its_command() {
             }
         }
     }
-    assert_eq!(pressed, 2 * 34);
+    assert_eq!(pressed, 2 * 35);
 }
 
 /// UI-008, INP-003: while a tool takes point input the single-key shortcuts,

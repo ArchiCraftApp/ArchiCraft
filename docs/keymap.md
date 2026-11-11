@@ -83,7 +83,7 @@ table (`commands/d8.rs`) and the OS-reserved tables (`commands/os_reserved.rs`);
 | Measure | Tools | `M` | `M` | not while typing or drawing | `tool.measure` |
 | Wall | Tools | `W` | `W` | not while typing or drawing | `tool.wall` |
 | Slab | Tools | `S` | `S` | not while typing or drawing | `tool.slab` |
-| Column | Tools | `C` | `C` | not while typing or drawing | pending: `profiles-columns-beams` |
+| Column | Tools | `C` | `C` | not while typing or drawing | `tool.column` |
 | Beam | Tools | `B` | `B` | not while typing or drawing | pending: `profiles-columns-beams` |
 | Roof | Tools | `G` | `G` | not while typing or drawing | pending: `roofs` |
 | Opening | Tools | `Shift+D` | `Shift+D` | not while typing or drawing | pending: `host-openings` |
