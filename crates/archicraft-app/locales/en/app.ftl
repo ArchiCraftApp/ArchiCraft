@@ -19,6 +19,7 @@ menu-help = Help
 menu-design-wall-mode = Wall method
 menu-design-slab-mode = Slab method
 menu-design-space-mode = Space method
+menu-design-column-mode = Column method
 menu-view-display-mode = Display mode
 menu-view-view-preset = View presets
 
@@ -276,6 +277,7 @@ toolbox-select = Select
 toolbox-wall = Wall
 toolbox-slab = Slab
 toolbox-space = Space
+toolbox-column = Column
 toolbox-text = Text
 toolbox-fit = Fit
 toolbox-orbit = Orbit

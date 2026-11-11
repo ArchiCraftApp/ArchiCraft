@@ -1,5 +1,5 @@
-//! Element tools (WAL-001, SLB-001, INP-002…INP-009) and the measure tool
-//! (MEA-001).
+//! Element tools (WAL-001, SLB-001, COL-002, INP-002…INP-009) and the
+//! measure tool (MEA-001).
 //!
 //! A tool collects points in plan; snapping, the constraint modifier and
 //! typed distances (`crate::input::PointInput`) are applied before a point
@@ -8,8 +8,10 @@
 //! detection on, the wall and slab tools create their elements from a picked
 //! contour instead (INP-018); the space tool detects rooms bounded by walls
 //! (SPC-001). The text tool's click opens an inline editor at the anchor
-//! (ANN-007).
+//! (ANN-007). The column tool places a column with one click, or with a
+//! second click for its rotation (COL-002).
 
+mod column;
 mod contour;
 mod measure;
 mod slab;
@@ -25,6 +27,7 @@ use archicraft_model::{BoundarySource, Command, Element, ElementKind, KindTag, P
 use crate::input::{Expect, InputConsumer, KeyHint, Outcome, Preview, Resolved, StepSpec};
 use crate::tr;
 
+pub use column::ColumnMode;
 pub use contour::{Accepts, Contour, ContourDetection};
 pub use measure::{MeasureMode, MeasureTool, Measurement};
 pub use slab::SlabMode;
@@ -43,6 +46,8 @@ pub enum ToolKind {
     Space,
     /// Texts, typed in an inline editor at the clicked anchor (ANN-007).
     Text,
+    /// Columns, placed with one click or two (COL-002).
+    Column,
     /// Measures distances and angles, creating nothing (MEA-001).
     Measure,
 }
@@ -57,6 +62,7 @@ impl ToolKind {
             ToolKind::Slab => Some(KindTag::Slab),
             ToolKind::Space => Some(KindTag::Space),
             ToolKind::Text => Some(KindTag::Text),
+            ToolKind::Column => Some(KindTag::Column),
         }
     }
 
@@ -65,12 +71,13 @@ impl ToolKind {
         ToolKind::ALL.into_iter().find(|tool| tool.element_kind() == Some(kind))
     }
 
-    pub const ALL: [ToolKind; 6] = [
+    pub const ALL: [ToolKind; 7] = [
         ToolKind::Select,
         ToolKind::Wall,
         ToolKind::Slab,
         ToolKind::Space,
         ToolKind::Text,
+        ToolKind::Column,
         ToolKind::Measure,
     ];
 
@@ -81,6 +88,7 @@ impl ToolKind {
             ToolKind::Slab => "Slab",
             ToolKind::Space => "Space",
             ToolKind::Text => "Text",
+            ToolKind::Column => "Column",
             ToolKind::Measure => "Measure",
         }
     }
@@ -95,6 +103,7 @@ pub struct ToolState {
     pub wall_mode: WallMode,
     pub slab_mode: SlabMode,
     pub space_mode: SpaceMode,
+    pub column_mode: ColumnMode,
     pub points: Vec<DVec2>,
     /// The storey the input started on.
     pub storey: Option<StoreyId>,
@@ -116,6 +125,7 @@ impl Default for ToolState {
             wall_mode: WallMode::Chain,
             slab_mode: SlabMode::Polygon,
             space_mode: SpaceMode::Detect,
+            column_mode: ColumnMode::Single,
             points: Vec::new(),
             storey: None,
             measure: MeasureTool::default(),
@@ -277,6 +287,7 @@ impl ToolState {
                 WallMode::RotatedRectangle => Some(3),
                 WallMode::Chain => None,
             },
+            ToolKind::Column => Some(self.column_mode.needed()),
             ToolKind::Slab | ToolKind::Space => match self.outline_mode()? {
                 SlabMode::Rectangle => Some(2),
                 SlabMode::RotatedRectangle => Some(3),
@@ -312,7 +323,7 @@ impl ToolState {
         let on = match self.kind {
             ToolKind::Wall | ToolKind::Slab => self.detection.is_on(),
             ToolKind::Space => self.space_mode == SpaceMode::Detect || self.detection.is_on(),
-            ToolKind::Select | ToolKind::Text | ToolKind::Measure => false,
+            ToolKind::Select | ToolKind::Text | ToolKind::Column | ToolKind::Measure => false,
         };
         on && self.points.is_empty()
     }
@@ -494,6 +505,11 @@ impl ToolState {
     }
 
     fn complete(&self, project: &Project, storey: StoreyId) -> Outcome {
+        if self.kind == ToolKind::Column {
+            return self
+                .column_command(project, storey)
+                .map_or(Outcome::Continue, Outcome::Execute);
+        }
         let p = &self.points;
         let walls_around = |ring: Vec<DVec2>| walls_along(project, storey, &ring, true);
         let elements = match (self.kind, self.wall_mode, self.outline_mode()) {
@@ -541,7 +557,12 @@ impl ToolState {
     /// their reference lines, rectangles and polygons as closed rings. A
     /// wall chain also shows the outline of every wall it will create, from
     /// the tool defaults' thickness and reference-line location (WAL-007).
+    /// The column tool shows the section of the column, also before the
+    /// first click (COL-002).
     pub fn outlines(&self, project: &Project, cursor: DVec2) -> Vec<(Vec<DVec2>, bool)> {
+        if self.kind == ToolKind::Column {
+            return self.column_outlines(project, cursor);
+        }
         let p = &self.points;
         if p.is_empty() {
             return Vec::new();
@@ -593,6 +614,7 @@ impl InputConsumer for ToolState {
             ToolKind::Select => return None,
             ToolKind::Measure => return self.measure.step(),
             ToolKind::Text => return Some(self.text_step()),
+            ToolKind::Column => return Some(self.column_step()),
             ToolKind::Space => match (self.space_mode, n) {
                 (SpaceMode::Rectangle, 0) => (tr!("prompt-space-rectangle-first"), false),
                 (SpaceMode::Rectangle, _) => (tr!("prompt-space-rectangle-next"), false),

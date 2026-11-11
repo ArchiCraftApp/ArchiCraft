@@ -597,12 +597,12 @@ impl PointInput {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use archicraft_model::template::default_metric_project;
     use archicraft_model::{Element, ElementId, History};
 
     use super::*;
-    use crate::input::targets::tests::index_of;
+    pub(crate) use crate::input::targets::tests::index_of;
     use crate::tools::{SlabMode, SpaceMode, ToolKind, ToolState, WallMode};
 
     /// The model length of one screen pixel in [`Env`].
@@ -864,10 +864,12 @@ mod tests {
         }
     }
 
-    struct Env {
-        project: Project,
-        storey: StoreyId,
-        targets: SnapIndex,
+    /// A plan view's point-input context for tests, on the ground storey of
+    /// the default metric project; other modules' consumer tests use it too.
+    pub(crate) struct Env {
+        pub(crate) project: Project,
+        pub(crate) storey: StoreyId,
+        pub(crate) targets: SnapIndex,
         pending: Vec<DVec2>,
         units: UnitSettings,
         nf: NumberFormat,
@@ -880,7 +882,7 @@ mod tests {
     }
 
     impl Env {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let project = default_metric_project();
             let storey = project.storeys.ground();
             Self {
@@ -900,7 +902,7 @@ mod tests {
         }
 
         /// The context of `consumer`'s current step, as a view builds it.
-        fn ctx(&self, consumer: &dyn InputConsumer) -> InputContext<'_> {
+        pub(crate) fn ctx(&self, consumer: &dyn InputConsumer) -> InputContext<'_> {
             InputContext {
                 project: &self.project,
                 storey: self.storey,
@@ -927,7 +929,12 @@ mod tests {
             }
         }
 
-        fn click(&mut self, input: &mut PointInput, consumer: &mut dyn InputConsumer, at: (f64, f64)) -> Effect {
+        pub(crate) fn click(
+            &mut self,
+            input: &mut PointInput,
+            consumer: &mut dyn InputConsumer,
+            at: (f64, f64),
+        ) -> Effect {
             let ctx = self.ctx(consumer);
             let effect = input.click(DVec2::new(at.0, at.1), Modifiers::default(), consumer, &ctx);
             self.run(effect)
@@ -953,7 +960,12 @@ mod tests {
             self.run(effect)
         }
 
-        fn key(&mut self, input: &mut PointInput, consumer: &mut dyn InputConsumer, key: KeyInput) -> Effect {
+        pub(crate) fn key(
+            &mut self,
+            input: &mut PointInput,
+            consumer: &mut dyn InputConsumer,
+            key: KeyInput,
+        ) -> Effect {
             let ctx = self.ctx(consumer);
             let effect = input.key(key, consumer, &ctx);
             self.run(effect)
@@ -987,7 +999,7 @@ mod tests {
         tool
     }
 
-    fn text(s: &str) -> KeyInput {
+    pub(crate) fn text(s: &str) -> KeyInput {
         KeyInput::Text(s.into())
     }
 

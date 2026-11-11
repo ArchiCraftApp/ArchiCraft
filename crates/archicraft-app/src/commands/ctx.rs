@@ -6,7 +6,7 @@ use archicraft_model::project::Projection;
 use archicraft_model::{ElementId, StoreyId};
 
 use super::Keymap;
-use crate::tools::{SlabMode, SpaceMode, ToolKind, WallMode};
+use crate::tools::{ColumnMode, SlabMode, SpaceMode, ToolKind, WallMode};
 use crate::ui::dialogs::Dialogs;
 use crate::views::render3d::DisplayMode;
 use crate::views::transfer::TransferMode;
@@ -45,6 +45,7 @@ pub struct CommandCtx {
     pub wall_mode: WallMode,
     pub slab_mode: SlabMode,
     pub space_mode: SpaceMode,
+    pub column_mode: ColumnMode,
     /// Contour detection is on, toggled or held (INP-018). The Design
     /// menu's check follows it with every tool, while the status-bar
     /// indicator ([`ToolState::shows_detection`]) shows only with the wall,
@@ -99,6 +100,7 @@ impl CommandCtx {
             wall_mode: ws.tool.wall_mode,
             slab_mode: ws.tool.slab_mode,
             space_mode: ws.tool.space_mode,
+            column_mode: ws.tool.column_mode,
             contour_detection: ws.tool.detection.is_on(),
             transfer: ws.transfer.latched(),
             view3d,

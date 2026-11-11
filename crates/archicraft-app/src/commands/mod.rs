@@ -96,6 +96,7 @@ pub fn menu_title(path: &str) -> Option<String> {
         "design/wall-mode" => crate::tr!("menu-design-wall-mode"),
         "design/slab-mode" => crate::tr!("menu-design-slab-mode"),
         "design/space-mode" => crate::tr!("menu-design-space-mode"),
+        "design/column-mode" => crate::tr!("menu-design-column-mode"),
         "view/display-mode" => crate::tr!("menu-view-display-mode"),
         "view/view-preset" => crate::tr!("menu-view-view-preset"),
         _ => return None,

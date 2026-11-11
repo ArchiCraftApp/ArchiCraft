@@ -1,12 +1,12 @@
 //! The tools of the Design menu, their geometry methods and contour
-//! detection (UI-001, UI-017, WAL-001, SLB-001, SPC-001, ANN-007, MEA-001,
-//! INP-018, EDT-020).
+//! detection (UI-001, UI-017, WAL-001, SLB-001, SPC-001, ANN-007, COL-002,
+//! MEA-001, INP-018, EDT-020).
 
 use egui::Key;
 
 use super::{Binding, Category, CommandId, CommandSpec, Registry, Scope, ToolGroup};
 use crate::ArchiCraftApp;
-use crate::tools::{SlabMode, SpaceMode, ToolKind, WallMode};
+use crate::tools::{ColumnMode, SlabMode, SpaceMode, ToolKind, WallMode};
 use crate::ui::icons;
 
 pub const SELECT: CommandId = CommandId::new("tool.select");
@@ -16,6 +16,8 @@ pub const SLAB: CommandId = CommandId::new("tool.slab");
 pub const SPACE: CommandId = CommandId::new("tool.space");
 /// The text tool (ANN-007).
 pub const TEXT: CommandId = CommandId::new("tool.text");
+/// The column tool (COL-002), on the C that Appendix D.8 reserves for it.
+pub const COLUMN: CommandId = CommandId::new("tool.column");
 /// The measure tool (MEA-001), also a toolbar button (UI-011).
 pub const MEASURE: CommandId = CommandId::new("tool.measure");
 
@@ -32,6 +34,9 @@ pub const SLAB_MODE: &str = "tool.slab.mode";
 /// The family of the space tool's geometry methods, one command per
 /// [`SpaceMode`]: `tool.space.mode.<code>`.
 pub const SPACE_MODE: &str = "tool.space.mode";
+/// The family of the column tool's geometry methods, one command per
+/// [`ColumnMode`]: `tool.column.mode.<code>`.
+pub const COLUMN_MODE: &str = "tool.column.mode";
 
 /// The command that selects the tool `kind`, which the toolbox buttons
 /// invoke (UI-001).
@@ -42,6 +47,7 @@ pub fn command(kind: ToolKind) -> CommandId {
         ToolKind::Slab => SLAB,
         ToolKind::Space => SPACE,
         ToolKind::Text => TEXT,
+        ToolKind::Column => COLUMN,
         ToolKind::Measure => MEASURE,
     }
 }
@@ -59,6 +65,11 @@ pub fn slab_mode(mode: SlabMode) -> CommandId {
 /// The command that switches the space tool to `mode` (SPC-001).
 pub fn space_mode(mode: SpaceMode) -> CommandId {
     Registry::get().member(SPACE_MODE, mode.code())
+}
+
+/// The command that switches the column tool to `mode` (COL-002).
+pub fn column_mode(mode: ColumnMode) -> CommandId {
+    Registry::get().member(COLUMN_MODE, mode.code())
 }
 
 pub(super) fn specs() -> Vec<CommandSpec> {
@@ -103,10 +114,18 @@ pub(super) fn specs() -> Vec<CommandSpec> {
             icons::SPACE,
             (ToolGroup::Modelling, 2, "toolbox-space"),
         ),
+        // C for column, as Appendix D.8 reserves it.
+        tool(
+            ToolKind::Column,
+            4,
+            Key::C,
+            icons::COLUMN,
+            (ToolGroup::Modelling, 3, "toolbox-column"),
+        ),
         // T for text, the first tool of the 2D and annotation group.
         tool(
             ToolKind::Text,
-            4,
+            5,
             Key::T,
             icons::TEXT,
             (ToolGroup::Annotation2d, 0, "toolbox-text"),
@@ -114,7 +133,7 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         // The measure tool sits with the view tools: it changes nothing.
         tool(
             ToolKind::Measure,
-            5,
+            6,
             Key::M,
             icons::MEASURE,
             (ToolGroup::View, 3, "toolbox-measure"),
@@ -148,6 +167,15 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         )
         .menu("design/space-mode", 1, order)
         .checked_when(move |cx| cx.space_mode == mode)
+    }));
+    specs.extend((0..).zip(ColumnMode::ALL).map(|(order, mode)| {
+        CommandSpec::with(
+            CommandId::member(COLUMN_MODE, mode.code()),
+            Category::Design,
+            move |app, _, _| set_mode(app, ToolKind::Column, |tool| tool.column_mode = mode),
+        )
+        .menu("design/column-mode", 1, order)
+        .checked_when(move |cx| cx.column_mode == mode)
     }));
     specs.push(
         CommandSpec::with(CONTOUR_DETECTION, Category::Design, |app, _, _| {

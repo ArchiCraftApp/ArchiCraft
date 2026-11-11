@@ -228,7 +228,7 @@ pub const ITEMS: [Item; 38] = [
         Tool,
         &[Binding::key(Key::C)],
         Canvas,
-        pending("profiles-columns-beams"),
+        registered(tools::COLUMN),
     ),
     item(
         "beam",

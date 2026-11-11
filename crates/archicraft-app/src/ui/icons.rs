@@ -18,6 +18,7 @@ pub const WALL: ImageSource<'static> = include_image!("../../assets/icons/wall.s
 pub const SLAB: ImageSource<'static> = include_image!("../../assets/icons/slab.svg");
 pub const SPACE: ImageSource<'static> = include_image!("../../assets/icons/space.svg");
 pub const TEXT: ImageSource<'static> = include_image!("../../assets/icons/text.svg");
+pub const COLUMN: ImageSource<'static> = include_image!("../../assets/icons/column.svg");
 pub const FIT: ImageSource<'static> = include_image!("../../assets/icons/fit.svg");
 pub const ORBIT: ImageSource<'static> = include_image!("../../assets/icons/orbit.svg");
 pub const PLAN_3D: ImageSource<'static> = include_image!("../../assets/icons/plan-3d.svg");
@@ -33,8 +34,9 @@ pub const PICK_UP: ImageSource<'static> = include_image!("../../assets/icons/pic
 pub const INJECT: ImageSource<'static> = include_image!("../../assets/icons/inject.svg");
 
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 16] = [
-    SELECT, WALL, SLAB, SPACE, TEXT, FIT, ORBIT, PLAN_3D, UNDO, REDO, SAVE, GROUP, UNGROUP, MEASURE, PICK_UP, INJECT,
+pub const ALL: [ImageSource<'static>; 17] = [
+    SELECT, WALL, SLAB, SPACE, TEXT, COLUMN, FIT, ORBIT, PLAN_3D, UNDO, REDO, SAVE, GROUP, UNGROUP, MEASURE, PICK_UP,
+    INJECT,
 ];
 
 /// Installs the loader that rasterises the icons for the screen's pixels
