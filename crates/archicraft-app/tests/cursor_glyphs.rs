@@ -247,8 +247,9 @@ fn the_plan_view_draws_division_ticks_and_snaps_to_them() {
 /// INP-010: in the plan view of two_storey_shell with all walls present,
 /// the ground slab's outline lies under the walls' reference lines. With
 /// three equal parts of the whole element, hovering the south side divides
-/// the south reference line; once the slab is selected, the same position
-/// hovers the slab's outline and its ticks divide the 42 m perimeter.
+/// the south reference line; once the slab is selected with the Select
+/// tool's click inside it, the same position with the wall tool hovers the
+/// slab's outline and its ticks divide the 42 m perimeter.
 #[test]
 fn the_selected_slabs_outline_is_hovered_under_reference_lines() {
     use archicraft_app::input::DivisionScope;
@@ -281,7 +282,28 @@ fn the_selected_slabs_outline_is_hovered_under_reference_lines() {
     };
     assert_ticks(&ticks(&mut harness, pos), &[DVec2::new(4.0, 0.0), DVec2::new(8.0, 0.0)]);
 
-    harness.state_mut().workspace().selection.insert(slab);
+    // Select the slab as a user does: Cmd+click (Ctrl elsewhere) on its
+    // outline with the wall tool, which selects instead of placing a point.
+    let on_outline = settled_screen_pos(&mut harness, DVec2::new(8.5, -0.02));
+    let command = egui::Modifiers::COMMAND;
+    harness.event(egui::Event::ModifiersChanged(command));
+    harness.hover_at(on_outline);
+    harness.run_steps(1);
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton {
+            pos: on_outline,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: command,
+        });
+    }
+    harness.run_steps(2);
+    harness.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    harness.run_steps(1);
+    let ws = harness.state_mut().workspace();
+    let selection: Vec<_> = ws.selection.iter().copied().collect();
+    assert_eq!(selection, [slab], "the click selects the slab");
+    assert!(ws.tool.points.is_empty(), "and places no point");
     let pos = settled_screen_pos(&mut harness, south);
     let found = ticks(&mut harness, pos + egui::vec2(1.0, 0.0));
     assert_ticks(&found, &[DVec2::new(12.0, 2.0), DVec2::new(5.0, 9.0)]);

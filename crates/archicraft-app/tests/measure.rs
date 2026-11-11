@@ -2,8 +2,6 @@
 //! shortcut, toolbox and toolbar buttons, the readout in the status line and
 //! the measure lines of the plan view.
 
-#![allow(clippy::unwrap_used)]
-
 mod common;
 
 use archicraft_app::ArchiCraftApp;
@@ -97,6 +95,7 @@ fn m_the_toolbox_and_the_toolbar_activate_the_measure_tool() {
     harness.get(By::new().role(Role::Button).label("Measure")).click();
     harness.run_steps(2);
     assert_eq!(tool(&mut harness), ToolKind::Measure, "toolbox");
+    assert!(toolbar_selected(&harness), "after the toolbox button");
 
     reset(&mut harness);
     harness.get(By::new().role(Role::Button).label(TOOLBAR_LABEL)).click();
@@ -174,4 +173,21 @@ fn esc_and_a_tool_switch_clear_the_measurement() {
     assert_eq!(measure_lines(&mut harness), 0);
     assert!(!shows(&harness, "Total "));
     assert!(harness.state_mut().workspace().tool.measure.points().is_empty());
+}
+
+/// MEA-001, INP-001: a measurement snaps to its own picked points: a click
+/// a few points beside the start of a distance in progress closes the
+/// polyline exactly on it.
+#[test]
+fn a_measurement_snaps_to_its_own_points() {
+    let mut harness = harness("measure-own-points");
+    harness.key_press(Key::M);
+    harness.run_steps(2);
+    let centre = plan_centre(&mut harness) + egui::vec2(13.3, 7.7);
+    click_at(&mut harness, centre);
+    click_at(&mut harness, centre + egui::vec2(150.0, -80.0));
+    click_at(&mut harness, centre + egui::vec2(3.0, 2.0));
+    let points = harness.state_mut().workspace().tool.measure.points().to_vec();
+    assert_eq!(points.len(), 3, "{points:?}");
+    assert_eq!(points[2], points[0], "the third click snaps to the start");
 }

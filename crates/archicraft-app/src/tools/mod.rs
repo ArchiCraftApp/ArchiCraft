@@ -259,10 +259,11 @@ impl ToolState {
         !self.points.is_empty() || self.measure.in_progress()
     }
 
-    /// The storey the input in progress started on, also of a measurement.
+    /// The storey the input in progress started on, also of a measurement
+    /// in progress; a finished measurement is no input in progress.
     pub fn input_storey(&self) -> Option<StoreyId> {
         match self.kind {
-            ToolKind::Measure => self.measure.storey,
+            ToolKind::Measure => self.measure.storey.filter(|_| self.measure.in_progress()),
             _ => self.storey,
         }
     }
@@ -317,12 +318,14 @@ impl ToolState {
     }
 
     /// Whether the status bar shows the contour-detection indicator (INP-018):
-    /// while the tool picks contours and detection is toggled or held, as the
-    /// Design menu's check shows it. The space tool's Detect method picks
-    /// rooms without the toggle (SPC-001), so there it shows only with it on,
-    /// and a click on the indicator always switches detection off.
+    /// with a tool that picks contours while detection is toggled or held, as
+    /// the Design menu's check shows it, also while points are pending, when
+    /// the clicks still place points and detection takes them once the input
+    /// ends. The space tool's Detect method picks rooms without the toggle
+    /// (SPC-001), so there it shows only with it on, and a click on the
+    /// indicator always switches detection off.
     pub fn shows_detection(&self) -> bool {
-        self.detecting() && self.detection.is_on()
+        matches!(self.kind, ToolKind::Wall | ToolKind::Slab | ToolKind::Space) && self.detection.is_on()
     }
 
     /// The contours the tool creates its elements from (INP-018): walls run
@@ -442,7 +445,7 @@ impl ToolState {
     /// Backspace and Esc remove them without touching the project (UND-003);
     /// a click on another storey ends the open chain and starts a new one.
     fn add_point(&mut self, project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
-        if matches!(self.kind, ToolKind::Select | ToolKind::Text | ToolKind::Measure)
+        if matches!(self.kind, ToolKind::Select | ToolKind::Text)
             || (self.kind == ToolKind::Space && self.outline_mode().is_none())
         {
             return Outcome::Continue;

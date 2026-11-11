@@ -38,7 +38,7 @@ use super::snap::{ArcTarget, Snap, SnapKind, closest_on_segment, segment_interse
 
 /// How far beyond the snap radius a hovered edge stays hovered, as a
 /// multiple of the radius (INP-010).
-pub const HOVER_HYSTERESIS: f64 = 1.5;
+const HOVER_HYSTERESIS: f64 = 1.5;
 
 /// What a snap target belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1553,6 +1553,34 @@ pub(crate) mod tests {
         // the outline, both within the radius.
         let inner = resolve(&mut ws, &mut PointInput::default(), ground, DVec2::new(3.0, 0.19));
         assert_ne!(inner.hovered.unwrap().key.owner, TargetOwner::Element(slab));
+    }
+
+    /// INP-010: with an unrelated element selected and none of its edges
+    /// near the cursor, the edge kept from the last position stays hovered
+    /// beyond the radius, within 1.5 times it, as with nothing selected.
+    #[test]
+    fn the_kept_edge_stays_hovered_with_an_unrelated_selection() {
+        let mut ws = workspace(samples::two_storey_shell());
+        let ground = ws.doc.project.storeys.ground();
+        let mut input = PointInput::default();
+        let line = resolve(&mut ws, &mut input, ground, DVec2::new(2.0, -0.05))
+            .hovered
+            .unwrap();
+        assert_eq!(
+            line.edge,
+            [DVec2::ZERO, DVec2::new(12.0, 0.0)],
+            "the south reference line"
+        );
+        let unrelated = (ws.doc.project.elements_on(ground))
+            .find(|e| e.as_wall().is_some() && TargetOwner::Element(e.id) != line.key.owner)
+            .map(|e| e.id)
+            .unwrap();
+        ws.selection.insert(unrelated);
+        // At y = -0.25 no edge lies within the 0.2 m radius.
+        let kept = resolve(&mut ws, &mut input, ground, DVec2::new(2.0, -0.25)).hovered;
+        assert_eq!(kept.map(|h| h.key), Some(line.key), "kept within 1.5 times the radius");
+        let gone = resolve(&mut ws, &mut input, ground, DVec2::new(2.0, -0.35)).hovered;
+        assert!(gone.is_none(), "beyond 1.5 times the radius");
     }
 
     /// INP-010: the hovered edge is kept by its owner and number, so it

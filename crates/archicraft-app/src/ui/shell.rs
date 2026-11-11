@@ -306,8 +306,8 @@ pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: u
                 }
                 ui.separator();
             }
-            // INP-018: while detection is on and takes the tool's clicks; a
-            // click switches it off.
+            // INP-018: while detection is on for a tool that picks contours;
+            // a click switches it off.
             if ws.active_consumer == Consumer::Tool && ws.tool.shows_detection() {
                 if bar_button(ui, cx, spec(tools::CONTOUR_DETECTION), &tr!("status-contour-detection")) {
                     chosen = Some(tools::CONTOUR_DETECTION);

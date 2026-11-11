@@ -99,8 +99,9 @@ pub enum DivisionMode {
     /// The midpoint.
     #[default]
     Half,
-    /// N equal parts, N in 2…100. A stored count outside that range, even
-    /// outside `u8`, reads as the nearest allowed count.
+    /// N equal parts, N in 2…100. A stored count is rounded to a whole
+    /// number, and one outside that range, even outside `u8`, reads as the
+    /// nearest allowed count.
     #[serde(deserialize_with = "equal_parts")]
     Equal(u8),
     /// A percentage of the length from the nearer end.
@@ -167,8 +168,10 @@ impl DivisionMode {
 /// The number of equal parts of a curve `length` long whose part length
 /// comes nearest `target`, the fewer parts on a tie (INP-010). Only the
 /// counts either side of `length / target` can be nearest; rounding the
-/// quotient is not enough, since 2.45 parts of the target are nearer three
-/// parts (0.26 m off for a 3.5 m edge) than two (0.32 m).
+/// quotient is not enough: for a 3.5 m edge and a target of 3.5 / 2.45 m
+/// (1.43 m) the quotient 2.45 rounds to two, yet the part length of three
+/// parts (1.17 m, 0.26 m off the target) is nearer than that of two
+/// (1.75 m, 0.32 m off).
 fn best_equal_parts(length: f64, target: f64) -> usize {
     let quotient = length / target;
     let off = |n: f64| (length / n - target).abs();
@@ -428,6 +431,16 @@ mod tests {
         // two of 1.75 m 0.32 m, although 2.45 rounds to two.
         let points = xs(&divide(&EDGE, DivisionMode::BestEqualNear(3.5 / 2.45), v(0.2, 0.0)));
         assert_near(&points, &[3.5 / 3.0, 7.0 / 3.0]);
+    }
+
+    /// INP-010: when the part lengths either side of the target lie equally
+    /// far from it, the fewer parts win: a 6 m edge near 2.5 m gives two
+    /// parts of 3 m, not three of 2 m, both 0.5 m off.
+    #[test]
+    fn a_tie_in_the_best_equal_division_goes_to_the_fewer_parts() {
+        assert_eq!(best_equal_parts(6.0, 2.5), 2);
+        assert_eq!(best_equal_parts(6.0, 2.4), 3, "no tie: three parts are nearer");
+        assert_eq!(best_equal_parts(6.0, 2.6), 2, "no tie: two parts are nearer");
     }
 
     /// INP-010: circles and arcs are divided by arc length, the nearer end

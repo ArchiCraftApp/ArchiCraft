@@ -45,7 +45,14 @@ pub struct CommandCtx {
     pub wall_mode: WallMode,
     pub slab_mode: SlabMode,
     pub space_mode: SpaceMode,
-    /// Contour detection is on, toggled or held (INP-018).
+    /// Contour detection is on, toggled or held (INP-018). The Design
+    /// menu's check follows it with every tool, while the status-bar
+    /// indicator ([`ToolState::shows_detection`]) shows only with the wall,
+    /// slab or space tool: the toggle stays on through the Select, Text and
+    /// Measure tools for the next tool that picks contours, so the menu keeps
+    /// it checked where no tool picks.
+    ///
+    /// [`ToolState::shows_detection`]: crate::tools::ToolState::shows_detection
     pub contour_detection: bool,
     /// The latched parameter transfer mode, which Pick up and Inject show
     /// as checked (ELM-003).

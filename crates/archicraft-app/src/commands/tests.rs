@@ -909,11 +909,11 @@ fn command_paths(source: &str) -> Vec<String> {
 /// anywhere, and outside the toolbar, the toolbox and the status bar no
 /// command at all except File > Open…, after which the Open recent hook
 /// follows. The toolbar and the status bar invoke their buttons' commands
-/// by id (UI-001, UI-011), through constants of the command modules, and the
-/// toolbox shows the registry's toolbox places; the toolbar names Save, Undo, Redo, Measure, Group and
-/// Ungroup, in that order (the order of the buttons; Pick up and Inject take
-/// their place before Measure), and nothing else. The scan holds on a CRLF
-/// copy of the source too, as a
+/// by id (UI-001, UI-011), through constants of the command modules, and
+/// the toolbox shows the registry's toolbox places; the toolbar names Save,
+/// Undo, Redo, Measure, Group and Ungroup, in that order (the order of the
+/// buttons; Pick up and Inject take their place before Measure), and
+/// nothing else. The scan holds on a CRLF copy of the source too, as a
 /// Windows checkout with `core.autocrlf` has it.
 #[test]
 fn shell_names_no_command() {

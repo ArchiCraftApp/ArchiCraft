@@ -10,14 +10,14 @@ use archicraft_model::command::relink_to_storey;
 use archicraft_model::fields::{FieldSpec, Section, fields_of};
 use archicraft_model::project::DefaultsSlot;
 use archicraft_model::units::{format_area, format_length, format_volume};
-use archicraft_model::{Command, Element, GroupId, KindTag, PlanMeasure, StoreyId};
+use archicraft_model::{Command, Element, GroupId, KindTag, MODEL_TOLERANCE, PlanMeasure, StoreyId};
 use egui::{Id, Ui};
 
 use super::command_widgets::command_button;
 use super::fields::Fields;
 use super::widgets::{self, Edited, common};
 use crate::commands::{self, CommandCtx, CommandId, Origin, Registry, Target};
-use crate::input::{DivisionMode, DivisionScope, EQUAL_PARTS, PointInput};
+use crate::input::{DivisionMode, DivisionScope, EQUAL_PARTS};
 use crate::tools::{MeasureMode, SlabMode, SpaceMode, ToolKind, WallMode};
 use crate::tr;
 use crate::workspace::{Request, Workspace};
@@ -509,7 +509,8 @@ fn section(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
 
 /// Geometry methods of the active tool, shown at the start of the strip:
 /// the commands of the mode family, checked for the current mode (WAL-001,
-/// SLB-001, SPC-001, UI-017).
+/// SLB-001, SPC-001, UI-017), or the measure modes (MEA-001), followed by
+/// the 'Division' control of every tool but Select (INP-010).
 fn tool_modes(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
     let modes: Vec<CommandId> = match ws.tool.kind {
         ToolKind::Wall => WallMode::ALL.map(commands::tools::wall_mode).to_vec(),
@@ -525,7 +526,7 @@ fn tool_modes(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
                     .clicked()
                 {
                     ws.tool.measure.set_mode(mode);
-                    ws.input = PointInput::default();
+                    ws.reset_input();
                 }
             }
             Vec::new()
@@ -567,7 +568,8 @@ fn division_label(mode: DivisionMode) -> String {
 /// The 'Division' control of the drawing tools (INP-010): the one active
 /// division mode, its value and the scope, kept in the preferences. The
 /// plan views read them each frame, so a change replaces the hovered
-/// edge's ticks on the next frame.
+/// edge's ticks on the next frame; the preferences file is written once a
+/// drag or an edit of the value ends, not on every frame of it.
 fn division(ui: &mut Ui, ws: &mut Workspace) {
     let before = ws.prefs.input;
     let mut input = before;
@@ -594,19 +596,24 @@ fn division(ui: &mut Ui, ws: &mut Workspace) {
         input.division = picked;
     }
     let nf = ws.prefs.number_format();
+    // The number field being dragged or typed into, and whether that ended
+    // this frame.
+    let mut value = None;
     match &mut input.division {
         DivisionMode::Half => {}
         DivisionMode::Equal(n) => {
-            widgets::integer(ui, n, EQUAL_PARTS, &nf);
+            value = Some(widgets::integer(ui, n, EQUAL_PARTS, &nf));
         }
         DivisionMode::Percent(p) => {
-            widgets::decimal(ui, p, 0.0..=100.0, 1, 0.5, &nf);
+            value = Some(widgets::decimal(ui, p, 0.0..=100.0, 1, 0.5, &nf));
             ui.label(tr!("tool-division-percent-suffix"));
         }
         DivisionMode::Repeated(d) | DivisionMode::BestEqualNear(d) => {
             let units = &ws.doc.project.settings.units;
+            // As DivisionMode::sanitized, a distance within the model
+            // tolerance is no distance.
             match widgets::length(ui, Id::new("division-distance"), Some(*d), units, &nf, 70.0) {
-                Edited::Changed(v) if v > 0.0 && v.is_finite() => *d = v,
+                Edited::Changed(v) if v > MODEL_TOLERANCE && v.is_finite() => *d = v,
                 Edited::Changed(_) => ws.error(tr!("tool-division-distance-positive")),
                 Edited::Invalid(e) => ws.error(e),
                 Edited::Unchanged => {}
@@ -625,8 +632,12 @@ fn division(ui: &mut Ui, ws: &mut Workspace) {
         input.scope = scope;
     }
     let input = input.sanitized();
+    let editing = value.as_ref().is_some_and(|r| r.dragged() || r.has_focus());
+    let ended = value.as_ref().is_some_and(|r| r.drag_stopped() || r.lost_focus());
     if input != before {
         ws.prefs.input = input;
+    }
+    if (input != before && !editing) || ended {
         ws.requests.push(Request::SavePreferences);
     }
 }
