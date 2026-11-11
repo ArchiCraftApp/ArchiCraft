@@ -11,6 +11,7 @@
 mod common;
 
 use archicraft_app::ArchiCraftApp;
+use archicraft_app::commands::{Origin, Target, view_keys};
 use archicraft_app::tools::ToolKind;
 use archicraft_app::views::transfer::TransferMode;
 use archicraft_app::views::view3d::pick;
@@ -432,6 +433,21 @@ fn shows(harness: &App, text: &str) -> bool {
     harness.query_all(By::new().label_contains(text)).next().is_some()
 }
 
+/// The text of the window's first widget whose label contains `text`: its
+/// label, or for a plain label its value, which accesskit labels it with.
+fn label_with(harness: &App, text: &str) -> Option<String> {
+    harness.query_all(By::new().label_contains(text)).find_map(|n| {
+        let node = n.accesskit_node();
+        node.label().or_else(|| node.value())
+    })
+}
+
+/// Asserts that the tooltip's "Transfers:" line names `field`.
+fn assert_transfers(harness: &App, field: &str) {
+    let line = label_with(harness, "Transfers: ").expect("the tooltip lists what transfers");
+    assert!(line.contains(field), "{field} is not in {line:?}");
+}
+
 /// The gesture text a tooltip or menu gives for `modifiers`, as egui
 /// writes them on this platform.
 fn gesture_text(harness: &App, modifiers: Modifiers) -> String {
@@ -592,7 +608,7 @@ fn the_edit_menu_latches_and_the_hover_tooltip_lists_transferred_and_skipped_set
         "the candidate is highlighted"
     );
     assert!(shows(&harness, &format!("Pick up from {source_name}")));
-    assert!(shows(&harness, "Transfers: ") && shows(&harness, "Thickness"));
+    assert_transfers(&harness, "Thickness");
     assert_ne!(
         wall_defaults(&mut harness).as_wall().unwrap().thickness,
         0.365,
@@ -611,7 +627,7 @@ fn the_edit_menu_latches_and_the_hover_tooltip_lists_transferred_and_skipped_set
     hover_holding(&mut harness, on_slab, Modifiers::NONE);
     harness.run_steps(4);
     assert!(shows(&harness, &format!("Inject into {slab_name}")));
-    assert!(shows(&harness, "Thickness"));
+    assert_transfers(&harness, "Thickness");
     assert!(shows(&harness, "Skips: ") && shows(&harness, "IFC class not allowed"));
     assert_ne!(
         element(&mut harness, ids[1]).as_slab().unwrap().thickness,
@@ -685,4 +701,78 @@ fn open_menu(harness: &mut App, title: &str) {
         });
     }
     harness.run_steps(2);
+}
+
+/// The latch prompt of pick-up in the status line.
+const PICK_UP_PROMPT: &str = "Pick up: click an element";
+
+/// ELM-003, INP-001: while pick-up is latched the status line prompts for
+/// it, but not while the open text editor or a transient consumer (placing
+/// the user origin) has the clicks, as the views give them the clicks.
+#[test]
+fn the_latch_prompt_shows_only_while_the_latch_takes_the_clicks() {
+    let mut harness = harness("transfer-latch-prompt");
+    select_tool(&mut harness, ToolKind::Text);
+    let empty = plan_point(&mut harness, DVec2::new(2.0, 2.0));
+    click_with(&mut harness, empty, Modifiers::NONE);
+    assert!(
+        harness.state_mut().workspace().tool.editor.is_some(),
+        "the click opens the editor"
+    );
+    harness.state_mut().workspace().transfer.latch(TransferMode::PickUp);
+    harness.run_steps(2);
+    assert!(!shows(&harness, PICK_UP_PROMPT), "the text editor has the clicks");
+
+    harness.state_mut().workspace().commit_text_editor();
+    harness.run_steps(2);
+    assert!(shows(&harness, PICK_UP_PROMPT));
+
+    harness.state_mut().workspace().place_user_origin();
+    harness.run_steps(2);
+    assert!(
+        !shows(&harness, PICK_UP_PROMPT),
+        "placing the user origin has the clicks"
+    );
+    assert_eq!(latched(&mut harness), Some(TransferMode::PickUp), "the latch waits");
+}
+
+/// ELM-003, HW-003: Cancel step invoked other than by Esc (the palette)
+/// with a 3D view active ends a latched mode there.
+#[test]
+fn cancel_step_invoked_with_a_3d_view_active_ends_the_latch() {
+    let mut harness = harness("transfer-3d-cancel-step");
+    let source = thick_wall(&mut harness, 0.0);
+    let ids = add(&mut harness, vec![source]);
+    open_3d_at(&mut harness, ids[0]);
+    harness.state_mut().workspace().transfer.latch(TransferMode::Inject);
+    harness.run_steps(2);
+    let ctx = harness.ctx.clone();
+    let app = harness.state_mut();
+    let target = Target::active(app.workspace());
+    app.invoke(&ctx, view_keys::CANCEL_STEP, target, Origin::Test);
+    harness.run_steps(2);
+    assert_eq!(latched(&mut harness), None);
+    assert!(harness.state_mut().workspace().view_commands.is_empty());
+}
+
+/// ELM-003: in a 3D view, a latched inject goes into the clicked wall
+/// without modifiers, selects nothing and stays latched.
+#[test]
+fn a_latched_inject_click_in_a_3d_view_injects_the_tool_defaults() {
+    let mut harness = harness("transfer-3d-latched-inject");
+    let source = thick_wall(&mut harness, 0.0);
+    let target = wall(&mut harness, 3.0, 1);
+    let ids = add(&mut harness, vec![source, target]);
+    select_tool(&mut harness, ToolKind::Wall);
+    let on_source = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+    click_with(&mut harness, on_source, ALT);
+    assert_eq!(wall_defaults(&mut harness).as_wall().unwrap().thickness, 0.365);
+
+    let on_target = open_3d_at(&mut harness, ids[1]);
+    click_toolbar(&mut harness, INJECT);
+    click_with(&mut harness, on_target, Modifiers::NONE);
+    assert_eq!(element(&mut harness, ids[1]).as_wall().unwrap().thickness, 0.365);
+    assert!(harness.state_mut().workspace().selection.is_empty());
+    assert_eq!(latched(&mut harness), Some(TransferMode::Inject));
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Wall);
 }
