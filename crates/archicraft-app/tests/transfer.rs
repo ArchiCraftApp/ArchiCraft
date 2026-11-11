@@ -208,6 +208,7 @@ fn injecting_wall_defaults_into_a_slab_transfers_only_the_compatible_settings() 
     assert_ne!(before.as_slab().unwrap().material, defaults.as_wall().unwrap().material);
     assert_ne!(before.as_slab().unwrap().thickness, 0.365);
     assert_ne!(before.layer, defaults.layer);
+    assert_ne!(before.position, defaults.position);
 
     // The slab lies below the cut plane: it is picked at its outline.
     let on_slab = plan_point(&mut harness, DVec2::new(8.0, 1.0));
@@ -378,7 +379,7 @@ fn hover_holding(harness: &mut App, pos: egui::Pos2, modifiers: Modifiers) {
 }
 
 /// ELM-003: holding a gesture over the plan shows its pointer, the
-/// crosshair of the eyedropper for pick-up and the copy pointer for inject,
+/// pointing hand of the eyedropper for pick-up and the copy pointer for inject,
 /// and releasing it returns to the selection tool's own.
 #[test]
 fn a_held_gesture_shows_its_pointer() {
@@ -388,13 +389,90 @@ fn a_held_gesture_shows_its_pointer() {
     let over = plan_point(&mut harness, DVec2::new(2.0, 0.0));
     hover_holding(&mut harness, over, Modifiers::NONE);
     let plain = cursor(&harness);
-    assert!(!matches!(plain, CursorIcon::Crosshair | CursorIcon::Copy), "{plain:?}");
+    assert!(
+        !matches!(plain, CursorIcon::PointingHand | CursorIcon::Copy),
+        "{plain:?}"
+    );
     hover_holding(&mut harness, over, ALT);
-    assert_eq!(cursor(&harness), CursorIcon::Crosshair);
+    assert_eq!(cursor(&harness), CursorIcon::PointingHand);
     hover_holding(&mut harness, over, alt_primary());
     assert_eq!(cursor(&harness), CursorIcon::Copy);
     hover_holding(&mut harness, over, Modifiers::NONE);
     assert_eq!(cursor(&harness), plain);
+}
+
+/// ELM-003: with a drawing tool, whose own pointer is the crosshair, holding
+/// Alt shows the pick-up pointer, which differs from it.
+#[test]
+fn the_pick_up_pointer_differs_from_the_drawing_crosshair() {
+    let mut harness = harness("transfer-cursor-wall");
+    let source = thick_wall(&mut harness, 0.0);
+    add(&mut harness, vec![source]);
+    select_tool(&mut harness, ToolKind::Wall);
+    let over = plan_point(&mut harness, DVec2::new(2.0, 3.0));
+    hover_holding(&mut harness, over, Modifiers::NONE);
+    let drawing = cursor(&harness);
+    assert_eq!(drawing, CursorIcon::Crosshair, "the wall tool draws with the crosshair");
+    hover_holding(&mut harness, over, ALT);
+    let pick_up = cursor(&harness);
+    assert_ne!(pick_up, drawing);
+    assert_ne!(pick_up, CursorIcon::Copy, "pick-up and inject differ too");
+    hover_holding(&mut harness, over, Modifiers::NONE);
+    assert_eq!(cursor(&harness), drawing);
+}
+
+/// Double-clicks the primary button at `pos` with no modifiers held.
+fn double_click_at(harness: &mut App, pos: egui::Pos2) {
+    harness.hover_at(pos);
+    harness.run_steps(2);
+    for _ in 0..2 {
+        let click = [true, false].map(|pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        harness.input_mut().events.extend(click);
+        harness.run_steps(1);
+    }
+    assert!(
+        harness
+            .ctx
+            .input(|i| i.pointer.button_double_clicked(PointerButton::Primary)),
+        "egui saw a double-click"
+    );
+    harness.run_steps(2);
+}
+
+/// ELM-003: a double-click in a latched transfer mode transfers once, as a
+/// single click would, and keeps the status line of that transfer; in the
+/// plan and in a 3D view.
+#[test]
+fn a_double_click_in_a_transfer_mode_transfers_once() {
+    let mut harness = harness("transfer-double-click");
+    let source = thick_wall(&mut harness, 0.0);
+    let target = wall(&mut harness, 3.0, 1);
+    let ids = add(&mut harness, vec![source, target]);
+    select_tool(&mut harness, ToolKind::Wall);
+    let undo_len = |harness: &mut App| harness.state_mut().workspace().doc.history.undo_len();
+
+    harness.state_mut().workspace().transfer.latch(TransferMode::PickUp);
+    let before = undo_len(&mut harness);
+    let on_source = plan_point(&mut harness, DVec2::new(2.0, 0.0));
+    double_click_at(&mut harness, on_source);
+    assert_eq!(wall_defaults(&mut harness).as_wall().unwrap().thickness, 0.365);
+    assert_eq!(undo_len(&mut harness), before + 1, "one pick-up");
+    let text = status(&mut harness);
+    assert!(text.starts_with("Picked up "), "{text}");
+
+    harness.state_mut().workspace().transfer.latch(TransferMode::Inject);
+    let before = undo_len(&mut harness);
+    let on_target = open_3d_at(&mut harness, ids[1]);
+    double_click_at(&mut harness, on_target);
+    assert_eq!(element(&mut harness, ids[1]).as_wall().unwrap().thickness, 0.365);
+    assert_eq!(undo_len(&mut harness), before + 1, "one inject");
+    let text = status(&mut harness);
+    assert!(text.starts_with("Injected "), "{text}");
 }
 
 /// The labels of the toolbar's Pick up and Inject buttons.

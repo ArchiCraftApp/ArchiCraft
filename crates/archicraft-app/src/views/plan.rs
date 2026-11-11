@@ -816,10 +816,12 @@ pub fn snap_glyph(p: Pos2, snap: SnapKind, color: Color32) -> Vec<Shape> {
 }
 
 /// The pointer of a parameter transfer mode (ELM-003): the eyedropper
-/// picks, the syringe copies settings into elements.
+/// picks, the syringe copies settings into elements. Neither is the
+/// crosshair the drawing tools show, so a held gesture changes the pointer
+/// with any tool.
 pub fn transfer_cursor(mode: TransferMode) -> CursorIcon {
     match mode {
-        TransferMode::PickUp => CursorIcon::Crosshair,
+        TransferMode::PickUp => CursorIcon::PointingHand,
         TransferMode::Inject => CursorIcon::Copy,
     }
 }
@@ -1164,8 +1166,12 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
         && !swallowed
         && cursor_world.is_some()
     {
-        // The candidate the hover highlights, Tab cycling included.
-        transfer::click(ws, mode, ws.hover);
+        // The candidate the hover highlights, Tab cycling included. The
+        // second click of a double-click transfers nothing, so the first
+        // one's status line stays (ELM-003).
+        if !response.double_clicked_by(PointerButton::Primary) {
+            transfer::click(ws, mode, ws.hover);
+        }
         state.last_hit = None;
     } else if clicked
         && selecting
