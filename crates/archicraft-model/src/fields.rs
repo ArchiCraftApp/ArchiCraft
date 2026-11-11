@@ -21,8 +21,8 @@
 //! A key two kinds share names the same parameter, with the same
 //! [`FieldType`], so that settings transfer between kinds
 //! ([`crate::transfer`], ELM-003) and selection criteria match fields
-//! without a table per pair of kinds. Keys are stable: they are part of
-//! journals of transfers and of saved criteria. The shared keys are:
+//! without a table per pair of kinds. Keys are stable: replayed transfers
+//! and the future selection criteria (task 13) depend on them. The shared keys are:
 //!
 //! - envelope ([`COMMON_FIELDS`]): `material`, `layer`, `ifc_class`,
 //!   `predefined_type`, `position`, `structural_function`;
