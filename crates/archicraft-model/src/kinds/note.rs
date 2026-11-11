@@ -1,7 +1,7 @@
 //! A test-only element kind without a body, behind the cargo feature
 //! `test-kinds` (see the documentation of [`crate::kinds`]).
 //!
-//! The note stands in for texts, markers and dimensions: it has no 3D body
+//! The note stands in for markers and dimensions: it has no 3D body
 //! and no material, belongs to the plan view of its home storey (ANN-002)
 //! and is not written as an IFCX node (ANN-010). Like the other test kind,
 //! nothing outside this module and its line in the registry names it.

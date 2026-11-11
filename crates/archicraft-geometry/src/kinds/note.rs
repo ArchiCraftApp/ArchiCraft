@@ -2,7 +2,7 @@
 //! `test-kinds` (see [`crate::kinds`]). It is registered like every kind's
 //! generator, but never asked for bodies: [`crate::evaluate`] gives a kind
 //! whose descriptor has no body an empty geometry before a generator runs
-//! (ANN-002), as it will for texts, markers and dimensions.
+//! (ANN-002), as it does for texts and will for markers and dimensions.
 
 use archicraft_model::kinds::Note;
 
