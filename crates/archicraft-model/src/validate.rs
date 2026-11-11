@@ -4,7 +4,7 @@
 //! Errors are [`Message`]s (NFR-L10N-001): numeric limits are length or angle
 //! arguments, so the application shows them in the project units.
 
-mod crossing;
+mod overlap;
 mod sweep;
 
 use glam::DVec2;
@@ -55,14 +55,22 @@ pub const MIN_PROFILE_DIMENSION: f64 = MIN_EDGE_LENGTH;
 /// and of the width and height of custom regions together. Also the largest
 /// distance of a profile's origin from its zero: 10 m (PRF-004, PRF-005).
 pub const MAX_PROFILE_DIMENSION: f64 = MAX_THICKNESS;
-/// Most regions a custom profile may have (PRF-004). Each pair of regions
-/// whose boxes overlap is swept for crossing edges and, if none cross
-/// deeply, intersected, both in time growing with the points of the two, so
-/// the overlap check grows with the regions times the points: a profile of
-/// [`MAX_SLAB_POINTS`] points and this many regions validates in tens of
-/// milliseconds however they lie, where thousands of regions took seconds
-/// (NFR-SEC-003).
+/// Most regions a custom profile may have (PRF-004). The overlap check is
+/// one sweep over the points of all regions, in which each point finds its
+/// place among the edges of every region whose x-range it lies in
+/// (`validate/overlap.rs`), so it grows with the regions times the points
+/// and with the crossings, which [`MAX_PROFILE_CROSSINGS`] limits: a profile
+/// of [`MAX_SLAB_POINTS`] points and this many regions validates in tens of
+/// milliseconds, where thousands of regions took seconds (NFR-SEC-003).
 pub const MAX_PROFILE_REGIONS: usize = 32;
+/// Most places in which the outlines of a custom profile's regions may
+/// cross each other less than [`MODEL_TOLERANCE`] deep: 10 per point at
+/// [`MAX_SLAB_POINTS`] (PRF-004, user decision of 2026-11-11). Regions that
+/// touch cross a few times per point they share; regions that copy each
+/// other within the tolerance could cross millions of times, and the
+/// overlap check visits each crossing, so the limit bounds its time for
+/// every profile (NFR-SEC-003).
+pub const MAX_PROFILE_CROSSINGS: usize = 10 * MAX_SLAB_POINTS;
 
 /// Largest step or spacing of a drafting grid, in metres (INP-013).
 pub const MAX_GRID_SPACING: f64 = 1000.0;
@@ -356,7 +364,9 @@ pub fn validate_space(space: &Space) -> Result<Space, Message> {
 /// and fit together ([`check_parametric_shape`]). A custom profile has one
 /// to [`MAX_PROFILE_REGIONS`] regions, at most [`MAX_SLAB_POINTS`] points
 /// in all, is at most [`MAX_PROFILE_DIMENSION`] wide and tall, and its
-/// regions do not overlap; they may touch, for example share an edge.
+/// regions do not overlap; they may touch, for example share an edge, in up
+/// to [`MAX_PROFILE_CROSSINGS`] places where their outlines cross within
+/// the tolerance.
 pub fn validate_profile(project: &Project, profile: &Profile) -> Result<Profile, Message> {
     if profile.name.trim().is_empty() {
         return Err(Message::new("model-error-profile-name"));
@@ -536,83 +546,40 @@ fn validate_profile_regions(regions: &[ProfileRegion]) -> Result<Vec<ProfileRegi
             })
         })
         .collect::<Result<Vec<_>, Message>>()?;
-    let areas: Vec<RegionArea> = regions.iter().map(RegionArea::new).collect();
-    let (min, max) = point_bounds(areas.iter().flat_map(|a| [a.bounds.0, a.bounds.1])).unwrap_or_default();
+    // Holes lie in their outer rings, and a region has at least one point.
+    let (min, max) = point_bounds(regions.iter().flat_map(|r| r.outer.iter().copied())).unwrap_or_default();
     if (max - min).max_element() > MAX_PROFILE_DIMENSION {
         return Err(Message::new("model-error-profile-size").length("max", MAX_PROFILE_DIMENSION));
     }
-    for (i, a) in areas.iter().enumerate() {
-        for (j, b) in areas.iter().enumerate().skip(i + 1) {
-            if a.overlaps(b) {
-                return Err(Message::new("model-error-profile-regions-overlap")
-                    .count("first", i + 1)
-                    .count("second", j + 1));
-            }
+    // Regions overlap when an edge of one crosses an edge of the other
+    // more than MODEL_TOLERANCE to either side, or when their intersection
+    // is more than a strip MODEL_TOLERANCE wide along the shorter outer
+    // ring; regions that only touch, sharing an edge or a point or lying in
+    // the other's hole, do not.
+    let grids: Vec<overlap::GridRegion> = regions
+        .iter()
+        .map(|region| {
+            let rings = std::iter::once(&region.outer).chain(&region.holes).map(Vec::as_slice);
+            overlap::GridRegion::new(rings, min)
+        })
+        .collect();
+    let boundaries: Vec<f64> = regions
+        .iter()
+        .map(|r| {
+            (0..r.outer.len())
+                .map(|i| r.outer[i].distance(r.outer[(i + 1) % r.outer.len()]))
+                .sum()
+        })
+        .collect();
+    let strip = |i: usize, j: usize| MODEL_TOLERANCE * boundaries[i].min(boundaries[j]);
+    match overlap::first_overlap(&grids, MAX_PROFILE_CROSSINGS, strip) {
+        overlap::Overlap::None => Ok(regions),
+        overlap::Overlap::Regions(i, j) => Err(Message::new("model-error-profile-regions-overlap")
+            .count("first", i + 1)
+            .count("second", j + 1)),
+        overlap::Overlap::TooManyCrossings => {
+            Err(Message::new("model-error-profile-crossings").count("max", MAX_PROFILE_CROSSINGS))
         }
-    }
-    Ok(regions)
-}
-
-/// A valid profile region prepared for the overlap test, once per region
-/// rather than once per pair (NFR-SEC-003).
-struct RegionArea<'a> {
-    region: &'a ProfileRegion,
-    polygon: geo::Polygon<f64>,
-    bounds: (DVec2, DVec2),
-    /// The length of the outer ring.
-    boundary: f64,
-}
-
-impl<'a> RegionArea<'a> {
-    fn new(region: &'a ProfileRegion) -> Self {
-        use geo::{Euclidean, Length};
-        let outline = Outline::<()>::from_point_rings(
-            std::iter::once(&region.outer)
-                .chain(&region.holes)
-                .map(|ring| ring.iter().copied()),
-        );
-        let polygon = outline.to_geo();
-        let boundary = Euclidean.length(polygon.exterior());
-        Self {
-            // A valid region has at least three points.
-            bounds: outline.bounds().unwrap_or_default(),
-            region,
-            polygon,
-            boundary,
-        }
-    }
-
-    /// Whether two regions overlap (PRF-004): their edges cross deeply,
-    /// each passing more than [`MODEL_TOLERANCE`] to either side of the
-    /// other ([`crossing::cross_deeply`]), or their intersection is more
-    /// than a strip `MODEL_TOLERANCE` wide along the shorter boundary.
-    /// Regions that only touch, sharing an edge or a point or lying in the
-    /// other's hole, do not overlap. The sweep for crossings comes first:
-    /// without deep crossings, the intersection has about as many points as
-    /// the regions, where crossed combs give it millions (NFR-SEC-003).
-    fn overlaps(&self, other: &RegionArea) -> bool {
-        use geo::{Area, BooleanOps};
-        let ((a_min, a_max), (b_min, b_max)) = (self.bounds, other.bounds);
-        if a_max.cmplt(b_min).any() || b_max.cmplt(a_min).any() {
-            return false;
-        }
-        // Edges cross inside both boxes, so only edges reaching into both
-        // can cross.
-        let (min, max) = (a_min.max(b_min), a_max.min(b_max));
-        if crossing::cross_deeply(self.edges_within(min, max), other.edges_within(min, max)) {
-            return true;
-        }
-        let strip = MODEL_TOLERANCE * self.boundary.min(other.boundary);
-        self.polygon.intersection(&other.polygon).unsigned_area() > strip
-    }
-
-    /// The edges of the region's rings whose boxes reach into the box from
-    /// `min` to `max`.
-    fn edges_within(&self, min: DVec2, max: DVec2) -> impl Iterator<Item = (DVec2, DVec2)> + '_ {
-        std::iter::once(&self.region.outer)
-            .chain(&self.region.holes)
-            .flat_map(|ring| (0..ring.len()).map(move |i| (ring[i], ring[(i + 1) % ring.len()])))
-            .filter(move |&(a, b)| a.max(b).cmpge(min).all() && a.min(b).cmple(max).all())
     }
 }
 
@@ -1670,6 +1637,31 @@ mod tests {
             );
         }
 
+        /// PRF-004, NFR-SEC-003: the outlines of a custom profile's regions
+        /// cross less than the tolerance deep in at most
+        /// MAX_PROFILE_CROSSINGS places. Copies of a zigzag region, each
+        /// moved by less than the tolerance, cross 310 times per pair: 25 of
+        /// them, 93,000 crossings, are found to overlap, and 26, 100,750,
+        /// are rejected for their crossings.
+        #[test]
+        fn custom_profiles_are_limited_in_crossings() {
+            let copies = |n: usize| {
+                (0..n)
+                    .map(|k| {
+                        let by = DVec2::new(0.25e-6, 0.125e-6) * k as f64;
+                        let ring: Vec<DVec2> = under(&zigzag(310, 9.9, 0.2)).into_iter().map(|p| p + by).collect();
+                        (ring, Vec::new())
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let error = check_custom(copies(25)).unwrap_err();
+            assert_eq!(error.key(), "model-error-profile-regions-overlap");
+            assert_eq!(
+                check_custom(copies(26)).unwrap_err(),
+                Message::new("model-error-profile-crossings").count("max", MAX_PROFILE_CROSSINGS)
+            );
+        }
+
         /// PRF-004: custom regions together are at most
         /// MAX_PROFILE_DIMENSION wide and tall, wherever they lie: one
         /// region 10 m wide is accepted, one wider, one taller and two small
@@ -1725,6 +1717,24 @@ mod tests {
             ring
         }
 
+        /// A comb of `teeth` teeth `width` wide every `pitch`, hanging from
+        /// a base 5 mm deep at the top, 9.9 m high, down to height `tip`,
+        /// each leaning `lean` to the right: `4 * teeth + 2` points.
+        fn slanted_comb(teeth: usize, pitch: f64, width: f64, tip: f64, lean: f64) -> Vec<DVec2> {
+            let top = 9.895;
+            let mut ring = vec![DVec2::new(pitch * teeth as f64, 9.9), DVec2::new(0.0, 9.9)];
+            for i in 0..teeth {
+                let x = pitch * i as f64;
+                ring.extend([
+                    DVec2::new(x, top),
+                    DVec2::new(x + lean, tip),
+                    DVec2::new(x + lean + width, tip),
+                    DVec2::new(x + width, top),
+                ]);
+            }
+            ring
+        }
+
         /// `n` points from x 0 to `length`, alternately at heights 0.5 -
         /// `amplitude` and 0.5 + `amplitude`, the first one low.
         fn zigzag(n: usize, length: f64, amplitude: f64) -> Vec<DVec2> {
@@ -1749,24 +1759,45 @@ mod tests {
             ring
         }
 
+        /// A named custom profile and the error it gives, if any: the
+        /// numbers of the first two of its regions that overlap, or none for
+        /// too many crossings.
+        type Layout = (&'static str, Vec<Region>, Option<Option<(u64, u64)>>);
+
         /// Custom profiles of about MAX_SLAB_POINTS points at the worst for
-        /// the overlap check, with the error each gives, if any.
+        /// the overlap check, with the regions each finds overlapping, if any.
         ///
         /// MAX_PROFILE_REGIONS regions whose boxes all overlap, so every
         /// pair is checked: a fan of wedges about one point, each with an
         /// arc of points; a tube of thousands of points around a fan of
-        /// triangles in its hole, each checked against the tube; and the
-        /// same with the last triangle overlapping its neighbour, which is
-        /// rejected at the last pair.
+        /// triangles in its hole, each checked against the tube; the same
+        /// with the last triangle overlapping its neighbour, which is
+        /// rejected at the last pair; rings in rings, each against all; and
+        /// 32 copies of one region, each moved by less than the tolerance,
+        /// whose 496 pairs all stay open: moved or bent so that they cross
+        /// 154,000 or 306,000 times, rejected once MAX_PROFILE_CROSSINGS
+        /// crossings are found, and moved on 200 of their points only, 99,000
+        /// crossings, found to overlap after the sweep met every point.
+        /// A comb of thousands of leaning teeth, edges that all cross the
+        /// sweep line at once, with 31 small triangles in its box below its
+        /// teeth or 31 slivers in its gaps, whose boxes span most of the
+        /// comb: each pair costs no sweep of its own.
         ///
         /// Two regions of 5,000 points whose outlines cross millions of
         /// times: a comb of 1,249 teeth and the same comb turned by 90°,
-        /// and two zigzags of opposite phase. Their intersections have
-        /// millions of points; the sweep for crossings finds a deep one
-        /// instead. Two regions on either side of one zigzag of 5,000
-        /// points only touch.
-        fn profiles_at_the_limit() -> Vec<(&'static str, Vec<Region>, Option<&'static str>)> {
-            let overlap = Some("model-error-profile-regions-overlap");
+        /// also with the first comb 5 µm lower or higher, so that each
+        /// tooth first crosses the turned comb's first tooth less than the
+        /// tolerance deep, and two zigzags of opposite phase. Their
+        /// intersections have millions of points; the sweep for crossings
+        /// finds a deep one instead. Two regions on either side of one
+        /// zigzag of 5,000 points only touch, and so do a comb of 2,498
+        /// teeth leaning by 6 m whose tips reach 5 µm into a block, 4,996
+        /// shallow crossings, and two combs of such teeth whose teeth lie
+        /// between each other's, all overlapping in x.
+        fn profiles_at_the_limit() -> Vec<Layout> {
+            // The first two regions that overlap, if any, by number.
+            let (overlap, crossings) = (Some(Some((1, 2))), Some(None));
+            let last = Some(Some((MAX_PROFILE_REGIONS as u64 - 1, MAX_PROFILE_REGIONS as u64)));
             let n = MAX_PROFILE_REGIONS;
             let step = TAU / n as f64;
             let fan = (0..n)
@@ -1796,16 +1827,133 @@ mod tests {
             overlapping[n - 1].0 = triangle(step * (triangles as f64 - 1.75), 1.25 * step);
             let comb = fine_comb(1249, 0.0079, 0.004, 9.9);
             let turned: Vec<DVec2> = comb.iter().map(|p| DVec2::new(p.y, p.x)).collect();
+            let moved = |ring: &[DVec2], by: DVec2| ring.iter().map(|&p| p + by).collect::<Vec<_>>();
+            let lower = moved(&comb, DVec2::new(0.0, -5e-6));
+            let higher = moved(&comb, DVec2::new(0.0, 5e-6));
+            let leaning = slanted_comb(2498, 0.0015, 0.0005, 0.5 - 5e-6, 6.0);
+            let block = rect(DVec2::ZERO, DVec2::new(9.8, 0.5));
+            let (pitch, width, lean) = (0.003, 0.0005, 5.5);
+            let first = slanted_comb(1248, pitch, width, 0.5, lean);
+            // Turned by 180° about half of `centre`, which puts the second
+            // comb's base below the first's tips and each of its teeth in
+            // the middle of a gap.
+            let centre = DVec2::new(lean * 9.89 / 9.395 + pitch / 2.0 + width + 1150.0 * pitch, 9.9);
+            let second: Vec<DVec2> = first.iter().map(|&p| centre - p).collect();
             let low = zigzag(4998, 9.9, 0.2);
             let high: Vec<DVec2> = low.iter().map(|p| DVec2::new(p.x, 1.0 - p.y)).collect();
             vec![
                 ("fan", fan, None),
                 ("tube around a fan", tube_fan, None),
-                ("tube around an overlapping fan", overlapping, overlap),
-                ("crossed combs", vec![(comb, Vec::new()), (turned, Vec::new())], overlap),
+                ("tube around an overlapping fan", overlapping, last),
+                (
+                    "crossed combs",
+                    vec![(comb, Vec::new()), (turned.clone(), Vec::new())],
+                    overlap,
+                ),
+                (
+                    "crossed combs, the first 5 µm lower",
+                    vec![(lower, Vec::new()), (turned.clone(), Vec::new())],
+                    overlap,
+                ),
+                (
+                    "crossed combs, the first 5 µm higher",
+                    vec![(higher, Vec::new()), (turned, Vec::new())],
+                    overlap,
+                ),
+                (
+                    "a leaning comb touching a block",
+                    vec![(leaning, Vec::new()), (block, Vec::new())],
+                    None,
+                ),
+                (
+                    "a leaning comb around triangles",
+                    std::iter::once((slanted_comb(2476, 0.0015, 0.0005, 0.5, 6.0), Vec::new()))
+                        .chain((0..31).map(|k| {
+                            let at = DVec2::new(0.1 + 0.035 * k as f64, 0.6);
+                            (
+                                vec![at, at + DVec2::new(0.03, 0.0), at + DVec2::new(0.0, 1.1)],
+                                Vec::new(),
+                            )
+                        }))
+                        .collect(),
+                    None,
+                ),
+                (
+                    "a leaning comb around slivers in its gaps",
+                    std::iter::once((slanted_comb(2468, 0.0015, 0.0005, 0.5, 6.0), Vec::new()))
+                        .chain((0..31).map(|k| {
+                            // The middle of the gap after tooth 40 k, at
+                            // height y.
+                            let gap = |y: f64| 0.0015 * (40 * k) as f64 + 0.001 + 6.0 * (9.895 - y) / 9.395;
+                            let half = DVec2::new(0.0002, 0.0);
+                            let (top, bottom) = (DVec2::new(gap(9.8), 9.8), DVec2::new(gap(0.6), 0.6));
+                            (vec![bottom - half, bottom + half, top + half, top - half], Vec::new())
+                        }))
+                        .collect(),
+                    None,
+                ),
+                (
+                    "rings in rings",
+                    (0..n)
+                        .map(|k| {
+                            let r = 0.5 + 0.14 * k as f64;
+                            let points = MAX_SLAB_POINTS / n / 2;
+                            (circle(r + 0.1, points), vec![circle(r, points)])
+                        })
+                        .collect(),
+                    None,
+                ),
+                (
+                    "leaning combs between each other",
+                    vec![(first, Vec::new()), (second, Vec::new())],
+                    None,
+                ),
                 (
                     "crossing zigzags",
                     vec![(under(&low), Vec::new()), (over(&high), Vec::new())],
+                    overlap,
+                ),
+                (
+                    "copies of a region moved by less than the tolerance",
+                    (0..n)
+                        .map(|k| {
+                            let by = DVec2::new(0.25e-6, 0.125e-6) * k as f64;
+                            (
+                                under(&zigzag(310, 9.9, 0.2)).into_iter().map(|p| p + by).collect(),
+                                Vec::new(),
+                            )
+                        })
+                        .collect(),
+                    crossings,
+                ),
+                (
+                    "copies of a region bent by less than the tolerance",
+                    (0..n)
+                        .map(|k| {
+                            let bend = |(i, p): (usize, DVec2)| {
+                                let by = DVec2::new(0.2e-6, 0.5e-6) * k as f64;
+                                if i % 2 == 0 { p - by } else { p + by }
+                            };
+                            let ring = zigzag(310, 9.9, 0.2)
+                                .into_iter()
+                                .enumerate()
+                                .map(bend)
+                                .collect::<Vec<_>>();
+                            (under(&ring), Vec::new())
+                        })
+                        .collect(),
+                    crossings,
+                ),
+                (
+                    "copies of a region crossing just within the limit",
+                    (0..n)
+                        .map(|k| {
+                            let by = DVec2::new(0.25e-6, 0.125e-6) * k as f64;
+                            let ring = zigzag(310, 9.9, 0.2).into_iter().enumerate();
+                            let ring: Vec<DVec2> = ring.map(|(i, p)| if i < 200 { p + by } else { p }).collect();
+                            (under(&ring), Vec::new())
+                        })
+                        .collect(),
                     overlap,
                 ),
                 (
@@ -1843,7 +1991,6 @@ mod tests {
             assert_eq!(result.unwrap_err().key(), "model-error-profile-regions");
             assert!(elapsed < budget, "slivers took {elapsed:?}");
             for (name, regions, expected) in profiles_at_the_limit() {
-                let count = regions.len();
                 let points: usize = regions
                     .iter()
                     .map(|(outer, holes)| outer.len() + holes.iter().map(Vec::len).sum::<usize>())
@@ -1857,12 +2004,17 @@ mod tests {
                 let result = validate_profile(&project, &profile);
                 let elapsed = start.elapsed();
                 match expected {
-                    Some(key) => {
+                    Some(Some((first, second))) => {
                         let error = result.unwrap_err();
-                        assert_eq!(error.key(), key, "{name}");
-                        assert_eq!(error.arg("first"), Some(&Arg::Count(count as u64 - 1)), "{name}");
-                        assert_eq!(error.arg("second"), Some(&Arg::Count(count as u64)), "{name}");
+                        assert_eq!(error.key(), "model-error-profile-regions-overlap", "{name}");
+                        assert_eq!(error.arg("first"), Some(&Arg::Count(first)), "{name}");
+                        assert_eq!(error.arg("second"), Some(&Arg::Count(second)), "{name}");
                     }
+                    Some(None) => assert_eq!(
+                        result.unwrap_err(),
+                        Message::new("model-error-profile-crossings").count("max", MAX_PROFILE_CROSSINGS),
+                        "{name}"
+                    ),
                     None => assert!(result.is_ok(), "{name}: {result:?}"),
                 }
                 assert!(elapsed < budget, "{name} took {elapsed:?}");
