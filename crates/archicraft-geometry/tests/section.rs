@@ -15,7 +15,10 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::outline::Ring;
 use archicraft_model::profile::{ParametricShape, Profile, ProfileRegion};
 use archicraft_model::project::{ProjectSettings, Tessellation};
-use archicraft_model::validate::{MIN_EDGE_LENGTH, clean_ring, validate_ring, validate_slab_polygon};
+use archicraft_model::validate::{
+    MAX_CHORD_DEVIATION, MAX_PROFILE_DIMENSION, MAX_SEGMENT_ANGLE_DEG, MIN_CHORD_DEVIATION, MIN_EDGE_LENGTH,
+    MIN_SEGMENT_ANGLE_DEG, clean_ring, validate_ring, validate_slab_polygon,
+};
 
 fn v(x: f64, y: f64) -> DVec2 {
     DVec2::new(x, y)
@@ -292,7 +295,13 @@ fn settings() -> Vec<Tessellation> {
         chord_deviation,
         max_angle_deg,
     };
-    vec![defaults(), t(1.0, 90.0), t(0.0001, 1.0), t(0.002, 45.0), t(1e-9, 10.0)]
+    vec![
+        defaults(),
+        t(MAX_CHORD_DEVIATION, MAX_SEGMENT_ANGLE_DEG),
+        t(0.0001, 1.0),
+        t(0.002, 45.0),
+        t(MIN_CHORD_DEVIATION, MIN_SEGMENT_ANGLE_DEG),
+    ]
 }
 
 /// PRF-005: a rectangle is its four corners, so its area is w x h exactly.
@@ -495,6 +504,28 @@ fn the_project_tessellation_settings_change_the_counts() {
     };
     assert_eq!(ipe(&defaults()), 8 + 4 * 10);
     assert_eq!(ipe(&settings.tessellation), 8 + 4 * 19);
+}
+
+/// IFX-034: the segment cap and the smallest tolerances `SetSettings`
+/// accepts agree: at either minimum the largest circle a profile may have
+/// (10 m across) needs no more than MAX_SEGMENTS_PER_TURN segments, so the
+/// cap never overrides an accepted setting.
+#[test]
+fn the_smallest_accepted_tolerances_stay_below_the_cap() {
+    let radius = MAX_PROFILE_DIMENSION / 2.0;
+    let t = |chord_deviation, max_angle_deg| Tessellation {
+        chord_deviation,
+        max_angle_deg,
+    };
+    let by_chord = arc_segments(radius, TAU, &t(MIN_CHORD_DEVIATION, MAX_SEGMENT_ANGLE_DEG));
+    let by_angle = arc_segments(radius, TAU, &t(MAX_CHORD_DEVIATION, MIN_SEGMENT_ANGLE_DEG));
+    let both = arc_segments(radius, TAU, &t(MIN_CHORD_DEVIATION, MIN_SEGMENT_ANGLE_DEG));
+    assert_eq!((by_chord, by_angle, both), (994, 720, 994));
+    assert!(both <= MAX_SEGMENTS_PER_TURN);
+    // The chord rule itself, not the cap, gives the count: the chords lie
+    // within the minimum deviation.
+    let half_angle = PI / by_chord as f64;
+    assert!(radius * (1.0 - half_angle.cos()) <= MIN_CHORD_DEVIATION);
 }
 
 /// NFR-SEC-003: tessellation values a crafted file may carry neither

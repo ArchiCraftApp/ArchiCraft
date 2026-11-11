@@ -61,7 +61,9 @@ use archicraft_model::template::{TemplateContext, template_text_styles, template
 use archicraft_model::text::text_style_problems;
 use archicraft_model::tolerance::MODEL_TOLERANCE;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit};
-use archicraft_model::validate::{MAX_DECIMALS, valid_grid_origin, valid_grid_spacing, validate_element};
+use archicraft_model::validate::{
+    MAX_DECIMALS, valid_chord_deviation, valid_grid_origin, valid_grid_spacing, valid_segment_angle, validate_element,
+};
 use archicraft_model::{
     BuildingId, Element, ElementId, Group, GroupId, IfcClass, KindTag, Layer, LayerId, MaterialId, PlanGrid, Position,
     PredefinedType, Project, ProjectId, ProjectInfo, ProjectSettings, SiteId, Storey, StoreyId, StoreyList,
@@ -679,6 +681,18 @@ struct ProjectData {
     newer_format: bool,
 }
 
+/// A real checked against the model's range: the tessellation tolerances
+/// (IFX-034), which `SetSettings` accepts only in their ranges, so a file
+/// cannot hand the geometry values it would have to cap (NFR-SEC-003).
+fn ranged(map: &Object, key: &str, valid: fn(f64) -> bool) -> Result<f64, Message> {
+    let value = real(map, key)?;
+    if valid(value) {
+        Ok(value)
+    } else {
+        Err(about("ifcx-field-out-of-range", key))
+    }
+}
+
 /// Display decimals: an integer from 0 to [`MAX_DECIMALS`]. An integer out of
 /// that range is clamped to it and reported (PRJ-008); anything else is
 /// reported and `default` is used.
@@ -706,8 +720,14 @@ fn read_settings(map: &Object, report: &mut Report<'_>) -> ProjectSettings {
         units,
         cut_plane_height: report.or(real(map, "cutPlaneHeight"), defaults.cut_plane_height),
         tessellation: Tessellation {
-            chord_deviation: report.or(real(map, "chordDeviation"), defaults.tessellation.chord_deviation),
-            max_angle_deg: report.or(real(map, "maxSegmentAngle"), defaults.tessellation.max_angle_deg),
+            chord_deviation: report.or(
+                ranged(map, "chordDeviation", valid_chord_deviation),
+                defaults.tessellation.chord_deviation,
+            ),
+            max_angle_deg: report.or(
+                ranged(map, "maxSegmentAngle", valid_segment_angle),
+                defaults.tessellation.max_angle_deg,
+            ),
         },
         plan_grid: read_plan_grid(map, report),
     }

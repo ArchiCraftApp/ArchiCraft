@@ -7,11 +7,14 @@ mod common;
 
 use archicraft_model::command::{StoreyElements, replay};
 use archicraft_model::glam::DVec2;
-use archicraft_model::project::{DefaultsSlot, ToolDefaults};
+use archicraft_model::project::{DefaultsSlot, Tessellation, ToolDefaults};
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::default_metric_project;
 use archicraft_model::transfer::SettingsSource;
-use archicraft_model::validate::{MAX_GRID_SPACING, MAX_HEIGHT, MAX_OFFSET, MAX_THICKNESS, MIN_HEIGHT, MIN_THICKNESS};
+use archicraft_model::validate::{
+    MAX_CHORD_DEVIATION, MAX_GRID_SPACING, MAX_HEIGHT, MAX_OFFSET, MAX_SEGMENT_ANGLE_DEG, MAX_THICKNESS,
+    MIN_CHORD_DEVIATION, MIN_HEIGHT, MIN_SEGMENT_ANGLE_DEG, MIN_THICKNESS,
+};
 use archicraft_model::{
     AnchorPos, Arg, Command, CommandError, DraftingView, Element, ElementId, ElementKind, Group, GroupId, History,
     IfcClass, KindTag, Layer, Material, MaterialId, Message, ParametricShape, PlanGrid, Profile, ProfileId,
@@ -1588,6 +1591,52 @@ fn plan_grid_changes_undo_and_redo_to_the_exact_project() {
     let mut expected = after;
     expected.revision = p.revision;
     assert_eq!(p, expected);
+}
+
+/// IFX-034: the chord deviation lies from 0.025 mm to 1 m and the angle per
+/// segment from 0.5° to 90°; `SetSettings` takes the bounds and rejects
+/// anything outside them, so the geometry's segment cap never overrides an
+/// accepted setting.
+#[test]
+fn tessellation_settings_outside_their_ranges_are_rejected() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let before = p.settings.clone();
+    let with = |chord_deviation, max_angle_deg| {
+        let mut settings = before.clone();
+        settings.tessellation = Tessellation {
+            chord_deviation,
+            max_angle_deg,
+        };
+        settings
+    };
+    let bad = [
+        with(MIN_CHORD_DEVIATION * 0.99, 10.0),
+        with(0.000_001, 10.0),
+        with(0.0, 10.0),
+        with(MAX_CHORD_DEVIATION * 1.01, 10.0),
+        with(f64::NAN, 10.0),
+        with(0.002, MIN_SEGMENT_ANGLE_DEG * 0.99),
+        with(0.002, 0.0),
+        with(0.002, MAX_SEGMENT_ANGLE_DEG + 0.01),
+        with(0.002, f64::INFINITY),
+    ];
+    for settings in bad {
+        let tessellation = settings.tessellation;
+        let (variant, message) = rejection(h.execute(&mut p, Command::SetSettings(settings)));
+        assert_eq!(
+            (variant, message.key()),
+            ("Invalid", "model-error-tessellation-range"),
+            "{tessellation:?}"
+        );
+    }
+    for settings in [
+        with(MIN_CHORD_DEVIATION, MIN_SEGMENT_ANGLE_DEG),
+        with(MAX_CHORD_DEVIATION, MAX_SEGMENT_ANGLE_DEG),
+    ] {
+        h.execute(&mut p, Command::SetSettings(settings.clone())).unwrap();
+        assert_eq!(p.settings, settings);
+    }
 }
 
 /// INP-013: steps and spacings are finite, positive and at most 1 km, the

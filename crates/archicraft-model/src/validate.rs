@@ -54,6 +54,32 @@ pub const MIN_PROFILE_DIMENSION: f64 = MIN_EDGE_LENGTH;
 /// from the profile's zero: 10 m (PRF-004, PRF-005).
 pub const MAX_PROFILE_DIMENSION: f64 = MAX_THICKNESS;
 
+/// Smallest chordal deviation of the curve tessellation: 0.025 mm
+/// (IFX-034). At this deviation the largest circle a profile may have
+/// ([`MAX_PROFILE_DIMENSION`] across) needs 994 segments, within the
+/// geometry's cap of 1024 per full turn, so the cap never overrides a
+/// setting the project accepts.
+pub const MIN_CHORD_DEVIATION: f64 = 0.000_025;
+/// Largest chordal deviation of the curve tessellation: 1 m (IFX-034).
+pub const MAX_CHORD_DEVIATION: f64 = 1.0;
+/// Smallest angle per tessellation segment: 0.5°, 720 segments per full
+/// turn, within the geometry's cap of 1024 (IFX-034).
+pub const MIN_SEGMENT_ANGLE_DEG: f64 = 0.5;
+/// Largest angle per tessellation segment: 90° (IFX-034).
+pub const MAX_SEGMENT_ANGLE_DEG: f64 = 90.0;
+
+/// Whether a chordal deviation lies in
+/// [`MIN_CHORD_DEVIATION`]..=[`MAX_CHORD_DEVIATION`] (IFX-034).
+pub fn valid_chord_deviation(deviation: f64) -> bool {
+    (MIN_CHORD_DEVIATION..=MAX_CHORD_DEVIATION).contains(&deviation)
+}
+
+/// Whether an angle per segment, in degrees, lies in
+/// [`MIN_SEGMENT_ANGLE_DEG`]..=[`MAX_SEGMENT_ANGLE_DEG`] (IFX-034).
+pub fn valid_segment_angle(degrees: f64) -> bool {
+    (MIN_SEGMENT_ANGLE_DEG..=MAX_SEGMENT_ANGLE_DEG).contains(&degrees)
+}
+
 /// Largest step or spacing of a drafting grid, in metres (INP-013).
 pub const MAX_GRID_SPACING: f64 = 1000.0;
 

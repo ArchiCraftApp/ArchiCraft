@@ -1187,6 +1187,10 @@ fn check_slot(project: &Project, kind: KindTag, slot: &DefaultsSlot) -> Result<(
     Ok(())
 }
 
+/// Checks the project settings of [`Command::SetSettings`]: among others
+/// the tessellation tolerances lie in their ranges
+/// ([`validate::valid_chord_deviation`], [`validate::valid_segment_angle`],
+/// IFX-034).
 fn check_settings(settings: &ProjectSettings) -> Result<(), CommandError> {
     if !settings.cut_plane_height.is_finite() || settings.cut_plane_height.abs() > MAX_CUT_PLANE_HEIGHT {
         return Err(CommandError::Invalid(
@@ -1194,7 +1198,7 @@ fn check_settings(settings: &ProjectSettings) -> Result<(), CommandError> {
         ));
     }
     let t = settings.tessellation;
-    if !(t.chord_deviation > 0.0 && t.chord_deviation <= 1.0) || !(t.max_angle_deg > 0.0 && t.max_angle_deg <= 90.0) {
+    if !validate::valid_chord_deviation(t.chord_deviation) || !validate::valid_segment_angle(t.max_angle_deg) {
         return Err(invalid("model-error-tessellation-range"));
     }
     if settings.units.length_decimals > MAX_DECIMALS || settings.units.angle_decimals > MAX_DECIMALS {

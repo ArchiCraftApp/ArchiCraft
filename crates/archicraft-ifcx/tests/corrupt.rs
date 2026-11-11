@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use archicraft_ifcx::ReadOutcome;
 use archicraft_ifcx::validate::{Problem, Severity};
 use archicraft_model::material::Rgb;
+use archicraft_model::project::Tessellation;
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
 use archicraft_model::template::{TemplateContext, template_tool_defaults};
 use archicraft_model::{Command, History, KindTag, Position, Project};
@@ -103,6 +104,14 @@ const FIXTURES: &[Fixture] = &[
             let settings = &mut project_attr(v)["settings"];
             settings["lengthDecimals"] = json!(12);
             settings["angleDecimals"] = json!(-1);
+        },
+    },
+    Fixture {
+        name: "out-of-range-tessellation",
+        damage: |v| {
+            let settings = &mut project_attr(v)["settings"];
+            settings["chordDeviation"] = json!(0.000_001);
+            settings["maxSegmentAngle"] = json!(180.0);
         },
     },
     Fixture {
@@ -649,6 +658,26 @@ fn out_of_range_decimals_are_clamped_and_reported() {
             r#"ifcx-out-of-range-replaced(key="angleDecimals", value=0)"#,
         ],
     );
+}
+
+/// PRJ-008, IFX-034: tessellation tolerances outside the ranges
+/// `SetSettings` accepts are reported and fall back to the defaults, so a
+/// file cannot hand the geometry a deviation it would have to cap.
+#[test]
+fn out_of_range_tessellation_settings_fall_back_to_the_defaults() {
+    let (outcome, value) = load("out-of-range-tessellation");
+    assert_eq!(outcome.project.settings.tessellation, Tessellation::default());
+    let root = root_path(&value);
+    for key in ["chordDeviation", "maxSegmentAngle"] {
+        problem(
+            &outcome,
+            &root,
+            &[
+                "ifcx-repaired(record=ifcx-record-project-settings",
+                &format!(r#"ifcx-default-used(reason=ifcx-field-out-of-range(key="{key}"))"#),
+            ],
+        );
+    }
 }
 
 /// The survey point the `bad-survey-point` fixture holds before its easting
