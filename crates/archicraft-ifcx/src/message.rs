@@ -55,6 +55,7 @@ pub const ALL_KEYS: &[&str] = &[
     "ifcx-migration-adds-texts",
     "ifcx-migration-nests-tool-parameters",
     "ifcx-migration-adds-profiles",
+    "ifcx-migration-adds-columns",
     // The load report (alpha/reader.rs): what happened to a record ...
     "ifcx-skipped",
     "ifcx-repaired",
@@ -142,6 +143,8 @@ pub const ALL_KEYS: &[&str] = &[
     "ifcx-text-styles-none",
     "ifcx-element-group-missing",
     "ifcx-element-profile-missing",
+    "ifcx-column-cut-horizontal",
+    "ifcx-column-profile-missing",
     "ifcx-relation-target-missing",
     "ifcx-relation-listed-twice",
     "ifcx-parameters-missing",

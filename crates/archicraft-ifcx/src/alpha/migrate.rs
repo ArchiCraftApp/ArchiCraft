@@ -75,6 +75,11 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         description: "ifcx-migration-adds-profiles",
         apply: adds_profiles,
     },
+    Migration {
+        from: 5,
+        description: "ifcx-migration-adds-columns",
+        apply: adds_columns,
+    },
 ];
 
 /// What the reader's migration did (IFX-062): the format the file was
@@ -146,12 +151,20 @@ fn nests_tool_parameters(file: &mut IfcxFile, _: &mut Vec<Problem>) {
 }
 
 /// Format 5 stores the project's profiles as `profiles` of
-/// `archicraft::project` (PRF-004), and the column and beam kinds that use
-/// them join it. A format 4 file has neither, and the reader reads a project
-/// without a `profiles` member as one without profiles, so nothing changes:
-/// the step exists so that a reader of format 4 flags the files of format 5
-/// as newer (IFX-062) instead of dropping their profiles.
+/// `archicraft::project` (PRF-004). A format 4 file has none, and the reader
+/// reads a project without a `profiles` member as one without profiles, so
+/// nothing changes: the step exists so that a reader of format 4 flags the
+/// files of format 5 as newer (IFX-062) instead of dropping their profiles.
 fn adds_profiles(_: &mut IfcxFile, _: &mut Vec<Problem>) {}
+
+/// Format 6 stores columns (COL-001): `archicraft::column` nodes, the column
+/// tool's defaults slot and the column counter. A format 5 file has none of
+/// them, and the reader gives a file of an earlier format the template's
+/// slot and counts the columns, none, without a report
+/// ([`super::kinds::unstored`]), so nothing changes: the step exists so that
+/// a reader of format 5 flags the files of format 6 as newer (IFX-062)
+/// instead of dropping their columns.
+fn adds_columns(_: &mut IfcxFile, _: &mut Vec<Problem>) {}
 
 /// The format version of the file and the path of its project node: the last
 /// entry with `archicraft::project` wins, as when the file is composed. Of
@@ -491,7 +504,7 @@ mod tests {
             "no relations in the file"
         );
         // The file's kinds and no others, however many codecs this build has:
-        // walls, slabs and the space and text tools' slots.
+        // walls, slabs and the space, column and text tools' slots.
         let declared: Vec<&String> = file
             .schemas
             .keys()
@@ -506,6 +519,7 @@ mod tests {
                 "archicraft::wall",
                 slab,
                 "archicraft::space",
+                "archicraft::column",
                 annotations::ATTRIBUTE,
             ]
         );
@@ -571,7 +585,7 @@ mod tests {
         let element = &file.schemas[schema::ELEMENT]["value"]["objectRestrictions"]["values"];
         assert_eq!(
             element["kind"]["enumRestrictions"]["options"],
-            serde_json::json!(["wall", "slab", "space", "dummy"])
+            serde_json::json!(["wall", "slab", "space", "column", "dummy"])
         );
     }
 
@@ -905,10 +919,25 @@ mod tests {
         assert!(problems.is_empty(), "{problems:#?}");
     }
 
+    /// IFX-062, COL-001: the columns step changes nothing of a minimal file:
+    /// a project of format 5 has no columns, no column tool slot and no
+    /// column counter, which the reader then takes from the template.
+    #[test]
+    fn the_columns_step_changes_nothing_of_a_minimal_file() {
+        let original = minimal(5, serde_json::json!({"toolDefaults": {}, "counters": {"wall": 0}}));
+        let mut file = original.clone();
+        let mut problems = Vec::new();
+        (step(5).apply)(&mut file, &mut problems);
+        assert_eq!(file, original);
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
     /// IFX-062: the tool defaults of a file written at format 3, migrated,
     /// are the members this release writes for the same project, in the
     /// same order: the annotation sample, the project of the frozen format 3
-    /// file.
+    /// file. The column tool's slot is not among them: format 6 added it,
+    /// and the reader gives a file of an earlier format the template's
+    /// ([`super::super::kinds::unstored`]).
     #[test]
     fn a_migrated_format_3_file_has_the_tool_defaults_this_release_writes() {
         let tool_defaults = |file: &IfcxFile| {
@@ -917,7 +946,9 @@ mod tests {
                 .iter()
                 .find_map(|n| n.attributes.get(schema::PROJECT))
                 .unwrap();
-            project["toolDefaults"].to_string()
+            let mut slots = project["toolDefaults"].as_object().unwrap().clone();
+            slots.shift_remove("column");
+            Value::Object(slots).to_string()
         };
         let format_3 = validate::parse(FORMAT_3).unwrap();
         let (migrated, report) = upgrade(&format_3, MIGRATIONS, FORMAT_VERSION, &mut Vec::new()).unwrap();

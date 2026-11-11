@@ -12,9 +12,11 @@
 //! FORMAT_VERSION 3, the format that added texts and text styles (ANN-007),
 //! `format-4.ifcx` one of the walls-and-slab golden as written at
 //! FORMAT_VERSION 4, the format that keeps each tool's parameters apart from
-//! the common members of its defaults slot (ELM-001), and `format-5.ifcx`
-//! the profile sample of tests/common as written at FORMAT_VERSION 5, the
-//! format that stores profiles (PRF-004).
+//! the common members of its defaults slot (ELM-001), `format-5.ifcx` the
+//! profile sample of tests/common as written at FORMAT_VERSION 5, the format
+//! that stores profiles (PRF-004), and `format-6.ifcx` one of the
+//! two-storey-shell-with-columns golden as written at FORMAT_VERSION 6, the
+//! format that stores columns (COL-001).
 
 #![allow(clippy::unwrap_used)]
 
@@ -26,8 +28,9 @@ use archicraft_geometry::ModelGeometry;
 use archicraft_ifcx::alpha::schema::FORMAT_VERSION;
 use archicraft_ifcx::{MigrationReport, Severity, WRITTEN_VERSION, WriteOptions, validate};
 use archicraft_model::glam::DVec2;
+use archicraft_model::kinds::{Anchor, ColumnCut, CrossSection};
 use archicraft_model::template::{default_metric_project, template_text_styles};
-use archicraft_model::{AnchorPos, BoundarySource, ElementKind, KindTag, Position};
+use archicraft_model::{AnchorPos, BoundarySource, ElementKind, IfcClass, KindTag, Position, TopLink};
 
 use common::options;
 
@@ -51,12 +54,13 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// an earlier release really wrote.
 #[test]
 fn frozen_format_fixtures_never_change() {
-    let frozen: [(&str, usize, u64); 5] = [
+    let frozen: [(&str, usize, u64); 6] = [
         ("format-1.ifcx", 36_786, 0x4b1c_2083_91de_01b8),
         ("format-2.ifcx", 43_980, 0xf858_2581_17c9_fc49),
         ("format-3.ifcx", 44_960, 0xbe04_c6db_2e23_1a7d),
         ("format-4.ifcx", 34_275, 0x2161_21be_a3d6_c392),
         ("format-5.ifcx", 33_049, 0xd060_e3f6_b35e_83b9),
+        ("format-6.ifcx", 72_561, 0x236c_5a9f_cc7a_30dc),
     ];
     let mut found: Vec<String> = std::fs::read_dir(formats_dir())
         .unwrap()
@@ -79,9 +83,9 @@ fn frozen_format_fixtures_never_change() {
 
 /// IFX-091, IFX-062, ANN-007: a file written at format 1 is migrated to
 /// the current format and loads into the project it holds, with no problem
-/// but one info per migration step, the steps that add spaces (SPC-001)
-/// and texts among them, gains the template's text styles and reports the
-/// IFCX version it was read as.
+/// but one info per migration step, the steps that add spaces (SPC-001),
+/// texts, profiles and columns among them, gains the template's text styles
+/// and reports the IFCX version it was read as.
 #[test]
 fn format_1_migrates_and_loads_into_the_expected_project() {
     let loaded = archicraft_ifcx::load(&format_1()).unwrap();
@@ -97,6 +101,7 @@ fn format_1_migrates_and_loads_into_the_expected_project() {
         "ifcx-migration-adds-texts",
         "ifcx-migration-nests-tool-parameters",
         "ifcx-migration-adds-profiles",
+        "ifcx-migration-adds-columns",
     ] {
         assert!(
             steps.iter().any(|s| s.ends_with(&format!("change={change})"))),
@@ -336,14 +341,13 @@ fn format_v1_files_migrate_with_a_report() {
     assert_eq!(reloaded.migrated, None);
 }
 
-/// IFX-062: the frozen file of the format before this release's, the
-/// walls-and-slab sample at format 4, loads into the project the current
-/// golden file of that sample holds, with a report of the one step to
-/// [`FORMAT_VERSION`] that adds profiles, its one info problem and nothing
-/// else; saved with the golden file's header options, it is the golden file
-/// byte for byte.
+/// IFX-062: the frozen file of format 4, the walls-and-slab sample, loads
+/// into the project the current golden file of that sample holds, with a
+/// report of the steps to [`FORMAT_VERSION`] that add profiles and columns,
+/// their info problems and nothing else; saved with the golden file's header
+/// options, it is the golden file byte for byte.
 #[test]
-fn the_previous_format_migrates_to_the_golden_file() {
+fn the_format_4_file_migrates_to_the_golden_file() {
     let bytes = std::fs::read(formats_dir().join("format-4.ifcx")).unwrap();
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
     let golden_bytes = golden("walls-and-slab");
@@ -356,7 +360,7 @@ fn the_previous_format_migrates_to_the_golden_file() {
         Some(MigrationReport {
             from: 4,
             to: FORMAT_VERSION,
-            steps: vec!["ifcx-migration-adds-profiles"],
+            steps: vec!["ifcx-migration-adds-profiles", "ifcx-migration-adds-columns"],
         })
     );
     let infos: Vec<String> = loaded.problems.iter().map(|p| p.message.to_string()).collect();
@@ -365,6 +369,39 @@ fn the_previous_format_migrates_to_the_golden_file() {
     assert!(
         saved_like(&loaded.project, &golden_bytes) == golden_bytes,
         "not the golden file"
+    );
+}
+
+/// IFX-062, COL-001: the frozen file of the format before this release's,
+/// the profile sample at format 5, loads into the profile sample, with the
+/// column tool's template defaults and no column counted, with a report of
+/// the one step to [`FORMAT_VERSION`] that adds columns, its one info
+/// problem and nothing else; saved with the file's header options, it is
+/// the file this release writes for the sample.
+#[test]
+fn the_previous_format_migrates_to_the_project_it_holds() {
+    let bytes = std::fs::read(formats_dir().join("format-5.ifcx")).unwrap();
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let mut sample = common::profile_sample();
+    sample.revision = 0;
+    sample.data_version = 7;
+    // The sample's column slot is the template's, as the reader gives it.
+    assert_eq!(loaded.project, sample);
+    assert_eq!(loaded.project.counters.get(KindTag::Column), 0);
+    assert_eq!(
+        loaded.migrated,
+        Some(MigrationReport {
+            from: 5,
+            to: FORMAT_VERSION,
+            steps: vec!["ifcx-migration-adds-columns"],
+        })
+    );
+    let infos: Vec<String> = loaded.problems.iter().map(|p| p.message.to_string()).collect();
+    assert_eq!(infos, step_infos(loaded.migrated.as_ref().unwrap()));
+    assert!(loaded.problems.iter().all(|p| p.severity == Severity::Info));
+    assert!(
+        saved_like(&loaded.project, &bytes) == saved_like(&sample, &bytes),
+        "not the file this release writes"
     );
 }
 
@@ -461,6 +498,81 @@ fn format_5_loads_its_profiles() {
     assert_eq!(regions, [("Reinforced concrete", 4, 1), ("Steel", 4, 0)]);
     assert_eq!(project.profiles[10].catalogue.as_deref(), Some("IPE 200"));
     assert!(project.profiles[..10].iter().all(|p| p.catalogue.is_none()));
+    assert!(project.integrity_problems().is_empty());
+}
+
+/// IFX-091, IFX-062, COL-001, COL-003: a file written at format 6 loads
+/// into the project it holds with no problem but the reports of later
+/// migration steps: its six columns with their sections, anchors,
+/// rotations, tops, cuts and classes, the profiles of the two profile
+/// columns, and the column counter.
+#[test]
+fn format_6_loads_its_columns() {
+    let bytes = std::fs::read(formats_dir().join("format-6.ifcx")).unwrap();
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(
+        loaded.problems.iter().all(|p| p.severity == Severity::Info),
+        "{:#?}",
+        loaded.problems
+    );
+    let project = &loaded.project;
+    let mut columns: Vec<_> = project
+        .elements
+        .values()
+        .filter_map(|e| Some((e.name.as_str(), e.ifc_class, e.as_column()?)))
+        .collect();
+    columns.sort_by_key(|(name, ..)| *name);
+    let names: Vec<&str> = columns.iter().map(|(name, ..)| *name).collect();
+    assert_eq!(names, ["C-001", "C-002", "C-003", "C-004", "C-005", "C-006"]);
+    let template = CrossSection::Rectangular {
+        width: 0.3,
+        height: 0.3,
+    };
+    let (_, class, first) = columns[0];
+    assert_eq!(
+        (class, first.section, first.anchor),
+        (IfcClass::Column, template, Anchor::Centre)
+    );
+    assert_eq!(
+        first.link.top,
+        TopLink::Relative {
+            storeys: 1,
+            offset: 0.0
+        }
+    );
+    let (_, _, round) = columns[1];
+    assert_eq!(round.section, CrossSection::Circular { diameter: 0.35 });
+    assert_eq!(round.rotation, 0.5);
+    assert!(matches!(round.link.top, TopLink::Storey { offset, .. } if offset == -0.25));
+    let (_, class, member) = columns[2];
+    assert_eq!(class, IfcClass::Member);
+    assert_eq!(
+        member.section,
+        CrossSection::Rectangular {
+            width: 0.1 + 0.2,
+            height: 0.2
+        }
+    );
+    assert_eq!(member.anchor, Anchor::TopRight);
+    assert_eq!(member.rotation, std::f64::consts::FRAC_PI_6);
+    assert_eq!(
+        (member.link.base_offset, member.link.top),
+        (0.15, TopLink::Fixed { height: 2.6 })
+    );
+    assert_eq!(
+        (member.top_cut, member.bottom_cut),
+        (ColumnCut::Angle(0.3), ColumnCut::Angle(-0.2))
+    );
+    assert_eq!(project.material(member.material).unwrap().name, "Steel");
+    let profile_name = |section: CrossSection| project.profile(section.profile().unwrap()).unwrap().name.as_str();
+    let (_, _, i_200) = columns[4];
+    assert_eq!(profile_name(i_200.section), "I 200");
+    assert_eq!(i_200.anchor, Anchor::ProfileOrigin);
+    assert_eq!(i_200.rotation, std::f64::consts::FRAC_PI_2);
+    let (_, _, composite) = columns[5];
+    assert_eq!(profile_name(composite.section), "Composite");
+    assert_eq!(composite.anchor, Anchor::Centre);
+    assert_eq!(project.counters.get(KindTag::Column), 6);
     assert!(project.integrity_problems().is_empty());
 }
 

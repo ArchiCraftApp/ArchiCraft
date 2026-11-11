@@ -968,17 +968,19 @@ fn read_group_counter(map: Option<&Object>, project: &Project, path: &str, probl
 /// that name no kind with a tool are ignored and reported. A kind the file's
 /// format `written` does not store, a placeholder or a kind of a later
 /// format, has no slot in the file: it gets the template's slot without a
-/// report. A slot whose text style is not one of `text_styles` gets the
-/// first of them, reported (ANN-007).
+/// report. A slot whose text style is not one of the project's gets the
+/// first of them, reported (ANN-007). `project` is the project read so far,
+/// with the resources the slots refer to (its materials, layers, text styles
+/// and profiles).
 fn read_tool_defaults(
     map: Option<&Object>,
-    resources: (&[Material], &[Layer], &[TextStyle]),
+    project: &Project,
     written: u32,
     path: &str,
     problems: &mut Vec<Problem>,
 ) -> ToolDefaults {
-    let (materials, layers, text_styles) = resources;
-    let template = template_tool_defaults(&TemplateContext::new(materials, layers));
+    let text_styles = project.text_styles.as_slice();
+    let template = template_tool_defaults(&TemplateContext::new(&project.materials, &project.layers));
     let mut report = Report::new(problems, path, Message::new("ifcx-record-tool-defaults"));
     let Some(map) = map else {
         return template
@@ -998,7 +1000,7 @@ fn read_tool_defaults(
                 default.clone()
             } else {
                 match object(map, kind.code()) {
-                    Ok(slot) => read_defaults_slot(slot, default, materials, layers, &mut report),
+                    Ok(slot) => read_defaults_slot(slot, default, &ReadContext { project }, &mut report),
                     Err(e) => {
                         report.repaired(Message::new("ifcx-tool-template-used").nested("reason", e));
                         default.clone()
@@ -1029,14 +1031,15 @@ fn with_text_style(mut slot: DefaultsSlot, text_styles: &[TextStyle], report: &m
 /// replaced by the default's (ELM-011), and a predefined type the class does
 /// not offer is left out (IFX-024). The kind's codec reads the parameters
 /// from the slot's `parameters` (format 4): without them the slot keeps
-/// `default`'s, reported once.
+/// `default`'s, reported once. The material and the layer are checked
+/// against the project read so far, `context`.
 fn read_defaults_slot(
     map: &Object,
     default: &DefaultsSlot,
-    materials: &[Material],
-    layers: &[Layer],
+    context: &ReadContext<'_>,
     report: &mut Report<'_>,
 ) -> DefaultsSlot {
+    let (materials, layers) = (&context.project.materials, &context.project.layers);
     let kind = default.tag();
     let parameters = object(map, "parameters")
         .map_err(|e| report.repaired(Message::new("ifcx-tool-parameters-template-used").nested("reason", e)))
@@ -1073,7 +1076,7 @@ fn read_defaults_slot(
     let predefined_type = predefined_type(map, kind, ifc_class, report);
     let mut payload = kinds::codec(kind)
         .zip(parameters)
-        .and_then(|(codec, parameters)| codec.read_slot(parameters, &default.kind, report))
+        .and_then(|(codec, parameters)| codec.read_slot(parameters, &default.kind, context, report))
         .unwrap_or_else(|| default.kind.clone());
     if let Some(material) = material {
         payload.set_material(material);
@@ -1519,13 +1522,8 @@ fn read_migrated<A: AttributeValue>(
     // PRF-004: the profiles, checked against the materials, before the
     // tool defaults and the elements, which use them.
     project.profiles = profiles::read(&data.profile_records, &project, root_path, &mut problems);
-    project.tool_defaults = read_tool_defaults(
-        data.tool_defaults.as_ref(),
-        (&project.materials, &project.layers, &project.text_styles),
-        written,
-        root_path,
-        &mut problems,
-    );
+    project.tool_defaults =
+        read_tool_defaults(data.tool_defaults.as_ref(), &project, written, root_path, &mut problems);
 
     let mut seen = HashSet::new();
     // The elements read, in file order, for the relations pass below.
@@ -1630,7 +1628,7 @@ mod tests {
 
     fn read(map: &Object, default: &DefaultsSlot, p: &Project, problems: &mut Vec<Problem>) -> DefaultsSlot {
         let mut report = Report::new(problems, "test", Message::new("ifcx-record-tool-defaults"));
-        read_defaults_slot(map, default, &p.materials, &p.layers, &mut report)
+        read_defaults_slot(map, default, &ReadContext { project: p }, &mut report)
     }
 
     /// SPC-001, ANN-007 (preparation): a slot of a kind without a material

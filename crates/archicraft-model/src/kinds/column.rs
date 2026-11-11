@@ -31,10 +31,11 @@ use super::member::{Anchor, CrossSection};
 use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, Vertical, VerticalLink, plan_bounds_of, vertical};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
 use crate::fields::FieldSpec;
-use crate::ids::{MaterialId, ProfileId, StoreyId};
+use crate::ids::{ElementId, MaterialId, ProfileId, StoreyId};
 use crate::message::Message;
 use crate::profile::{Profile, ProfileUsage};
 use crate::project::{DefaultsSlot, Project};
+use crate::samples::FixtureBuilder;
 use crate::storey::StoreyList;
 use crate::template::TemplateContext;
 use crate::transform::{PlanTransform, TransformError};
@@ -201,6 +202,26 @@ impl Project {
             Some(column) if column.section.profile().is_some() => column.plan_bounds_with(column.profile(self)),
             _ => element.kind.plan_bounds(),
         }
+    }
+}
+
+impl FixtureBuilder {
+    /// A column at `position` on `storey`, turned by `rotation` radians,
+    /// with the column tool's defaults (ELM-001) as `change` leaves them.
+    /// Here rather than with the builder's other shorthands, because only
+    /// this module names the kind (SRS 3.2).
+    pub fn column(
+        &mut self,
+        storey: StoreyId,
+        position: DVec2,
+        rotation: f64,
+        change: impl FnOnce(&mut Column),
+    ) -> ElementId {
+        let mut element = self.project().new_column(storey, position, rotation, 0);
+        if let Some(column) = element.as_column_mut() {
+            change(column);
+        }
+        self.element(storey, element.kind)
     }
 }
 

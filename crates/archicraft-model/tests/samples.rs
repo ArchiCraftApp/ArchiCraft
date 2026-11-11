@@ -65,7 +65,8 @@ fn the_catalogue_lists_the_reference_samples() {
             "walls-and-slab",
             "two-storey-shell",
             "two-storey-shell-with-spaces",
-            "annotations"
+            "annotations",
+            "two-storey-shell-with-columns"
         ]
     );
     let mut seen = HashSet::new();

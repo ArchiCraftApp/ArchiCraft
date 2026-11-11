@@ -40,7 +40,8 @@ added spaces; `format-3.ifcx`: annotations at FORMAT_VERSION 3, which added text
 project's text styles; `format-4.ifcx`: walls-and-slab at FORMAT_VERSION 4, which keeps each tool's
 parameters under `parameters` of its defaults slot; `format-5.ifcx`: the profile sample of the IFCX
 tests, `profile_sample` in `tests/common/mod.rs`, at FORMAT_VERSION 5, which added the project's
-profiles), and every later release must keep loading it with no problem beyond the info
+profiles; `format-6.ifcx`: two-storey-shell-with-columns at FORMAT_VERSION 6, which added columns),
+and every later release must keep loading it with no problem beyond the info
 reports of its migration steps (`cargo test -p archicraft-ifcx --test formats`, IFX-090,
 IFX-091). They are frozen: no bless
 loop writes them, and `frozen_format_fixtures_never_change` fails with “frozen format fixture

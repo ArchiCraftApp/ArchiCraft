@@ -2983,8 +2983,9 @@ fn a_migrated_file_opens_with_the_migration_in_the_load_report() {
          Saving stores it in format {current}."
     ));
     harness.get_by_label_contains("migrated from format 3 to format 4: keeps each tool's parameters apart");
+    harness.get_by_label_contains("migrated from format 4 to format 5: adds profiles");
     harness.get_by_label_contains(&format!(
-        "migrated from format {} to format {current}: adds profiles, columns and beams",
+        "migrated from format {} to format {current}: adds columns",
         current - 1
     ));
     harness.get_by_label("OK").click();

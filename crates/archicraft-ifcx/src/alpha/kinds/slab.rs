@@ -49,7 +49,7 @@ impl KindCodec for Slab {
             offset: 0.0,
             material: context.project.materials[0].id,
         };
-        let mut slab = Self::read_slot(attr, &fallback, report);
+        let mut slab = Self::read_slot(attr, &fallback, context, report);
         slab.material = read_material(attr, context, report);
         Ok(slab)
     }
@@ -73,7 +73,7 @@ impl KindCodec for Slab {
         map
     }
 
-    fn read_slot(attr: &Object, default: &Self, report: &mut Report<'_>) -> Self {
+    fn read_slot(attr: &Object, default: &Self, _context: &ReadContext<'_>, report: &mut Report<'_>) -> Self {
         Slab {
             thickness: report.or(reader::real(attr, "thickness"), default.thickness),
             reference: report.or(

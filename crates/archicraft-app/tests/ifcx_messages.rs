@@ -59,6 +59,7 @@ fn representatives() -> Vec<Message> {
         "ifcx-element-layer-missing",
         "ifcx-element-group-missing",
         "ifcx-element-profile-missing",
+        "ifcx-column-profile-missing",
         "ifcx-no-project",
         "ifcx-project-not-object",
         "ifcx-no-site",
@@ -120,6 +121,7 @@ fn representatives() -> Vec<Message> {
         Message::new("ifcx-migration-adds-texts"),
         Message::new("ifcx-migration-nests-tool-parameters"),
         Message::new("ifcx-migration-adds-profiles"),
+        Message::new("ifcx-migration-adds-columns"),
         Message::new("ifcx-skipped")
             .nested("record", Message::new("ifcx-record-project"))
             .nested("reason", reason()),
@@ -181,6 +183,7 @@ fn representatives() -> Vec<Message> {
         text("ifcx-element-material-missing", "name"),
         text("ifcx-profile-material-missing", "name"),
         key("ifcx-profile-member-unused"),
+        key("ifcx-column-cut-horizontal").angle("max", std::f64::consts::FRAC_PI_3),
         count("ifcx-profile-region", "index").nested("reason", reason()),
         text("ifcx-text-style-missing", "name"),
         text("ifcx-tool-text-style-missing", "name"),

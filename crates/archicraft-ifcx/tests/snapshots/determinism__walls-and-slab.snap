@@ -917,6 +917,196 @@ expression: review_view(&bytes)
                         }
                       }
                     }
+                  },
+                  "column": {
+                    "dataType": "Object",
+                    "objectRestrictions": {
+                      "values": {
+                        "layer": {
+                          "dataType": "String"
+                        },
+                        "position": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "undefined",
+                              "exterior",
+                              "interior"
+                            ]
+                          }
+                        },
+                        "structuralFunction": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "undefined",
+                              "load-bearing",
+                              "non-load-bearing"
+                            ]
+                          },
+                          "optional": true
+                        },
+                        "ifcClass": {
+                          "dataType": "String"
+                        },
+                        "predefinedType": {
+                          "dataType": "Enum",
+                          "enumRestrictions": {
+                            "options": [
+                              "FLOOR",
+                              "ROOF",
+                              "LANDING",
+                              "BASESLAB",
+                              "PAD_FOOTING",
+                              "STRIP_FOOTING"
+                            ]
+                          },
+                          "optional": true
+                        },
+                        "parameters": {
+                          "dataType": "Object",
+                          "objectRestrictions": {
+                            "values": {
+                              "section": {
+                                "dataType": "Object",
+                                "objectRestrictions": {
+                                  "values": {
+                                    "kind": {
+                                      "dataType": "Enum",
+                                      "enumRestrictions": {
+                                        "options": [
+                                          "rectangular",
+                                          "circular",
+                                          "profile"
+                                        ]
+                                      }
+                                    },
+                                    "width": {
+                                      "dataType": "Real",
+                                      "quantityKind": "Length",
+                                      "optional": true
+                                    },
+                                    "height": {
+                                      "dataType": "Real",
+                                      "quantityKind": "Length",
+                                      "optional": true
+                                    },
+                                    "diameter": {
+                                      "dataType": "Real",
+                                      "quantityKind": "Length",
+                                      "optional": true
+                                    },
+                                    "profile": {
+                                      "dataType": "String",
+                                      "optional": true
+                                    }
+                                  }
+                                }
+                              },
+                              "anchor": {
+                                "dataType": "Enum",
+                                "enumRestrictions": {
+                                  "options": [
+                                    "top-left",
+                                    "top-centre",
+                                    "top-right",
+                                    "left",
+                                    "centre",
+                                    "right",
+                                    "bottom-left",
+                                    "bottom-centre",
+                                    "bottom-right",
+                                    "profile-origin"
+                                  ]
+                                }
+                              },
+                              "rotation": {
+                                "dataType": "Real",
+                                "quantityKind": "Plane angle"
+                              },
+                              "baseOffset": {
+                                "dataType": "Real",
+                                "quantityKind": "Length"
+                              },
+                              "top": {
+                                "dataType": "Object",
+                                "objectRestrictions": {
+                                  "values": {
+                                    "link": {
+                                      "dataType": "Enum",
+                                      "enumRestrictions": {
+                                        "options": [
+                                          "fixed",
+                                          "storey",
+                                          "relative"
+                                        ]
+                                      }
+                                    },
+                                    "value": {
+                                      "dataType": "Real",
+                                      "quantityKind": "Length"
+                                    },
+                                    "storey": {
+                                      "dataType": "Reference",
+                                      "optional": true
+                                    },
+                                    "relative": {
+                                      "dataType": "Integer",
+                                      "optional": true
+                                    }
+                                  }
+                                }
+                              },
+                              "topCut": {
+                                "dataType": "Object",
+                                "objectRestrictions": {
+                                  "values": {
+                                    "kind": {
+                                      "dataType": "Enum",
+                                      "enumRestrictions": {
+                                        "options": [
+                                          "horizontal",
+                                          "angle"
+                                        ]
+                                      }
+                                    },
+                                    "angle": {
+                                      "dataType": "Real",
+                                      "quantityKind": "Plane angle",
+                                      "optional": true
+                                    }
+                                  }
+                                }
+                              },
+                              "bottomCut": {
+                                "dataType": "Object",
+                                "objectRestrictions": {
+                                  "values": {
+                                    "kind": {
+                                      "dataType": "Enum",
+                                      "enumRestrictions": {
+                                        "options": [
+                                          "horizontal",
+                                          "angle"
+                                        ]
+                                      }
+                                    },
+                                    "angle": {
+                                      "dataType": "Real",
+                                      "quantityKind": "Plane angle",
+                                      "optional": true
+                                    }
+                                  }
+                                }
+                              },
+                              "material": {
+                                "dataType": "String"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -962,6 +1152,9 @@ expression: review_view(&bytes)
                     "dataType": "Integer"
                   },
                   "text": {
+                    "dataType": "Integer"
+                  },
+                  "column": {
                     "dataType": "Integer"
                   },
                   "group": {
@@ -1031,7 +1224,8 @@ expression: review_view(&bytes)
                 "options": [
                   "wall",
                   "slab",
-                  "space"
+                  "space",
+                  "column"
                 ]
               }
             },
@@ -1357,6 +1551,159 @@ expression: review_view(&bytes)
         }
       }
     },
+    "archicraft::column": {
+      "value": {
+        "dataType": "Object",
+        "objectRestrictions": {
+          "values": {
+            "position": {
+              "dataType": "Array",
+              "arrayRestrictions": {
+                "value": {
+                  "dataType": "Real",
+                  "quantityKind": "Length"
+                }
+              }
+            },
+            "section": {
+              "dataType": "Object",
+              "objectRestrictions": {
+                "values": {
+                  "kind": {
+                    "dataType": "Enum",
+                    "enumRestrictions": {
+                      "options": [
+                        "rectangular",
+                        "circular",
+                        "profile"
+                      ]
+                    }
+                  },
+                  "width": {
+                    "dataType": "Real",
+                    "quantityKind": "Length",
+                    "optional": true
+                  },
+                  "height": {
+                    "dataType": "Real",
+                    "quantityKind": "Length",
+                    "optional": true
+                  },
+                  "diameter": {
+                    "dataType": "Real",
+                    "quantityKind": "Length",
+                    "optional": true
+                  },
+                  "profile": {
+                    "dataType": "String",
+                    "optional": true
+                  }
+                }
+              }
+            },
+            "anchor": {
+              "dataType": "Enum",
+              "enumRestrictions": {
+                "options": [
+                  "top-left",
+                  "top-centre",
+                  "top-right",
+                  "left",
+                  "centre",
+                  "right",
+                  "bottom-left",
+                  "bottom-centre",
+                  "bottom-right",
+                  "profile-origin"
+                ]
+              }
+            },
+            "rotation": {
+              "dataType": "Real",
+              "quantityKind": "Plane angle"
+            },
+            "baseOffset": {
+              "dataType": "Real",
+              "quantityKind": "Length"
+            },
+            "top": {
+              "dataType": "Object",
+              "objectRestrictions": {
+                "values": {
+                  "link": {
+                    "dataType": "Enum",
+                    "enumRestrictions": {
+                      "options": [
+                        "fixed",
+                        "storey",
+                        "relative"
+                      ]
+                    }
+                  },
+                  "value": {
+                    "dataType": "Real",
+                    "quantityKind": "Length"
+                  },
+                  "storey": {
+                    "dataType": "Reference",
+                    "optional": true
+                  },
+                  "relative": {
+                    "dataType": "Integer",
+                    "optional": true
+                  }
+                }
+              }
+            },
+            "topCut": {
+              "dataType": "Object",
+              "objectRestrictions": {
+                "values": {
+                  "kind": {
+                    "dataType": "Enum",
+                    "enumRestrictions": {
+                      "options": [
+                        "horizontal",
+                        "angle"
+                      ]
+                    }
+                  },
+                  "angle": {
+                    "dataType": "Real",
+                    "quantityKind": "Plane angle",
+                    "optional": true
+                  }
+                }
+              }
+            },
+            "bottomCut": {
+              "dataType": "Object",
+              "objectRestrictions": {
+                "values": {
+                  "kind": {
+                    "dataType": "Enum",
+                    "enumRestrictions": {
+                      "options": [
+                        "horizontal",
+                        "angle"
+                      ]
+                    }
+                  },
+                  "angle": {
+                    "dataType": "Real",
+                    "quantityKind": "Plane angle",
+                    "optional": true
+                  }
+                }
+              }
+            },
+            "material": {
+              "dataType": "Reference"
+            }
+          }
+        }
+      }
+    },
     "archicraft::annotations": {
       "value": {
         "dataType": "Array",
@@ -1544,7 +1891,7 @@ expression: review_view(&bytes)
         },
         "bsi::ifc::prop::Name": "Walls and slab",
         "archicraft::project": {
-          "formatVersion": "5",
+          "formatVersion": "6",
           "info": {
             "number": "",
             "client": "",
@@ -2081,6 +2428,33 @@ expression: review_view(&bytes)
                 "angle": 0,
                 "style": "4959959b-c6ef-54f4-a7a6-93144f276435"
               }
+            },
+            "column": {
+              "layer": "7d2e2fcf-385e-5952-ba6b-743fd7b93c56",
+              "position": "undefined",
+              "ifcClass": "IfcColumn",
+              "parameters": {
+                "section": {
+                  "kind": "rectangular",
+                  "width": 0.3,
+                  "height": 0.3
+                },
+                "anchor": "centre",
+                "rotation": 0,
+                "baseOffset": 0,
+                "top": {
+                  "link": "relative",
+                  "value": 0,
+                  "relative": 1
+                },
+                "topCut": {
+                  "kind": "horizontal"
+                },
+                "bottomCut": {
+                  "kind": "horizontal"
+                },
+                "material": "9c48db78-9ac7-5f7f-9189-4d72b280d4f2"
+              }
             }
           },
           "views": [
@@ -2099,7 +2473,8 @@ expression: review_view(&bytes)
             "wall": 4,
             "slab": 1,
             "space": 0,
-            "text": 0
+            "text": 0,
+            "column": 0
           }
         }
       }

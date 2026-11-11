@@ -66,7 +66,7 @@ impl KindCodec for Dummy {
             reader::field(attr, "origin").and_then(reader::point)?,
             reader::field(attr, "size").and_then(reader::point)?,
         );
-        let mut dummy = Self::read_slot(attr, &fallback, report);
+        let mut dummy = Self::read_slot(attr, &fallback, context, report);
         dummy.material = attr
             .contains_key("material")
             .then(|| read_material(attr, context, report));
@@ -103,7 +103,7 @@ impl KindCodec for Dummy {
         map
     }
 
-    fn read_slot(attr: &Object, default: &Self, report: &mut Report<'_>) -> Self {
+    fn read_slot(attr: &Object, default: &Self, _context: &ReadContext<'_>, report: &mut Report<'_>) -> Self {
         Dummy {
             link: VerticalLink {
                 base_offset: report.or(reader::real(attr, "baseOffset"), default.link.base_offset),

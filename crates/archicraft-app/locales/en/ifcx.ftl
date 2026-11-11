@@ -53,7 +53,8 @@ ifcx-migrated = migrated from format { $from_text } to format { $to_text }: { $c
 ifcx-migration-adds-spaces = adds space elements
 ifcx-migration-adds-texts = adds texts and the template's text styles
 ifcx-migration-nests-tool-parameters = keeps each tool's parameters apart from its layer, position and classification
-ifcx-migration-adds-profiles = adds profiles, columns and beams
+ifcx-migration-adds-profiles = adds profiles
+ifcx-migration-adds-columns = adds columns
 
 ## The load report (PRJ-008): “<record> skipped: <reason>” and
 ## “<record> repaired: <reason>”.
@@ -153,6 +154,8 @@ ifcx-text-styles-template-used = { $reason }; the template's text styles are use
 ifcx-text-styles-none = the project has no valid text style
 ifcx-element-group-missing = its group does not exist; it is ungrouped
 ifcx-element-profile-missing = its profile does not exist; it is left out
+ifcx-column-profile-missing = its profile does not exist; the column tool's template section is used
+ifcx-column-cut-horizontal = the angle of “{ $key }” is not below { $max }; that end is cut horizontally
 ifcx-relation-target-missing = its { $relation } relation to { $text } names no element; it is dropped
 ifcx-relation-listed-twice = its { $relation } relation is listed twice; it is read once
 ifcx-parameters-missing = { $kind } parameters are missing

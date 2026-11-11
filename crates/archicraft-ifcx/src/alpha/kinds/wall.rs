@@ -58,7 +58,7 @@ impl KindCodec for Wall {
             },
             material: context.project.materials[0].id,
         };
-        let mut wall = Self::read_slot(attr, &fallback, report);
+        let mut wall = Self::read_slot(attr, &fallback, context, report);
         wall.material = read_material(attr, context, report);
         Ok(wall)
     }
@@ -82,7 +82,7 @@ impl KindCodec for Wall {
         map
     }
 
-    fn read_slot(attr: &Object, default: &Self, report: &mut Report<'_>) -> Self {
+    fn read_slot(attr: &Object, default: &Self, _context: &ReadContext<'_>, report: &mut Report<'_>) -> Self {
         Wall {
             thickness: report.or(reader::real(attr, "thickness"), default.thickness),
             reference_line: report.or(read_reference_line(attr), default.reference_line),

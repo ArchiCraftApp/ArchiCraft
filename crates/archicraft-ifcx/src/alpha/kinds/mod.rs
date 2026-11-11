@@ -39,8 +39,10 @@ use crate::message::Message;
 pub mod annotations;
 pub(crate) mod common;
 
-/// What the reader knows when it reads an element's parameters: the project
-/// read so far, with its resources and storeys but not yet its elements.
+/// What the reader knows when it reads an element's parameters or a tool's
+/// defaults slot: the project read so far, with its resources (materials,
+/// layers, text styles and profiles) and storeys, but not yet its tool
+/// defaults or elements.
 pub(crate) struct ReadContext<'a> {
     pub project: &'a Project,
 }
@@ -118,8 +120,9 @@ pub(crate) trait KindCodec: Sized {
     fn write_slot(&self) -> Map<String, Value>;
 
     /// The slot's parameters, with `default`'s values for missing or invalid
-    /// members, reported, and its placeholder geometry.
-    fn read_slot(attr: &Object, default: &Self, report: &mut Report<'_>) -> Self;
+    /// members, reported, and its placeholder geometry. `context` holds the
+    /// resources the parameters refer to, such as a column's profile.
+    fn read_slot(attr: &Object, default: &Self, context: &ReadContext<'_>, report: &mut Report<'_>) -> Self;
 }
 
 /// The object-safe form of a [`KindCodec`], one per kind in [`CODECS`]. The
@@ -139,7 +142,13 @@ pub(crate) trait Codec: Sync {
     fn node_name<'k>(&self, kind: &'k ElementKind) -> Option<&'k str>;
     fn write_slot(&self, kind: &ElementKind) -> Option<Map<String, Value>>;
     fn read(&self, attr: &Object, context: &ReadContext<'_>, report: &mut Report<'_>) -> Result<ElementKind, Message>;
-    fn read_slot(&self, attr: &Object, default: &ElementKind, report: &mut Report<'_>) -> Option<ElementKind>;
+    fn read_slot(
+        &self,
+        attr: &Object,
+        default: &ElementKind,
+        context: &ReadContext<'_>,
+        report: &mut Report<'_>,
+    ) -> Option<ElementKind>;
 }
 
 /// [`Codec`] for the payload type `P`, with its kind and its place in the
@@ -203,8 +212,14 @@ impl<P: KindCodec + Into<ElementKind>> Codec for Erased<P> {
         P::read(attr, context, report).map(Into::into)
     }
 
-    fn read_slot(&self, attr: &Object, default: &ElementKind, report: &mut Report<'_>) -> Option<ElementKind> {
-        (self.of)(default).map(|d| P::read_slot(attr, d, report).into())
+    fn read_slot(
+        &self,
+        attr: &Object,
+        default: &ElementKind,
+        context: &ReadContext<'_>,
+        report: &mut Report<'_>,
+    ) -> Option<ElementKind> {
+        (self.of)(default).map(|d| P::read_slot(attr, d, context, report).into())
     }
 }
 

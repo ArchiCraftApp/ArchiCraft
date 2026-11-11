@@ -123,9 +123,19 @@ fn written_meshes_are_closed_bodies() {
     for project in samples() {
         let file = validate::parse(&save(&project)).unwrap();
         let meshes = meshes(&file);
-        // A body-less element, like a text (ANN-007), has no mesh.
-        let bodies = project.elements.values().filter(|e| e.kind.descriptor().has_body);
-        assert_eq!(meshes.len(), bodies.count());
+        // One mesh per body part: a column of a custom profile has one per
+        // region (PRF-004), a body-less element, like a text (ANN-007), none.
+        let geometry = ModelGeometry::evaluate(&project);
+        for e in project.elements.values().filter(|e| e.kind.descriptor().has_body) {
+            assert!(geometry.get(e.id).is_some_and(|g| !g.parts.is_empty()), "{}", e.name);
+        }
+        let parts: usize = project
+            .elements
+            .keys()
+            .filter_map(|id| geometry.get(*id))
+            .map(|g| g.parts.len())
+            .sum();
+        assert_eq!(meshes.len(), parts);
         for (path, mesh) in meshes {
             assert_eq!(mesh.check_closed(), Ok(()), "IFX-032 for {path}");
         }
