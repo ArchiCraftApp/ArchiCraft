@@ -999,9 +999,10 @@ mod tests {
     }
 
     /// MEA-001: the measure tool creates no model element. After 50
-    /// measurements of each mode, finished by Enter, by the angle's third
-    /// point and cleared by Esc, the project revision and the undo count are
-    /// unchanged and no effect asked to run a command.
+    /// measurements of each mode, each one there after its three clicks,
+    /// finished by Enter, by the angle's third point and cleared by Esc, the
+    /// project revision and the undo count are unchanged and no effect asked
+    /// to run a command.
     #[test]
     fn measuring_changes_no_model() {
         let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
@@ -1017,6 +1018,7 @@ mod tests {
                 for p in [(x, 10.0), (x + 3.0, 14.0), (x + 3.0, 20.0)] {
                     effects.push(feed(&mut ws, Feed::Click, DVec2::new(p.0, p.1), &targets));
                 }
+                assert!(ws.tool.measure.measurement().is_some(), "the clicks reach the tool");
                 for key in [KeyInput::Enter, KeyInput::Escape] {
                     effects.push(feed(&mut ws, Feed::Key(key), DVec2::new(x, 30.0), &targets));
                 }

@@ -558,8 +558,8 @@ fn add_wall(harness: &mut Harness<'static, ArchiCraftApp>) {
 /// UI-011: the toolbar lies directly below the menu bar and above the
 /// properties strip, and its only buttons are Save, then Undo and Redo
 /// (PRJ-003), Pick up and Inject parameters (ELM-003), the Measure tool
-/// (MEA-001), then Group and Ungroup (ELM-015), each its command's icon and
-/// label.
+/// (MEA-001), then Group and Ungroup (ELM-015), each its command's icon
+/// and label.
 #[test]
 fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
     let harness = harness("toolbar-place");
@@ -735,7 +735,8 @@ fn the_toolbar_save_invokes_file_save() {
 
 /// UI-011: hovering a toolbar button shows the command's label in the
 /// current state, its shortcut and its description; a greyed-out button also
-/// gives the reason from the catalogue. Save shows Cmd/Ctrl+S (PRJ-003).
+/// gives the reason from the catalogue. Save shows Cmd/Ctrl+S (PRJ-003),
+/// the measure tool M (MEA-001).
 #[test]
 fn the_toolbar_tooltips_show_label_shortcut_description_and_reason() {
     let mut harness = harness("toolbar-tooltips");
@@ -769,6 +770,14 @@ fn the_toolbar_tooltips_show_label_shortcut_description_and_reason() {
     toolbar_button(&harness, "Save").hover();
     harness.run_steps(4);
     for text in ["Save", save_keys.as_str(), "Save the project to its file."] {
+        assert_present(&harness, text);
+    }
+    // MEA-001: the measure tool's button names the tool, M and what it does.
+    let measure_key = harness.ctx.format_shortcut(&Binding::key(Key::M).shortcut());
+    assert!(harness.query_by_label(&tr!("cmd-tool-measure-desc")).is_none());
+    toolbar_button(&harness, "Measure tool").hover();
+    harness.run_steps(4);
+    for text in ["Measure tool", measure_key.as_str(), &tr!("cmd-tool-measure-desc")] {
         assert_present(&harness, text);
     }
 }
@@ -1605,11 +1614,12 @@ fn invoked_by_shortcut(harness: &mut Harness<'static, ArchiCraftApp>) -> Vec<&'s
         .collect()
 }
 
-/// UI-008, HW-003, UI-017: every default binding of the registry, among them
-/// the 23 shortcuts of the former action list, Preferences, Group and
-/// Ungroup, Zoom in and out, M (measure), Primary+Y (redo), Backspace (delete) and Primary+3 (plan/3D), invokes its command when its keys are pressed, on
-/// macOS and elsewhere. The plan view runs its local commands itself
-/// (`the_plan_views_local_keys_run_their_commands`).
+/// UI-008, HW-003, UI-017: every default binding of the registry, among
+/// them the 23 shortcuts of the former action list, Preferences, Group and
+/// Ungroup, Zoom in and out, M (measure), Primary+Y (redo), Backspace
+/// (delete) and Primary+3 (plan/3D), invokes its command when its keys are
+/// pressed, on macOS and elsewhere. The plan view runs its local commands
+/// itself (`the_plan_views_local_keys_run_their_commands`).
 #[test]
 fn every_default_shortcut_invokes_its_command() {
     let mut harness = harness("shortcuts");
@@ -3780,6 +3790,121 @@ fn the_division_value_field_follows_the_mode() {
         DivisionMode::Half
     );
     assert!(harness.query(text_field(&shown.1)).is_none());
+}
+
+/// INP-010: a typed division distance at or below the model tolerance is
+/// rejected with an error, as a zero distance is, and the distance stays;
+/// one just above the tolerance is taken.
+#[test]
+fn a_division_distance_within_the_tolerance_is_rejected() {
+    let mut harness = harness("division-tiny");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    harness
+        .get(By::new().role(Role::ComboBox).value(tr!("tool-division-half").as_str()))
+        .click();
+    harness.run_steps(2);
+    harness.get_by_label(&tr!("tool-division-repeated")).click();
+    harness.run_steps(2);
+    let (shown, separator) = {
+        let ws = harness.state_mut().workspace();
+        let nf = ws.prefs.number_format();
+        (
+            format_length(1.0, &ws.doc.project.settings.units, &nf, false),
+            nf.decimal_separator,
+        )
+    };
+    let type_distance = |h: &mut Harness<'static, ArchiCraftApp>, shown: &str, text: &str| {
+        h.get(text_field(shown)).click();
+        h.run_steps(1);
+        h.get(text_field(shown)).type_text(text);
+        h.key_press(Key::Enter);
+        h.run_steps(2);
+    };
+    type_distance(&mut harness, &shown, &format!("0{separator}005 mm"));
+    let ws = harness.state_mut().workspace();
+    assert_eq!(
+        ws.prefs.input.division,
+        DivisionMode::Repeated(1.0),
+        "the distance stays"
+    );
+    let status = ws.status.as_ref().expect("an error");
+    assert!(status.error);
+    assert_eq!(status.text, tr!("tool-division-distance-positive"));
+
+    type_distance(&mut harness, &shown, &format!("0{separator}02 mm"));
+    let DivisionMode::Repeated(d) = harness.state_mut().workspace().prefs.input.division else {
+        panic!("a repeated distance")
+    };
+    assert!((d - 2e-5).abs() < 1e-12, "{d}");
+}
+
+/// INP-010: dragging the count of equal parts divides the hovered edge
+/// anew on every frame but writes the preferences file once, when the drag
+/// ends.
+#[test]
+fn dragging_the_division_value_saves_the_preferences_once() {
+    let dir = data_dir("division-drag");
+    let mut harness = harness_in(&dir, Preferences::default(), 1.0);
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    harness
+        .get(By::new().role(Role::ComboBox).value(tr!("tool-division-half").as_str()))
+        .click();
+    harness.run_steps(2);
+    harness.get_by_label(&tr!("tool-division-equal")).click();
+    harness.run_steps(2);
+    let file = DataDirs::at(&dir).preferences_file();
+    let saved = |file: &std::path::Path| Preferences::load(file).input.division;
+    assert_eq!(saved(&file), DivisionMode::Equal(4), "the choice is saved");
+
+    let start = harness.get(By::new().role(Role::SpinButton).value("4")).rect().center();
+    let button = |pos, pressed| Event::PointerButton {
+        pos,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    harness.hover_at(start);
+    harness.run_steps(1);
+    harness.event(button(start, true));
+    harness.run_steps(1);
+    let mut seen = Vec::new();
+    for step in 1..=6 {
+        harness.hover_at(start + egui::vec2(10.0 * step as f32, 0.0));
+        harness.run_steps(1);
+        seen.push(harness.state_mut().workspace().prefs.input.division);
+        assert_eq!(saved(&file), DivisionMode::Equal(4), "not written while dragging");
+    }
+    let DivisionMode::Equal(n) = harness.state_mut().workspace().prefs.input.division else {
+        panic!("equal parts")
+    };
+    assert!(n > 4, "the drag raised the count: {seen:?}");
+    seen.dedup();
+    assert!(seen.len() > 1, "the count changed during the drag: {seen:?}");
+    harness.event(button(start + egui::vec2(60.0, 0.0), false));
+    harness.run_steps(2);
+    assert_eq!(saved(&file), DivisionMode::Equal(n), "written when the drag ends");
+}
+
+/// INP-010, UI-002: at the default window width the properties strip of the
+/// wall and the slab tool, with their methods and the Division control,
+/// keeps the height of the two rows the strip reserves, the height it has
+/// with the selection tool.
+#[test]
+fn the_tool_strips_with_the_division_control_keep_two_rows() {
+    let mut harness = harness("division-strip");
+    let reserved = panel(&harness, "properties").height();
+    for tool in ["Wall", "Slab"] {
+        harness.get_by_label(tool).click();
+        harness.run_steps(3);
+        assert_present(&harness, &tr!("tool-division"));
+        let height = panel(&harness, "properties").height();
+        assert!(
+            (height - reserved).abs() < 0.5,
+            "{tool}: the strip is {height} high, not the reserved {reserved}"
+        );
+    }
 }
 
 /// UI-017: the wall and slab geometry methods, the display mode and the

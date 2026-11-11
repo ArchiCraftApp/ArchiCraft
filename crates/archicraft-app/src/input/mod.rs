@@ -33,7 +33,7 @@ pub use keys::{KeyInput, Modifiers};
 pub use pointer::{InputMode, PointerEvent};
 pub use snap::{ArcTarget, Snap, SnapKind, SnapLevel, candidates, snap};
 pub use surface::{Frame2d, SurfaceFrame, ViewSurface};
-pub use targets::{EdgeKey, HOVER_HYSTERESIS, IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
+pub use targets::{EdgeKey, IndexStats, SnapIndex, SnapSource, SourceClass, TargetOwner, TargetSink};
 pub use tracker::TrackerLine;
 pub use typed::{Field, FieldSet, Origin, Reference, TypedInput, Value, starts_value};
 
@@ -308,9 +308,10 @@ impl PointInput {
             });
         let held = (typed.is_none() && mods.shift).then(|| ctx.held(cursor)).flatten();
         let kept = self.last.as_ref().and_then(|r| r.hovered.as_ref()).map(|h| h.key);
-        // A cursor held on a guide snaps along it, not to the division
-        // points of the edge under it.
-        let hovered = (held.is_none())
+        // Only a point that snapping decides can take a division point of
+        // the edge under the cursor (INP-010): not a typed one, and not one
+        // held on a guide, which snaps along it.
+        let hovered = (typed.is_none() && held.is_none())
             .then(|| ctx.targets.hover(cursor, ctx.radius, kept, ctx.selection, ctx.input))
             .flatten();
         let beyond = snap::Beyond {
@@ -1520,6 +1521,27 @@ mod tests {
         let near = input.resolve(DVec2::new(2.03, 5.2), SHIFT, &env.ctx(&tool));
         assert_eq!(near.snap.kind, SnapKind::Node);
         assert!(near.point.distance(DVec2::new(2.0, 5.0)) < 1e-12, "{}", near.point);
+    }
+
+    /// INP-010, INP-003: while a typed value decides the point, the edge
+    /// under the cursor is not hovered and shows no division points; with
+    /// the typed value cleared it is hovered again.
+    #[test]
+    fn a_typed_value_hovers_no_edge() {
+        let mut env = Env::new();
+        env.targets = index_of(&[], &[[DVec2::new(-1.0, 3.0), DVec2::new(5.0, 3.0)]]);
+        let mut input = PointInput::default();
+        let mut tool = wall_tool(WallMode::Single);
+        env.click(&mut input, &mut tool, (0.0, 0.0));
+        let ctx = env.ctx(&tool);
+        let on_edge = DVec2::new(2.0, 3.02);
+        assert!(input.resolve(on_edge, Modifiers::default(), &ctx).hovered.is_some());
+        input.key(text("2500mm"), &mut tool, &ctx);
+        let typed = input.resolve(on_edge, Modifiers::default(), &ctx);
+        assert_eq!(typed.snap.kind, SnapKind::Typed);
+        assert!(typed.hovered.is_none(), "no division points for a typed point");
+        input.typed.clear();
+        assert!(input.resolve(on_edge, Modifiers::default(), &ctx).hovered.is_some());
     }
 
     /// INP-006: the constraint directions are measured from the X axis or,

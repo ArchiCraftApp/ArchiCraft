@@ -11,7 +11,7 @@ use eframe::egui_wgpu;
 use egui::{Id, RichText, ThemePreference, Ui, ViewportCommand, WidgetText};
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 
-use crate::commands::{CommandCtx, CommandId, Invocation, Origin, Registry, Target};
+use crate::commands::{CommandCtx, CommandId, Invocation, Origin, Registry, Target, view_keys};
 use crate::document::{Document, unsaved_question, window_title};
 use crate::i18n::{self, Localizer};
 use crate::persistence::autosave::{Abandoned, Autosaver, Clock, Session, SystemClock, find_abandoned};
@@ -878,6 +878,16 @@ impl ArchiCraftApp {
         self.ws.perf.edit_settled(self.ws.doc.project.revision, current);
     }
 
+    /// Ends held contour detection (INP-018) once its key is up. It runs
+    /// every frame, so a key released while no plan view is shown does not
+    /// keep detection on.
+    fn release_held_detection(&mut self, ctx: &egui::Context) {
+        let hold_keys = self.ws.keymap.effective_bindings(view_keys::HOLD_CONTOUR_DETECTION);
+        if self.ws.tool.detection.held && !hold_keys.iter().any(|b| ctx.input(|i| i.key_down(b.key))) {
+            self.ws.tool.detection.held = false;
+        }
+    }
+
     fn handle_requests(&mut self, ctx: &egui::Context) {
         for request in std::mem::take(&mut self.ws.requests) {
             match request {
@@ -987,6 +997,7 @@ impl eframe::App for ArchiCraftApp {
         if self.prompt.is_none() {
             self.shortcuts(&ctx);
         }
+        self.release_held_detection(&ctx);
         self.ws.prune_selection();
 
         let mut invoked: Vec<(CommandId, Origin)> = Vec::new();

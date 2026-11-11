@@ -10,14 +10,16 @@ mod common;
 use archicraft_app::ArchiCraftApp;
 use archicraft_app::input::{Expect, InputMode};
 use archicraft_app::tools::ToolKind;
+use archicraft_app::workspace::{Pane, Request};
 use archicraft_geometry::ModelGeometry;
 use archicraft_ifcx::WriteOptions;
 use archicraft_model::glam::DVec2;
 use archicraft_model::samples;
 use common::{data_dir, harness};
+use egui::accesskit::Toggled;
 use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 /// The status-bar indicator while detection is on.
 const INDICATOR: &str = "Contour detection on";
@@ -94,6 +96,38 @@ fn element_count(harness: &mut Harness<'static, ArchiCraftApp>) -> usize {
     harness.state_mut().workspace().doc.project.elements.len()
 }
 
+/// Opens the Design menu of the menu bar.
+fn open_design_menu(harness: &mut Harness<'static, ArchiCraftApp>) {
+    let design = harness
+        .query_all_by_label("Design")
+        .map(|n| n.rect())
+        .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
+        .unwrap();
+    harness.hover_at(design.center());
+    for pressed in [true, false] {
+        harness.event(Event::PointerButton {
+            pos: design.center(),
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    harness.run_steps(2);
+}
+
+/// Whether the Design menu checks Contour detection; closes the menu again
+/// with a second click on its title, since Esc would also end the input.
+fn menu_checked(harness: &mut Harness<'static, ArchiCraftApp>) -> bool {
+    open_design_menu(harness);
+    let checked = harness.get_by_label("Contour detection").accesskit_node().toggled() == Some(Toggled::True);
+    open_design_menu(harness);
+    assert!(
+        harness.query_by_label("Contour detection").is_none(),
+        "the menu is closed"
+    );
+    checked
+}
+
 /// EDT-020, INP-018: the Design menu has the Contour detection command; it
 /// switches detection on, which the status bar shows while the tool's
 /// clicks pick, and a click on the indicator switches it off again.
@@ -101,25 +135,7 @@ fn element_count(harness: &mut Harness<'static, ArchiCraftApp>) -> usize {
 fn the_design_menu_switches_contour_detection_and_the_status_bar_shows_it() {
     let mut harness = shaft_sample_with("contour-menu", ToolKind::Slab);
     assert!(!shows(&harness, INDICATOR));
-    let design = harness
-        .query_all_by_label("Design")
-        .map(|n| n.rect())
-        .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
-        .unwrap();
-    harness.hover_at(design.center());
-    harness.event(Event::PointerButton {
-        pos: design.center(),
-        button: PointerButton::Primary,
-        pressed: true,
-        modifiers: Modifiers::NONE,
-    });
-    harness.event(Event::PointerButton {
-        pos: design.center(),
-        button: PointerButton::Primary,
-        pressed: false,
-        modifiers: Modifiers::NONE,
-    });
-    harness.run_steps(2);
+    open_design_menu(&mut harness);
     harness.get_by_label("Contour detection").click();
     harness.run_steps(2);
     assert!(detecting(&mut harness), "the command switches detection on");
@@ -231,12 +247,18 @@ fn a_held_key_repeating_after_esc_keeps_detection_off() {
     assert!(!detecting(&mut harness));
 }
 
-/// INP-018, INP-020: a double-click in detection picks once: the slab tool
-/// creates one slab at (2, 3), as one undo step, in both input modes.
+/// INP-018, INP-020: a double-click and a triple-click in detection pick
+/// once: the slab tool creates one slab at (2, 3), as one undo step, in
+/// both input modes.
 #[test]
 fn a_double_click_in_detection_creates_one_slab() {
-    for mode in [InputMode::ClickClick, InputMode::DragRelease] {
-        let mut harness = shaft_sample_with(&format!("contour-double-{mode:?}"), ToolKind::Slab);
+    for (mode, clicks) in [
+        (InputMode::ClickClick, 2),
+        (InputMode::DragRelease, 2),
+        (InputMode::ClickClick, 3),
+        (InputMode::DragRelease, 3),
+    ] {
+        let mut harness = shaft_sample_with(&format!("contour-clicks-{clicks}-{mode:?}"), ToolKind::Slab);
         harness.state_mut().workspace().prefs.input_mode = mode;
         harness.state_mut().workspace().tool.detection.toggle();
         let p = DVec2::new(2.0, 3.0);
@@ -246,26 +268,29 @@ fn a_double_click_in_detection_creates_one_slab() {
             let ws = harness.state_mut().workspace();
             (ws.doc.project.elements.len(), ws.doc.history.undo_len())
         };
-        // Each click presses and releases in one frame, so the second one,
-        // a frame (0.25 s) later, is the second click of a double-click.
-        for _ in 0..2 {
-            let clicks = [true, false].map(|pressed| Event::PointerButton {
+        // Each click presses and releases in one frame, so the next one, a
+        // frame (0.25 s) later, is the second click of a double-click and
+        // the one after that the third of a triple-click.
+        for _ in 0..clicks {
+            let press_release = [true, false].map(|pressed| Event::PointerButton {
                 pos,
                 button: PointerButton::Primary,
                 pressed,
                 modifiers: Modifiers::NONE,
             });
-            harness.input_mut().events.extend(clicks);
+            harness.input_mut().events.extend(press_release);
             harness.run_steps(1);
         }
-        let double = harness
-            .ctx
-            .input(|i| i.pointer.button_double_clicked(PointerButton::Primary));
-        assert!(double, "{mode:?}: egui saw a double-click");
+        let seen = harness.ctx.input(|i| match clicks {
+            2 => i.pointer.button_double_clicked(PointerButton::Primary),
+            _ => i.pointer.button_triple_clicked(PointerButton::Primary),
+        });
+        assert!(seen, "{mode:?}: egui saw {clicks} clicks in a row");
         harness.run_steps(2);
         let ws = harness.state_mut().workspace();
-        assert_eq!(ws.doc.project.elements.len(), before + 1, "{mode:?}: one slab");
-        assert_eq!(ws.doc.history.undo_len(), undo + 1, "{mode:?}: one undo step");
+        let what = format!("{mode:?}, {clicks} clicks");
+        assert_eq!(ws.doc.project.elements.len(), before + 1, "{what}: one slab");
+        assert_eq!(ws.doc.history.undo_len(), undo + 1, "{what}: one undo step");
     }
 }
 
@@ -409,4 +434,140 @@ fn the_space_tool_shows_the_indicator_only_while_detection_is_on() {
     harness.key_up(Key::Space);
     harness.run_steps(2);
     assert!(!shows(&harness, INDICATOR), "Space released");
+}
+
+/// INP-018: with a wall point pending, switching detection on from the
+/// Design menu checks the menu item and shows the status-bar indicator,
+/// which agree while the point stays pending; a click on the indicator
+/// switches detection off and unchecks the menu item.
+#[test]
+fn the_indicator_and_the_menu_check_agree_while_points_are_pending() {
+    let mut harness = shaft_sample_with("contour-pending", ToolKind::Wall);
+    click(&mut harness, DVec2::new(2.0, 3.0));
+    assert_eq!(
+        harness.state_mut().workspace().tool.points.len(),
+        1,
+        "a point is pending"
+    );
+    assert!(!menu_checked(&mut harness));
+    assert!(!shows(&harness, INDICATOR));
+
+    open_design_menu(&mut harness);
+    harness.get_by_label("Contour detection").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().tool.points.len(), 1, "still pending");
+    assert!(shows(&harness, INDICATOR), "the indicator shows with the point pending");
+    assert!(menu_checked(&mut harness), "as the menu checks it");
+    hover(&mut harness, DVec2::new(3.0, 3.0));
+    assert!(shows(&harness, INDICATOR));
+
+    // The wall tool's long prompt pushes the indicator past the right edge
+    // of the 1400-point window (archicraft-djjoe), so it is clicked
+    // through AccessKit.
+    harness.get_by_label(INDICATOR).click_accesskit();
+    harness.run_steps(2);
+    assert!(!shows(&harness, INDICATOR));
+    assert!(
+        !menu_checked(&mut harness),
+        "the indicator's click unchecks the menu item"
+    );
+}
+
+/// Shows only the first 3D view: opens it and removes every plan from the
+/// tab tree.
+fn show_only_3d(harness: &mut Harness<'static, ArchiCraftApp>) {
+    let (view, storeys) = {
+        let ws = harness.state_mut().workspace();
+        let view = ws.doc.project.views.first().unwrap().id;
+        ws.requests.push(Request::OpenPane(Pane::View3d(view)));
+        (
+            view,
+            ws.doc
+                .project
+                .storeys
+                .as_slice()
+                .iter()
+                .map(|s| s.id)
+                .collect::<Vec<_>>(),
+        )
+    };
+    harness.run_steps(3);
+    let tree = harness.state_mut().tree_mut();
+    for storey in storeys {
+        if let Some(tile) = tree.tiles.find_pane(&Pane::Plan(storey)) {
+            tree.remove_recursively(tile);
+        }
+    }
+    harness.state_mut().workspace().active_pane = Some(Pane::View3d(view));
+    harness.run_steps(2);
+}
+
+/// INP-018: Space held in the plan and released while only a 3D view is
+/// shown ends held detection, although no plan view draws the frame.
+#[test]
+fn releasing_the_key_while_only_a_3d_view_is_shown_ends_held_detection() {
+    let mut harness = shaft_sample_with("contour-release-3d", ToolKind::Slab);
+    hover(&mut harness, DVec2::new(2.0, 3.0));
+    harness.key_down(Key::Space);
+    harness.run_steps(2);
+    assert!(harness.state_mut().workspace().tool.detection.held, "Space held");
+    show_only_3d(&mut harness);
+    assert!(harness.state_mut().workspace().tool.detection.held, "still held");
+    harness.key_up(Key::Space);
+    harness.run_steps(2);
+    let ws = harness.state_mut().workspace();
+    assert!(ws.plan_views.keys().all(|s| ws.active_pane != Some(Pane::Plan(*s))));
+    assert!(!ws.tool.detection.held, "the release ends it");
+    assert!(!ws.tool.detection.is_on());
+}
+
+/// INP-018: each storey keeps its own contour graph: hovering the upper
+/// storey's plan in detection builds one more, and returning to the ground
+/// storey's plan builds none.
+#[test]
+fn each_storey_keeps_its_contour_graph() {
+    let mut harness = shaft_sample_with("contour-storeys", ToolKind::Wall);
+    harness.state_mut().workspace().tool.detection.toggle();
+    hover(&mut harness, DVec2::new(2.0, 3.0));
+    hover(&mut harness, DVec2::new(2.5, 3.0));
+    assert_eq!(
+        harness.state_mut().workspace().doc.contour_builds(),
+        1,
+        "the ground storey's"
+    );
+
+    let (ground, upper) = {
+        let ws = harness.state_mut().workspace();
+        let storeys = ws.doc.project.storeys.as_slice();
+        (storeys[0].id, storeys[1].id)
+    };
+    harness
+        .state_mut()
+        .workspace()
+        .requests
+        .push(Request::OpenPane(Pane::Plan(upper)));
+    harness.run_steps(3);
+    assert_eq!(harness.state_mut().workspace().active_storey, upper);
+    hover(&mut harness, DVec2::new(2.0, 3.0));
+    hover(&mut harness, DVec2::new(2.5, 3.0));
+    assert_eq!(
+        harness.state_mut().workspace().doc.contour_builds(),
+        2,
+        "one more for the upper storey"
+    );
+
+    harness
+        .state_mut()
+        .workspace()
+        .requests
+        .push(Request::OpenPane(Pane::Plan(ground)));
+    harness.run_steps(3);
+    assert_eq!(harness.state_mut().workspace().active_storey, ground);
+    hover(&mut harness, DVec2::new(2.0, 3.0));
+    hover(&mut harness, DVec2::new(2.5, 3.0));
+    assert_eq!(
+        harness.state_mut().workspace().doc.contour_builds(),
+        2,
+        "none on returning to the ground storey"
+    );
 }

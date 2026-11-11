@@ -238,8 +238,15 @@ impl PlanInput {
     /// `click_distance` is how far in points the pointer moves before a
     /// press becomes a drag.
     fn new(ws: &mut Workspace, storey: StoreyId, surface: &PlanSurface, click_distance: f32) -> Self {
-        let pending = if ws.active_consumer == Consumer::Tool && on_storey(ws.tool.storey, storey) {
-            ws.tool.points.clone()
+        // The points picked so far snap (INP-001): a wall chain's, or those
+        // of a measurement in progress, so that a distance closes on its
+        // start and an angle's leg ends on its vertex (MEA-001).
+        let picked = match ws.tool.kind {
+            ToolKind::Measure if ws.tool.measure.in_progress() => ws.tool.measure.points(),
+            _ => &ws.tool.points[..],
+        };
+        let pending = if ws.active_consumer == Consumer::Tool && on_storey(ws.tool.input_storey(), storey) {
+            picked.to_vec()
         } else {
             Vec::new()
         };
@@ -1110,12 +1117,8 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     if active && !ui.ctx().text_edit_focused() {
         handle_keys(ui, ws, &mut state, input.as_ref(), cursor_world);
     }
-    // Contour detection (INP-018) ends with the release of its key and picks
-    // from the cached graph of the plan under the cursor.
-    let hold_keys = ws.keymap.effective_bindings(view_keys::HOLD_CONTOUR_DETECTION);
-    if ws.tool.detection.held && !hold_keys.iter().any(|b| ui.input(|i| i.key_down(b.key))) {
-        ws.tool.detection.held = false;
-    }
+    // Contour detection (INP-018) picks from the cached graph of the plan
+    // under the cursor; the app ends held detection when its key is released.
     // The space tool picks rooms from the storey's wall footprints at the
     // cursor as it is, never snapped onto a wall face (SPC-001).
     if ws.active_consumer == Consumer::Tool
@@ -1226,11 +1229,13 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     {
         let at = |p: Option<Pos2>| p.and_then(|p| surface.to_plane(screen(p)));
         let (press_origin, latest) = ui.input(|i| (i.pointer.press_origin(), i.pointer.latest_pos()));
-        // The second click of a double-click is a click too; a pick
-        // (INP-018) takes only the first, a point step ignores the repeated
-        // point itself.
+        // The second click of a double-click is a click too, and so is the
+        // third of a triple-click; a pick (INP-018) takes only the first, a
+        // point step ignores the repeated point itself.
         let picking = ws.consumer().step().is_some_and(|s| s.expects == Expect::Pick);
-        let repeated = picking && response.double_clicked_by(PointerButton::Primary);
+        let repeated = picking
+            && (response.double_clicked_by(PointerButton::Primary)
+                || response.triple_clicked_by(PointerButton::Primary));
         let events = [
             (
                 response.drag_started_by(PointerButton::Primary),

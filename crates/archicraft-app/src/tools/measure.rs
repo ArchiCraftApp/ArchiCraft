@@ -209,8 +209,13 @@ impl InputConsumer for MeasureTool {
 
     /// Picks a point. The first click after a finished measurement, or one
     /// on another storey, starts a new one; a click on the previous point
-    /// (the second click of a double-click) is the same point.
+    /// (the second click of a double-click) is the same point, also on the
+    /// point that finished an angle, which keeps the angle.
     fn commit(&mut self, _project: &Project, storey: StoreyId, point: DVec2) -> Outcome {
+        let on_last = self.points.last().is_some_and(|&p| coincident(p, point));
+        if self.finished && on_last && self.storey == Some(storey) {
+            return Outcome::Continue;
+        }
         if self.finished || self.storey.is_some_and(|s| s != storey) {
             self.clear();
         }
@@ -327,7 +332,8 @@ mod tests {
     }
 
     /// MEA-001: the angle at the vertex between its legs, exact before
-    /// formatting, also near 0 and 180 degrees.
+    /// formatting, also near 0 and 180 degrees; a double-click on the third
+    /// point keeps it.
     #[test]
     fn an_angle_takes_the_vertex_and_a_point_on_each_leg() {
         let project = default_metric_project();
@@ -346,6 +352,11 @@ mod tests {
             strings(&[("Angle", "90.00°")])
         );
         assert_eq!(tool.step().unwrap().prompt, tr!("prompt-measure-angle-vertex"));
+        // A double-click on the third point: its second click is the same
+        // point and keeps the angle.
+        pick(&project, &mut tool, &[(0.0, 1.0)]);
+        assert_eq!(tool.measurement(), Some(Measurement::Angle(a)), "the angle stays");
+        assert_eq!(tool.points().len(), 3);
 
         let tiny = 1e-9;
         assert!((angle(DVec2::ZERO, DVec2::X, DVec2::new(1.0, tiny)) - tiny).abs() < 1e-20);
