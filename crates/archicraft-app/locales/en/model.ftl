@@ -260,6 +260,9 @@ model-error-profile-dimension-limit = { $dimension } must be less than { $max }.
 model-error-profile-radius-limit = { $dimension } must be at most { $max }.
 model-error-profile-no-regions = A custom profile needs at least one region.
 model-error-profile-points = A profile may have at most { $max_text } points in all its regions.
+model-error-profile-regions = A custom profile may have at most { $max_text } regions.
+model-error-profile-size = A profile may be at most { $max } wide and { $max } tall.
+model-error-profile-crossings = The outlines of a custom profile's regions may cross each other within the model tolerance in at most { $max_text } places.
 model-error-profile-region = Region { $number_text }: { $reason }
 model-error-profile-regions-overlap = Regions { $first_text } and { $second_text } overlap; regions may only touch.
 

@@ -22,7 +22,8 @@ fn square(min: DVec2, size: f64) -> Vec<DVec2> {
 fn project_with_profiles() -> Project {
     let mut project = default_metric_project();
     let material = project.materials[0].id;
-    let ipe = Profile::parametric("IPE 200", ParametricShape::ALL[4], material);
+    let i_shape = ParametricShape::ALL.into_iter().find(|s| s.code() == "i").unwrap();
+    let ipe = Profile::parametric("IPE 200", i_shape, material);
     let region = |min| ProfileRegion {
         outer: square(min, 0.1),
         holes: Vec::new(),

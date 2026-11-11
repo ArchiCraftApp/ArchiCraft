@@ -204,6 +204,9 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-profile-radius-limit",
     "model-error-profile-no-regions",
     "model-error-profile-points",
+    "model-error-profile-regions",
+    "model-error-profile-size",
+    "model-error-profile-crossings",
     "model-error-profile-region",
     "model-error-profile-regions-overlap",
     // Profile shapes and dimensions (profile.rs, label_key).
