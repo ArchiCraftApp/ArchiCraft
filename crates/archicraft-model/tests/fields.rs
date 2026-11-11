@@ -10,15 +10,31 @@ use std::collections::{HashMap, HashSet};
 
 use archicraft_model::fields::{COMMON_FIELDS, FieldSpec, FieldType, FieldValue, OptionLabel, Section, fields_of};
 use archicraft_model::glam::DVec2;
-use archicraft_model::kinds::{Dummy, KINDS, Note};
+use archicraft_model::kinds::{Anchor, ColumnCut, CrossSection, Dummy, KINDS, Note};
 use archicraft_model::message::ALL_KEYS;
+use archicraft_model::profile::{ParametricShape, Profile};
 use archicraft_model::template::default_metric_project;
+use archicraft_model::transfer::transfer_settings;
 use archicraft_model::validate::{MAX_COORDINATE, validate_element};
 use archicraft_model::{
     AnchorPos, Element, ElementId, KindTag, Position, Project, ReferenceLine, SlabReference, StoreyId,
     StructuralFunction, TopLink,
 };
 use common::{ground, wall};
+
+/// The template project with a profile columns may use, "Pier", and one
+/// they may not, "Beam only", so that a column's profile fields have
+/// options (PRF-004).
+fn project() -> Project {
+    let mut p = default_metric_project();
+    let material = p.materials[0].id;
+    p.profiles
+        .push(Profile::parametric("Pier", ParametricShape::ALL[0], material));
+    let mut beam_only = Profile::parametric("Beam only", ParametricShape::ALL[4], material);
+    beam_only.usage.columns = false;
+    p.profiles.push(beam_only);
+    p
+}
 
 /// Every declared field: each kind's, then the common ones.
 fn all_specs() -> impl Iterator<Item = &'static FieldSpec> {
@@ -61,7 +77,7 @@ fn samples(p: &Project) -> Vec<Element> {
 fn variants(p: &Project) -> Vec<Element> {
     let mut out = Vec::new();
     for sample in samples(p) {
-        for spec in fields_of(&sample).filter(|s| s.field_type == FieldType::Choice) {
+        for spec in fields_of(&sample).filter(|s| s.field_type.has_options()) {
             if (spec.get)(&sample, p).is_none() {
                 continue;
             }
@@ -80,7 +96,7 @@ fn variants(p: &Project) -> Vec<Element> {
 /// declared field.
 #[test]
 fn the_samples_cover_every_kind() {
-    let p = default_metric_project();
+    let p = project();
     let tags: HashSet<KindTag> = samples(&p).iter().map(Element::tag).collect();
     assert_eq!(tags, KindTag::ALL.iter().copied().collect());
 }
@@ -159,17 +175,17 @@ fn ranged_fields_explain_their_range_and_labels_are_message_keys() {
     }
 }
 
-/// Every choice has options, other fields none; every option's label is a
-/// message key or a name, and picking it reads it back.
+/// Every choice and anchor has options, other fields none; every option's
+/// label is a message key or a name, and picking it reads it back.
 #[test]
 fn choice_fields_have_options_that_round_trip() {
     for f in all_specs() {
-        assert_eq!(f.options.is_some(), f.field_type == FieldType::Choice, "{}", f.key);
+        assert_eq!(f.options.is_some(), f.field_type.has_options(), "{}", f.key);
     }
-    let p = default_metric_project();
+    let p = project();
     let mut covered = HashSet::new();
     for e in variants(&p) {
-        for f in fields_of(&e).filter(|f| f.field_type == FieldType::Choice) {
+        for f in fields_of(&e).filter(|f| f.field_type.has_options()) {
             if (f.get)(&e, &p).is_none() {
                 continue;
             }
@@ -186,7 +202,7 @@ fn choice_fields_have_options_that_round_trip() {
             }
         }
     }
-    assert_every_key_covered(&covered, |f| f.field_type == FieldType::Choice);
+    assert_every_key_covered(&covered, |f| f.field_type.has_options());
 }
 
 /// A value of the field's type inside its range, different from `current`.
@@ -206,14 +222,20 @@ fn other_value(f: &FieldSpec, current: &FieldValue) -> FieldValue {
     }
 }
 
+/// A field holding a value of its own: neither one of listed options nor a
+/// read-only remark.
+fn is_valued(f: &FieldSpec) -> bool {
+    !f.field_type.has_options() && f.field_type != FieldType::Remark
+}
+
 /// UI-002: what a setter writes, the getter reads back, for every visible
-/// non-choice field of every kind.
+/// field of every kind that holds a value of its own.
 #[test]
 fn setters_write_what_getters_read() {
-    let p = default_metric_project();
+    let p = project();
     let mut covered = HashSet::new();
     for e in variants(&p) {
-        for f in fields_of(&e).filter(|f| f.field_type != FieldType::Choice) {
+        for f in fields_of(&e).filter(|f| is_valued(f)) {
             let Some(current) = (f.get)(&e, &p) else { continue };
             covered.insert((e.tag(), f.key));
             let value = other_value(f, &current);
@@ -223,7 +245,7 @@ fn setters_write_what_getters_read() {
             assert_eq!((f.get)(&changed, &p), Some(value), "{:?} {}", e.tag(), f.key);
         }
     }
-    assert_every_key_covered(&covered, |f| f.field_type != FieldType::Choice);
+    assert_every_key_covered(&covered, is_valued);
 }
 
 /// A getter returning `None` hides the field: the height only for a fixed
@@ -231,7 +253,7 @@ fn setters_write_what_getters_read() {
 /// the exterior face only for a custom reference line.
 #[test]
 fn getters_hide_fields_that_do_not_apply() {
-    let p = default_metric_project();
+    let p = project();
     let mut w = wall(&p, (0.0, 0.0), (5.0, 0.0));
     let shown = |w: &Element| -> Vec<&str> {
         [
@@ -264,7 +286,7 @@ fn getters_hide_fields_that_do_not_apply() {
 /// none; a relative link is home + 1.
 #[test]
 fn the_top_mode_keeps_the_top_elevation() {
-    let p = default_metric_project();
+    let p = project();
     let storeys: Vec<_> = p.storeys.iter().map(|s| s.id).collect();
     let top_of = |e: &Element| e.as_wall().unwrap().top;
     // On the ground storey, linked to home + 1 (01 at 3 m).
@@ -308,7 +330,7 @@ fn the_top_mode_keeps_the_top_elevation() {
 /// so the wall's faces do not move.
 #[test]
 fn a_custom_reference_line_keeps_the_current_offset() {
-    let p = default_metric_project();
+    let p = project();
     let mut w = wall(&p, (0.0, 0.0), (5.0, 0.0));
     set(&p, &mut w, "thickness", FieldValue::Length(0.3));
     set(&p, &mut w, "reference_line", FieldValue::Code("center"));
@@ -325,7 +347,7 @@ fn a_custom_reference_line_keeps_the_current_offset() {
 /// the field's range message.
 #[test]
 fn declared_ranges_are_the_validators_limits() {
-    let p = default_metric_project();
+    let p = project();
     let mut checked = HashSet::new();
     for e in variants(&p) {
         let key = |e: &Element| validate_element(&p, e).err().map(|m| m.key());
@@ -381,6 +403,10 @@ fn declared_ranges_are_the_validators_limits() {
         (KindTag::Space, "top_offset"),
         (KindTag::Note, "x"),
         (KindTag::Note, "y"),
+        (KindTag::Column, "width"),
+        (KindTag::Column, "depth"),
+        (KindTag::Column, "diameter"),
+        (KindTag::Column, "height"),
     ] {
         assert!(checked.contains(&expected), "{expected:?} was not checked");
     }
@@ -404,7 +430,7 @@ fn the_dummy_kind_declares_its_base_and_top() {
 /// codes are the envelope's codes, for every kind.
 #[test]
 fn position_and_structural_function_are_coded_choices() {
-    let p = default_metric_project();
+    let p = project();
     let e = &samples(&p)[0];
     let codes = |key: &str| -> Vec<FieldValue> {
         let f = spec(e, key);
@@ -433,7 +459,7 @@ fn position_and_structural_function_are_coded_choices() {
 /// load-bearing walls and slabs among a project's elements.
 #[test]
 fn the_getters_select_exterior_load_bearing_elements() {
-    let mut p = default_metric_project();
+    let mut p = project();
     let base = samples(&p);
     for (i, name, position, structural) in [
         (0, "wall A", Position::Exterior, StructuralFunction::LoadBearing),
@@ -508,7 +534,7 @@ fn a_space_declares_its_name_number_and_heights() {
 /// positions with their names; anchor and angle are geometry.
 #[test]
 fn a_text_declares_content_style_size_anchor_and_angle() {
-    let p = default_metric_project();
+    let p = project();
     let text = &samples(&p)[3];
     let fields = KindTag::Text.descriptor().fields;
     let f = |key: &str| fields.iter().find(|f| f.key == key).unwrap();
@@ -540,6 +566,200 @@ fn a_text_declares_content_style_size_anchor_and_angle() {
     assert_eq!(actual, expected);
     let styles = (f("text_style").options.unwrap())(&p, text);
     assert_eq!(styles.len(), p.text_styles.len());
+}
+
+/// The keys `element` shows, in display order.
+fn shown_keys(p: &Project, element: &Element) -> Vec<&'static str> {
+    fields_of(element)
+        .filter(|f| (f.get)(element, p).is_some())
+        .map(|f| f.key)
+        .collect()
+}
+
+/// COL-001, COL-003: a column declares its section, anchor, rotation, base
+/// and top and end cuts; a rectangle shows width and depth, a circle its
+/// diameter, a profile section its profile and a remark in place of the
+/// material. No other kind shows a column field.
+#[test]
+fn a_column_declares_its_section_anchor_rotation_and_cuts() {
+    let p = project();
+    let column = &samples(&p)[4];
+    let own = [
+        "section_kind",
+        "width",
+        "depth",
+        "diameter",
+        "profile",
+        "anchor",
+        "rotation",
+        "top_cut",
+        "top_cut_angle",
+        "bottom_cut",
+        "bottom_cut_angle",
+    ];
+    let keys: Vec<&str> = KindTag::Column.descriptor().fields.iter().map(|f| f.key).collect();
+    for key in own
+        .iter()
+        .chain(&["base_offset", "top_mode", "height", "linked_storey"])
+    {
+        assert!(keys.contains(key), "{key}");
+    }
+    assert!(
+        KindTag::Column
+            .descriptor()
+            .fields
+            .iter()
+            .all(|f| f.section == Section::Geometry)
+    );
+    let shown = |e: &Element| -> Vec<&str> {
+        shown_keys(&p, e)
+            .into_iter()
+            .filter(|k| own.contains(k) || ["material", "profile_materials"].contains(k))
+            .collect()
+    };
+    // The tool's 0.30 m square of its default material.
+    let common = [
+        "anchor",
+        "rotation",
+        "top_cut",
+        "top_cut_angle",
+        "bottom_cut",
+        "bottom_cut_angle",
+    ];
+    let with = |section: &[&'static str], material: &'static str| {
+        let mut keys = vec!["section_kind"];
+        keys.extend_from_slice(section);
+        keys.extend_from_slice(&common);
+        keys.push(material);
+        keys
+    };
+    assert_eq!(shown(column), with(&["width", "depth"], "material"));
+    assert_eq!(get(&p, column, "width"), Some(FieldValue::Length(0.3)));
+
+    // A circle takes the width as its diameter, a profile the first one
+    // columns may use and its region materials.
+    let mut circle = column.clone();
+    set(&p, &mut circle, "width", FieldValue::Length(0.4));
+    set(&p, &mut circle, "section_kind", FieldValue::Code("circular"));
+    assert_eq!(shown(&circle), with(&["diameter"], "material"));
+    assert_eq!(get(&p, &circle, "diameter"), Some(FieldValue::Length(0.4)));
+    let mut profiled = circle.clone();
+    set(&p, &mut profiled, "section_kind", FieldValue::Code("profile"));
+    assert_eq!(shown(&profiled), with(&["profile"], "profile_materials"));
+    assert_eq!(
+        get(&p, &profiled, "profile"),
+        Some(FieldValue::Profile(p.profiles[0].id))
+    );
+    assert_eq!(
+        get(&p, &profiled, "profile_materials"),
+        Some(FieldValue::Code("model-field-material-from-profile"))
+    );
+    // Back to a rectangle: the profile's box, the material kept.
+    set(&p, &mut profiled, "anchor", FieldValue::Code("profile-origin"));
+    set(&p, &mut profiled, "section_kind", FieldValue::Code("rectangular"));
+    let back = profiled.as_column().unwrap();
+    assert!(matches!(back.section, CrossSection::Rectangular { .. }));
+    assert_eq!(back.anchor, Anchor::Centre);
+    assert_eq!(back.material, column.as_column().unwrap().material);
+
+    // PRF-004: only profiles columns may use are offered, and a profile
+    // section only while there is one.
+    let spec_of = |key: &str| spec(column, key);
+    let names: Vec<String> = (spec_of("profile").options.unwrap())(&p, &profiled)
+        .into_iter()
+        .map(|(_, label)| match label {
+            OptionLabel::Name(n) => n,
+            OptionLabel::Message(m) => panic!("profile labelled {m:?}"),
+        })
+        .collect();
+    assert_eq!(names, ["Pier"]);
+    let kinds = |p: &Project| -> Vec<FieldValue> {
+        (spec_of("section_kind").options.unwrap())(p, column)
+            .into_iter()
+            .map(|(v, _)| v)
+            .collect()
+    };
+    assert_eq!(kinds(&p).len(), 3);
+    let mut without = p.clone();
+    without.profiles.retain(|profile| !profile.usage.columns);
+    assert_eq!(
+        kinds(&without),
+        [FieldValue::Code("rectangular"), FieldValue::Code("circular")]
+    );
+    let mut stays = column.clone();
+    set(&without, &mut stays, "section_kind", FieldValue::Code("profile"));
+    assert_eq!(stays, *column);
+
+    // COL-001: the nine anchors in row order, the profile origin only for a
+    // profile section, which another section refuses.
+    let anchors = |e: &Element| -> Vec<FieldValue> {
+        (spec_of("anchor").options.unwrap())(&p, e)
+            .into_iter()
+            .map(|(v, _)| v)
+            .collect()
+    };
+    let nine: Vec<FieldValue> = Anchor::ALL.iter().map(|a| FieldValue::Code(a.code())).collect();
+    assert_eq!(spec_of("anchor").field_type, FieldType::Anchor);
+    assert_eq!(anchors(column), nine);
+    let mut with_origin = nine.clone();
+    with_origin.push(FieldValue::Code("profile-origin"));
+    let mut profiled = column.clone();
+    set(&p, &mut profiled, "section_kind", FieldValue::Code("profile"));
+    assert_eq!(anchors(&profiled), with_origin);
+    let mut corner = column.clone();
+    set(&p, &mut corner, "anchor", FieldValue::Code("bottom-left"));
+    set(&p, &mut corner, "anchor", FieldValue::Code("profile-origin"));
+    assert_eq!(corner.as_column().unwrap().anchor, Anchor::BottomLeft);
+
+    // COL-003: typing an angle tilts a horizontal cut by it; picking
+    // 'Horizontal' levels it again.
+    let mut cut = column.clone();
+    assert_eq!(get(&p, &cut, "top_cut_angle"), Some(FieldValue::Angle(0.0)));
+    set(&p, &mut cut, "top_cut_angle", FieldValue::Angle(15f64.to_radians()));
+    assert_eq!(cut.as_column().unwrap().top_cut, ColumnCut::Angle(15f64.to_radians()));
+    assert_eq!(get(&p, &cut, "top_cut"), Some(FieldValue::Code("angle")));
+    assert_eq!(cut.as_column().unwrap().bottom_cut, ColumnCut::Horizontal);
+    set(&p, &mut cut, "top_cut", FieldValue::Code("angle"));
+    assert_eq!(cut.as_column().unwrap().top_cut, ColumnCut::Angle(15f64.to_radians()));
+    set(&p, &mut cut, "top_cut", FieldValue::Code("horizontal"));
+    assert_eq!(cut.as_column().unwrap().top_cut, ColumnCut::Horizontal);
+    // The cut's own angle changes nothing: 0 keeps a horizontal cut.
+    set(&p, &mut cut, "top_cut_angle", FieldValue::Angle(0.0));
+    assert_eq!(cut.as_column().unwrap().top_cut, ColumnCut::Horizontal);
+    set(&p, &mut cut, "bottom_cut", FieldValue::Code("angle"));
+    assert_eq!(cut.as_column().unwrap().bottom_cut, ColumnCut::Angle(0.0));
+    set(&p, &mut cut, "rotation", FieldValue::Angle(0.5));
+    assert_eq!(cut.as_column().unwrap().rotation, 0.5);
+
+    // No other kind shows a column field, nor the materials remark.
+    for e in samples(&p).iter().filter(|e| e.tag() != KindTag::Column) {
+        let keys = shown_keys(&p, e);
+        for key in own.iter().chain(&["profile_materials"]) {
+            assert!(!keys.contains(key), "{:?} shows {key}", e.tag());
+        }
+    }
+}
+
+/// ELM-003, COL-003: settings transfer between columns keeps horizontal
+/// cuts horizontal and copies an angled cut with its angle.
+#[test]
+fn transfer_between_columns_keeps_the_cuts() {
+    let p = project();
+    let source = &samples(&p)[4];
+    let mut target = p.new_column(ground(&p), DVec2::new(3.0, 0.0), 0.0, 1);
+    transfer_settings(source, &mut target, &p);
+    let cuts = |e: &Element| {
+        let c = e.as_column().unwrap();
+        (c.top_cut, c.bottom_cut)
+    };
+    assert_eq!(cuts(&target), (ColumnCut::Horizontal, ColumnCut::Horizontal));
+    let mut tilted = source.clone();
+    tilted.as_column_mut().unwrap().top_cut = ColumnCut::Angle(15f64.to_radians());
+    transfer_settings(&tilted, &mut target, &p);
+    assert_eq!(
+        cuts(&target),
+        (ColumnCut::Angle(15f64.to_radians()), ColumnCut::Horizontal)
+    );
 }
 
 /// ELM-017: the note test kind's point is ranged as the validator checks

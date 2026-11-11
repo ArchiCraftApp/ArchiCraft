@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use archicraft_app::i18n::{self, Localizer};
 use archicraft_model::drawing::ScaleError;
 use archicraft_model::fields::COMMON_FIELDS;
-use archicraft_model::kinds::KINDS;
+use archicraft_model::kinds::{Anchor, CrossSection, KINDS};
 use archicraft_model::message::ALL_KEYS;
 use archicraft_model::units::{
     AngleUnit, AreaUnit, LengthUnit, NumberFormat, ParseError, SlopeFormat, UnitSettings, VolumeUnit, format_length,
@@ -125,7 +125,18 @@ fn field_label_keys() -> Vec<&'static str> {
     keys.extend(Position::ALL.map(Position::label_key));
     keys.extend(SlabReference::ALL.map(SlabReference::label_key));
     keys.extend(AnchorPos::ALL.map(AnchorPos::label_key));
+    // COL-001, COL-003: the member anchors (the nine are the text anchors'
+    // labels), the section kinds, the cut kinds and the materials remark.
+    keys.push(Anchor::ProfileOrigin.label_key());
+    keys.extend(
+        CrossSection::CODES
+            .iter()
+            .filter_map(|code| CrossSection::label_key(code)),
+    );
     keys.extend([
+        "model-column-cut-horizontal",
+        "model-column-cut-angle",
+        "model-field-material-from-profile",
         "model-predefined-type-none",
         "model-top-mode-fixed",
         "model-top-mode-storey",

@@ -9,6 +9,7 @@
 //! command.
 
 use archicraft_model::fields::{COMMON_FIELDS, FieldSpec, FieldType, FieldValue, OptionLabel, fields_of};
+use archicraft_model::message::Message;
 use archicraft_model::units::{NumberFormat, UnitSettings};
 use archicraft_model::{Element, IfcClass, KindTag, Project};
 use egui::{Id, Ui};
@@ -174,6 +175,19 @@ impl Fields<'_> {
                     let (response, picked) = widgets::choice_response(ui, id, value, &options, f.width(110.0));
                     (picked.map_or(Edited::Unchanged, Edited::Changed), Some(response.id))
                 }
+                // COL-001: nine toggles in a 3 × 3 grid and the further
+                // anchors; each names itself, so the row label stays apart.
+                FieldType::Anchor => {
+                    let options = f.options(spec);
+                    let picked = widgets::anchor_grid(ui, id, common(values.iter()), &options);
+                    (picked.map_or(Edited::Unchanged, Edited::Changed), None)
+                }
+                FieldType::Remark => {
+                    let text = common(values.iter().filter_map(as_code))
+                        .map(|key| f.option_label(OptionLabel::Message(Message::new(key))));
+                    ui.label(egui::RichText::new(text.unwrap_or_default()).weak());
+                    (Edited::Unchanged, None)
+                }
                 FieldType::Text => {
                     let value = common(values.iter().filter_map(as_text));
                     let edited = widgets::hinted_text(ui, id, value, &hint, f.width(90.0));
@@ -281,6 +295,13 @@ fn as_angle(value: &FieldValue) -> Option<f64> {
 fn as_count(value: &FieldValue) -> Option<i64> {
     match value {
         FieldValue::Count(n) => Some(*n),
+        _ => None,
+    }
+}
+
+fn as_code(value: &FieldValue) -> Option<&'static str> {
+    match value {
+        FieldValue::Code(code) => Some(code),
         _ => None,
     }
 }

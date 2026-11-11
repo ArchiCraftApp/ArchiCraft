@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use super::member::{Anchor, CrossSection};
 use super::{Kind, KindDescriptor, KindTag, StoreyLinkRef, Vertical, VerticalLink, plan_bounds_of, vertical};
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction, TopLink};
-use crate::fields::FieldSpec;
+use crate::fields::{self, FieldSpec, FieldType, FieldValue, OptionLabel, Section};
 use crate::ids::{ElementId, MaterialId, ProfileId, StoreyId};
 use crate::message::Message;
 use crate::profile::{Profile, ProfileUsage};
@@ -60,6 +60,26 @@ pub enum ColumnCut {
 }
 
 impl ColumnCut {
+    /// The codes of the two kinds of cut, in display order
+    /// ([`ColumnCut::code`]).
+    pub const CODES: [&'static str; 2] = ["horizontal", "angle"];
+
+    /// The stable code of the cut's kind, one of [`ColumnCut::CODES`].
+    pub fn code(self) -> &'static str {
+        match self {
+            ColumnCut::Horizontal => Self::CODES[0],
+            ColumnCut::Angle(_) => Self::CODES[1],
+        }
+    }
+
+    /// The tilt in radians: zero for a horizontal cut.
+    pub fn angle(self) -> f64 {
+        match self {
+            ColumnCut::Horizontal => 0.0,
+            ColumnCut::Angle(angle) => angle,
+        }
+    }
+
     /// How far the plane rises per metre along the column's local y axis:
     /// zero for a horizontal cut.
     pub fn slope(self) -> f64 {
@@ -237,9 +257,277 @@ impl Vertical for Column {
     }
 }
 
-/// The base and top fields (ELM-005, ELM-006). The column's own fields come
-/// with its tool and properties (archicraft-k553).
-const FIELDS: [FieldSpec; 6] = vertical::fields::<Column>("model-error-column-height-range");
+/// The base and top fields (ELM-005, ELM-006).
+const HEIGHT_FIELDS: [FieldSpec; 6] = vertical::fields::<Column>("model-error-column-height-range");
+
+/// The size a section takes when it becomes a rectangle or circle and the
+/// old one has no size, as a missing profile: the column tool's 0.30 m
+/// (Appendix D.2).
+const FALLBACK_SIZE: f64 = 0.3;
+
+/// Reads `read` from a column; `None` hides the field for other kinds.
+fn column_value(e: &Element, read: impl FnOnce(&Column) -> Option<FieldValue>) -> Option<FieldValue> {
+    e.as_column().and_then(read)
+}
+
+/// The column's section kind becomes `code` (COL-001): a rectangle or circle
+/// takes the size of the old section (a rectangle's width as the diameter,
+/// a circle's diameter as width and depth, a profile's bounding box), a
+/// profile section the first profile the project lets columns use
+/// (PRF-004). The same kind keeps the section; a profile anchor leaves with
+/// the profile.
+fn set_section_kind(e: &mut Element, v: &FieldValue, project: &Project) {
+    let Some(column) = e.as_column() else { return };
+    let Some(code) = fields::code(v).filter(|c| *c != column.section.code()) else {
+        return;
+    };
+    let size = column
+        .section_bounds(column.profile(project))
+        .map_or(DVec2::splat(FALLBACK_SIZE), |(min, max)| max - min);
+    let section = match code {
+        "rectangular" => CrossSection::Rectangular {
+            width: size.x,
+            height: size.y,
+        },
+        "circular" => CrossSection::Circular { diameter: size.x },
+        "profile" => match column_profiles(project).next() {
+            Some(profile) => CrossSection::Profile(profile.id),
+            None => return,
+        },
+        _ => return,
+    };
+    if let Some(column) = e.as_column_mut() {
+        column.section = section;
+        if section.profile().is_none() && column.anchor == Anchor::ProfileOrigin {
+            column.anchor = Anchor::Centre;
+        }
+    }
+}
+
+/// The profiles columns may use (PRF-004), in list order.
+fn column_profiles(project: &Project) -> impl Iterator<Item = &Profile> {
+    project.profiles.iter().filter(|p| p.usage.columns)
+}
+
+/// A length field of the section (COL-001), shown for the sections `read`
+/// gives a value for, within the validator's section limits.
+const fn section_length(key: &'static str, label: &'static str, get: fields::Getter, set: fields::Setter) -> FieldSpec {
+    FieldSpec::new(key, label, Section::Geometry, FieldType::Length, get, set).ranged(
+        MIN_THICKNESS,
+        MAX_THICKNESS,
+        "model-error-column-section-range",
+    )
+}
+
+/// The kind of an end cut and its angle (COL-003): the choice `kind_key`
+/// between horizontal and angled, and the angle `angle_key`, zero for a
+/// horizontal cut; typing another angle tilts the cut by it, so one value
+/// sets an angled cut, while the cut's own angle changes nothing (settings
+/// transfer writes the choice, then the angle, ELM-003). `$cut` names the
+/// end's field of [`Column`]. The validator rejects angles from
+/// [`MAX_CUT_ANGLE_DEG`] on, a limit it excludes, so the angle has no
+/// declared range.
+macro_rules! cut_fields {
+    ($kind_key:literal, $kind_label:literal, $angle_key:literal, $angle_label:literal, $cut:ident) => {
+        [
+            FieldSpec::choice(
+                $kind_key,
+                $kind_label,
+                Section::Geometry,
+                |e, _| column_value(e, |c| Some(FieldValue::Code(c.$cut.code()))),
+                |e, v, _| {
+                    if let (Some(c), Some(code)) = (e.as_column_mut(), fields::code(v)) {
+                        c.$cut = match (code, c.$cut) {
+                            ("horizontal", _) => ColumnCut::Horizontal,
+                            ("angle", ColumnCut::Horizontal) => ColumnCut::Angle(0.0),
+                            _ => c.$cut,
+                        };
+                    }
+                },
+                |_, _| {
+                    ColumnCut::CODES
+                        .into_iter()
+                        .zip(["model-column-cut-horizontal", "model-column-cut-angle"])
+                        .map(|(code, key)| (FieldValue::Code(code), fields::message(key)))
+                        .collect()
+                },
+            ),
+            FieldSpec::new(
+                $angle_key,
+                $angle_label,
+                Section::Geometry,
+                FieldType::Angle,
+                |e, _| column_value(e, |c| Some(FieldValue::Angle(c.$cut.angle()))),
+                |e, v, _| {
+                    // The angle the cut already has leaves it as it is, so
+                    // a transferred 0 keeps a horizontal cut horizontal.
+                    if let (Some(c), FieldValue::Angle(angle)) = (e.as_column_mut(), v)
+                        && c.$cut.angle() != *angle
+                    {
+                        c.$cut = ColumnCut::Angle(*angle);
+                    }
+                },
+            ),
+        ]
+    };
+}
+
+const TOP_CUT_FIELDS: [FieldSpec; 2] = cut_fields!(
+    "top_cut",
+    "model-field-top-cut",
+    "top_cut_angle",
+    "model-field-top-cut-angle",
+    top_cut
+);
+const BOTTOM_CUT_FIELDS: [FieldSpec; 2] = cut_fields!(
+    "bottom_cut",
+    "model-field-bottom-cut",
+    "bottom_cut_angle",
+    "model-field-bottom-cut-angle",
+    bottom_cut
+);
+
+/// The column's parameters (COL-001, COL-003), all in the geometry: the
+/// section kind and its width and depth, diameter or profile (only the
+/// profiles columns may use, PRF-004), the anchor among the nine points of
+/// the section's box or a profile's origin, the rotation, the base and top
+/// (ELM-005, ELM-006) and both end cuts. The material is the envelope's
+/// field, which a profile section replaces by a remark ([`COMMON_FIELDS`]).
+///
+/// [`COMMON_FIELDS`]: crate::fields::COMMON_FIELDS
+const FIELDS: &[FieldSpec] = &[
+    FieldSpec::choice(
+        "section_kind",
+        "model-field-section",
+        Section::Geometry,
+        |e, _| column_value(e, |c| Some(FieldValue::Code(c.section.code()))),
+        set_section_kind,
+        |p, e| {
+            let is_profile = e.as_column().is_some_and(|c| c.section.profile().is_some());
+            let offers_profiles = is_profile || column_profiles(p).next().is_some();
+            CrossSection::CODES
+                .into_iter()
+                .filter(|code| *code != "profile" || offers_profiles)
+                .filter_map(|code| Some((FieldValue::Code(code), fields::message(CrossSection::label_key(code)?))))
+                .collect()
+        },
+    ),
+    section_length(
+        "width",
+        "model-field-width",
+        |e, _| {
+            column_value(e, |c| match c.section {
+                CrossSection::Rectangular { width, .. } => Some(FieldValue::Length(width)),
+                _ => None,
+            })
+        },
+        |e, v, _| {
+            if let (Some(c), Some(v)) = (e.as_column_mut(), fields::length(v))
+                && let CrossSection::Rectangular { width, .. } = &mut c.section
+            {
+                *width = v;
+            }
+        },
+    ),
+    section_length(
+        "depth",
+        "model-field-depth",
+        |e, _| {
+            column_value(e, |c| match c.section {
+                CrossSection::Rectangular { height, .. } => Some(FieldValue::Length(height)),
+                _ => None,
+            })
+        },
+        |e, v, _| {
+            if let (Some(c), Some(v)) = (e.as_column_mut(), fields::length(v))
+                && let CrossSection::Rectangular { height, .. } = &mut c.section
+            {
+                *height = v;
+            }
+        },
+    ),
+    section_length(
+        "diameter",
+        "model-field-diameter",
+        |e, _| {
+            column_value(e, |c| match c.section {
+                CrossSection::Circular { diameter } => Some(FieldValue::Length(diameter)),
+                _ => None,
+            })
+        },
+        |e, v, _| {
+            if let (Some(c), Some(v)) = (e.as_column_mut(), fields::length(v))
+                && let CrossSection::Circular { diameter } = &mut c.section
+            {
+                *diameter = v;
+            }
+        },
+    ),
+    FieldSpec::choice(
+        "profile",
+        "model-field-profile",
+        Section::Geometry,
+        |e, _| column_value(e, |c| c.section.profile().map(FieldValue::Profile)),
+        |e, v, _| {
+            if let (Some(c), FieldValue::Profile(id)) = (e.as_column_mut(), v)
+                && c.section.profile().is_some()
+            {
+                c.section = CrossSection::Profile(*id);
+            }
+        },
+        |p, _| {
+            column_profiles(p)
+                .map(|profile| (FieldValue::Profile(profile.id), OptionLabel::Name(profile.name.clone())))
+                .collect()
+        },
+    ),
+    FieldSpec::anchor(
+        "anchor",
+        "model-field-anchor",
+        Section::Geometry,
+        |e, _| column_value(e, |c| Some(FieldValue::Code(c.anchor.code()))),
+        |e, v, _| {
+            if let (Some(c), Some(anchor)) = (e.as_column_mut(), fields::code(v).and_then(Anchor::from_code))
+                && (anchor != Anchor::ProfileOrigin || c.section.profile().is_some())
+            {
+                c.anchor = anchor;
+            }
+        },
+        |_, e| {
+            let origin = e
+                .as_column()
+                .and_then(|c| c.section.profile())
+                .map(|_| Anchor::ProfileOrigin);
+            Anchor::ALL
+                .into_iter()
+                .chain(origin)
+                .map(|a| (FieldValue::Code(a.code()), fields::message(a.label_key())))
+                .collect()
+        },
+    ),
+    FieldSpec::new(
+        "rotation",
+        "model-field-rotation",
+        Section::Geometry,
+        FieldType::Angle,
+        |e, _| column_value(e, |c| Some(FieldValue::Angle(c.rotation))),
+        |e, v, _| {
+            if let (Some(c), FieldValue::Angle(v)) = (e.as_column_mut(), v) {
+                c.rotation = *v;
+            }
+        },
+    ),
+    HEIGHT_FIELDS[0],
+    HEIGHT_FIELDS[1],
+    HEIGHT_FIELDS[2],
+    HEIGHT_FIELDS[3],
+    HEIGHT_FIELDS[4],
+    HEIGHT_FIELDS[5],
+    TOP_CUT_FIELDS[0],
+    TOP_CUT_FIELDS[1],
+    BOTTOM_CUT_FIELDS[0],
+    BOTTOM_CUT_FIELDS[1],
+];
 
 impl Kind for Column {
     /// ELM-011: `IfcColumn` by default, `IfcMember` selectable; ELM-019:
@@ -258,7 +546,7 @@ impl Kind for Column {
         ifcx_node: true,
         construction: true,
         template_defaults: Some(template_defaults),
-        fields: &FIELDS,
+        fields: FIELDS,
     };
 
     fn material(&self) -> Option<MaterialId> {
@@ -267,6 +555,11 @@ impl Kind for Column {
 
     fn set_material(&mut self, material: MaterialId) {
         self.material = material;
+    }
+
+    /// A profile section brings its region materials (PRF-004).
+    fn material_from_profile(&self) -> bool {
+        self.section.profile().is_some()
     }
 
     /// The profile of a profile section (PRF-004).

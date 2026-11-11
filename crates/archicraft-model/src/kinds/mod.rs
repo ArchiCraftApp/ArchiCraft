@@ -192,6 +192,14 @@ pub trait Kind: Sized {
     /// Replaces the text style; does nothing for a kind without one.
     fn set_text_style(&mut self, _style: TextStyleId) {}
 
+    /// Whether the element's materials are its profile's (PRF-004), as a
+    /// profile column's: the envelope's material field then gives way to a
+    /// remark ([`crate::fields::COMMON_FIELDS`]), while [`Kind::material`]
+    /// keeps the element's own material for a switch back.
+    fn material_from_profile(&self) -> bool {
+        false
+    }
+
     /// The profiles the element refers to by ID (PRF-004), for example a
     /// column's cross-section, each once; empty for a kind without profiles.
     /// [`crate::project::Project::profile_users`] and the profile commands
@@ -437,6 +445,13 @@ macro_rules! kinds {
             pub fn set_text_style(&mut self, style: TextStyleId) {
                 match self {
                     $($(#[$meta])* ElementKind::$Payload(k) => k.set_text_style(style),)+
+                }
+            }
+
+            /// See [`Kind::material_from_profile`].
+            pub fn material_from_profile(&self) -> bool {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.material_from_profile(),)+
                 }
             }
 

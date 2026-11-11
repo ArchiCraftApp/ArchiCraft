@@ -59,6 +59,30 @@ impl CrossSection {
         }
     }
 
+    /// The codes of the three kinds of section, in display order:
+    /// rectangular, circular, profile ([`CrossSection::code`]).
+    pub const CODES: [&'static str; 3] = ["rectangular", "circular", "profile"];
+
+    /// The stable code of the section's kind, one of
+    /// [`CrossSection::CODES`].
+    pub fn code(&self) -> &'static str {
+        match self {
+            CrossSection::Rectangular { .. } => Self::CODES[0],
+            CrossSection::Circular { .. } => Self::CODES[1],
+            CrossSection::Profile(_) => Self::CODES[2],
+        }
+    }
+
+    /// The message key of the label of the section kind `code`.
+    pub fn label_key(code: &str) -> Option<&'static str> {
+        Some(match code {
+            "rectangular" => "model-section-rectangular",
+            "circular" => "model-section-circular",
+            "profile" => "model-section-profile",
+            _ => return None,
+        })
+    }
+
     /// The section's dimensions with their values, for range checks; none
     /// for a profile, which its own validation checks.
     pub(crate) fn dimensions(&self) -> Vec<f64> {
@@ -111,6 +135,48 @@ impl Anchor {
     /// the bottom right; 4, the centre's, for [`Anchor::ProfileOrigin`].
     pub fn index(self) -> usize {
         Self::ALL.iter().position(|a| *a == self).unwrap_or(4)
+    }
+
+    /// The stable code of the anchor, the value of its field: `top-left` to
+    /// `bottom-right` and `profile-origin`.
+    pub fn code(self) -> &'static str {
+        match self {
+            Anchor::TopLeft => "top-left",
+            Anchor::TopCentre => "top-centre",
+            Anchor::TopRight => "top-right",
+            Anchor::Left => "left",
+            Anchor::Centre => "centre",
+            Anchor::Right => "right",
+            Anchor::BottomLeft => "bottom-left",
+            Anchor::BottomCentre => "bottom-centre",
+            Anchor::BottomRight => "bottom-right",
+            Anchor::ProfileOrigin => "profile-origin",
+        }
+    }
+
+    /// The anchor of the code `code` ([`Anchor::code`]).
+    pub fn from_code(code: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .chain([Anchor::ProfileOrigin])
+            .find(|a| a.code() == code)
+    }
+
+    /// The message key of the anchor's label (NFR-L10N-001); the nine
+    /// points share the labels of the text anchor positions.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Anchor::TopLeft => "model-anchor-top-left",
+            Anchor::TopCentre => "model-anchor-top-center",
+            Anchor::TopRight => "model-anchor-top-right",
+            Anchor::Left => "model-anchor-middle-left",
+            Anchor::Centre => "model-anchor-center",
+            Anchor::Right => "model-anchor-middle-right",
+            Anchor::BottomLeft => "model-anchor-bottom-left",
+            Anchor::BottomCentre => "model-anchor-bottom-center",
+            Anchor::BottomRight => "model-anchor-bottom-right",
+            Anchor::ProfileOrigin => "model-anchor-profile-origin",
+        }
     }
 
     /// The anchor's point of the box from `min` to `max`; the centre for

@@ -6,6 +6,7 @@
 //! differ show "Mixed", and a committed value goes to every editable selected
 //! element. Locked elements are counted but not changed.
 
+use archicraft_geometry::kinds::column::section_area;
 use archicraft_model::command::relink_to_storey;
 use archicraft_model::fields::{FieldSpec, Section, fields_of};
 use archicraft_model::project::DefaultsSlot;
@@ -180,7 +181,9 @@ fn summary(ws: &Workspace, editing: &Editing) -> String {
 }
 
 /// Read-only values of one selected element: its plan measure, such as a
-/// wall's length or a space's net area, and its volume (MEA-003, SPC-001).
+/// wall's length or a space's net area, a column's cross-section area and
+/// height (COL-001; the height only while no height field shows it, as for
+/// a top linked to a storey), and its volume (MEA-003, SPC-001).
 fn derived(ws: &mut Workspace) -> Vec<(&'static str, String)> {
     let ids = ws.selected_ids();
     let [id] = ids.as_slice() else {
@@ -198,6 +201,13 @@ fn derived(ws: &mut Workspace) -> Vec<(&'static str, String)> {
         Some(PlanMeasure::Length(length)) => rows.push(("Length", format_length(length, units, &nf, true))),
         Some(PlanMeasure::Area(area)) => rows.push(("Area", format_area(area, units, &nf))),
         None => {}
+    }
+    if let Some(area) = section_area(project, element) {
+        rows.push(("Cross-section area", format_area(area, units, &nf)));
+        let height_shown = fields_of(element).any(|s| s.key == "height" && (s.get)(element, project).is_some());
+        if let (false, Some((bottom, top))) = (height_shown, project.vertical_extent(element)) {
+            rows.push(("Height", format_length(top - bottom, units, &nf, true)));
+        }
     }
     if let Some(v) = geometry.get(*id).map(|g| g.volume()) {
         rows.push(("Volume", format_volume(v, units, &nf)));

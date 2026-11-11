@@ -66,6 +66,17 @@ pub fn plan_footprint(project: &Project, element: &Element) -> Option<Vec<Vec<DV
     )
 }
 
+/// The cross-section area of `element` if it is a column (COL-001): that of
+/// the section its body is swept from, a hollow profile's holes subtracted,
+/// so that with horizontal cuts the body's volume is this area times the
+/// height. A circle is the inscribed polygon of the project's tessellation,
+/// as in the body. `None` for an element that is no column and for a column
+/// without a section, such as one whose profile is missing.
+pub fn section_area(project: &Project, element: &Element) -> Option<f64> {
+    let (section, _) = section(element.as_column()?, project).ok()?;
+    Some(section.area())
+}
+
 /// The plane of the end cut `cut` through the axis at `z` (COL-003): it
 /// rises by the cut's slope per metre along the frame's `v`, so its normal
 /// is `Z - slope · v`.
