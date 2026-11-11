@@ -10,15 +10,17 @@ use archicraft_geometry::GeometryError;
 use archicraft_geometry::section::{
     BODY_ROLE, MAX_SEGMENTS_PER_TURN, Section, SectionLoop, arc_segments, parametric_section, profile_section,
 };
-use archicraft_model::MaterialId;
 use archicraft_model::glam::DVec2;
+use archicraft_model::message::Arg;
 use archicraft_model::outline::Ring;
-use archicraft_model::profile::{ParametricShape, Profile, ProfileRegion};
+use archicraft_model::profile::{ParametricShape, Profile, ProfileDimension, ProfileRegion};
 use archicraft_model::project::{ProjectSettings, Tessellation};
 use archicraft_model::validate::{
     MAX_CHORD_DEVIATION, MAX_PROFILE_DIMENSION, MAX_SEGMENT_ANGLE_DEG, MIN_CHORD_DEVIATION, MIN_EDGE_LENGTH,
-    MIN_SEGMENT_ANGLE_DEG, clean_ring, validate_ring, validate_slab_polygon,
+    MIN_PROFILE_DIMENSION, MIN_SEGMENT_ANGLE_DEG, check_parametric_shape, clean_ring, validate_ring,
+    validate_slab_polygon,
 };
+use archicraft_model::{MaterialId, Message};
 
 fn v(x: f64, y: f64) -> DVec2 {
     DVec2::new(x, y)
@@ -136,7 +138,8 @@ const TYPICAL: [ParametricShape; 9] = [RECTANGLE, CIRCLE, RHS, CHS, IPE_200, TEE
 /// Shapes whose radii sit at the limits `check_parametric_shape` accepts,
 /// or at zero, where tangent points meet corners or each other.
 fn limits() -> Vec<ParametricShape> {
-    vec![
+    use ProfileDimension as D;
+    let mut shapes = vec![
         // Outer radius at most the thickness: sharp inner corners.
         ParametricShape::RectangularHollow {
             width: 0.2,
@@ -285,7 +288,49 @@ fn limits() -> Vec<ParametricShape> {
             diameter: 10.0,
             thickness: 0.01,
         },
-    ]
+    ];
+    // Plates leaving the smallest gap the validation accepts,
+    // MIN_PROFILE_DIMENSION, to the last bit: the bore of a CHS, small and
+    // in a large tube, the hole of an RHS, sharp and rounded into a slot or
+    // a circle, the web heights and flange outstands of I/H, T, U/C and Z,
+    // and an angle's inner leg face; then the radius filling the gap.
+    let rhs = |width, height, outer_radius| ParametricShape::RectangularHollow {
+        width,
+        height,
+        thickness: 0.01,
+        outer_radius,
+    };
+    let at_gap = [
+        (CHS, D::Thickness),
+        (THIN_CHS, D::Thickness),
+        (
+            ParametricShape::CircularHollow {
+                diameter: 10.0,
+                thickness: 0.01,
+            },
+            D::Thickness,
+        ),
+        (rhs(0.2, 0.1, 0.0), D::Thickness),
+        (rhs(0.2, 0.1, 0.05), D::Thickness),
+        (rhs(0.1, 0.1, 0.05), D::Thickness),
+        (IPE_200, D::Flange),
+        (IPE_200, D::Web),
+        (TEE, D::Flange),
+        (TEE, D::Web),
+        (CHANNEL, D::Flange),
+        (CHANNEL, D::Web),
+        (ZED, D::Flange),
+        (ZED, D::Web),
+        (ANGLE, D::Thickness),
+    ];
+    for (shape, plate) in at_gap {
+        let thick = accepted_limit(shape, plate, MAX_PROFILE_DIMENSION);
+        shapes.push(thick);
+        for (radius, _) in thick.dimensions().into_iter().filter(|(d, _)| d.is_radius()) {
+            shapes.push(accepted_limit(thick, radius, MAX_PROFILE_DIMENSION));
+        }
+    }
+    shapes
 }
 
 /// Tessellation settings from coarse to fine, including the extremes
@@ -462,6 +507,84 @@ fn every_loop_is_a_valid_ring() {
             assert_valid(&section_with(shape, &tessellation), &what);
         }
     }
+}
+
+/// The value of `dimension` in `shape` that `check_parametric_shape`
+/// accepts nearest `towards`, by bisection from the accepted value it has:
+/// the limit itself to the last bit, since the accepted values of a
+/// dimension are an interval.
+fn accepted_limit(shape: ParametricShape, dimension: ProfileDimension, towards: f64) -> ParametricShape {
+    let with = |value: f64| {
+        let mut shape = shape;
+        *shape.dimension_mut(dimension).unwrap() = value;
+        shape
+    };
+    let accepted = |value: f64| check_parametric_shape(&with(value)).is_ok();
+    let mut good = *{ shape }.dimension_mut(dimension).unwrap();
+    assert!(accepted(good), "{shape:?}");
+    if accepted(towards) {
+        return with(towards);
+    }
+    let mut bad = towards;
+    loop {
+        let mid = good + (bad - good) / 2.0;
+        if mid == good || mid == bad {
+            return with(good);
+        }
+        if accepted(mid) {
+            good = mid;
+        } else {
+            bad = mid;
+        }
+    }
+}
+
+/// PRF-005, EDT-018: every shape the validation accepts has a section, also
+/// at the limits of its dimensions: from each typical, default and limit
+/// shape, each dimension in turn moved to the largest and the smallest
+/// value accepted, to the last bit, and from there each radius to its
+/// largest. Plates then leave gaps of MIN_PROFILE_DIMENSION, radii fill
+/// those gaps, and the shape's checks meet in every combination of one
+/// dimension and one radius. A smallest value that is the range minimum
+/// itself, MIN_PROFILE_DIMENSION, is left out: a circle of that diameter
+/// and some plates of that thickness have no section yet (archicraft-ymqhf).
+#[test]
+fn every_accepted_limit_has_a_section() {
+    let tessellations = [
+        defaults(),
+        Tessellation {
+            chord_deviation: MIN_CHORD_DEVIATION,
+            max_angle_deg: MIN_SEGMENT_ANGLE_DEG,
+        },
+    ];
+    let mut checked = 0;
+    for start in TYPICAL.into_iter().chain(ParametricShape::ALL).chain(limits()) {
+        for (dimension, _) in start.dimensions() {
+            let min = if dimension.is_radius() {
+                0.0
+            } else {
+                MIN_PROFILE_DIMENSION
+            };
+            for towards in [MAX_PROFILE_DIMENSION, min] {
+                let edge = accepted_limit(start, dimension, towards);
+                if towards == min && min > 0.0 && *{ edge }.dimension_mut(dimension).unwrap() == min {
+                    continue;
+                }
+                let radii = edge.dimensions().into_iter().filter(|(d, _)| d.is_radius());
+                let shapes = std::iter::once(edge)
+                    .chain(radii.map(|(radius, _)| accepted_limit(edge, radius, MAX_PROFILE_DIMENSION)));
+                for shape in shapes {
+                    for tessellation in &tessellations {
+                        let section = parametric_section(&shape, MaterialId::new(), tessellation)
+                            .unwrap_or_else(|e| panic!("{shape:?} at {tessellation:?}: {e}"));
+                        assert_valid(&section, &format!("{shape:?} at {tessellation:?}"));
+                        checked += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 1000, "{checked}");
 }
 
 /// IFX-034: the angle rule and the chord rule, whichever needs more
@@ -824,14 +947,16 @@ fn an_invalid_shape_has_no_section() {
         parametric_section(&negative, MaterialId::new(), &defaults()),
         Err(GeometryError::InvalidPolygon(m)) if m.key() == "model-error-profile-dimension-range"
     ));
-    // A bore narrower than the shortest edge is no ring.
+    // A bore narrower than the smallest gap is rejected naming the wall,
+    // not as a hole that is no ring.
     let pinhole = ParametricShape::CircularHollow {
         diameter: 0.1,
         thickness: 0.05 - MIN_EDGE_LENGTH / 4.0,
     };
     assert!(matches!(
         parametric_section(&pinhole, MaterialId::new(), &defaults()),
-        Err(GeometryError::InvalidPolygon(m)) if m.key() == "model-error-hole"
+        Err(GeometryError::InvalidPolygon(m)) if m.key() == "model-error-profile-dimension-limit"
+            && m.arg("dimension") == Some(&Arg::Nested(Box::new(Message::new("model-profile-dimension-thickness"))))
     ));
 }
 

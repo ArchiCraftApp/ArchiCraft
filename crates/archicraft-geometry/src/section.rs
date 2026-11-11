@@ -360,10 +360,10 @@ fn segments(radius: f64, count_radius: f64, sweep: f64, tessellation: &Tessellat
 /// start at angle 0, so equal diameters tessellate equally and every circle
 /// reaches its bounding box. A Z section has sharp corners.
 ///
-/// A shape [`check_parametric_shape`] rejects has no section, and nor does
-/// one so close to degenerate that its loops would not make a valid polygon
-/// with holes ([`validate_slab_polygon`]; for example a bore narrower than
-/// [`MIN_EDGE_LENGTH`]); the error carries the validation's message.
+/// A shape [`check_parametric_shape`] rejects has no section (for example
+/// a bore narrower than the smallest gap a plate may leave), and nor does
+/// one whose loops would not make a valid polygon with holes
+/// ([`validate_slab_polygon`]); the error carries the validation's message.
 pub fn parametric_section(
     shape: &ParametricShape,
     material: MaterialId,

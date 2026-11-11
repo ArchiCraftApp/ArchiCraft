@@ -295,7 +295,8 @@ fn error_representatives() -> Vec<Message> {
             .length("max", 10.0),
         Message::new("model-error-profile-dimension-limit")
             .nested("dimension", Message::new(ProfileDimension::Flange.label_key()))
-            .length("max", 0.1),
+            .length("max", 0.1)
+            .length("gap", 0.0001),
         Message::new("model-error-profile-radius-limit")
             .nested("dimension", Message::new(ProfileDimension::RootRadius.label_key()))
             .length("max", 0.047),
