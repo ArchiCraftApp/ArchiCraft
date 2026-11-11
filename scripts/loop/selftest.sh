@@ -1494,6 +1494,27 @@ expect "the ruleset requires the Implementation status job" 1 "$(grep -cx 'Imple
 expect "every CI job that runs on a merge group is a required check" "" \
     "$(awk -F '\t' '$2 == "" { print $1 }' <<<"$ci_jobs" |
         while IFS= read -r j; do grep -qxF "$j" <<<"$required" || echo "$j"; done | paste -sd ',' -)"
+# The feature builds run in a job of their own beside Test, not after it in Test: the job Test was
+# the longest path of a CI run, and its perf and successor-stub steps added about 110 s to it
+# (archicraft-9m2qx). Wall time on hosted runners varies too much to assert, so this checks the
+# layout that makes the run shorter: which jobs run a --features build, and that none waits.
+feature_jobs() { # feature_jobs <workflow>: "<job name>\t<needs>" per job that builds or tests one
+    # (the job Format and clippy runs clippy with perf, beside Test already)
+    awk '
+        /^jobs:/ { jobs = 1; next }
+        jobs && /^  [a-z][a-z0-9_-]*:$/ { if (feat) print name "\t" needs; name = ""; needs = ""; feat = 0 }
+        jobs && /^    name: / { name = substr($0, 11) }
+        jobs && /^    needs:/ { needs = substr($0, 12) }
+        jobs && /cargo (build|test) .*--features (perf|successor-stub)/ { feat = 1 }
+        END { if (feat) print name "\t" needs }' "$1"
+}
+expect "only the job Feature tests builds and tests the perf and successor-stub features, waiting for none" \
+    "Feature tests (ubuntu-24.04)	" "$(feature_jobs "$ci_wf")"
+expect "the job Feature tests runs on a merge group" 1 "$(grep -cxF "Feature tests (ubuntu-24.04)	" <<<"$ci_jobs")"
+printf 'jobs:\n  test:\n    name: Test\n    steps:\n      - run: cargo test --features perf\n  features:\n    name: Feature tests\n    needs: test\n    steps:\n      - run: cargo test -p x --features successor-stub\n' \
+    >"$work/feature-jobs.yml"
+expect "a feature build in Test or a job that waits for Test counts" "Test	,Feature tests	test" \
+    "$(feature_jobs "$work/feature-jobs.yml" | paste -sd ',' -)"
 expect "main merges through the merge queue, squashed, each PR's group green" "SQUASH ALLGREEN" \
     "$(jq -r '.rules[] | select(.type == "merge_queue") | .parameters | "\(.merge_method) \(.grouping_strategy)"' <<<"$ruleset")"
 expect "the queue tests PRs on main, so they need not be up to date" false \
