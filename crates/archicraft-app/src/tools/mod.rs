@@ -369,19 +369,29 @@ impl ToolState {
         })
     }
 
+    /// The step of the open text editor (ANN-007, NFR-USE-003): its prompt
+    /// with its Enter, Ctrl/Cmd+Enter and Esc keys, whichever tool opened
+    /// it; `None` while no editor is open. The status line shows it in
+    /// place of the active consumer's step, so an editor a double-click
+    /// opened with the selection tool names its keys too.
+    pub fn editor_step(&self) -> Option<StepSpec> {
+        self.editor.as_ref()?;
+        let hints = vec![
+            KeyHint::new("Enter", tr!("prompt-text-key-newline")),
+            KeyHint::new("Ctrl/Cmd+Enter", tr!("prompt-text-key-commit")),
+            KeyHint::new("Esc", tr!("prompt-text-key-cancel")),
+        ];
+        Some(StepSpec {
+            hints,
+            ..StepSpec::new(tr!("prompt-text-type"), Expect::Point)
+        })
+    }
+
     /// The text tool's step (ANN-007, NFR-USE-003): a point for the anchor,
     /// typed or clicked, then the content in the open editor.
     fn text_step(&self) -> StepSpec {
-        if self.editor.is_some() {
-            let hints = vec![
-                KeyHint::new("Enter", tr!("prompt-text-key-newline")),
-                KeyHint::new("Ctrl/Cmd+Enter", tr!("prompt-text-key-commit")),
-                KeyHint::new("Esc", tr!("prompt-text-key-cancel")),
-            ];
-            return StepSpec {
-                hints,
-                ..StepSpec::new(tr!("prompt-text-type"), Expect::Point)
-            };
+        if let Some(step) = self.editor_step() {
+            return step;
         }
         let hints = vec![
             KeyHint::new("0–9", "types the coordinates"),

@@ -1132,7 +1132,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     }
 
     // ANN-007: a press in the view, outside the open text editor, commits
-    // it; neither the press nor its click does anything else.
+    // it; neither the press nor its click or drag does anything else.
     if ws.tool.editor.is_some() && response.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
         ws.commit_text_editor();
         state.editor_press = true;
@@ -1279,8 +1279,9 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, storey: StoreyId) {
     state.guides.clear();
 
     // Area selection (SEL-003): left to right = fully inside,
-    // right to left = touching.
-    if selecting && response.drag_started_by(PointerButton::Primary) {
+    // right to left = touching. A drag from the press that committed the
+    // open text editor starts none (ANN-007).
+    if selecting && !swallowed && response.drag_started_by(PointerButton::Primary) {
         state.area_start = response.interact_pointer_pos();
     }
     let mut area: Option<(Rect, bool)> = None;

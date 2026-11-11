@@ -7,14 +7,14 @@
 
 mod common;
 
-use archicraft_app::ArchiCraftApp;
 use archicraft_app::tools::ToolKind;
 use archicraft_app::views::annotation_draw::LaidOutText;
+use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_geometry::ModelGeometry;
 use archicraft_ifcx::WriteOptions;
 use archicraft_model::glam::DVec2;
 use archicraft_model::{AnchorPos, Command, ElementId, samples};
-use common::{data_dir, harness};
+use common::{assert_present, data_dir, harness};
 use egui::accesskit::Role;
 use egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
@@ -553,8 +553,9 @@ fn texts(harness: &mut App) -> Vec<(ElementId, archicraft_model::Text)> {
 /// switch no tool; Enter starts a second line and Ctrl/Cmd+Enter commits
 /// the two lines as one undo step, a text with its anchor where clicked,
 /// drawn at 2.5 mm paper size at 1:100 (the font size is 0.25 m times the
-/// camera's points per metre). Esc in a fresh editor creates nothing; a
-/// click outside the editor commits it and opens no other.
+/// camera's points per metre). Esc in a fresh editor discards the typed
+/// text: it creates nothing and records no undo step; a click outside the
+/// editor commits it and opens no other.
 #[test]
 fn the_text_tool_places_a_typed_text_as_one_undo_step() {
     let mut harness = shell("text-tool");
@@ -622,12 +623,15 @@ fn the_text_tool_places_a_typed_text_as_one_undo_step() {
     harness.run_steps(2);
     assert_eq!(tool(&mut harness), ToolKind::Text, "the tool stays");
 
-    // Esc in a fresh editor creates nothing and records no step.
+    // Esc in a fresh editor discards what was typed: it creates nothing
+    // and records no step.
     let steps = undo_len(&mut harness);
     let elsewhere = on_screen(&mut harness, ANCHOR + DVec2::new(0.5, -1.0));
     click_at(&mut harness, elsewhere);
     assert_eq!(editor(&mut harness).as_deref(), Some(""));
     harness.run_steps(1);
+    type_keys(&mut harness, "Draft");
+    assert_eq!(editor(&mut harness).as_deref(), Some("Draft"));
     harness.key_press(Key::Escape);
     harness.run_steps(2);
     assert_eq!(editor(&mut harness), None, "Esc closes the editor");
@@ -656,7 +660,8 @@ fn the_text_tool_places_a_typed_text_as_one_undo_step() {
 /// strip; a second line typed and committed with Ctrl/Cmd+Enter is one undo
 /// step that changes the content alone, which undo and redo take back and
 /// restore. With the Text tool, a click on the text opens its editor too,
-/// rather than a new text's.
+/// rather than a new text's; Esc after typing there leaves the text as it
+/// was and records no undo step.
 #[test]
 fn a_double_click_on_a_text_edits_its_content_as_one_undo_step() {
     let (mut harness, text) = shell_with_text("text-double-click");
@@ -721,12 +726,17 @@ fn a_double_click_on_a_text_edits_its_content_as_one_undo_step() {
         "the click edits the text"
     );
     harness.run_steps(1);
+    let steps = undo_len(&mut harness);
+    harness.key_press(Key::End);
+    type_keys(&mut harness, " draft");
+    assert_eq!(editor(&mut harness).as_deref(), Some("Note\nmore draft"));
     harness.key_press(Key::Escape);
     harness.run_steps(2);
     assert_eq!(editor(&mut harness), None);
     assert_eq!(texts(&mut harness).len(), 1, "no new text");
     let element = harness.state_mut().workspace().doc.project.elements[&text].clone();
-    assert_eq!(element, expected, "Esc changes nothing");
+    assert_eq!(element, expected, "Esc discards the typed change");
+    assert_eq!(undo_len(&mut harness), steps, "Esc records no step");
 }
 
 /// ANN-007, UND-001: with the editor open on the text "Note", a
@@ -768,6 +778,86 @@ fn a_double_click_on_another_text_commits_the_editor_and_edits_that_text() {
     assert_eq!(ws.doc.history.undo_len(), steps + 1, "one undo step");
     assert_eq!(ws.selection.iter().copied().collect::<Vec<_>>(), [other]);
     assert!(harness.ctx.text_edit_focused(), "the editor has the keyboard");
+}
+
+/// The status line while a text editor is open: its prompt with its Enter,
+/// Ctrl/Cmd+Enter and Esc keys.
+const EDITOR_STATUS: &str = "Text: type the text, a click outside places it · Enter starts a new line \
+     · Ctrl/Cmd+Enter places the text · Esc cancels the text";
+
+/// ANN-007, UI-008, NFR-USE-003, SEL-003: with the selection tool, the editor a
+/// double-click opens on the text "Note" shows its prompt and its Enter,
+/// Ctrl/Cmd+Enter and Esc keys in the status line, as with the Text tool,
+/// and S typed there switches no tool (UI-008); a press-and-drag in the plan around the text "Other" commits the typed
+/// edit as one undo step and does nothing else: it starts no area
+/// selection, so "Other" stays unselected. Once the editor is closed, the
+/// status line is the selection tool's again.
+#[test]
+fn with_the_selection_tool_the_editor_shows_its_keys_and_a_committing_drag_selects_nothing() {
+    let (mut harness, note) = shell_with_text("text-select-drag");
+    let other = {
+        let ws = harness.state_mut().workspace();
+        let ground = ws.doc.project.storeys.ground();
+        let text = ws.doc.project.new_text(ground, DVec2::new(8.0, 4.5), "Other", 1);
+        let id = text.id;
+        assert!(ws.execute(Command::AddElements(vec![text])));
+        ws.selection.clear();
+        id
+    };
+    harness.run_steps(2);
+    assert_eq!(tool(&mut harness), ToolKind::Select);
+    let at_note = centre(&laid_out(&mut harness, note));
+    double_click_at(&mut harness, at_note);
+    assert_eq!(editor(&mut harness).as_deref(), Some("Note"));
+    assert_present(&harness, EDITOR_STATUS);
+    harness.key_press(Key::End);
+    type_keys(&mut harness, "s");
+    assert_eq!(editor(&mut harness).as_deref(), Some("Notes"));
+    assert_eq!(
+        tool(&mut harness),
+        ToolKind::Select,
+        "S types a letter and switches no tool"
+    );
+    let steps = undo_len(&mut harness);
+
+    // A drag that would catch "Other" left to right, as in
+    // an_area_selection_catches_a_text_by_its_quad.
+    let (from, to) = {
+        let quad = laid_out(&mut harness, other).quad;
+        let pad = egui::vec2(20.0, 20.0);
+        (quad[0] - pad, quad[2] + pad)
+    };
+    harness.hover_at(from);
+    harness.run_steps(1);
+    harness.event(Event::PointerButton {
+        pos: from,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.run_steps(1);
+    for step in 1..=8 {
+        harness.hover_at(from + (to - from) * (step as f32 / 8.0));
+        harness.run_steps(1);
+    }
+    harness.event(Event::PointerButton {
+        pos: to,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.run_steps(2);
+
+    assert_eq!(editor(&mut harness), None, "the press commits the editor");
+    let ws = harness.state_mut().workspace();
+    assert_eq!(ws.doc.history.undo_len(), steps + 1, "one undo step");
+    assert_eq!(ws.doc.project.elements[&note].as_text().unwrap().content, "Notes");
+    assert!(
+        !ws.selection.contains(&other),
+        "the committing drag starts no area selection"
+    );
+    assert!(harness.query_all_by_label(EDITOR_STATUS).next().is_none());
+    assert_present(&harness, &tr!("status-prompt-select"));
 }
 
 /// ANN-007, UND-003: switching tools with the toolbox while a text is typed
