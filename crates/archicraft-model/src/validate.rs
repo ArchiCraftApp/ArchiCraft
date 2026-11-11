@@ -53,7 +53,8 @@ pub const MAX_SLAB_POINTS: usize = 10_000;
 pub const MIN_PROFILE_DIMENSION: f64 = MIN_EDGE_LENGTH;
 /// Largest dimension of a profile: of each dimension of a parametric shape
 /// and of the width and height of custom regions together. Also the largest
-/// distance of a profile's origin from its zero: 10 m (PRF-004, PRF-005).
+/// distance of a profile's origin from its zero, and of a custom profile's
+/// regions from its zero along each axis: 10 m (PRF-004, PRF-005).
 pub const MAX_PROFILE_DIMENSION: f64 = MAX_THICKNESS;
 /// Most regions a custom profile may have (PRF-004). The overlap check is
 /// one sweep over the points of all regions, in which each point finds its
@@ -389,8 +390,9 @@ pub fn validate_space(space: &Space) -> Result<Space, Message> {
 /// ([`MIN_PROFILE_DIMENSION`]..=[`MAX_PROFILE_DIMENSION`], radii from zero)
 /// and fit together ([`check_parametric_shape`]). A custom profile has one
 /// to [`MAX_PROFILE_REGIONS`] regions, at most [`MAX_SLAB_POINTS`] points
-/// in all, is at most [`MAX_PROFILE_DIMENSION`] wide and tall, and its
-/// regions do not overlap; they may touch, for example share an edge, in up
+/// in all, is at most [`MAX_PROFILE_DIMENSION`] wide and tall, lies within
+/// [`MAX_PROFILE_DIMENSION`] of zero along each axis, and its regions do
+/// not overlap; they may touch, for example share an edge, in up
 /// to [`MAX_PROFILE_CROSSINGS`] places where their outlines cross within
 /// the tolerance.
 pub fn validate_profile(project: &Project, profile: &Profile) -> Result<Profile, Message> {
@@ -576,6 +578,11 @@ fn validate_profile_regions(regions: &[ProfileRegion]) -> Result<Vec<ProfileRegi
     let (min, max) = point_bounds(regions.iter().flat_map(|r| r.outer.iter().copied())).unwrap_or_default();
     if (max - min).max_element() > MAX_PROFILE_DIMENSION {
         return Err(Message::new("model-error-profile-size").length("max", MAX_PROFILE_DIMENSION));
+    }
+    // A column body lies near its insertion point: the regions' box lies
+    // within MAX_PROFILE_DIMENSION of zero along each axis.
+    if min.min_element() < -MAX_PROFILE_DIMENSION || max.max_element() > MAX_PROFILE_DIMENSION {
+        return Err(Message::new("model-error-profile-position").length("max", MAX_PROFILE_DIMENSION));
     }
     // Regions overlap when an edge of one crosses an edge of the other
     // more than MODEL_TOLERANCE to either side, or when their intersection
@@ -1689,12 +1696,12 @@ mod tests {
         }
 
         /// PRF-004: custom regions together are at most
-        /// MAX_PROFILE_DIMENSION wide and tall, wherever they lie: one
-        /// region 10 m wide is accepted, one wider, one taller and two small
-        /// ones farther apart are rejected naming the limit.
+        /// MAX_PROFILE_DIMENSION wide and tall: one region 10 m wide is
+        /// accepted, one wider, one taller and two small ones farther apart
+        /// are rejected naming the limit.
         #[test]
         fn custom_profiles_are_limited_in_size() {
-            let far = DVec2::splat(1000.0);
+            let far = DVec2::splat(-5.0);
             let wide = rect(far, DVec2::new(MAX_PROFILE_DIMENSION, 0.1));
             assert!(check_custom(vec![(wide, Vec::new())]).is_ok());
             let too_large = Message::new("model-error-profile-size").length("max", MAX_PROFILE_DIMENSION);
@@ -1708,6 +1715,34 @@ mod tests {
                 (rect(DVec2::new(0.0, 9.95), small), Vec::new()),
             ];
             assert_eq!(check_custom(apart).unwrap_err(), too_large);
+        }
+
+        /// PRF-004: the regions of a custom profile lie within
+        /// MAX_PROFILE_DIMENSION of the profile's zero along each axis, so
+        /// a column body stays near its insertion point: regions reaching
+        /// exactly to ±10 m are accepted, a small one beyond on any side, or
+        /// far away, is rejected naming the limit.
+        #[test]
+        fn custom_profiles_are_limited_in_position() {
+            let small = DVec2::splat(0.1);
+            for min in [
+                DVec2::splat(-MAX_PROFILE_DIMENSION),
+                DVec2::splat(MAX_PROFILE_DIMENSION) - small,
+            ] {
+                assert!(check_custom(vec![(rect(min, small), Vec::new())]).is_ok(), "{min}");
+            }
+            let outside = Message::new("model-error-profile-position").length("max", MAX_PROFILE_DIMENSION);
+            for min in [
+                DVec2::new(9.95, 0.0),
+                DVec2::new(0.0, 9.95),
+                DVec2::new(-10.05, 0.0),
+                DVec2::new(0.0, -10.05),
+                DVec2::splat(1000.0),
+                DVec2::new(-54_321.0, 76_543.0),
+            ] {
+                let error = check_custom(vec![(rect(min, small), Vec::new())]).unwrap_err();
+                assert_eq!(error, outside, "{min}");
+            }
         }
 
         /// `n` points on the arc of `radius` about zero from angle `from`
