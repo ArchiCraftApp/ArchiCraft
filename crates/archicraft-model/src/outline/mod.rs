@@ -96,7 +96,7 @@ pub struct Segment<'a, E = ()> {
 
 /// The smallest and largest corner of the axis-aligned bounding box of
 /// `points`, or `None` for no points.
-pub fn point_bounds(points: impl IntoIterator<Item = DVec2>) -> Option<(DVec2, DVec2)> {
+pub(crate) fn point_bounds(points: impl IntoIterator<Item = DVec2>) -> Option<(DVec2, DVec2)> {
     points
         .into_iter()
         .map(|p| (p, p))

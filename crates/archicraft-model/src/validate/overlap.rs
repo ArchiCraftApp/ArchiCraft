@@ -1,5 +1,6 @@
 //! Which regions of a custom profile overlap (PRF-004), in time that grows
-//! with their points and not with how their outlines cross (NFR-SEC-003).
+//! with their points and with the crossings of their outlines up to a
+//! limit, beyond which it gives up (NFR-SEC-003).
 //!
 //! Two regions overlap when an edge of one crosses an edge of the other
 //! *deeply*, each having an end point more than [`MODEL_TOLERANCE`] on either
@@ -174,6 +175,15 @@ pub(super) fn first_overlap(regions: &[GridRegion], limit: usize, strip: impl Fn
     Overlap::None
 }
 
+/// The pairs of edges the sweep of [`first_overlap`] tests on `regions`,
+/// and the crossings that are not deep it finds, up to `limit`.
+#[cfg(test)]
+pub(super) fn sweep_work(regions: &[GridRegion], limit: usize) -> (usize, usize) {
+    let mut sweep = Sweep::new(regions, limit);
+    sweep.run();
+    (sweep.tested, sweep.crossings.len())
+}
+
 /// The order in which the sweep meets grid points: by x, then by y.
 fn lex(a: I64Vec2, b: I64Vec2) -> Ordering {
     a.x.cmp(&b.x).then(a.y.cmp(&b.y))
@@ -312,6 +322,9 @@ struct Sweep<'a> {
     crossings: HashSet<[usize; 4]>,
     /// The crossings to visit before each point, the first after them.
     pending: Vec<Vec<[usize; 4]>>,
+    /// How many pairs of edges [`Sweep::test`] has tested.
+    #[cfg(test)]
+    tested: usize,
 }
 
 impl<'a> Sweep<'a> {
@@ -360,6 +373,8 @@ impl<'a> Sweep<'a> {
             limit,
             crossings: HashSet::new(),
             pending,
+            #[cfg(test)]
+            tested: 0,
         }
     }
 
@@ -478,6 +493,10 @@ impl<'a> Sweep<'a> {
     /// deep crossing settles the pair, another crossing is noted and, if
     /// new, visited later.
     fn test(&mut self, key: [usize; 4], next: usize) {
+        #[cfg(test)]
+        {
+            self.tested += 1;
+        }
         let [r, e, s, f] = key;
         let ((p0, p1), (q0, q1)) = (self.regions[r].ends(e), self.regions[s].ends(f));
         let (s0, s1) = (cross(q1 - q0, p0 - q0), cross(q1 - q0, p1 - q0));
