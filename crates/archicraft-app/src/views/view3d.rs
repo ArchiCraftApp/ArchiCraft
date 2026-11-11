@@ -88,9 +88,15 @@ pub fn model_bounds(project: &Project, geometry: &ModelGeometry, ids: Option<&[E
 }
 
 /// The nearest visible element under a pick ray and the hit point. Elements
-/// of kinds without a body are never picked in 3D (ANN-002).
+/// of kinds without a body are never picked in 3D (ANN-002). Construction
+/// elements win over the translucent spaces that fill their rooms (SPC-001,
+/// SEL-001): a space's body reaches up to the next storey and its boundary
+/// lies on the walls' faces, so a ray into a room passes through it to the
+/// floor or a wall, and that element is picked. A space is picked only by a
+/// ray that hits no construction element.
 pub fn pick(project: &Project, geometry: &ModelGeometry, origin: DVec3, dir: DVec3) -> Option<(ElementId, DVec3)> {
-    let mut best: Option<(f64, ElementId)> = None;
+    // The nearest construction hit and the nearest other hit.
+    let mut best: [Option<(f64, ElementId)>; 2] = [None, None];
     for element in project
         .elements
         .values()
@@ -99,16 +105,18 @@ pub fn pick(project: &Project, geometry: &ModelGeometry, origin: DVec3, dir: DVe
         let (Some(storey), Some(g)) = (project.storeys.get(element.storey), geometry.get(element.id)) else {
             continue;
         };
+        let best = &mut best[usize::from(!element.kind.descriptor().construction)];
         let local_origin = origin - DVec3::new(0.0, 0.0, storey.elevation);
         for part in g.bodies() {
             if let Some(t) = part.mesh.ray_hit(local_origin, dir)
                 && best.is_none_or(|(b, _)| t < b)
             {
-                best = Some((t, element.id));
+                *best = Some((t, element.id));
             }
         }
     }
-    best.map(|(t, id)| (id, origin + dir * t))
+    let [construction, other] = best;
+    construction.or(other).map(|(t, id)| (id, origin + dir * t))
 }
 
 fn background(dark: bool) -> [f32; 4] {
@@ -431,5 +439,53 @@ mod tests {
         let a_box = geometry.elements.remove(&near_id).unwrap();
         geometry.elements.insert(note_id, a_box);
         assert_eq!(ray(&project, &geometry), Some(far_id));
+    }
+
+    /// SPC-001, SEL-001: a space's body fills its room up to the next
+    /// storey, so rays into the room pass through it, and the construction
+    /// element behind it wins: a ray from above through the stair opening
+    /// onto the ground floor picks the base slab, a ray at the west wall's
+    /// interior face, where the space's boundary coincides with it, picks the
+    /// wall. A ray that hits only the space, upwards through the stair
+    /// opening, still picks the space.
+    #[test]
+    fn construction_elements_win_over_the_space_that_fills_their_room() {
+        use archicraft_model::KindTag;
+        use archicraft_model::samples::two_storey_shell_with_spaces;
+
+        let project = two_storey_shell_with_spaces();
+        let geometry = ModelGeometry::evaluate(&project);
+        assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+        let ground = project.storeys.ground();
+        let only = |tag: KindTag| {
+            let ids: Vec<_> = project
+                .elements
+                .values()
+                .filter(|e| e.storey == ground && e.tag() == tag)
+                .map(|e| e.id)
+                .collect();
+            assert_eq!(ids.len(), 1, "{tag:?} on the ground storey");
+            ids[0]
+        };
+        let (space, slab) = (only(KindTag::Space), only(KindTag::Slab));
+        let elevation = project.storeys.get(ground).unwrap().elevation;
+        let ray = |origin: DVec3, dir: DVec3| pick(&project, &geometry, origin, dir).expect("a hit");
+
+        // From above, through the upper floor's stair opening (x 6-9,
+        // y 1-2.2) and the landing's hole over it, onto the ground floor.
+        let (hit, _) = ray(DVec3::new(7.5, 1.6, elevation + 20.0), -DVec3::Z);
+        assert_eq!(hit, slab);
+
+        // Inside the room, north of the interior wall, towards the west
+        // wall's interior face at x = 0.25.
+        let (hit, point) = ray(DVec3::new(11.0, 7.5, elevation + 1.0), -DVec3::X);
+        let wall = &project.elements[&hit];
+        assert_eq!((wall.tag(), wall.storey), (KindTag::Wall, ground));
+        assert!((point.x - 0.25).abs() < 1e-9, "{point}");
+
+        // Inside the room, upwards through the stair opening: only the
+        // space's top is in the way.
+        let (hit, _) = ray(DVec3::new(7.5, 1.6, elevation + 1.0), DVec3::Z);
+        assert_eq!(hit, space);
     }
 }
