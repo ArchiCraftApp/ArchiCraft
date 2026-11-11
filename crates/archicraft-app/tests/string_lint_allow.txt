@@ -22,6 +22,8 @@ crates/archicraft-model/src/template.rs::default_metric_project_with | "3D paral
 crates/archicraft-model/src/kinds/wall.rs::template_defaults | "Brick" | looks up a template material by name for the wall tool defaults
 crates/archicraft-model/src/kinds/wall.rs::template_defaults | "Exterior walls" | looks up a template layer by name for the wall tool defaults
 crates/archicraft-model/src/kinds/slab.rs::template_defaults | "Reinforced concrete" | looks up a template material by name for the slab tool defaults
+crates/archicraft-model/src/kinds/column.rs::template_defaults | "Reinforced concrete" | looks up a template material by name for the column tool defaults
+crates/archicraft-model/src/kinds/column.rs::template_defaults | "Structure" | looks up a template layer by name for the column tool defaults
 crates/archicraft-model/src/kinds/slab.rs::template_defaults | "Slabs" | looks up a template layer by name for the slab tool defaults
 crates/archicraft-model/src/kinds/space.rs::template_defaults | "Spaces" | looks up a template layer by name for the space tool defaults (the first layer until the template has one)
 crates/archicraft-model/src/template.rs::LAYERS | * | data table: default layer names of the metric template (project data)
@@ -34,6 +36,7 @@ crates/archicraft-model/src/kinds/wall.rs::Wall | "W" | KindDescriptor::name_pre
 crates/archicraft-model/src/kinds/slab.rs::Slab | "SL" | KindDescriptor::name_prefix: prefix of generated slab names such as SL-1 (project data)
 crates/archicraft-model/src/kinds/space.rs::Space | "SP" | KindDescriptor::name_prefix: prefix of generated space names such as SP-1 (project data)
 crates/archicraft-model/src/kinds/text.rs::Text | "TX" | KindDescriptor::name_prefix: prefix of generated text names such as TX-1 (project data)
+crates/archicraft-model/src/kinds/column.rs::Column | "C" | KindDescriptor::name_prefix: prefix of generated column names such as C-1 (project data)
 crates/archicraft-model/src/kinds/dummy.rs::Dummy | "X" | KindDescriptor::name_prefix: prefix of generated test-kind names such as X-1 (project data, test builds only)
 crates/archicraft-model/src/kinds/note.rs::Note | "NT" | KindDescriptor::name_prefix: prefix of generated names of the body-less test kind such as NT-1 (project data, test builds only)
 crates/archicraft-model/src/group.rs::Group::automatic_name | "Group {n}" | automatic name of a new group such as Group 3, saved in the project file and renamed by the user (project data, ELM-015)
@@ -43,6 +46,7 @@ crates/archicraft-model/src/kinds/wall.rs::Wall | "Wall" | KindDescriptor::node_
 crates/archicraft-model/src/kinds/slab.rs::Slab | "Slab" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Slab_1a2b3c4d (file format)
 crates/archicraft-model/src/kinds/space.rs::Space | "Space" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Space_1a2b3c4d (file format)
 crates/archicraft-model/src/kinds/text.rs::Text | "Text" | KindDescriptor::node_prefix: prefix of IFCX child keys, unused because texts are annotation entries, not nodes (file format, ANN-010)
+crates/archicraft-model/src/kinds/column.rs::Column | "Column" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Column_1a2b3c4d (file format)
 crates/archicraft-model/src/kinds/dummy.rs::Dummy | "Dummy" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Dummy_1a2b3c4d (file format, test builds only)
 crates/archicraft-model/src/kinds/note.rs::Note | "Note" | KindDescriptor::node_prefix: prefix of IFCX child keys such as Note_1a2b3c4d (file format, test builds only)
 crates/archicraft-model/src/kinds/dummy.rs::Dummy::parts | "Part_{n}" | PartSpec::role: the IFCX child key of a compound part's node such as Part_1 (file format, IFX-016, test builds only)

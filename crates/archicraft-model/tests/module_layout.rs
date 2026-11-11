@@ -104,9 +104,14 @@ fn payload_types_are_defined_in_the_kinds_module() {
 /// Blanks every item annotated with `#[cfg(test)]`, up to its `;` or to the
 /// end of its block. Line breaks are kept, so line numbers stay valid.
 fn without_test_items(source: &str) -> String {
-    const MARKER: &str = "#[cfg(test)]";
+    without_items(source, "#[cfg(test)]")
+}
+
+/// Blanks every item that starts with `marker`, up to its `;` or to the end
+/// of its block. Line breaks are kept, so line numbers stay valid.
+fn without_items(source: &str, marker: &str) -> String {
     let mut chars: Vec<char> = source.chars().collect();
-    let marker: Vec<char> = MARKER.chars().collect();
+    let marker: Vec<char> = marker.chars().collect();
     let mut i = 0;
     while i + marker.len() <= chars.len() {
         if chars[i..i + marker.len()] != marker[..] {
@@ -272,5 +277,91 @@ fn the_scan_for_the_body_less_test_kind_skips_comments_and_longer_words() {
     }
     for line in ["/// the privacy note", "let notes = 3;", "denote(x)", "x // see Note"] {
         assert!(!names(line), "{line}");
+    }
+}
+
+/// The column kind's identifiers in a line: its payload `Column` as a whole
+/// word and its accessors `as_column` and `as_column_mut`, in code outside
+/// comments. `IfcClass::Column`, the IFC class of ELM-011, is not the kind,
+/// and neither is the word in longer names such as `ColumnCut` or
+/// `frame_for_column`.
+fn names_the_column_kind(line: &str) -> bool {
+    let code = line
+        .split("//")
+        .next()
+        .unwrap_or_default()
+        .replace("IfcClass::Column", "");
+    code.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .any(|word| matches!(word, "Column" | "as_column" | "as_column_mut"))
+}
+
+/// SRS 3.2, COL-001: the column kind is one module plus one registry line in
+/// each of the model, geometry and IFCX crates. Outside `#[cfg(test)]`
+/// items, their sources name the kind only in its `column.rs` modules and on
+/// one line of each registry `mod.rs`, so the shared member types
+/// (`kinds/member.rs`, for beams too), the project, validation and command
+/// code, the geometry and the file format reach columns through the
+/// registries, the descriptor flags and the hooks. The IFC class enum in
+/// `element.rs` declares `IfcClass::Column` (ELM-011), which is not the kind.
+#[test]
+fn the_column_kind_is_named_only_in_its_modules() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates folder");
+    for (krate, folder) in [
+        ("archicraft-model", "kinds/"),
+        ("archicraft-geometry", "kinds/"),
+        ("archicraft-ifcx", "alpha/kinds/"),
+    ] {
+        let root = crates.join(krate).join("src");
+        let mut files = Vec::new();
+        rust_files(&root, &root, &mut files);
+        let module = format!("{folder}column.rs");
+        let registry = format!("{folder}mod.rs");
+        assert!(files.contains(&module), "{krate}: {module} is missing");
+        for file in &files {
+            let text = fs::read_to_string(root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+            let mut text = without_test_items(&text);
+            if krate == "archicraft-model" && file == "element.rs" {
+                text = without_items(&text, "pub enum IfcClass");
+            }
+            let lines: Vec<(usize, &str)> = text
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| names_the_column_kind(line))
+                .map(|(n, line)| (n + 1, line))
+                .collect();
+            if *file == module {
+                assert!(!lines.is_empty(), "{krate}/src/{file} defines the kind's code");
+            } else if *file == registry {
+                assert_eq!(lines.len(), 1, "{krate}/src/{file}: {lines:?}");
+            } else {
+                assert!(lines.is_empty(), "{krate}/src/{file}: {lines:?}");
+            }
+        }
+    }
+}
+
+/// The scan for the column kind finds its payload and accessors in code,
+/// but not the IFC class, longer names or comments.
+#[test]
+fn the_scan_for_the_column_kind_skips_the_ifc_class_and_longer_names() {
+    for line in [
+        "use archicraft_model::kinds::Column;",
+        "e.as_column_mut()",
+        "column => Column (as_column, as_column_mut),",
+        "KindTag::Column",
+        "impl GeometryKind for Column {",
+    ] {
+        assert!(names_the_column_kind(line), "{line}");
+    }
+    for line in [
+        "ifc_classes: &[IfcClass::Column, IfcClass::Member],",
+        "pub use self::column::{ColumnCut, MAX_CUT_ANGLE_DEG};",
+        "pub fn frame_for_column(position: DVec3, rotation: f64) -> MemberFrame {",
+        "/// A Column of the kind",
+        "x // see Column",
+    ] {
+        assert!(!names_the_column_kind(line), "{line}");
     }
 }

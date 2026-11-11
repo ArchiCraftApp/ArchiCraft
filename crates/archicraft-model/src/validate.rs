@@ -314,8 +314,8 @@ pub fn validate_wall(wall: &Wall) -> Result<(), Message> {
 
 /// Range checks for the base offset and top of a vertical element (ELM-006).
 /// A storey the top is linked to is checked by the kind, and the resulting
-/// extent by [`validate_element`]. The fixed-height message names walls, the
-/// only vertical kind with a tool so far.
+/// extent by [`validate_element`]. The fixed-height message names walls;
+/// spaces and columns check a fixed height with their own message first.
 pub fn check_vertical_link(link: &VerticalLink) -> Result<(), Message> {
     check_offset(link.base_offset, "model-error-base-offset-range")?;
     match link.top {

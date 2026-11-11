@@ -43,6 +43,7 @@ fn sample_elements(p: &Project, kind: KindTag) -> Vec<Element> {
             vec![p.new_space(g, boundary, Vec::new(), 0)]
         }
         KindTag::Text => vec![p.new_text(g, DVec2::new(1.0, 7.0), "Kitchen", 0)],
+        KindTag::Column => vec![p.new_column(g, DVec2::new(6.0, 3.0), 0.0, 0)],
         KindTag::Dummy => {
             let simple = Dummy::new(DVec2::new(6.0, 0.0), DVec2::ONE, material);
             let mut compound = Dummy::new(DVec2::new(8.0, 0.0), DVec2::new(2.0, 1.0), material);

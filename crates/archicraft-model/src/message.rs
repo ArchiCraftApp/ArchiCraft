@@ -64,6 +64,8 @@ pub const ALL_KEYS: &[&str] = &[
     "model-kind-space-noun",
     "model-kind-text",
     "model-kind-text-noun",
+    "model-kind-column",
+    "model-kind-column-noun",
     // The test kinds (feature `test-kinds`), listed in every build so that
     // the application's catalogue is the same in test and release builds.
     "model-kind-test",
@@ -137,6 +139,11 @@ pub const ALL_KEYS: &[&str] = &[
     "model-error-space-height-range",
     "model-error-linked-storey-range",
     "model-error-wall-top-storey-missing",
+    "model-error-column-section-range",
+    "model-error-column-rotation",
+    "model-error-column-cut-angle",
+    "model-error-column-height-range",
+    "model-error-column-top-storey-missing",
     "model-error-element-name",
     "model-error-home-storey-missing",
     "model-error-element-layer-missing",

@@ -3103,3 +3103,293 @@ fn inject_settings_changes_the_targets_that_take_settings_and_keeps_the_others()
     assert_eq!((w.layer, w.position), (sl.layer, sl.position));
     assert_ne!(p.element(source), before.element(source));
 }
+
+/// The column with id `id`.
+fn column_of(p: &Project, id: ElementId) -> &archicraft_model::kinds::Column {
+    p.element(id).and_then(Element::as_column).unwrap()
+}
+
+/// COL-001, ELM-019, UND-001: a new column from the column tool's defaults
+/// is `C-001`, an `IfcColumn` on the structure layer; adding it bumps the
+/// column counter, and undo and redo restore the project exactly.
+#[test]
+fn adding_a_column_names_it_and_undo_redo_restore_the_project() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let start = content(&p);
+    let c = p.new_column(ground(&p), DVec2::new(2.0, 1.0), 0.0, 0);
+    let id = c.id;
+    assert_eq!(c.name, "C-001");
+    assert_eq!(c.ifc_class, IfcClass::Column);
+    assert_eq!(p.layer(c.layer).unwrap().name, "Structure");
+    h.execute(&mut p, Command::AddElements(vec![c])).unwrap();
+    let added = content(&p);
+    assert_eq!(p.counters.get(KindTag::Column), 1);
+    assert_eq!(p.next_element_name(KindTag::Column, 0), "C-002");
+    assert_eq!(column_of(&p, id).position, DVec2::new(2.0, 1.0));
+    assert_eq!(p.vertical_extent(p.element(id).unwrap()), Some((0.0, 3.0)));
+
+    let label = h.undo(&mut p).unwrap();
+    assert_eq!(label.arg("kind"), Some(&Arg::Kind(KindTag::Column)));
+    assert_eq!(content(&p), start);
+    h.redo(&mut p).unwrap();
+    assert_eq!(content(&p), added);
+}
+
+/// COL-001: UpdateElements changes a column's rotation, anchor and
+/// section, and undo restores the column exactly.
+#[test]
+fn updating_a_columns_rotation_anchor_and_section_works() {
+    use archicraft_model::kinds::{Anchor, CrossSection};
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let c = p.new_column(ground(&p), DVec2::new(2.0, 1.0), 0.0, 0);
+    let id = c.id;
+    h.execute(&mut p, Command::AddElements(vec![c])).unwrap();
+    let added = p.element(id).unwrap().clone();
+    for change in [
+        &(|c: &mut archicraft_model::kinds::Column| c.rotation = 30_f64.to_radians())
+            as &dyn Fn(&mut archicraft_model::kinds::Column),
+        &|c| c.anchor = Anchor::BottomLeft,
+        &|c| c.section = CrossSection::Circular { diameter: 0.4 },
+        &|c| {
+            c.section = CrossSection::Rectangular {
+                width: 0.25,
+                height: 0.5,
+            }
+        },
+    ] {
+        let before = p.element(id).unwrap().clone();
+        let mut edited = before.clone();
+        change(edited.as_column_mut().unwrap());
+        h.execute(&mut p, Command::UpdateElements(vec![edited.clone()]))
+            .unwrap();
+        assert_eq!(p.element(id), Some(&edited));
+        h.undo(&mut p).unwrap();
+        assert_eq!(p.element(id), Some(&before));
+        h.redo(&mut p).unwrap();
+    }
+    let column = column_of(&p, id);
+    assert_eq!(column.rotation, 30_f64.to_radians());
+    assert_eq!(column.anchor, Anchor::BottomLeft);
+    assert_ne!(p.element(id), Some(&added));
+    while h.undo(&mut p).is_some() {}
+    assert!(p.elements.is_empty());
+}
+
+/// COL-001, COL-003, ELM-011, ELM-017: a column with a dimension outside
+/// MIN_THICKNESS..=MAX_THICKNESS (width 0, a diameter above MAX_THICKNESS),
+/// an end cut of 60° or more or NaN, a rotation that is not finite, a fixed
+/// height out of range, a position out of range or the class IfcBeam is
+/// rejected with `CommandError::Invalid` and an explanation, and the
+/// project stays unchanged; IfcMember and a cut just below 60° are
+/// accepted.
+#[test]
+fn invalid_columns_are_rejected() {
+    use archicraft_model::kinds::{Column, ColumnCut, CrossSection, MAX_CUT_ANGLE_DEG};
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let before = p.clone();
+    let with = |change: &dyn Fn(&mut Element)| {
+        let mut element = before.new_column(ground(&before), DVec2::new(1.0, 1.0), 0.0, 0);
+        change(&mut element);
+        element
+    };
+    let column = |change: &'static dyn Fn(&mut Column)| move |e: &mut Element| change(e.as_column_mut().unwrap());
+    let cases: Vec<(Element, &str)> = vec![
+        (
+            with(&column(&|c| {
+                c.section = CrossSection::Rectangular {
+                    width: 0.0,
+                    height: 0.3,
+                }
+            })),
+            "model-error-column-section-range",
+        ),
+        (
+            with(&column(&|c| {
+                c.section = CrossSection::Rectangular {
+                    width: 0.3,
+                    height: f64::NAN,
+                }
+            })),
+            "model-error-column-section-range",
+        ),
+        (
+            with(&column(&|c| {
+                c.section = CrossSection::Circular {
+                    diameter: MAX_THICKNESS + 0.01,
+                }
+            })),
+            "model-error-column-section-range",
+        ),
+        (
+            with(&column(&|c| {
+                c.top_cut = ColumnCut::Angle(MAX_CUT_ANGLE_DEG.to_radians())
+            })),
+            "model-error-column-cut-angle",
+        ),
+        (
+            with(&column(&|c| c.bottom_cut = ColumnCut::Angle(-60_f64.to_radians()))),
+            "model-error-column-cut-angle",
+        ),
+        (
+            with(&column(&|c| c.bottom_cut = ColumnCut::Angle(f64::NAN))),
+            "model-error-column-cut-angle",
+        ),
+        (
+            with(&column(&|c| c.rotation = f64::INFINITY)),
+            "model-error-column-rotation",
+        ),
+        (
+            with(&column(&|c| c.link.top = TopLink::Fixed { height: 0.0 })),
+            "model-error-column-height-range",
+        ),
+        (
+            with(&column(&|c| c.position = DVec2::new(f64::NAN, 0.0))),
+            "model-error-coordinates-range",
+        ),
+        (
+            with(&|e| e.ifc_class = IfcClass::Beam),
+            "model-error-ifc-class-not-allowed",
+        ),
+    ];
+    assert_eq!(MAX_CUT_ANGLE_DEG, 60.0);
+    for (element, key) in cases {
+        let error = h.execute(&mut p, Command::AddElements(vec![element])).unwrap_err();
+        let explained = explanation(error);
+        assert_eq!(explained.key(), key);
+        if key == "model-error-ifc-class-not-allowed" {
+            assert_eq!(explained.arg("class"), Some(&Arg::Text("IfcBeam".into())));
+            assert_eq!(explained.arg("kind"), Some(&Arg::Kind(KindTag::Column)));
+        }
+        assert_eq!(p, before);
+    }
+
+    let member = with(&|e| e.ifc_class = IfcClass::Member);
+    let steep = with(&column(&|c| {
+        c.top_cut = ColumnCut::Angle(59.9_f64.to_radians());
+        c.bottom_cut = ColumnCut::Angle(-59.9_f64.to_radians());
+    }));
+    let largest = with(&column(&|c| {
+        c.section = CrossSection::Circular {
+            diameter: MAX_THICKNESS,
+        }
+    }));
+    h.execute(&mut p, Command::AddElements(vec![member, steep, largest]))
+        .unwrap();
+    assert_eq!(p.elements.len(), 3);
+}
+
+/// ELM-006, STR-006: raising the storey above moves the top of a column
+/// linked to the home storey + 1, and undo moves it back.
+#[test]
+fn storey_changes_move_linked_columns() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let c = p.new_column(ground(&p), DVec2::ZERO, 0.0, 0);
+    let id = c.id;
+    h.execute(&mut p, Command::AddElements(vec![c])).unwrap();
+    assert_eq!(p.vertical_extent(p.element(id).unwrap()), Some((0.0, 3.0)));
+    let first = p.storeys.relative(ground(&p), 1).unwrap().id;
+    h.execute(
+        &mut p,
+        Command::SetStoreyElevation {
+            storey: first,
+            elevation: 3.5,
+            shift_above: true,
+        },
+    )
+    .unwrap();
+    assert_eq!(p.vertical_extent(p.element(id).unwrap()), Some((0.0, 3.5)));
+    assert_eq!(p.storeys.get(first).unwrap().elevation, 3.5);
+    h.undo(&mut p);
+    assert_eq!(p.vertical_extent(p.element(id).unwrap()), Some((0.0, 3.0)));
+}
+
+/// The plan corners of a rectangular column's section, in the order of its
+/// section corners from the bottom left, counter-clockwise.
+fn column_corners(c: &archicraft_model::kinds::Column) -> Vec<DVec2> {
+    let (min, max) = c.section.bounds();
+    [min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)]
+        .into_iter()
+        .map(|p| c.to_plan(p))
+        .collect()
+}
+
+/// Whether the point sets `a` and `b` are equal within 1e-12, in any order.
+fn same_points(a: &[DVec2], b: &[DVec2]) -> bool {
+    a.len() == b.len() && a.iter().all(|p| b.iter().any(|q| p.distance(*q) < 1e-12))
+}
+
+/// COL-001, EDT-002, EDT-003: rotating a column about a point moves its
+/// position and turns its section with it; mirroring it gives the mirror
+/// image of its section in plan, with the anchor point still on the
+/// mirrored position and the end cuts tilted the other way, so that
+/// mirroring twice gives the column back. Each is one undo step.
+#[test]
+fn rotating_and_mirroring_a_column_moves_its_section_with_it() {
+    use archicraft_model::kinds::{Anchor, ColumnCut, CrossSection};
+    use archicraft_model::transform::PlanTransform;
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let mut c = p.new_column(ground(&p), DVec2::new(2.0, 1.0), 0.3, 0);
+    let id = c.id;
+    {
+        let column = c.as_column_mut().unwrap();
+        column.section = CrossSection::Rectangular {
+            width: 0.4,
+            height: 0.2,
+        };
+        column.anchor = Anchor::BottomLeft;
+        column.top_cut = ColumnCut::Angle(0.2);
+    }
+    h.execute(&mut p, Command::AddElements(vec![c])).unwrap();
+    let original = column_of(&p, id).clone();
+    let corners = column_corners(&original);
+    assert!(
+        corners[0].distance(original.position) < 1e-12,
+        "the anchor is the bottom-left corner"
+    );
+    let transform = |p: &mut Project, h: &mut History, t: &PlanTransform| {
+        let mut element = p.element(id).unwrap().clone();
+        element.kind.transform(t).unwrap();
+        h.execute(p, Command::UpdateElements(vec![element])).unwrap();
+    };
+
+    let turn = PlanTransform::rotation(DVec2::new(1.0, 0.0), std::f64::consts::FRAC_PI_2);
+    transform(&mut p, &mut h, &turn);
+    let turned = column_of(&p, id);
+    assert!((turned.rotation - (0.3 + std::f64::consts::FRAC_PI_2)).abs() < 1e-12);
+    let expected: Vec<DVec2> = corners.iter().map(|q| turn.apply(*q)).collect();
+    assert!(
+        same_points(&column_corners(turned), &expected),
+        "{:?}",
+        column_corners(turned)
+    );
+    h.undo(&mut p).unwrap();
+    assert_eq!(column_of(&p, id), &original);
+
+    let mirror = PlanTransform::mirror(DVec2::new(0.0, 3.0), DVec2::new(5.0, 4.0)).unwrap();
+    transform(&mut p, &mut h, &mirror);
+    let mirrored = column_of(&p, id).clone();
+    let expected: Vec<DVec2> = corners.iter().map(|q| mirror.apply(*q)).collect();
+    assert!(
+        same_points(&column_corners(&mirrored), &expected),
+        "{:?}",
+        column_corners(&mirrored)
+    );
+    assert!(mirrored.position.distance(mirror.apply(original.position)) < 1e-12);
+    assert_eq!(mirrored.anchor, Anchor::TopLeft);
+    assert_eq!(mirrored.top_cut, ColumnCut::Angle(-0.2));
+    transform(&mut p, &mut h, &mirror);
+    let twice = column_of(&p, id);
+    assert!(same_points(&column_corners(twice), &corners));
+    assert_eq!((twice.anchor, twice.top_cut), (original.anchor, original.top_cut));
+    h.undo(&mut p).unwrap();
+    h.undo(&mut p).unwrap();
+    assert_eq!(column_of(&p, id), &original);
+}

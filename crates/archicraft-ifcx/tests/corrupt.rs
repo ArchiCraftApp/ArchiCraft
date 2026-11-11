@@ -332,7 +332,7 @@ fn unknown_and_missing_tool_defaults_slots_are_reported() {
     let bytes = edit(&base, |v| {
         let defaults = project_attr(v)["toolDefaults"].as_object_mut().unwrap();
         defaults.remove("slab");
-        defaults.insert("column".into(), json!({"thickness": 0.3}));
+        defaults.insert("curtain-wall".into(), json!({"thickness": 0.3}));
     });
     let outcome = archicraft_ifcx::load(&bytes).unwrap();
     let p = &outcome.project;
@@ -354,7 +354,7 @@ fn unknown_and_missing_tool_defaults_slots_are_reported() {
         &root,
         &[
             "ifcx-repaired(record=ifcx-record-tool-defaults",
-            r#"ifcx-tool-unknown(key="column")"#,
+            r#"ifcx-tool-unknown(key="curtain-wall")"#,
         ],
     );
     problem(

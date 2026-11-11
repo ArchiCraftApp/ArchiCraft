@@ -24,6 +24,7 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
 use archicraft_model::command::DEFAULT_UNDO_LIMIT;
+use archicraft_model::kinds::{Anchor, Column, ColumnCut, CrossSection, VerticalLink};
 use archicraft_model::template::default_metric_project;
 use archicraft_model::units::{AngleUnit, LengthUnit, SlopeFormat};
 use archicraft_model::validate::{MIN_CORNER_ANGLE_DEG, MIN_EDGE_LENGTH};
@@ -43,6 +44,14 @@ fn wall_defaults(p: &Project) -> &Wall {
     match p.tool_defaults.get(KindTag::Wall).map(|s| &s.kind) {
         Some(ElementKind::Wall(w)) => w,
         other => panic!("not a wall slot: {other:?}"),
+    }
+}
+
+/// The column tool's prototype parameters (ELM-001).
+fn column_defaults(p: &Project) -> &Column {
+    match p.tool_defaults.get(KindTag::Column).map(|s| &s.kind) {
+        Some(ElementKind::Column(c)) => c,
+        other => panic!("not a column slot: {other:?}"),
     }
 }
 
@@ -145,7 +154,11 @@ const ROWS: &[Row] = &[
     row!("D.2 Slab: reinforced concrete", |p| material(p, slab_defaults(p).material, "Reinforced concrete", MaterialCategory::Concrete)),
     row!("D.2 Slab: top at the storey elevation (reference)", |p| equal(slab_defaults(p).reference, SlabReference::Top)),
     row!("D.2 Slab: top at the storey elevation (offset 0)", |p| close(slab_defaults(p).offset, 0.0)),
-    row!("D.2 Column: 0.30 × 0.30 m reinforced concrete; centre anchor; top linked to home storey + 1", pending PROFILES),
+    row!("D.2 Column: 0.30 × 0.30 m", |p| equal(column_defaults(p).section, CrossSection::Rectangular { width: 0.30, height: 0.30 })),
+    row!("D.2 Column: reinforced concrete", |p| material(p, column_defaults(p).material, "Reinforced concrete", MaterialCategory::Concrete)),
+    row!("D.2 Column: centre anchor", |p| equal(column_defaults(p).anchor, Anchor::Centre)),
+    row!("D.2 Column: top linked to home storey + 1", |p| equal(column_defaults(p).link, VerticalLink { base_offset: 0.0, top: TopLink::Relative { storeys: 1, offset: 0.0 } })),
+    row!("D.2 Column: horizontal end cuts (COL-003)", |p| equal((column_defaults(p).top_cut, column_defaults(p).bottom_cut), (ColumnCut::Horizontal, ColumnCut::Horizontal))),
     row!("D.2 Beam: 0.25 × 0.50 m reinforced concrete; top-centre anchor; top at the home storey elevation + 2.80 m", pending PROFILES),
     row!("D.2 Door: 0.90 × 2.10 m wall opening; single-leaf hinged; sill at the storey elevation; centred in the wall", pending DOORS_WINDOWS),
     row!("D.2 Window: 1.20 × 1.40 m wall opening; tilt-and-turn, single sash; sill 0.90 m above the storey elevation; centred in the core", pending DOORS_WINDOWS),
