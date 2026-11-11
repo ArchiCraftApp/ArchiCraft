@@ -39,10 +39,15 @@ use glam::DVec2;
 use crate::GeometryError;
 
 /// Most segments a full turn is tessellated into, whatever the settings
-/// (NFR-SEC-003): tessellation values read from a file are not range
-/// checked, and a deviation of nearly zero would otherwise ask for unbounded
-/// work. 1024 segments per turn deviate at most 24 µm from the largest
-/// circle a profile may have (10 m across, MAX_PROFILE_DIMENSION).
+/// (NFR-SEC-003). `SetSettings` and the IFCX reader keep the tolerances in
+/// their ranges, whose minimums need fewer segments than this even on the
+/// largest circle a profile may have (10 m across, MAX_PROFILE_DIMENSION):
+/// 994 at [`MIN_CHORD_DEVIATION`] and 720 at [`MIN_SEGMENT_ANGLE_DEG`]. So
+/// the cap only guards against settings built outside those checks, where a
+/// deviation of nearly zero would otherwise ask for unbounded work.
+///
+/// [`MIN_CHORD_DEVIATION`]: archicraft_model::validate::MIN_CHORD_DEVIATION
+/// [`MIN_SEGMENT_ANGLE_DEG`]: archicraft_model::validate::MIN_SEGMENT_ANGLE_DEG
 pub const MAX_SEGMENTS_PER_TURN: usize = 1024;
 
 /// The role of the one region of a parametric section, which a member
@@ -284,6 +289,10 @@ fn custom_section(regions: &[ProfileRegion]) -> Result<Section, GeometryError> {
 /// whose value is not positive is left out, a deviation as large as the
 /// radius allows any chord, and no full turn has more than
 /// [`MAX_SEGMENTS_PER_TURN`] segments.
+///
+/// The section outlines draw fewer segments where this count would make a
+/// chord shorter than [`MIN_EDGE_LENGTH`] (EDT-019), so arcs of a radius
+/// below about 0.57 mm get more than 10° per segment at the default settings.
 ///
 /// The shared `tessellate(curve, settings)` of 2D construction geometry
 /// (roadmap feature `drafting-trim-split`) implements the same rule; when it
