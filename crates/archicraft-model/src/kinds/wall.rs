@@ -317,6 +317,10 @@ impl Kind for Wall {
         self.link().storey_links()
     }
 
+    fn relative_top(&self) -> Option<i32> {
+        self.link().relative_top()
+    }
+
     fn rehome(&mut self, home: StoreyId, storeys: &StoreyList, _target: StoreyId, target_elevation: f64) -> Option<()> {
         self.change_link(|link| link.rehome(home, storeys, target_elevation))
     }
