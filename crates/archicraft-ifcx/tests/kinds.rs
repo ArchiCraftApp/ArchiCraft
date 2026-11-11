@@ -149,7 +149,7 @@ fn a_dummy_element_is_written_through_its_codec_and_declared() {
         serde_json::json!({"dataType": "String", "optional": true})
     );
     let kinds = &members(&declared["archicraft::element"]["value"])["kind"]["enumRestrictions"]["options"];
-    assert_eq!(kinds, &serde_json::json!(["wall", "slab", "space", "dummy"]));
+    assert_eq!(kinds, &serde_json::json!(["wall", "slab", "space", "column", "dummy"]));
     let counters = &members(project_declaration(&file))["counters"];
     assert_eq!(
         members(counters)["dummy"],
@@ -178,7 +178,7 @@ fn a_missing_counter_of_a_kind_without_a_tool_reads_as_zero() {
     let declared = members(&members(project_declaration(&file))["counters"]);
     assert_eq!(
         declared.keys().collect::<Vec<_>>(),
-        ["wall", "slab", "space", "text", "group"]
+        ["wall", "slab", "space", "text", "column", "group"]
     );
     let loaded = archicraft_ifcx::load(&save(&p)).unwrap();
     assert!(loaded.problems.is_empty(), "{:#?}", loaded.problems);
@@ -234,7 +234,7 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     let slots = project_attribute(&file)["toolDefaults"].as_object().unwrap();
     assert_eq!(
         slots.keys().collect::<Vec<_>>(),
-        ["wall", "slab", "space", "text", "dummy"]
+        ["wall", "slab", "space", "text", "column", "dummy"]
     );
     let slot = slots["dummy"].as_object().unwrap();
     // IFX-062: the common members, then the kind's parameters apart.
@@ -254,7 +254,7 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     let declared = members(&members(project_declaration(&file))["toolDefaults"]);
     assert_eq!(
         declared.keys().collect::<Vec<_>>(),
-        ["wall", "slab", "space", "text", "dummy"]
+        ["wall", "slab", "space", "text", "column", "dummy"]
     );
     let declared_slot = members(&declared["dummy"]);
     assert_eq!(
@@ -277,7 +277,7 @@ fn tool_defaults_of_a_kind_without_template_defaults_are_written_and_read_back_a
     let counters = members(&members(project_declaration(&file))["counters"]);
     assert_eq!(
         counters.keys().collect::<Vec<_>>(),
-        ["wall", "slab", "space", "text", "dummy", "group"]
+        ["wall", "slab", "space", "text", "column", "dummy", "group"]
     );
     assert!(
         !project_attribute(&file)["counters"]

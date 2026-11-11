@@ -58,7 +58,7 @@ impl KindCodec for Note {
         Map::new()
     }
 
-    fn read_slot(_attr: &Object, default: &Self, _report: &mut Report<'_>) -> Self {
+    fn read_slot(_attr: &Object, default: &Self, _context: &ReadContext<'_>, _report: &mut Report<'_>) -> Self {
         default.clone()
     }
 }

@@ -102,7 +102,7 @@ impl KindCodec for Space {
     /// or number, the base at the storey, the top at the next storey, a
     /// drawn boundary and the stamp at the boundary's interior point. The
     /// rings are kept as read; validation orients them.
-    fn read(attr: &Object, _context: &ReadContext<'_>, report: &mut Report<'_>) -> Result<Self, Message> {
+    fn read(attr: &Object, context: &ReadContext<'_>, report: &mut Report<'_>) -> Result<Self, Message> {
         let fallback = Space {
             long_name: String::new(),
             number: String::new(),
@@ -117,7 +117,7 @@ impl KindCodec for Space {
             source: BoundarySource::Drawn,
             stamp_offset: DVec2::ZERO,
         };
-        let mut space = Self::read_slot(attr, &fallback, report);
+        let mut space = Self::read_slot(attr, &fallback, context, report);
         space.source = report.or(reader::object(attr, "source").and_then(read_source), space.source);
         space.stamp_offset = report.or(
             reader::field(attr, "stampOffset").and_then(reader::point),
@@ -147,7 +147,7 @@ impl KindCodec for Space {
     /// The slot keeps the default name, with `{n}` for the space's number
     /// in the name counter (ELM-019), and the default number; the source
     /// and the stamp offset belong to a placed space, like the boundary.
-    fn read_slot(attr: &Object, default: &Self, report: &mut Report<'_>) -> Self {
+    fn read_slot(attr: &Object, default: &Self, _context: &ReadContext<'_>, report: &mut Report<'_>) -> Self {
         Space {
             long_name: report.or(reader::text(attr, "longName"), default.long_name.clone()),
             number: report.or(reader::text(attr, "number"), default.number.clone()),

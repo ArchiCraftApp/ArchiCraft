@@ -29,10 +29,9 @@ use crate::container::{Header, IfcxFile};
 /// Version of the ArchiCraft schema written by this release: format 2
 /// stores spaces (SPC-001), format 3 texts and the project's text styles
 /// (ANN-007), format 4 a tool's parameters apart from the common members of
-/// its defaults slot (ELM-001), format 5 the project's profiles (PRF-004),
-/// the format the column and beam kinds that use them join
-/// ([`super::migrate`]).
-pub const FORMAT_VERSION: u32 = 5;
+/// its defaults slot (ELM-001), format 5 the project's profiles (PRF-004)
+/// and format 6 columns (COL-001) ([`super::migrate`]).
+pub const FORMAT_VERSION: u32 = 6;
 
 pub const PROJECT: &str = "archicraft::project";
 pub const STOREY: &str = "archicraft::storey";

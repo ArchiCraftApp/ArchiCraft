@@ -123,7 +123,7 @@ impl KindCodec for Text {
     /// The slot keeps `default`'s placeholder view, anchor and content.
     /// Whether its style exists is checked with the project's styles, once
     /// they are read (`reader::read_tool_defaults`).
-    fn read_slot(attr: &Object, default: &Self, report: &mut Report<'_>) -> Self {
+    fn read_slot(attr: &Object, default: &Self, _context: &ReadContext<'_>, report: &mut Report<'_>) -> Self {
         Text {
             anchor_pos: report.or(
                 reader::code(attr, "anchorPos", AnchorPos::from_code),

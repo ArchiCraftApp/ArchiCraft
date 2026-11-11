@@ -58,9 +58,9 @@ fn members(declaration: &Value) -> BTreeSet<&str> {
 /// A field added without a mapping, or a kind without a sample payload
 /// here, fails the test. A kind that is not an IFCX node (ANN-010) declares
 /// its members under its kind code in the entries of
-/// `archicraft::annotations`, not as an attribute of its own. Only the
-/// column's codec is a placeholder (until archicraft-i4gl.3), and the text
-/// styles are `textStyles` (ANN-007) and the profiles `profiles` of
+/// `archicraft::annotations`, not as an attribute of its own. No codec is a
+/// placeholder since columns are stored (format 6), and the text styles are
+/// `textStyles` (ANN-007) and the profiles `profiles` of
 /// `archicraft::project` (PRF-004).
 #[test]
 fn every_project_field_is_persisted() {
@@ -113,11 +113,7 @@ fn every_project_field_is_persisted() {
         KindTag::ALL.iter().copied().collect(),
         "a sample payload of every kind"
     );
-    assert_eq!(
-        placeholders(),
-        [KindTag::Column],
-        "the kinds that store nothing yet: columns until archicraft-i4gl.3"
-    );
+    assert_eq!(placeholders(), [], "the kinds that store nothing yet");
     let tables = fields();
     assert_eq!(tables.len(), KindTag::ALL.len());
     for (tag, table) in tables {
@@ -221,9 +217,10 @@ fn declarations_cover_only_the_kinds_the_project_stores() {
         .collect();
     assert_eq!(counters, ["wall", "group"]);
 
-    // The samples store walls and slabs, and every project has the space
-    // and text tools' defaults slots, so the goldens declare all four, the
-    // texts' members in the annotation entries (golden_files_are_reproduced).
+    // The samples store walls and slabs, and every project has the space,
+    // column and text tools' defaults slots, so the goldens declare all
+    // five, the texts' members in the annotation entries
+    // (golden_files_are_reproduced).
     for sample in common::samples() {
         let file: Value = serde_json::from_slice(&save(&sample)).unwrap();
         let own: Vec<&String> = file["schemas"]
@@ -241,6 +238,7 @@ fn declarations_cover_only_the_kinds_the_project_stores() {
                 "archicraft::wall",
                 "archicraft::slab",
                 "archicraft::space",
+                "archicraft::column",
                 "archicraft::annotations"
             ]
         );
@@ -406,6 +404,7 @@ fn format_code_has_no_per_kind_arm() {
         "kinds/common.rs",
         "kinds/wall.rs",
         "kinds/slab.rs",
+        "kinds/column.rs",
         "kinds/dummy.rs",
         "kinds/note.rs",
         "kinds/annotations.rs",
@@ -419,6 +418,9 @@ fn format_code_has_no_per_kind_arm() {
         "KindTag::Slab",
         "\"archicraft::wall\"",
         "\"archicraft::slab\"",
+        "ElementKind::Column",
+        "KindTag::Column",
+        "\"archicraft::column\"",
         "ElementKind::Note",
         "KindTag::Note",
         "\"archicraft::note\"",

@@ -12,10 +12,11 @@ use glam::DVec2;
 use uuid::Uuid;
 
 use crate::command::{Command, History};
-use crate::element::{Element, ElementKind, KindTag, Position, PredefinedType, StructuralFunction};
-use crate::ids::{ElementId, LayerId, MaterialId, StoreyId};
-use crate::kinds::{BoundarySource, ReferenceLine};
+use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, StructuralFunction, TopLink};
+use crate::ids::{ElementId, LayerId, MaterialId, ProfileId, StoreyId};
+use crate::kinds::{Anchor, BoundarySource, ColumnCut, CrossSection, ReferenceLine};
 use crate::layer::Layer;
+use crate::profile::{ParametricShape, Profile, ProfileRegion};
 use crate::project::{DefaultsSlot, Project};
 use crate::storey::Storey;
 use crate::template::{TEXT_STYLES, default_metric_project_with, template_text_style_id};
@@ -243,6 +244,16 @@ impl FixtureBuilder {
         };
         change(&mut layer);
         execute(&mut self.project, &mut self.history, Command::UpdateLayer(layer));
+    }
+
+    /// Adds `profile` to the project through `AddProfile` (PRF-004), with an
+    /// identity of the role `profile`, and returns that identity.
+    pub fn profile(&mut self, mut profile: Profile) -> ProfileId {
+        self.commit();
+        profile.id = ProfileId::from_uuid(self.id("profile"));
+        let id = profile.id;
+        execute(&mut self.project, &mut self.history, Command::AddProfile(profile));
+        id
     }
 
     /// Changes the tool defaults slot of `kind` (ELM-001) through
@@ -475,6 +486,86 @@ fn add_two_storey_shell(b: &mut FixtureBuilder) -> [StoreyId; 2] {
     [ground, upper]
 }
 
+/// [`two_storey_shell`] with six columns (COL-001, COL-003, PRF-004), a
+/// reference model. On the ground storey `C-001` with the column tool's
+/// defaults (0.30 × 0.30 m reinforced concrete, centred, the top on the
+/// storey above) and `C-002`, circular, 0.35 m across, turned by 0.5 rad,
+/// its top linked to the upper storey 0.25 m below its elevation. On the
+/// upper storey, which the conformance viewer sees from above (IFX-006),
+/// `C-003`, an `IfcMember` of steel, 0.1 + 0.2 m wide (every digit,
+/// NFR-ACC-002) and 0.2 m deep, anchored at its top right corner, turned by
+/// 30 degrees, 2.6 m high from a 0.15 m base offset and cut at 0.3 rad at
+/// the top and -0.2 rad at the bottom; `C-004` with the tool's defaults;
+/// `C-005` of the steel profile `I 200`, anchored at the profile's insertion
+/// origin, its top right corner, and turned by 90 degrees; and `C-006` of
+/// the custom profile `Composite`, a hollow concrete square with a steel
+/// plate beside it, one body per region.
+pub fn two_storey_shell_with_columns() -> Project {
+    let mut b = FixtureBuilder::new("two-storey-shell-with-columns").titled("Two-storey shell with columns");
+    let [ground, upper] = add_two_storey_shell(&mut b);
+    b.column(ground, DVec2::new(2.5, 4.5), 0.0, |_| {});
+    b.column(ground, DVec2::new(7.5, 4.5), 0.5, |c| {
+        c.section = CrossSection::Circular { diameter: 0.35 };
+        c.link.top = TopLink::Storey {
+            storey: upper,
+            offset: -0.25,
+        };
+    });
+    let steel = b.material("Steel");
+    let member = b.column(upper, DVec2::new(10.0, 7.0), std::f64::consts::FRAC_PI_6, |c| {
+        c.section = CrossSection::Rectangular {
+            width: 0.1 + 0.2,
+            height: 0.2,
+        };
+        c.material = steel;
+        c.anchor = Anchor::TopRight;
+        c.link.base_offset = 0.15;
+        c.link.top = TopLink::Fixed { height: 2.6 };
+        c.top_cut = ColumnCut::Angle(0.3);
+        c.bottom_cut = ColumnCut::Angle(-0.2);
+    });
+    b.edit(member, |e| e.ifc_class = IfcClass::Member);
+    b.column(upper, DVec2::new(2.5, 4.5), 0.0, |_| {});
+    let i_200 = b.profile(Profile {
+        origin: DVec2::new(0.05, 0.1),
+        ..Profile::parametric(
+            "I 200",
+            ParametricShape::IShape {
+                height: 0.2,
+                width: 0.1,
+                web: 0.0056,
+                flange: 0.0085,
+                root_radius: 0.012,
+            },
+            steel,
+        )
+    });
+    b.column(upper, DVec2::new(7.5, 5.0), std::f64::consts::FRAC_PI_2, |c| {
+        c.section = CrossSection::Profile(i_200);
+        c.anchor = Anchor::ProfileOrigin;
+    });
+    let concrete = b.material("Reinforced concrete");
+    let composite = b.profile(Profile::custom(
+        "Composite",
+        vec![
+            ProfileRegion {
+                outer: rectangle(DVec2::ZERO, DVec2::splat(0.3)),
+                holes: vec![rectangle(DVec2::splat(0.1), DVec2::splat(0.2))],
+                material: concrete,
+            },
+            ProfileRegion {
+                outer: rectangle(DVec2::new(0.3, 0.0), DVec2::new(0.4, 0.3)),
+                holes: Vec::new(),
+                material: steel,
+            },
+        ],
+    ));
+    b.column(upper, DVec2::new(3.5, 7.5), 0.0, |c| {
+        c.section = CrossSection::Profile(composite)
+    });
+    b.finish()
+}
+
 /// A sample of the catalogue: its file name (without `.ifcx`) and
 /// constructor.
 pub type CatalogueEntry = (&'static str, fn() -> Project);
@@ -485,6 +576,7 @@ const CATALOGUE: &[CatalogueEntry] = &[
     ("two-storey-shell", two_storey_shell),
     ("two-storey-shell-with-spaces", two_storey_shell_with_spaces),
     ("annotations", annotation_sample),
+    ("two-storey-shell-with-columns", two_storey_shell_with_columns),
 ];
 
 /// The reference-model samples by file name, the single list behind the
