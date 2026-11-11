@@ -424,9 +424,12 @@ pub fn validate_profile(project: &Project, profile: &Profile) -> Result<Profile,
 }
 
 /// Checks the dimensions of a parametric shape (PRF-005): each in its
-/// range, then that they fit together. Thicknesses are smaller than the
-/// space they lie in (two flanges than the height, a hollow section's wall
-/// than half its smaller side, a web than the width) and fillets fit
+/// range, then that they fit together. Plates leave a gap of at least
+/// [`MIN_PROFILE_DIMENSION`] in the space they lie in, so the section can
+/// draw it (the bore of a circular hollow section, the hole of a
+/// rectangular one within half its smaller side, the web height between
+/// two flanges or below a T's flange, the flange outstand beside a web, an
+/// angle's inner leg face) and fillets fit
 /// between the plates they join (a root radius between the web and the
 /// flange tip, and between the flange and the middle or end of the web; an
 /// angle's root and toe radii together within the inner face of the shorter
@@ -447,14 +450,19 @@ pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
                 .length("max", MAX_PROFILE_DIMENSION));
         }
     }
-    // A plate thickness below its limit, a fillet radius at most its limit.
-    let below = |dimension: D, value: f64, limit: f64| {
-        if value < limit {
+    // A plate leaves a gap of at least MIN_PROFILE_DIMENSION, compared as
+    // the gap itself (as the section measures it), so that the plate's
+    // limit rounding up cannot leave a gap a bit below the minimum; a fillet
+    // radius at most its limit.
+    let min = MIN_PROFILE_DIMENSION;
+    let plate = |dimension: D, gap: f64, limit: f64| {
+        if gap >= min {
             Ok(())
         } else {
             Err(Message::new("model-error-profile-dimension-limit")
                 .nested("dimension", Message::new(dimension.label_key()))
-                .length("max", limit))
+                .length("max", limit)
+                .length("gap", min))
         }
     };
     let at_most = |dimension: D, value: f64, limit: f64| {
@@ -474,11 +482,15 @@ pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
             thickness,
             outer_radius,
         } => {
+            // The inner box, min(b, h)/2 - t to either side.
             let half = width.min(height) / 2.0;
-            below(D::Thickness, thickness, half)?;
+            plate(D::Thickness, half - thickness, half - min)?;
             at_most(D::OuterRadius, outer_radius, half)
         }
-        ParametricShape::CircularHollow { diameter, thickness } => below(D::Thickness, thickness, diameter / 2.0),
+        // The bore, D/2 - t.
+        ParametricShape::CircularHollow { diameter, thickness } => {
+            plate(D::Thickness, diameter / 2.0 - thickness, diameter / 2.0 - min)
+        }
         ParametricShape::IShape {
             height,
             width,
@@ -486,8 +498,9 @@ pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
             flange,
             root_radius,
         } => {
-            below(D::Flange, flange, height / 2.0)?;
-            below(D::Web, web, width)?;
+            // The web height h - 2 tf and the flange outstand (b - tw)/2.
+            plate(D::Flange, height - 2.0 * flange, (height - min) / 2.0)?;
+            plate(D::Web, (width - web) / 2.0, width - 2.0 * min)?;
             at_most(
                 D::RootRadius,
                 root_radius,
@@ -501,8 +514,9 @@ pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
             flange,
             root_radius,
         } => {
-            below(D::Flange, flange, height)?;
-            below(D::Web, web, width)?;
+            // The web height h - tf and the flange outstand (b - tw)/2.
+            plate(D::Flange, height - flange, height - min)?;
+            plate(D::Web, (width - web) / 2.0, width - 2.0 * min)?;
             at_most(D::RootRadius, root_radius, ((width - web) / 2.0).min(height - flange))
         }
         ParametricShape::UShape {
@@ -512,8 +526,9 @@ pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
             flange,
             root_radius,
         } => {
-            below(D::Flange, flange, height / 2.0)?;
-            below(D::Web, web, width)?;
+            // The web height h - 2 tf and the flange outstand b - tw.
+            plate(D::Flange, height - 2.0 * flange, (height - min) / 2.0)?;
+            plate(D::Web, width - web, width - min)?;
             at_most(D::RootRadius, root_radius, (width - web).min(height / 2.0 - flange))
         }
         ParametricShape::ZShape {
@@ -522,8 +537,9 @@ pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
             web,
             flange,
         } => {
-            below(D::Flange, flange, height / 2.0)?;
-            below(D::Web, web, width)
+            // The web height h - 2 tf and the flange outstand (b - tw)/2.
+            plate(D::Flange, height - 2.0 * flange, (height - min) / 2.0)?;
+            plate(D::Web, (width - web) / 2.0, width - 2.0 * min)
         }
         ParametricShape::LShape {
             height,
@@ -532,8 +548,9 @@ pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
             root_radius,
             toe_radius,
         } => {
+            // The inner face of the shorter leg, leg - t.
             let leg = height.min(width);
-            below(D::Thickness, thickness, leg)?;
+            plate(D::Thickness, leg - thickness, leg - min)?;
             at_most(D::RootRadius, root_radius, leg - thickness)?;
             // Both fillets lie on the inner face of a leg, leg - t long.
             at_most(D::ToeRadius, toe_radius, thickness.min(leg - thickness - root_radius))
@@ -1482,6 +1499,70 @@ mod tests {
             let error = check(with(tight, D::ToeRadius, 10.0 * MM)).unwrap_err();
             assert_eq!(error.key(), radius);
             assert_eq!(named_dimension(&error), D::ToeRadius.label_key());
+        }
+
+        /// PRF-005: every gap a plate leaves is at least
+        /// MIN_PROFILE_DIMENSION: the bore of a CHS (D/2 - t), the inner box
+        /// of an RHS (min(b, h)/2 - t), the web height of I/H, U/C and Z
+        /// (h - 2 tf) and of a T (h - tf), the flange outstands
+        /// ((b - tw)/2, for a U/C b - tw) and an angle's inner leg face
+        /// (leg - t). A plate leaving 1.001 times the minimum is accepted,
+        /// one leaving 0.999 times it is rejected naming the plate, its
+        /// limit and the gap. The limit to the last bit is checked by
+        /// `every_accepted_limit_has_a_section` in archicraft-geometry.
+        #[test]
+        fn plates_leave_gaps_of_at_least_the_minimum_dimension() {
+            let min = MIN_PROFILE_DIMENSION;
+            let sharp = |mut shape: ParametricShape| {
+                for radius in [D::OuterRadius, D::RootRadius, D::ToeRadius] {
+                    if let Some(value) = shape.dimension_mut(radius) {
+                        *value = 0.0;
+                    }
+                }
+                shape
+            };
+            let size = |code: &str| standard(code).size();
+            let leg = size("l").min_element();
+            // (shape, plate, its largest value, the value per unit of gap lost)
+            let cases = [
+                (
+                    "circular_hollow",
+                    D::Thickness,
+                    size("circular_hollow").x / 2.0 - min,
+                    1.0,
+                ),
+                (
+                    "rectangular_hollow",
+                    D::Thickness,
+                    size("rectangular_hollow").min_element() / 2.0 - min,
+                    1.0,
+                ),
+                ("i", D::Flange, (size("i").y - min) / 2.0, 0.5),
+                ("i", D::Web, size("i").x - 2.0 * min, 1.0),
+                ("u", D::Flange, (size("u").y - min) / 2.0, 0.5),
+                ("u", D::Web, size("u").x - min, 1.0),
+                ("z", D::Flange, (size("z").y - min) / 2.0, 0.5),
+                ("z", D::Web, size("z").x - 2.0 * min, 1.0),
+                ("t", D::Flange, size("t").y - min, 1.0),
+                ("t", D::Web, size("t").x - 2.0 * min, 1.0),
+                ("l", D::Thickness, leg - min, 1.0),
+            ];
+            for (code, plate, largest, per_gap) in cases {
+                let shape = sharp(standard(code));
+                let what = format!("{code} {plate:?}");
+                // The plate leaving a gap of `gap`.
+                let leaving = |gap: f64| with(shape, plate, largest + per_gap * (min - gap));
+                assert_eq!(check_parametric_shape(&leaving(1.001 * min)), Ok(()), "{what}");
+                let thick = leaving(0.999 * min);
+                assert_eq!(
+                    check_parametric_shape(&thick),
+                    Err(Message::new("model-error-profile-dimension-limit")
+                        .nested("dimension", Message::new(plate.label_key()))
+                        .length("max", largest)
+                        .length("gap", min)),
+                    "{what}"
+                );
+            }
         }
 
         /// PRF-004: a profile needs a name, its materials must exist and
