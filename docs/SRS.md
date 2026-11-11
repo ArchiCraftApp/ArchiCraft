@@ -4,7 +4,7 @@
 |---|---|
 | **Document** | Software Requirements Specification (SRS) for ArchiCraft v1 |
 | **Version** | 0.3 — draft for review |
-| **Date** | 2026-11-03 |
+| **Date** | 2026-11-11 |
 | **Owner** | Alexander Partsch |
 | **Status** | Draft. Reviewed against the technology choices (R8) on 2026-10-16, which produced version 0.2 (decisions D-2, D-11 and D-12, Section 9.1). Changes since 0.2 are listed in Section 0.3. |
 | **Basis** | Graphisoft Archicad Knowledge Base (offline corpus of 313 articles, scraped 2026-10-16), buildingSMART IFC5-development repository (commit `1a63082`, 2026-09-08), IFCX schema registry ifcx.dev |
@@ -78,7 +78,7 @@ The document is technology-neutral on purpose. Where a requirement constrains th
 |---|---|---|
 | 0.1 | 2026-10-16 | First complete draft, revised after an independent review (60 findings: 2 High, 16 Medium, 42 Low; all addressed). |
 | 0.2 | 2026-10-16 | Reviewed against the technology choices (R8) with the product owner. IFCX is the only file format (D-11, which supersedes D-4), and there is no installer, updater or online service (D-12). This withdraws 22 requirements: imports and exports of other formats, survey-point import, material textures, image export and update checks. Linux is required (NFR-PORT-003 raised to Must, D-2). Solid operations and trims stay Must; R8 plans a 3D Boolean library for them. The JSON nesting limit follows R8 (Appendix D.9). Open question O-17 (product name) added. |
-| 0.3 | 2026-11-03 | Slab point limit: a slab has at most 10,000 points in outline and holes together, for drawn and imported slabs alike (SLB-001, SLB-003, Appendix D.9; product-owner decision of 2026-10-21). Hardware classes: NFR-PERF-001 refers to the minimum and reference classes of the technology choices (R8) instead of proposed machines, which resolves O-15 (product-owner decision of 2026-11-03). LGPL exception: NFR-LEG-001 and O-5 name the LGPL-2.1-or-later KDE protocol files accepted for the Linux build (wayland-protocols-plasma, 2026-10-27; `server-decoration.xml` in wayland-protocols-misc, 2026-11-03), and O-5 states that a commercial distribution model must check them (SRS-owner decision of 2026-11-03). Ellipses: ANN-013 (S) adds ellipses and elliptical arcs to the 2D shapes (feature request of 2026-11-03). |
+| 0.3 | 2026-11-11 | Slab point limit: a slab has at most 10,000 points in outline and holes together, for drawn and imported slabs alike (SLB-001, SLB-003, Appendix D.9; product-owner decision of 2026-10-21). Hardware classes: NFR-PERF-001 refers to the minimum and reference classes of the technology choices (R8) instead of proposed machines, which resolves O-15 (product-owner decision of 2026-11-03). LGPL exception: NFR-LEG-001 and O-5 name the LGPL-2.1-or-later KDE protocol files accepted for the Linux build (wayland-protocols-plasma, 2026-10-27; `server-decoration.xml` in wayland-protocols-misc, 2026-11-03), and O-5 states that a commercial distribution model must check them (SRS-owner decision of 2026-11-03). Ellipses: ANN-013 (S) adds ellipses and elliptical arcs to the 2D shapes (feature request of 2026-11-03). Custom profile limits: a custom profile has at most 32 regions, and its region outlines cross less than the model tolerance deep in at most 100,000 places (PRF-004, Appendix D.9; product-owner decisions of 2026-11-10 and 2026-11-11). |
 
 Every change to normative text (a requirement, a decision, a limit in an appendix) is recorded here in the same change. Changes collect in the row of the open draft version, and each one sets that row's date and the header's date to its own. The first change after a version has been reviewed opens the next version and sets it in the header. A review is recorded in the version's row and in the header's Status; until then the version is open.
 
@@ -2043,12 +2043,14 @@ The concrete key bindings are a UI design deliverable.
 
 ### D.9 Parser robustness limits and fuzzing (NFR-REL-007, NFR-SEC-003)
 
-Proposed values; the nesting limit is that of the JSON parser in the technology choices (R8), and the slab point limit was decided by the product owner on 2026-10-21:
+Proposed values; the nesting limit is that of the JSON parser in the technology choices (R8), the slab point limit was decided by the product owner on 2026-10-21, and the region and crossing limits of custom profiles on 2026-11-10 and 2026-11-11:
 - **file size:** at most 2 GB;
 - **JSON nesting depth:** fewer than 128 levels;
 - **IFCX composition depth** (`children`/`inherits` chains): at most 64;
 - **imports:** at most 32 per file;
-- **slab points:** at most 10,000 per slab in its outline and holes together, arc edges counted with the points they are divided into (SLB-003); the same limit applies to slabs drawn in the application.
+- **slab points:** at most 10,000 per slab in its outline and holes together, arc edges counted with the points they are divided into (SLB-003); the same limit applies to slabs drawn in the application;
+- **custom profile regions:** at most 32 regions per custom profile (PRF-004), whose points in all regions together are limited like a slab's, at most 10,000;
+- **custom profile crossings:** at most 100,000 places in which the outlines of a custom profile's regions cross each other less than the model tolerance deep (PRF-004); regions that only touch cross a few times per shared point, and a profile beyond the limit is rejected.
 
 Every parser of external files (the IFCX reader, and the preference import of SET-004) is fuzzed for at least 1 hour per release with a coverage-guided fuzzer, seeded with the R2 examples and with ArchiCraft-generated files.
 
