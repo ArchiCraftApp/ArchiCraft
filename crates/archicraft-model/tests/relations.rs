@@ -881,7 +881,8 @@ fn linked_to(p: &Project, storey: StoreyId) -> BTreeSet<ElementId> {
 }
 
 /// A top for a wall on `home`: a fixed height, a link to `home` or a storey
-/// above it by its identity, or a relative link one or two storeys up.
+/// above it by its identity, or a relative link `n` storeys up with `n` in
+/// -2..=3 ([`relative_top`]).
 fn random_top(rng: &mut Seeded, p: &Project, home: StoreyId) -> TopLink {
     let at = p.storeys.index_of(home).unwrap();
     match rng.below(3) {
@@ -892,11 +893,17 @@ fn random_top(rng: &mut Seeded, p: &Project, home: StoreyId) -> TopLink {
             let offset = if storey == home { 2.5 } else { 0.0 };
             TopLink::Storey { storey, offset }
         }
-        _ => TopLink::Relative {
-            storeys: 1 + i32::from(rng.below(2) == 1),
-            offset: 0.0,
-        },
+        _ => relative_top(rng),
     }
+}
+
+/// A top linked relative to the home storey, `n` storeys up with `n` in
+/// -2..=3; a link to the home storey or one below it has an offset that
+/// keeps the top above the base for storeys about 3 m high (ELM-006).
+fn relative_top(rng: &mut Seeded) -> TopLink {
+    let n = i32::try_from(rng.below(6)).unwrap() - 2;
+    let offset = if n > 0 { 0.0 } else { 3.2 * f64::from(1 - n) };
+    TopLink::Relative { storeys: n, offset }
 }
 
 /// A new element on a random storey: mostly a wall with a random top,
@@ -1078,4 +1085,234 @@ fn relation_index_matches_brute_force() {
         let n = done.get(what).copied().unwrap_or(0);
         assert!(n >= 5, "{what} ran {n} times: {done:?}, {refused} refused");
     }
+}
+
+/// STR-006: a top linked relative to a storey further than the next moves
+/// with the storeys between, while its home storey stays. A ground-storey
+/// wall whose top is linked two storeys up moves when the first storey's
+/// height grows with the storeys above it, though it is a storey dependent
+/// of neither storey that moved; `moved_by_storeys` finds it, and leaves
+/// out a wall with a fixed top on the ground storey, which stays.
+#[test]
+fn a_storey_edit_finds_a_top_linked_two_storeys_up() {
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let (ground, first) = (p.storeys.ground(), p.storeys.as_slice()[1].id);
+    let second = Storey::new("02 Second floor", 0.0, 3.0);
+    let second_id = second.id;
+    h.execute(
+        &mut p,
+        Command::InsertStorey {
+            reference: first,
+            above: true,
+            storey: second,
+        },
+    )
+    .unwrap();
+    let mut two_up = p.new_wall(ground, DVec2::ZERO, DVec2::new(5.0, 0.0), 0);
+    if let Some(w) = two_up.as_wall_mut() {
+        w.top = TopLink::Relative {
+            storeys: 2,
+            offset: 0.0,
+        };
+    }
+    let fixed = p.new_wall(ground, DVec2::new(0.0, 1.0), DVec2::new(5.0, 1.0), 1);
+    let (two_up_id, fixed_id) = (two_up.id, fixed.id);
+    h.execute(&mut p, Command::AddElements(vec![two_up, fixed])).unwrap();
+
+    let before = p.clone();
+    h.execute(
+        &mut p,
+        Command::SetStoreyHeight {
+            storey: first,
+            height: 3.4,
+            shift_above: true,
+        },
+    )
+    .unwrap();
+    let top = |p: &Project| p.vertical_extent(p.element(two_up_id).unwrap()).unwrap().1;
+    assert!(
+        (top(&p) - top(&before) - 0.4).abs() < MODEL_TOLERANCE,
+        "the top moves up"
+    );
+    for storey in [first, second_id] {
+        assert!(
+            !p.relations.storey_dependents(storey).contains(&two_up_id),
+            "no storey dependent of a storey that moved"
+        );
+    }
+    for relations in [&before.relations, &p.relations] {
+        let moved = relations.moved_by_storeys(&before.storeys, &p.storeys);
+        assert!(moved.contains(&two_up_id), "found: {moved:?}");
+        assert!(!moved.contains(&fixed_id), "a wall that stays is left out");
+    }
+    h.undo(&mut p).unwrap();
+    let moved = p.relations.moved_by_storeys(&before.storeys, &p.storeys);
+    assert!(moved.is_empty(), "nothing moves between equal storey lists: {moved:?}");
+}
+
+/// A random storey edit for [`storey_edits_find_every_element_they_move`]:
+/// a new elevation or height of a random storey, with or without shifting
+/// the storeys above, an inserted or a deleted storey. `None` for undo and
+/// redo, which the caller does; the caller also redoes half of the time
+/// there is something to redo.
+fn random_storey_command(rng: &mut Seeded, p: &Project, step: u32) -> (&'static str, Option<Command>) {
+    let storeys: Vec<StoreyId> = p.storeys.iter().map(|s| s.id).collect();
+    let storey = rng.pick(&storeys);
+    let current = p.storeys.get(storey).unwrap();
+    let delta = f64::from(u32::try_from(rng.below(9)).unwrap()) * 0.1 - 0.4;
+    let shift_above = rng.below(2) == 0;
+    match rng.below(8) {
+        0 | 1 => (
+            "elevation",
+            Some(Command::SetStoreyElevation {
+                storey,
+                elevation: current.elevation + delta,
+                shift_above,
+            }),
+        ),
+        2 | 3 => (
+            "height",
+            Some(Command::SetStoreyHeight {
+                storey,
+                height: current.height + delta,
+                shift_above,
+            }),
+        ),
+        4 if storeys.len() < 7 => (
+            "insert storey",
+            Some(Command::InsertStorey {
+                reference: storey,
+                above: shift_above,
+                storey: Storey::new(format!("S{step}"), 0.0, 2.6 + delta.abs()),
+            }),
+        ),
+        4 | 5 if storeys.len() > 2 => {
+            let elements = match rng.below(2) {
+                0 => StoreyElements::Delete,
+                _ => StoreyElements::MoveTo(rng.pick(&storeys)),
+            };
+            ("delete storey", Some(Command::DeleteStorey { storey, elements }))
+        }
+        4 | 5 => ("insert storey", None),
+        6 => ("undo", None),
+        _ => ("redo", None),
+    }
+}
+
+/// STR-006 by brute force: on a project of four storeys with walls on every
+/// storey whose tops are fixed, linked to a storey by its identity or linked
+/// relative to the home storey with `n` in -2..=3, every element whose
+/// vertical extent a random storey edit, its undo or its redo changes beyond
+/// the model tolerance is among `moved_by_storeys` of the storey lists
+/// before and after, with the index before or after the edit; and the index
+/// kept edit by edit equals a rebuild from scratch after every step. Some of
+/// the moved elements are storey dependents of no storey whose elevation or
+/// height changed: those the relative links reach further than the next
+/// storey.
+#[test]
+fn storey_edits_find_every_element_they_move() {
+    let mut rng = Seeded(0x0001_bb47);
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    for (n, name) in ["02", "03"].into_iter().enumerate() {
+        let reference = p.storeys.as_slice()[n + 1].id;
+        let storey = Storey::new(name, 0.0, 3.0);
+        h.execute(
+            &mut p,
+            Command::InsertStorey {
+                reference,
+                above: true,
+                storey,
+            },
+        )
+        .unwrap();
+    }
+    let storeys: Vec<StoreyId> = p.storeys.iter().map(|s| s.id).collect();
+    let mut walls = Vec::new();
+    for nth in 0..48 {
+        let home = rng.pick(&storeys);
+        let y = f64::from(nth);
+        let mut e = p.new_wall(home, DVec2::new(0.0, y), DVec2::new(5.0, y), nth);
+        let top = match nth % 4 {
+            0 => TopLink::Fixed { height: 2.5 },
+            1 => {
+                let at = storeys.iter().position(|s| *s == home).unwrap();
+                let storey = rng.pick(&storeys[at..]);
+                let offset = if storey == home { 2.5 } else { 0.0 };
+                TopLink::Storey { storey, offset }
+            }
+            _ => relative_top(&mut rng),
+        };
+        if let Some(w) = e.as_wall_mut() {
+            w.top = top;
+        }
+        walls.push(e);
+    }
+    h.execute(&mut p, Command::AddElements(walls)).unwrap();
+    let reached: BTreeSet<i32> = p
+        .elements
+        .values()
+        .filter_map(|e| match e.as_wall()?.top {
+            TopLink::Relative { storeys, .. } => Some(storeys),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(reached, (-2..=3).collect(), "every n in -2..=3 is linked");
+
+    let mut done: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut beyond = 0;
+    for step in 0..300 {
+        let before = p.clone();
+        let (what, command) = if h.can_redo() && rng.below(2) == 0 {
+            ("redo", None)
+        } else {
+            random_storey_command(&mut rng, &p, step)
+        };
+        let applied = match (what, command) {
+            ("undo", _) => h.undo(&mut p).is_some(),
+            (_, None) => h.redo(&mut p).is_some(),
+            (_, Some(command)) => h.execute(&mut p, command).is_ok(),
+        };
+        if !applied {
+            continue;
+        }
+        *done.entry(what).or_default() += 1;
+        let moved: BTreeSet<ElementId> = before
+            .elements
+            .values()
+            .filter_map(|e| {
+                let (b0, t0) = before.vertical_extent(e).unwrap();
+                let (b1, t1) = p.vertical_extent(p.element(e.id)?)?;
+                ((b1 - b0).abs() > MODEL_TOLERANCE || (t1 - t0).abs() > MODEL_TOLERANCE).then_some(e.id)
+            })
+            .collect();
+        for (index, relations) in [("before", &before.relations), ("after", &p.relations)] {
+            let found = relations.moved_by_storeys(&before.storeys, &p.storeys);
+            let missed: Vec<&ElementId> = moved.difference(&found).collect();
+            assert!(
+                missed.is_empty(),
+                "step {step} ({what}), index {index}: missed {missed:?}"
+            );
+        }
+        let changed = before.storeys.iter().filter(|old| {
+            p.storeys
+                .get(old.id)
+                .is_none_or(|new| new.elevation != old.elevation || new.height != old.height)
+        });
+        let dependents: BTreeSet<ElementId> = changed.flat_map(|s| before.relations.storey_dependents(s.id)).collect();
+        beyond += moved.difference(&dependents).count();
+
+        let mut rebuilt = p.relations.clone();
+        rebuilt.rebuild(p.elements.values());
+        assert!(
+            p.relations.same_index(&rebuilt),
+            "step {step} ({what}): the index kept edit by edit equals a rebuilt one"
+        );
+    }
+    for what in ["elevation", "height", "insert storey", "delete storey", "undo", "redo"] {
+        let n = done.get(what).copied().unwrap_or(0);
+        assert!(n >= 5, "{what} ran {n} times: {done:?}");
+    }
+    assert!(beyond > 0, "some moved elements are no dependents of a changed storey");
 }

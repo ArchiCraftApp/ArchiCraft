@@ -245,6 +245,15 @@ pub trait Kind: Sized {
         Vec::new()
     }
 
+    /// The number of storeys above the home storey (below it if negative)
+    /// that the element's top is linked to relative to the home storey
+    /// (ELM-006), or `None` if it has no such link. The relation store
+    /// indexes it, so that the elements a storey edit moves are found
+    /// without a scan (STR-006, [`crate::RelationStore::moved_by_storeys`]).
+    fn relative_top(&self) -> Option<i32> {
+        None
+    }
+
     /// Re-expresses the element for the new home storey `target` at
     /// `target_elevation`, keeping its absolute position; storey links become
     /// fixed values (STR-004: moving the elements of a deleted storey), and
@@ -488,6 +497,13 @@ macro_rules! kinds {
             pub fn storey_links(&self) -> Vec<StoreyLinkRef> {
                 match self {
                     $($(#[$meta])* ElementKind::$Payload(k) => k.storey_links(),)+
+                }
+            }
+
+            /// See [`Kind::relative_top`].
+            pub fn relative_top(&self) -> Option<i32> {
+                match self {
+                    $($(#[$meta])* ElementKind::$Payload(k) => k.relative_top(),)+
                 }
             }
 
