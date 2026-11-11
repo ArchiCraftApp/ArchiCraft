@@ -80,6 +80,17 @@ lease only matters when two sessions might claim the same bead. Then read, in fu
   stopped first run, read its diff as a reference only: it was never built or reviewed, so
   nothing from it lands without passing this loop.
 
+**The bead's plan is a proposal; its criteria are binding.** Most beads were written as one
+plan on 2026-10-17, long before the code they build on existed. The behaviour the acceptance
+criteria describe is binding. The names in the description, the design and the criteria
+(types, fields, enum variants, functions, modules, files) are the plan's proposal: where the
+current code has moved on (a type renamed, a module split, a field or helper that already
+exists), follow the current code. A sentence about what the code does "today" describes the
+day the bead was written: check it against `main` before the work relies on it. Record every
+deviation with its reason on the bead
+(`bd update <id> --append-notes "Deviation: <proposed> -> <done>, because <reason>"`) and in the
+commit message, so the reviewer can check it and its report carries it into the PR.
+
 ## 2. Slice before coding
 
 Split the bead first when any of these holds:
@@ -90,6 +101,13 @@ Split the bead first when any of these holds:
   `#[cfg(test)] mod tests` at the end of a file);
 - the acceptance criteria cover separable concerns (a new type plus several consumers, a
   refactor plus a feature).
+
+A bead labelled `tidy-batch` bundles small follow-ups on purpose, so that they land in one
+session instead of one each: do not slice it for separable concerns, only above 480 minutes
+or 800 lines. An item in it that needs a decision from the user, or turns out much larger
+than its estimate, moves into its own bead (`bd create … --deps discovered-from:<id>` with the
+item's text and criteria), and its criteria leave the batch (`bd update <id> --acceptance …`
+and a note naming the new bead); the rest lands without it.
 
 To split: create child beads with
 `bd create --parent <id> --type task --no-inherit-labels --labels <labels>`, each with its own
