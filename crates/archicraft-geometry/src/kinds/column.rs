@@ -11,6 +11,7 @@
 use archicraft_model::kinds::{Column, ColumnCut, CrossSection};
 use archicraft_model::message::Message;
 use archicraft_model::profile::ParametricShape;
+use archicraft_model::{Element, Project};
 use glam::{DVec2, DVec3};
 
 use super::{EvalContext, GeometryKind};
@@ -24,8 +25,8 @@ use crate::sweep::{CutPlane, MemberFrame, frame_for_column, sweep};
 /// column's material, or the column's profile through [`profile_section`],
 /// in profile coordinates with the profile's region roles and materials and
 /// anchored at its insertion origin for `Anchor::ProfileOrigin`.
-fn section(column: &Column, ctx: &EvalContext<'_>) -> Result<(Section, DVec2), GeometryError> {
-    let tessellation = &ctx.project.settings.tessellation;
+fn section(column: &Column, project: &Project) -> Result<(Section, DVec2), GeometryError> {
+    let tessellation = &project.settings.tessellation;
     let missing_profile = || GeometryError::InvalidPolygon(Message::new("model-error-element-profile-missing"));
     let (section, profile) = match column.section {
         CrossSection::Rectangular { width, height } => (
@@ -37,12 +38,32 @@ fn section(column: &Column, ctx: &EvalContext<'_>) -> Result<(Section, DVec2), G
             None,
         ),
         CrossSection::Profile(_) => {
-            let profile = column.profile(ctx.project).ok_or_else(missing_profile)?;
+            let profile = column.profile(project).ok_or_else(missing_profile)?;
             (profile_section(profile, tessellation)?, Some(profile))
         }
     };
     let anchor = column.anchor_point(profile).ok_or_else(missing_profile)?;
     Ok((section, anchor))
+}
+
+/// The plan footprint of `element` if it is a column (SPC-001): the outer
+/// loop of every region of its section, the same section its body is swept
+/// from, in plan with its anchor point at the column's position and turned
+/// by its rotation, counter-clockwise. A column stands vertical, so this is
+/// its outline at every height whatever its end cuts. The holes of a
+/// hollow section are left out: they lie inside the column. `None` for an
+/// element that is no column and for a column without a section, such as
+/// one whose profile is missing.
+pub fn plan_footprint(project: &Project, element: &Element) -> Option<Vec<Vec<DVec2>>> {
+    let column = element.as_column()?;
+    let (section, anchor) = section(column, project).ok()?;
+    Some(
+        section
+            .regions
+            .iter()
+            .map(|region| region.outer.points.iter().map(|&p| column.to_plan(anchor, p)).collect())
+            .collect(),
+    )
 }
 
 /// The plane of the end cut `cut` through the axis at `z` (COL-003): it
@@ -72,7 +93,7 @@ impl GeometryKind for Column {
     /// anchor axis meets the two cuts.
     fn evaluate(&self, ctx: &EvalContext<'_>) -> Result<ElementGeometry, GeometryError> {
         let (bottom, top) = self.local_extent(ctx)?;
-        let (section, anchor) = section(self, ctx)?;
+        let (section, anchor) = section(self, ctx.project)?;
         let section = section.transformed(-anchor, 0.0);
         let frame = frame_for_column(self.position.extend(0.0), self.rotation);
         let regions = sweep(
