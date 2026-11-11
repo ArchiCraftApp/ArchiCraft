@@ -31,6 +31,13 @@ read, run read-only commands and report. Hooks refuse edits and writing commands
   evidence is not met.
 - **Requirements.** The change does what the cited SRS clauses say, not a nearby
   interpretation; the code that implements them cites the IDs in doc comments.
+- **Plan names.** Most beads were written as one plan before the code they build on existed.
+  The behaviour the criteria describe is binding; the names the bead proposes (types, fields,
+  enum variants, functions, modules, files) are not, where the current code has moved on. A
+  difference that a `Deviation:` line in the notes names, with a reason that holds against the
+  current code, is no finding: list it under `## Deviations`. An unnamed difference that keeps
+  the behaviour is a minor finding; one that changes the behaviour the criteria describe is
+  blocking.
 - **Conventions.** The model, geometry and IFCX crates stay headless; lengths are metres
   and angles radians as `f64`, units only affect display and input; every model change is
   a `Command` executed by `History`, undo and redo restore the exact previous state, and a
@@ -56,6 +63,9 @@ Write Markdown, short and concrete:
 ## Acceptance criteria
 - ✅ <criterion, abbreviated> — <test name> (`path:line`)
 - ❌ <criterion> — <what is missing>
+
+## Deviations
+- <proposed name or place> → <what the change does instead> — <reason> (only when the notes name one)
 
 ## Findings
 1. **Blocking** `path:line` — <problem> → <the fix>
