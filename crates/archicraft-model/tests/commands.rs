@@ -670,9 +670,10 @@ fn storey_edits_that_do_not_lower_a_too_low_element_are_accepted() {
     assert_too_low(&mut p, &mut h, command, "W-001", 0);
 }
 
-/// DSP-003, LAY-002, ELM-001: deleting a material or layer needs a
-/// replacement, which the elements and exactly the tool defaults slots that
-/// used the deleted one get; undo restores the slots.
+/// DSP-003, LAY-002, ELM-001, PRF-004: deleting a material or layer needs a
+/// replacement, which the elements, the profile regions and exactly the tool
+/// defaults slots that used the deleted one get; undo restores the slots and
+/// the profiles.
 #[test]
 fn deleting_resources_requires_a_replacement() {
     let mut p = default_metric_project();
@@ -734,27 +735,36 @@ fn deleting_resources_requires_a_replacement() {
     assert_eq!(p.tool_defaults, expected, "only the wall slot used the brick");
     assert!(p.material(brick).is_none());
 
+    let profiles_after = p.profiles.clone();
+
     let walls_layer = p.element(id).unwrap().layer;
-    let other = p.layers[0].id;
+    let other_layer = p.layers[0].id;
     assert_eq!(template.get(KindTag::Wall).unwrap().layer, walls_layer);
     assert_ne!(template.get(KindTag::Slab).unwrap().layer, walls_layer);
     h.execute(
         &mut p,
         Command::DeleteLayer {
             layer: walls_layer,
-            reassign_to: other,
+            reassign_to: other_layer,
         },
     )
     .unwrap();
-    assert_eq!(p.element(id).unwrap().layer, other);
-    expected.get_mut(KindTag::Wall).unwrap().layer = other;
+    assert_eq!(p.element(id).unwrap().layer, other_layer);
+    expected.get_mut(KindTag::Wall).unwrap().layer = other_layer;
     assert_eq!(p.tool_defaults, expected, "only the wall slot was on the layer");
     assert!(p.integrity_problems().is_empty());
 
     h.undo(&mut p).unwrap();
+    assert_eq!(
+        p.profiles, profiles_after,
+        "undoing the layer deletion leaves the profiles"
+    );
     h.undo(&mut p).unwrap();
     assert_eq!(p.tool_defaults, template);
-    assert_eq!(p.profiles, profiles_before, "one undo restores both profiles exactly");
+    assert_eq!(
+        p.profiles, profiles_before,
+        "undoing the material deletion restores both profiles exactly"
+    );
     assert!(p.material(brick).is_some());
 }
 
@@ -789,7 +799,10 @@ fn profile_commands_execute_undo_and_redo() {
     assert_eq!(add.label().key(), "model-label-new-profile");
     h.execute(&mut p, add.clone()).unwrap();
     assert_eq!(p.profiles, std::slice::from_ref(&ipe));
-    assert!(matches!(h.execute(&mut p, add), Err(CommandError::Invalid(_))));
+    assert_eq!(
+        h.execute(&mut p, add),
+        Err(CommandError::Invalid(Message::new("model-error-duplicate-profile-id")))
+    );
     assert_eq!(
         h.execute(&mut p, Command::UpdateProfile(ipe.clone())),
         Err(CommandError::NoChange)
@@ -823,8 +836,13 @@ fn profile_commands_execute_undo_and_redo() {
     expected.revision = p.revision;
     assert_eq!(p, expected, "undo restores the exact starting project");
 
-    while h.redo(&mut p).is_some() {}
-    assert!(p.profiles.is_empty());
+    h.redo(&mut p).unwrap();
+    assert_eq!(p.profiles, std::slice::from_ref(&ipe), "redo adds the profile");
+    h.redo(&mut p).unwrap();
+    assert_eq!(p.profiles, updated.profiles, "redo renames it");
+    h.redo(&mut p).unwrap();
+    assert!(p.profiles.is_empty(), "redo deletes it");
+    assert!(h.redo(&mut p).is_none());
     h.undo(&mut p).unwrap();
     assert_eq!(p.profiles, updated.profiles, "redo and undo replay the same edits");
 }
@@ -909,12 +927,16 @@ fn added_profiles_are_stored_normalised() {
     let ProfileShape::Custom { regions } = &p.profile(custom.id).unwrap().shape else {
         panic!("custom");
     };
-    assert_ne!(regions[0].outer, {
-        let ProfileShape::Custom { regions } = &custom.shape else {
-            panic!("custom");
-        };
-        regions[0].outer.clone()
-    });
+    let outer = &regions[0].outer;
+    let twice_area: f64 = outer
+        .iter()
+        .zip(outer.iter().cycle().skip(1))
+        .map(|(a, b)| a.perp_dot(*b))
+        .sum();
+    assert!(
+        twice_area > 0.0,
+        "the stored outer ring is counter-clockwise: {outer:?}"
+    );
     assert_eq!(
         h.execute(&mut p, Command::UpdateProfile(custom)),
         Err(CommandError::NoChange),

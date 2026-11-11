@@ -459,7 +459,8 @@ fn the_change_log_takes_no_part_in_equality_or_the_serde_form() {
 
 /// NFR-PERF-006, PRF-004, UND-001: an element's body depends on the profile
 /// it uses, so changing a profile stamps exactly the elements that use it,
-/// and deleting it with a replacement stamps the re-pointed users; other
+/// and deleting it with a replacement stamps the re-pointed users; the raw
+/// edits that remove and insert a profile stamp its users; other
 /// elements stay unstamped, and undo and redo stamp the same elements.
 #[cfg(feature = "test-kinds")]
 #[test]
@@ -499,6 +500,18 @@ fn profile_edits_stamp_the_elements_that_use_them() {
         &[user_id],
     );
     assert_eq!(p.element(user_id).unwrap().kind.profiles(), [hea.id]);
+    // The raw edits stamp the users too: removing a profile an element still
+    // names, and inserting it again through the inverse. (DeleteProfile never
+    // removes a profile in use: its users are stamped by their
+    // ReplaceElement.)
+    let revision = p.revision;
+    let inverse = Edit::RemoveProfile { id: hea.id }.apply(&mut p).unwrap();
+    assert_eq!(stamped(&p, revision), BTreeMap::from([(user_id, false)]));
+    let revision = p.revision;
+    assert!(matches!(inverse, Edit::InsertProfile { .. }));
+    inverse.apply(&mut p).unwrap();
+    assert_eq!(stamped(&p, revision), BTreeMap::from([(user_id, false)]));
+    assert_eq!(p.profile(hea.id), Some(&hea));
     // A profile no element uses stamps nothing.
     let unused = Profile::parametric("Unused", ParametricShape::ALL[0], material);
     assert_stamps_elements(&mut p, &mut h, Command::AddProfile(unused), &[]);

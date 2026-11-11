@@ -567,9 +567,9 @@ fn regions_overlap(a: &ProfileRegion, b: &ProfileRegion) -> bool {
 /// Validates an element against the project it is placed in: references to
 /// storey, layer, material, text style and profiles (PRF-004), its
 /// parameters, what placing it adds to its tool's defaults
-/// ([`crate::kinds::Kind::check_complete`]) and its vertical extent. On success, returns the element with normalised
-/// geometry. An element without a body has no height to check: its extent
-/// is flat by design (ANN-002).
+/// ([`crate::kinds::Kind::check_complete`]) and its vertical extent. On
+/// success, returns the element with normalised geometry. An element without
+/// a body has no height to check: its extent is flat by design (ANN-002).
 pub fn validate_element(project: &Project, element: &Element) -> Result<Element, Message> {
     let element = validate_prototype(project, element)?;
     element.kind.check_complete()?;

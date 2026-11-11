@@ -775,13 +775,7 @@ fn plan_update_elements(project: &Project, elements: &[Element]) -> Result<Vec<E
                 return Err(CommandError::Locked(reason));
             }
         }
-        let element = validate::validate_element(project, element).map_err(|e| {
-            CommandError::Invalid(
-                Message::new("model-error-element-invalid")
-                    .text("name", &element.name)
-                    .nested("reason", e),
-            )
-        })?;
+        let element = validate::validate_element(project, element).map_err(|e| element_invalid(element, e))?;
         edits.push(Edit::ReplaceElement(element));
     }
     if edits.is_empty() {
@@ -1113,7 +1107,7 @@ fn plan_delete_profile(
             for user in users {
                 let mut changed = user.clone();
                 changed.kind.replace_profile(profile, replacement);
-                validate::validate_element(project, &changed).map_err(|e| element_invalid(user, e))?;
+                let changed = validate::validate_element(project, &changed).map_err(|e| element_invalid(user, e))?;
                 edits.push(Edit::ReplaceElement(changed));
             }
             for slot in defaults.slots_mut() {

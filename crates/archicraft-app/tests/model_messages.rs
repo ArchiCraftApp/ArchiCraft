@@ -374,7 +374,8 @@ fn model_messages_render_in_english() {
 }
 
 /// NFR-L10N-001: error messages render as English sentences with lengths in
-/// the project unit, kinds as nouns and nested reasons in place.
+/// the project unit, kinds as nouns, nested reasons in place and counts in
+/// their plural variants.
 #[test]
 fn model_errors_render_in_english_with_project_units() {
     let units = UnitSettings {
@@ -449,6 +450,27 @@ fn model_errors_render_in_english_with_project_units() {
     assert_eq!(
         too_high(2),
         format!("W-001 and 2 other elements would be more than {max} high.")
+    );
+    // PRF-004: a profile in use names its users, or the tool defaults when
+    // no element uses it.
+    let in_use = |count| {
+        render(
+            &Message::new("model-error-profile-in-use")
+                .text("name", "IPE 300")
+                .count("count", count),
+        )
+    };
+    assert_eq!(
+        in_use(0),
+        "Profile “IPE 300” is used by tool defaults; choose a replacement."
+    );
+    assert_eq!(
+        in_use(1),
+        "Profile “IPE 300” is used by 1 element; choose a replacement."
+    );
+    assert_eq!(
+        in_use(3),
+        "Profile “IPE 300” is used by 3 elements; choose a replacement."
     );
 }
 
