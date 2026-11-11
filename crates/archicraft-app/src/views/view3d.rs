@@ -236,6 +236,9 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
     {
         let hit = hit_at(&state, ws, p).map(|(id, _)| id);
         match transfer_mode {
+            // The second click of a double-click transfers nothing, so the
+            // first one's status line stays (ELM-003).
+            Some(_) if response.double_clicked_by(PointerButton::Primary) => {}
             Some(mode) => transfer::click(ws, mode, hit),
             // A grouped element selects its group; Shift toggles it whole
             // (ELM-015).
@@ -243,6 +246,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
         }
     }
     if response.double_clicked_by(PointerButton::Primary)
+        && transfer_mode.is_none()
         && let Some(p) = response.interact_pointer_pos()
         && let Some((_, point)) = hit_at(&state, ws, p)
     {
