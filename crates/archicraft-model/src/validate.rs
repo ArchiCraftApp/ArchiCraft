@@ -589,13 +589,7 @@ fn validate_profile_regions(regions: &[ProfileRegion]) -> Result<Vec<ProfileRegi
     // is more than a strip MODEL_TOLERANCE wide along the shorter outer
     // ring; regions that only touch, sharing an edge or a point or lying in
     // the other's hole, do not.
-    let grids: Vec<overlap::GridRegion> = regions
-        .iter()
-        .map(|region| {
-            let rings = std::iter::once(&region.outer).chain(&region.holes).map(Vec::as_slice);
-            overlap::GridRegion::new(rings, min)
-        })
-        .collect();
+    let grids = grid_regions(&regions, min);
     let boundaries: Vec<f64> = regions
         .iter()
         .map(|r| {
@@ -614,6 +608,18 @@ fn validate_profile_regions(regions: &[ProfileRegion]) -> Result<Vec<ProfileRegi
             Err(Message::new("model-error-profile-crossings").count("max", MAX_PROFILE_CROSSINGS))
         }
     }
+}
+
+/// Valid `regions`, whose points lie right of and above `origin`, on the
+/// grid of [`overlap`].
+fn grid_regions(regions: &[ProfileRegion], origin: DVec2) -> Vec<overlap::GridRegion> {
+    regions
+        .iter()
+        .map(|region| {
+            let rings = std::iter::once(&region.outer).chain(&region.holes).map(Vec::as_slice);
+            overlap::GridRegion::new(rings, origin)
+        })
+        .collect()
 }
 
 /// Validates an element against the project it is placed in: references to
@@ -1601,6 +1607,13 @@ mod tests {
             let inner = rect(DVec2::splat(0.05), DVec2::splat(0.1));
             let error = check_custom(vec![(block, Vec::new()), (inner, Vec::new())]).unwrap_err();
             assert_eq!(error.key(), "model-error-profile-regions-overlap");
+            // Two plates 10 m long and 1 mm thick crossing at right angles
+            // share 1 mm², far less than the strip along either outline,
+            // but their edges cross deeply.
+            let across = rect(DVec2::new(0.0, 4.9995), DVec2::new(10.0, 0.001));
+            let upright = rect(DVec2::new(4.9995, 0.0), DVec2::new(0.001, 10.0));
+            let error = check_custom(vec![(across, Vec::new()), (upright, Vec::new())]).unwrap_err();
+            assert_eq!(error.key(), "model-error-profile-regions-overlap");
         }
 
         /// PRF-004: regions may touch: two sharing an edge, one sharing
@@ -2025,8 +2038,43 @@ mod tests {
             ]
         }
 
+        /// NFR-SEC-003, PRF-004: the sweep for overlapping regions tests a
+        /// few pairs of edges for each point and region whose x-range it
+        /// lies in, and for each crossing it finds, whatever the layout: at
+        /// most 4 per point and region and 9 per crossing for each profile
+        /// of [`profiles_at_the_limit`] (up to 2.9 per point and region for
+        /// rings in rings), where testing every pair of edges takes up to
+        /// 50 million. So a regression shows without timing.
+        #[test]
+        fn the_region_sweep_tests_a_few_pairs_of_edges_per_point_and_crossing() {
+            for (name, regions, _) in profiles_at_the_limit() {
+                let points: usize = regions
+                    .iter()
+                    .map(|(outer, holes)| outer.len() + holes.iter().map(Vec::len).sum::<usize>())
+                    .sum();
+                let material = default_metric_project().materials[0].id;
+                let regions: Vec<ProfileRegion> = regions
+                    .iter()
+                    .map(|(outer, holes)| {
+                        let (outer, holes) = validate_slab_polygon(outer, holes).unwrap();
+                        ProfileRegion { outer, holes, material }
+                    })
+                    .collect();
+                let (min, _) = point_bounds(regions.iter().flat_map(|r| r.outer.iter().copied())).unwrap();
+                let grids = grid_regions(&regions, min);
+                let (tested, crossings) = overlap::sweep_work(&grids, MAX_PROFILE_CROSSINGS);
+                let bound = 4 * regions.len() * points + 9 * crossings;
+                assert!(
+                    tested <= bound,
+                    "{name}: {tested} pairs tested for {points} points in {} regions and {crossings} crossings",
+                    regions.len()
+                );
+            }
+        }
+
         /// NFR-SEC-003, PRF-004: the region checks grow with the regions
-        /// times the points, not with the crossings of their outlines, so
+        /// times the points and with the crossings of their outlines up to
+        /// [`MAX_PROFILE_CROSSINGS`], so
         /// each profile of [`profiles_at_the_limit`] validates, or is
         /// rejected, within the time budget of
         /// `slabs_at_the_point_limit_validate_quickly`: 100 ms in a release
