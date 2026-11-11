@@ -1,26 +1,48 @@
-//! The column generator (COL-001, COL-003, IFX-035): the cross-section,
-//! anchored at the column's position and turned by its rotation, swept up
-//! the vertical axis between the two end cuts, with the axis from the bottom
-//! cut to the top cut.
+//! The column generator (COL-001, COL-003, PRF-004, IFX-035): the
+//! cross-section, anchored at the column's position and turned by its
+//! rotation, swept up the vertical axis between the two end cuts, with the
+//! axis from the bottom cut to the top cut.
+//!
+//! The generator reads only its element, the storeys and the profile of a
+//! profile section. An edit of that profile stamps the columns that use it
+//! in the project's change log, so incremental evaluation re-evaluates them
+//! (PRF-004: editing a profile updates every element that uses it).
 
 use archicraft_model::kinds::{Column, ColumnCut, CrossSection};
+use archicraft_model::message::Message;
 use archicraft_model::profile::ParametricShape;
 use glam::{DVec2, DVec3};
 
 use super::{EvalContext, GeometryKind};
 use crate::GeometryError;
 use crate::evaluate::{BodyPart, ElementGeometry};
-use crate::section::{Section, parametric_section};
+use crate::section::{Section, parametric_section, profile_section};
 use crate::sweep::{CutPlane, MemberFrame, frame_for_column, sweep};
 
-/// The column's section in section coordinates, centred on its bounding
-/// box and made of the column's material.
-fn section(column: &Column, ctx: &EvalContext<'_>) -> Result<Section, GeometryError> {
-    let shape = match column.section {
-        CrossSection::Rectangular { width, height } => ParametricShape::Rectangle { width, height },
-        CrossSection::Circular { diameter } => ParametricShape::Circle { diameter },
+/// The column's section in section coordinates and its anchor point there:
+/// a rectangle or circle centred on its bounding box and made of the
+/// column's material, or the column's profile through [`profile_section`],
+/// in profile coordinates with the profile's region roles and materials and
+/// anchored at its insertion origin for `Anchor::ProfileOrigin`.
+fn section(column: &Column, ctx: &EvalContext<'_>) -> Result<(Section, DVec2), GeometryError> {
+    let tessellation = &ctx.project.settings.tessellation;
+    let missing_profile = || GeometryError::InvalidPolygon(Message::new("model-error-element-profile-missing"));
+    let (section, profile) = match column.section {
+        CrossSection::Rectangular { width, height } => (
+            parametric_section(&ParametricShape::Rectangle { width, height }, column.material, tessellation)?,
+            None,
+        ),
+        CrossSection::Circular { diameter } => (
+            parametric_section(&ParametricShape::Circle { diameter }, column.material, tessellation)?,
+            None,
+        ),
+        CrossSection::Profile(_) => {
+            let profile = column.profile(ctx.project).ok_or_else(missing_profile)?;
+            (profile_section(profile, tessellation)?, Some(profile))
+        }
     };
-    parametric_section(&shape, column.material, &ctx.project.settings.tessellation)
+    let anchor = column.anchor_point(profile).ok_or_else(missing_profile)?;
+    Ok((section, anchor))
 }
 
 /// The plane of the end cut `cut` through the axis at `z` (COL-003): it
@@ -42,14 +64,16 @@ impl GeometryKind for Column {
         Ok((base, base + (top - bottom)))
     }
 
-    /// One part `Body` swept from the section moved so that its anchor
+    /// One part `Body`, or `Region_1`, `Region_2`, … for a profile of
+    /// several regions, swept from the section moved so that its anchor
     /// point lies on the axis, in the column's frame at its position on the
     /// storey's floor (`frame_for_column`), between the bottom cut at the
     /// base and the top cut at the top. The axis joins the points where the
     /// anchor axis meets the two cuts.
     fn evaluate(&self, ctx: &EvalContext<'_>) -> Result<ElementGeometry, GeometryError> {
         let (bottom, top) = self.local_extent(ctx)?;
-        let section = section(self, ctx)?.transformed(-self.anchor_point(), 0.0);
+        let (section, anchor) = section(self, ctx)?;
+        let section = section.transformed(-anchor, 0.0);
         let frame = frame_for_column(self.position.extend(0.0), self.rotation);
         let regions = sweep(
             &section,

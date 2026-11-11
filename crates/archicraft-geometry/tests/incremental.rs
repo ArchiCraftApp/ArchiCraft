@@ -14,8 +14,8 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::{Anchor, ColumnCut, CrossSection, Dummy};
 use archicraft_model::samples::{self, FixtureBuilder};
 use archicraft_model::{
-    Command, Element, ElementId, History, JOIN_TOLERANCE, Position, Project, ReferenceLine, Relation, Storey, StoreyId,
-    StoreyList, TopLink,
+    Command, Element, ElementId, History, JOIN_TOLERANCE, MaterialId, ParametricShape, Position, Profile, ProfileId,
+    ProfileRegion, ProfileShape, Project, ReferenceLine, Relation, Storey, StoreyId, StoreyList, TopLink,
 };
 
 /// Executes `command`, which the test expects to be accepted.
@@ -621,6 +621,26 @@ impl Rng {
     }
 }
 
+/// An I-profile of `first`, or a custom profile of two plates of `first`
+/// and `second` (PRF-004).
+fn new_profile(parametric: bool, first: MaterialId, second: MaterialId) -> Profile {
+    if parametric {
+        return Profile::parametric("I", ParametricShape::ALL[4], first);
+    }
+    let plate = |min: DVec2, max: DVec2, material| ProfileRegion {
+        outer: vec![min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)],
+        holes: Vec::new(),
+        material,
+    };
+    Profile::custom(
+        "Plates",
+        vec![
+            plate(DVec2::ZERO, DVec2::new(0.3, 0.1), first),
+            plate(DVec2::new(0.0, 0.1), DVec2::new(0.3, 0.3), second),
+        ],
+    )
+}
+
 /// The edits of the property test.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Op {
@@ -642,11 +662,13 @@ enum Op {
     Settings,
     AddColumn,
     ColumnEdit,
+    AddProfile,
+    UpdateProfile,
 }
 
 /// The edits with their weights, out of 100.
-const OPS: [(Op, usize); 18] = [
-    (Op::Move, 14),
+const OPS: [(Op, usize); 20] = [
+    (Op::Move, 8),
     (Op::Thickness, 6),
     (Op::ReferenceLine, 6),
     (Op::Delete, 6),
@@ -664,6 +686,8 @@ const OPS: [(Op, usize); 18] = [
     (Op::Settings, 1),
     (Op::AddColumn, 4),
     (Op::ColumnEdit, 6),
+    (Op::AddProfile, 3),
+    (Op::UpdateProfile, 3),
 ];
 
 /// One edit of the property test: what it was, whether the project took
@@ -683,6 +707,8 @@ struct Session {
     /// The identities of the elements and storeys the edits add, which
     /// follow from the seed.
     ids: FixtureBuilder,
+    /// The accepted profile edits that changed a profile some column uses.
+    used_profile_edits: usize,
 }
 
 impl Session {
@@ -692,6 +718,7 @@ impl Session {
             history: History::default(),
             rng: Rng::new(seed),
             ids: FixtureBuilder::new(&format!("incremental-{seed}")),
+            used_profile_edits: 0,
         }
     }
 
@@ -798,6 +825,8 @@ impl Session {
             Op::Host | Op::Failing => self.hosted(op),
             Op::AddColumn => self.added_column(),
             Op::ColumnEdit => self.changed_column(),
+            Op::AddProfile => self.added_profile(),
+            Op::UpdateProfile => self.changed_profile(),
             Op::Settings => {
                 let mut settings = self.project.settings.clone();
                 settings.tessellation.chord_deviation = self.rng.pick(&[0.001, 0.002, 0.004]);
@@ -892,7 +921,8 @@ impl Session {
     }
 
     /// Adds a column (COL-001) at an end or the middle of a wall, turned or
-    /// not, rectangular or circular.
+    /// not, rectangular, circular or of a profile anchored at its origin
+    /// (PRF-004).
     fn added_column(&mut self) -> (bool, String) {
         let (storey, at) = match self.wall() {
             Some(element) => {
@@ -905,8 +935,15 @@ impl Session {
         let rotation = self.rng.pick(&[0.0, 0.3, std::f64::consts::FRAC_PI_2]);
         let mut column = self.project.new_column(storey, at, rotation, 0);
         column.id = ElementId::from_uuid(self.ids.id("column"));
-        if self.rng.coin() {
-            column.as_column_mut().expect("a column").section = CrossSection::Circular { diameter: 0.4 };
+        let profiles: Vec<ProfileId> = self.project.profiles.iter().map(|p| p.id).collect();
+        match self.rng.below(3) {
+            0 => column.as_column_mut().expect("a column").section = CrossSection::Circular { diameter: 0.4 },
+            1 if !profiles.is_empty() => {
+                let column = column.as_column_mut().expect("a column");
+                column.section = CrossSection::Profile(self.rng.pick(&profiles));
+                column.anchor = Anchor::ProfileOrigin;
+            }
+            _ => {}
         }
         (
             self.run(Command::AddElements(vec![column])),
@@ -937,21 +974,34 @@ impl Session {
                 format!("rotation {}", column.rotation)
             }
             1 => {
-                column.anchor = self.rng.pick(&Anchor::ALL);
+                column.anchor = match self.rng.below(4) {
+                    0 => Anchor::ProfileOrigin,
+                    _ => self.rng.pick(&Anchor::ALL),
+                };
                 format!("{:?}", column.anchor)
             }
             2 => {
-                column.section = self.rng.pick(&[
-                    CrossSection::Rectangular {
-                        width: 0.3,
-                        height: 0.3,
-                    },
-                    CrossSection::Rectangular {
-                        width: 0.25,
-                        height: 0.5,
-                    },
-                    CrossSection::Circular { diameter: 0.4 },
-                ]);
+                let profiles: Vec<CrossSection> = self
+                    .project
+                    .profiles
+                    .iter()
+                    .map(|p| CrossSection::Profile(p.id))
+                    .collect();
+                column.section = if !profiles.is_empty() && self.rng.coin() {
+                    self.rng.pick(&profiles)
+                } else {
+                    self.rng.pick(&[
+                        CrossSection::Rectangular {
+                            width: 0.3,
+                            height: 0.3,
+                        },
+                        CrossSection::Rectangular {
+                            width: 0.25,
+                            height: 0.5,
+                        },
+                        CrossSection::Circular { diameter: 0.4 },
+                    ])
+                };
                 format!("{:?}", column.section)
             }
             3 => {
@@ -978,6 +1028,66 @@ impl Session {
         };
         let description = format!("{} to {change}", element.name);
         (self.run(Command::UpdateElements(vec![element])), description)
+    }
+
+    /// Adds a profile (PRF-004): an I-profile or a custom profile of two
+    /// plates of different materials, with an origin off the centre.
+    fn added_profile(&mut self) -> (bool, String) {
+        let materials: Vec<MaterialId> = self.project.materials.iter().map(|m| m.id).collect();
+        let mut profile = new_profile(self.rng.coin(), self.rng.pick(&materials), self.rng.pick(&materials));
+        profile.id = ProfileId::from_uuid(self.ids.id("profile"));
+        profile.origin = self.rng.pick(&[DVec2::ZERO, DVec2::new(0.05, 0.1)]);
+        let description = format!("{} at {}", profile.name, profile.origin);
+        (self.run(Command::AddProfile(profile)), description)
+    }
+
+    /// Changes a profile's shape or origin (PRF-004), which moves or
+    /// reshapes every column that uses it; a used profile half the time.
+    fn changed_profile(&mut self) -> (bool, String) {
+        if self.project.profiles.is_empty() {
+            return (false, String::new());
+        }
+        let used: Vec<&Profile> = self
+            .project
+            .profiles
+            .iter()
+            .filter(|p| self.project.profile_users(p.id).next().is_some())
+            .collect();
+        let mut profile = if !used.is_empty() && self.rng.coin() {
+            used[self.rng.below(used.len())].clone()
+        } else {
+            self.project.profiles[self.rng.below(self.project.profiles.len())].clone()
+        };
+        let change = if self.rng.coin() {
+            profile.origin = self
+                .rng
+                .pick(&[DVec2::ZERO, DVec2::new(0.05, 0.1), DVec2::new(-0.02, 0.0)]);
+            format!("origin {}", profile.origin)
+        } else {
+            match &mut profile.shape {
+                ProfileShape::Parametric {
+                    shape: ParametricShape::IShape { height, .. },
+                    ..
+                } => {
+                    *height = self.rng.pick(&[0.2, 0.3, 0.4]);
+                    format!("height {height}")
+                }
+                ProfileShape::Parametric { .. } => String::from("unchanged"),
+                ProfileShape::Custom { regions } => {
+                    let top = self.rng.pick(&[0.3, 0.45]);
+                    regions[1].outer[2].y = top;
+                    regions[1].outer[3].y = top;
+                    format!("top {top}")
+                }
+            }
+        };
+        let users = self.project.profile_users(profile.id).count();
+        let description = format!("{} used by {users} to {change}", profile.name);
+        let accepted = self.run(Command::UpdateProfile(profile));
+        if accepted && users > 0 {
+            self.used_profile_edits += 1;
+        }
+        (accepted, description)
     }
 
     /// Changes a storey's elevation or height, with or without the storeys
@@ -1073,11 +1183,12 @@ fn assert_changes_listed(
 }
 
 /// NFR-PERF-006, VIEW-001: 200 seeded random edit sequences of 1 to 20 edits
-/// on `stand_in(1_000)` (moves, thickness, reference line, delete, add,
+/// on `stand_in(1_000)` with two profiles (moves, thickness, reference line, delete, add,
 /// storey elevation and height, relinking the top and the home storey,
 /// undo, redo, inserted and deleted storeys, hosted and failing elements,
 /// settings, added columns and their rotation, anchor, section, end cuts
-/// and top link (COL-001, COL-003)), evaluated incrementally after every edit and once for the
+/// and top link (COL-001, COL-003), added and edited profiles and profile
+/// sections with the profile origin anchor (PRF-004)), evaluated incrementally after every edit and once for the
 /// whole sequence, give the elements, parts, children, axes and problems of
 /// a fresh `ModelGeometry::evaluate`, bit for bit (`TriMesh ==`). Each
 /// assertion prints the seed and the edits so far. The sequences take every
@@ -1085,11 +1196,18 @@ fn assert_changes_listed(
 /// evaluate everything again.
 #[test]
 fn incremental_equals_full() {
-    let base = samples::stand_in(1_000);
+    let mut base = samples::stand_in(1_000);
+    let mut ids = FixtureBuilder::new("incremental-profiles");
+    let (first, second) = (base.materials[0].id, base.materials[1].id);
+    for parametric in [true, false] {
+        let mut profile = new_profile(parametric, first, second);
+        profile.id = ProfileId::from_uuid(ids.id("profile"));
+        execute(&mut base, &mut History::default(), Command::AddProfile(profile));
+    }
     let base_geometry = ModelGeometry::evaluate(&base);
     let base_homes = homes(&base);
     let mut accepted: HashMap<Op, usize> = HashMap::new();
-    let (mut steps, mut updates) = (0, 0);
+    let (mut steps, mut updates, mut used_profile_edits) = (0, 0, 0);
     for seed in 1..=200_u64 {
         let mut session = Session::new(&base, seed);
         let length = 1 + session.rng.below(20);
@@ -1120,6 +1238,7 @@ fn incremental_equals_full() {
             );
             (geometry, full, homes_before) = (updated, fresh, homes_after);
         }
+        used_profile_edits += session.used_profile_edits;
         let at_once = ModelGeometry::evaluate_incremental(&session.project, &base_geometry);
         let context = format!("seed {seed}, all {length} edits at once: {}", log.join("; "));
         assert_same_geometry(&at_once, &full, &context);
@@ -1130,6 +1249,10 @@ fn incremental_equals_full() {
             "no {op:?} edit was accepted: {accepted:?}"
         );
     }
+    assert!(
+        used_profile_edits > 0,
+        "no accepted profile edit changed a used profile"
+    );
     assert!(
         updates * 10 > steps * 9,
         "{updates} of {steps} steps updated the previous geometry"

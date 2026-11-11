@@ -1073,6 +1073,187 @@ fn profile_users_are_re_pointed_and_re_validated() {
     assert_eq!(p, expected, "undo restores the profile and its user exactly");
 }
 
+/// COL-001, PRF-004, DSP-003: a column with a profile section uses its
+/// profile through the Kind hooks. It cannot name a profile that does not
+/// exist or does not allow columns; the profile origin anchor is kept on a
+/// profile section and stored as the centre on a rectangle or circle.
+/// Deleting a profile re-points the columns and the column tool's defaults
+/// slot that use it in one undoable step, and a profile in use, even only by
+/// the defaults slot, needs a replacement; an edit that removes the columns
+/// flag is rejected for a column and for the slot alike.
+#[test]
+fn profile_columns_are_re_pointed_and_re_validated() {
+    use archicraft_model::ProfileUsage;
+    use archicraft_model::kinds::{Anchor, CrossSection};
+    use archicraft_model::validate::validate_prototype;
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let material = p.materials[0].id;
+    let ipe = Profile::parametric("IPE 300", ParametricShape::ALL[4], material);
+    let hea = Profile::parametric("HEA 300", ParametricShape::ALL[4], material);
+    let slot_only = Profile::parametric("HEB 300", ParametricShape::ALL[4], material);
+    let beams_only = Profile {
+        usage: ProfileUsage {
+            columns: false,
+            ..ProfileUsage::MEMBERS
+        },
+        ..Profile::parametric("Beam 300", ParametricShape::ALL[4], material)
+    };
+    for profile in [&ipe, &hea, &slot_only, &beams_only] {
+        h.execute(&mut p, Command::AddProfile(profile.clone())).unwrap();
+    }
+    let ground = ground(&p);
+    let column = |p: &Project, section: CrossSection, anchor: Anchor| {
+        let mut element = p.new_column(ground, DVec2::ZERO, 0.0, 0);
+        let column = element.as_column_mut().unwrap();
+        (column.section, column.anchor) = (section, anchor);
+        element
+    };
+    let usage = |name: &str| {
+        Message::new("model-error-profile-usage")
+            .text("name", name)
+            .kind("kind", KindTag::Column)
+    };
+
+    let dangling = column(&p, CrossSection::Profile(ProfileId::new()), Anchor::Centre);
+    let missing = Message::new("model-error-element-profile-missing");
+    assert_eq!(validate_prototype(&p, &dangling), Err(missing.clone()));
+    assert_eq!(
+        h.execute(&mut p, Command::AddElements(vec![dangling])),
+        Err(CommandError::Invalid(missing))
+    );
+    let not_for_columns = column(&p, CrossSection::Profile(beams_only.id), Anchor::Centre);
+    assert_eq!(validate_prototype(&p, &not_for_columns), Err(usage("Beam 300")));
+    assert_eq!(
+        h.execute(&mut p, Command::AddElements(vec![not_for_columns])),
+        Err(CommandError::Invalid(usage("Beam 300")))
+    );
+    for section in [
+        CrossSection::Rectangular {
+            width: 0.3,
+            height: 0.4,
+        },
+        CrossSection::Circular { diameter: 0.3 },
+    ] {
+        let parametric = column(&p, section, Anchor::ProfileOrigin);
+        let id = parametric.id;
+        h.execute(&mut p, Command::AddElements(vec![parametric])).unwrap();
+        assert_eq!(
+            p.element(id).unwrap().as_column().unwrap().anchor,
+            Anchor::Centre,
+            "the profile origin of {section:?} is stored as the centre"
+        );
+        h.undo(&mut p).unwrap();
+    }
+
+    let user = column(&p, CrossSection::Profile(ipe.id), Anchor::ProfileOrigin);
+    let user_id = user.id;
+    h.execute(&mut p, Command::AddElements(vec![user])).unwrap();
+    let stored = p.element(user_id).unwrap().as_column().unwrap();
+    assert_eq!(
+        (stored.section, stored.anchor),
+        (CrossSection::Profile(ipe.id), Anchor::ProfileOrigin)
+    );
+    assert_eq!(p.element(user_id).unwrap().kind.profiles(), [ipe.id]);
+    assert_eq!(p.profile_users(ipe.id).map(|e| e.id).collect::<Vec<_>>(), [user_id]);
+    let set_slot_section = |p: &mut Project, h: &mut History, section: CrossSection| {
+        let mut defaults = p.tool_defaults.clone();
+        let ElementKind::Column(payload) = &mut defaults.get_mut(KindTag::Column).unwrap().kind else {
+            panic!("a column slot");
+        };
+        payload.section = section;
+        h.execute(p, Command::SetToolDefaults(defaults)).unwrap();
+    };
+    let slot_section = |p: &Project| match &p.tool_defaults.get(KindTag::Column).unwrap().kind {
+        ElementKind::Column(column) => column.section,
+        other => panic!("not a column slot: {other:?}"),
+    };
+    set_slot_section(&mut p, &mut h, CrossSection::Profile(slot_only.id));
+
+    let delete = |profile: &Profile, replacement: Option<&Profile>| Command::DeleteProfile {
+        profile: profile.id,
+        replacement: replacement.map(|r| r.id),
+    };
+    let in_use = |name: &str, count: usize| {
+        Err(CommandError::Invalid(
+            Message::new("model-error-profile-in-use")
+                .text("name", name)
+                .count("count", count),
+        ))
+    };
+    let before = p.clone();
+    assert_eq!(h.execute(&mut p, delete(&ipe, None)), in_use("IPE 300", 1));
+    assert_eq!(
+        h.execute(&mut p, delete(&slot_only, None)),
+        in_use("HEB 300", 0),
+        "a profile used only by the tool defaults is in use"
+    );
+    assert_eq!(
+        h.execute(&mut p, delete(&ipe, Some(&beams_only))),
+        Err(CommandError::Invalid(
+            Message::new("model-error-element-invalid")
+                .text("name", "C-001")
+                .nested("reason", usage("Beam 300")),
+        )),
+        "the replacement must allow columns"
+    );
+    let without_columns = |profile: &Profile| Profile {
+        usage: beams_only.usage,
+        ..profile.clone()
+    };
+    assert_eq!(
+        h.execute(&mut p, Command::UpdateProfile(without_columns(&ipe))),
+        Err(CommandError::Invalid(
+            Message::new("model-error-element-invalid")
+                .text("name", "C-001")
+                .nested("reason", usage("IPE 300")),
+        )),
+        "an edit cannot remove the columns flag a column needs"
+    );
+    assert_eq!(
+        h.execute(&mut p, Command::UpdateProfile(without_columns(&slot_only))),
+        Err(CommandError::Invalid(
+            Message::new("model-error-default-invalid")
+                .kind("kind", KindTag::Column)
+                .nested("reason", usage("HEB 300")),
+        )),
+        "nor the one the column tool's defaults need"
+    );
+    assert_eq!(p, before, "rejected commands change nothing");
+
+    // The defaults slot alone is re-pointed, and undo restores it.
+    h.execute(&mut p, delete(&slot_only, Some(&hea))).unwrap();
+    assert_eq!(slot_section(&p), CrossSection::Profile(hea.id));
+    h.undo(&mut p).unwrap();
+    let mut expected = before.clone();
+    expected.revision = p.revision;
+    assert_eq!(p, expected, "undo restores the profile and the defaults slot exactly");
+
+    // A column and the defaults slot using the same profile are re-pointed
+    // in one step, and undo restores both.
+    set_slot_section(&mut p, &mut h, CrossSection::Profile(ipe.id));
+    let before = p.clone();
+    let depth = h.undo_len();
+    h.execute(&mut p, delete(&ipe, Some(&hea))).unwrap();
+    assert_eq!(h.undo_len(), depth + 1, "one transaction");
+    assert!(p.profile(ipe.id).is_none());
+    assert_eq!(p.element(user_id).unwrap().kind.profiles(), [hea.id]);
+    assert_eq!(
+        p.element(user_id).unwrap().as_column().unwrap().anchor,
+        Anchor::ProfileOrigin
+    );
+    assert_eq!(slot_section(&p), CrossSection::Profile(hea.id));
+    assert!(p.integrity_problems().is_empty());
+    h.undo(&mut p).unwrap();
+    let mut expected = before;
+    expected.revision = p.revision;
+    assert_eq!(
+        p, expected,
+        "undo restores the profile, the column and the defaults slot exactly"
+    );
+}
+
 /// NFR-MNT-001, PRF-004: a command log with profile commands serialises and
 /// replays onto the starting project to the same profiles.
 #[test]
@@ -3312,10 +3493,11 @@ fn storey_changes_move_linked_columns() {
 /// The plan corners of a rectangular column's section, in the order of its
 /// section corners from the bottom left, counter-clockwise.
 fn column_corners(c: &archicraft_model::kinds::Column) -> Vec<DVec2> {
-    let (min, max) = c.section.bounds();
+    let (min, max) = c.section.bounds().unwrap();
+    let anchor = c.anchor_point(None).unwrap();
     [min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)]
         .into_iter()
-        .map(|p| c.to_plan(p))
+        .map(|p| c.to_plan(anchor, p))
         .collect()
 }
 
@@ -3392,4 +3574,64 @@ fn rotating_and_mirroring_a_column_moves_its_section_with_it() {
     h.undo(&mut p).unwrap();
     h.undo(&mut p).unwrap();
     assert_eq!(column_of(&p, id), &original);
+}
+
+/// COL-001, PRF-004: a profile column's plan bounds are its profile's box
+/// turned about the anchor, here the profile origin, which the project
+/// resolves; the Kind hook, which does not see the profile, gives the axis
+/// point. A rotation turns the section, and a mirror, whose image would be
+/// another profile, is refused and leaves the column unchanged.
+#[test]
+fn a_profile_column_is_bounded_by_its_profile_and_refuses_a_mirror() {
+    use archicraft_model::kinds::{Anchor, CrossSection};
+    use archicraft_model::transform::{PlanTransform, TransformError};
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let material = p.materials[0].id;
+    // IPE 200: 0.10 wide, 0.20 high, centred on zero; the origin at its
+    // top right.
+    let ipe = Profile {
+        origin: DVec2::new(0.05, 0.10),
+        ..Profile::parametric("IPE 200", ParametricShape::ALL[4], material)
+    };
+    h.execute(&mut p, Command::AddProfile(ipe.clone())).unwrap();
+    let mut c = p.new_column(ground(&p), DVec2::new(2.0, 1.0), 0.0, 0);
+    let id = c.id;
+    {
+        let column = c.as_column_mut().unwrap();
+        column.section = CrossSection::Profile(ipe.id);
+        column.anchor = Anchor::ProfileOrigin;
+    }
+    h.execute(&mut p, Command::AddElements(vec![c])).unwrap();
+    let element = p.element(id).unwrap();
+    let column = element.as_column().unwrap();
+    assert_eq!(column.profile(&p), Some(&ipe));
+    assert_eq!(column.anchor_point(Some(&ipe)), Some(ipe.origin));
+    assert_eq!(column.anchor_point(None), None, "a profile section needs its profile");
+    let (lo, hi) = p.plan_bounds(element).unwrap();
+    assert!(
+        lo.distance(DVec2::new(1.9, 0.8)) < 1e-12 && hi.distance(DVec2::new(2.0, 1.0)) < 1e-12,
+        "{lo} {hi}"
+    );
+    assert_eq!(element.kind.plan_bounds(), Some((column.position, column.position)));
+
+    let mut turned = element.clone();
+    turned
+        .kind
+        .transform(&PlanTransform::rotation(
+            DVec2::new(2.0, 1.0),
+            std::f64::consts::FRAC_PI_2,
+        ))
+        .unwrap();
+    let (lo, hi) = p.plan_bounds(&turned).unwrap();
+    assert!(
+        lo.distance(DVec2::new(2.0, 0.9)) < 1e-12 && hi.distance(DVec2::new(2.2, 1.0)) < 1e-12,
+        "{lo} {hi}"
+    );
+
+    let mut mirrored = element.clone();
+    let mirror = PlanTransform::mirror(DVec2::new(0.0, 3.0), DVec2::new(5.0, 4.0)).unwrap();
+    assert_eq!(mirrored.kind.transform(&mirror), Err(TransformError::Unsupported));
+    assert_eq!(&mirrored, element, "a refused mirror changes nothing");
 }

@@ -4,22 +4,23 @@
 //! update what an edit changed instead of everything. Each of them remembers
 //! the project revision it last saw and asks the project's [`ChangeLog`]
 //! what changed since: the elements an edit inserted, replaced or removed,
-//! the storeys it moved, and whether it changed something everything
-//! depends on. Stamps rather than a queue of changes, so that every
+//! the storeys it moved, the profiles it inserted, replaced or removed (whose
+//! users it stamps too, PRF-004), and whether it changed something
+//! everything depends on. Stamps rather than a queue of changes, so that every
 //! consumer diffs against its own last revision and none has to drain
 //! anything.
 //!
 //! [`crate::command::Edit::apply`], the only place that advances
 //! [`Project::revision`](crate::project::Project::revision), stamps every
 //! change with the revision after its edit, for undo and redo alike. The
-//! log keeps the latest stamp per element and per storey and is never
-//! pruned, so it stays as large as the elements and storeys a session
-//! touched. It is not saved: a project read from a file starts with an
+//! log keeps the latest stamp per element, storey and profile and is never
+//! pruned, so it stays as large as the elements, storeys and profiles a
+//! session touched. It is not saved: a project read from a file starts with an
 //! empty log, and a consumer evaluates it in full once.
 
 use std::collections::BTreeMap;
 
-use crate::ids::{ElementId, StoreyId};
+use crate::ids::{ElementId, ProfileId, StoreyId};
 use crate::storey::{Storey, StoreyList};
 
 /// The latest stamp of an element in a [`ChangeLog`].
@@ -45,6 +46,9 @@ pub struct ChangeLog {
     elements: BTreeMap<ElementId, ElementStamp>,
     /// The revision after the last edit that moved each storey.
     storeys: BTreeMap<StoreyId, u64>,
+    /// The revision after the last edit that inserted, replaced or removed
+    /// each profile.
+    profiles: BTreeMap<ProfileId, u64>,
     /// The revision after the last edit that changed what everything
     /// derived from the project depends on, or 0.
     everything: u64,
@@ -61,7 +65,7 @@ impl PartialEq for ChangeLog {
 impl ChangeLog {
     /// True if no edit stamped anything yet.
     pub fn is_empty(&self) -> bool {
-        self.elements.is_empty() && self.storeys.is_empty() && self.everything == 0
+        self.elements.is_empty() && self.storeys.is_empty() && self.profiles.is_empty() && self.everything == 0
     }
 
     /// The latest stamp of `element`, if an edit ever inserted, replaced or
@@ -98,6 +102,23 @@ impl ChangeLog {
             .map(|(id, _)| *id)
     }
 
+    /// The revision after the last edit that inserted, replaced or removed
+    /// `profile`, if one did (PRF-004). Such an edit also stamps the elements
+    /// that use the profile, so a cache of element geometry needs only
+    /// [`ChangeLog::elements_since`].
+    pub fn profile(&self, profile: ProfileId) -> Option<u64> {
+        self.profiles.get(&profile).copied()
+    }
+
+    /// The profiles an edit inserted, replaced or removed after `revision`,
+    /// in id order.
+    pub fn profiles_since(&self, revision: u64) -> impl Iterator<Item = ProfileId> + '_ {
+        self.profiles
+            .iter()
+            .filter(move |(_, stamp)| **stamp > revision)
+            .map(|(id, _)| *id)
+    }
+
     /// True if an edit after `revision` changed what everything derived
     /// from the project depends on, such as the tessellation tolerances of
     /// the project settings (IFX-034): a cache that last saw `revision`
@@ -127,6 +148,11 @@ impl ChangeLog {
                 }
             }
         }
+    }
+
+    /// Stamps `profile`, which an edit inserted, replaced or removed.
+    pub(crate) fn stamp_profile(&mut self, profile: ProfileId, revision: u64) {
+        self.profiles.insert(profile, revision);
     }
 
     /// Stamps a change that everything derived from the project depends on.

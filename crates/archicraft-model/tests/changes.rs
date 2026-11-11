@@ -516,3 +516,77 @@ fn profile_edits_stamp_the_elements_that_use_them() {
     let unused = Profile::parametric("Unused", ParametricShape::ALL[0], material);
     assert_stamps_elements(&mut p, &mut h, Command::AddProfile(unused), &[]);
 }
+
+/// The profiles stamped after `revision`.
+fn profiles_stamped(p: &Project, revision: u64) -> BTreeSet<archicraft_model::ProfileId> {
+    p.changes.profiles_since(revision).collect()
+}
+
+/// NFR-PERF-006, PRF-004, COL-001, UND-001: the raw edits InsertProfile,
+/// ReplaceProfile and RemoveProfile record the profile in the change log and
+/// stamp the columns whose section is that profile, on apply and on undo (the
+/// inverse edit), so incremental evaluation sees profile edits; columns with
+/// another section stay unstamped. The profile commands do the same through
+/// the history.
+#[test]
+fn profile_edits_record_the_profile_and_stamp_its_columns() {
+    use archicraft_model::kinds::CrossSection;
+    use archicraft_model::{ParametricShape, Profile};
+
+    let mut p = default_metric_project();
+    let mut h = History::default();
+    let material = p.materials[0].id;
+    let ipe = Profile::parametric("IPE 200", ParametricShape::ALL[4], material);
+    let ground = p.storeys.ground();
+    let mut user = p.new_column(ground, DVec2::ZERO, 0.0, 0);
+    user.as_column_mut().unwrap().section = CrossSection::Profile(ipe.id);
+    let other = p.new_column(ground, DVec2::new(2.0, 0.0), 0.0, 1);
+    let user_id = user.id;
+
+    // Inserting the profile stamps it; no element uses it yet.
+    let revision = p.revision;
+    let insert = Edit::InsertProfile {
+        index: p.profiles.len(),
+        profile: ipe.clone(),
+    };
+    insert.apply(&mut p).unwrap();
+    assert_eq!(profiles_stamped(&p, revision), set(&[ipe.id]));
+    assert_eq!(p.changes.profile(ipe.id), Some(p.revision));
+    h.execute(&mut p, Command::AddElements(vec![user, other])).unwrap();
+
+    let other_shape = Profile {
+        shape: archicraft_model::ProfileShape::Parametric {
+            shape: ParametricShape::ALL[5],
+            material,
+        },
+        ..ipe.clone()
+    };
+    let mut edit = Edit::ReplaceProfile(other_shape);
+    for step in ["apply", "undo", "redo"] {
+        let revision = p.revision;
+        edit = edit.apply(&mut p).unwrap();
+        assert_eq!(profiles_stamped(&p, revision), set(&[ipe.id]), "{step}");
+        assert_eq!(stamped(&p, revision), BTreeMap::from([(user_id, false)]), "{step}");
+    }
+    let revision = p.revision;
+    let reinsert = Edit::RemoveProfile { id: ipe.id }.apply(&mut p).unwrap();
+    assert_eq!(profiles_stamped(&p, revision), set(&[ipe.id]));
+    assert_eq!(stamped(&p, revision), BTreeMap::from([(user_id, false)]));
+    let revision = p.revision;
+    reinsert.apply(&mut p).unwrap();
+    assert_eq!(
+        profiles_stamped(&p, revision),
+        set(&[ipe.id]),
+        "the undo of the removal"
+    );
+    assert_eq!(stamped(&p, revision), BTreeMap::from([(user_id, false)]));
+
+    let renamed = Profile {
+        name: "IPE 200 S355".into(),
+        ..p.profile(ipe.id).unwrap().clone()
+    };
+    assert_stamps_elements(&mut p, &mut h, Command::UpdateProfile(renamed), &[user_id]);
+    let revision = p.revision;
+    h.undo(&mut p).unwrap();
+    assert_eq!(profiles_stamped(&p, revision), set(&[ipe.id]), "undo of UpdateProfile");
+}
