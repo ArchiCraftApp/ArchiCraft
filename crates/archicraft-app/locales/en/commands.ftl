@@ -141,7 +141,7 @@ cmd-tool-space-mode-polygon-desc = Draw a space by the corners of its boundary.
 cmd-tool-space-mode-rectangle-label = Rectangle
 cmd-tool-space-mode-rectangle-desc = Draw a rectangular space from two opposite corners.
 cmd-tool-contour-detection-label = Contour detection
-cmd-tool-contour-detection-desc = Switch contour detection on or off: a wall or slab click then traces the clicked edge, chain or region.
+cmd-tool-contour-detection-desc = Switch contour detection on or off: a wall, slab or space click then traces the clicked edge, chain, region or room.
 
 ## Project
 
@@ -186,7 +186,7 @@ cmd-input-finish-desc = Take the typed point, or end the chain.
 cmd-input-cancel-step-label = Cancel step
 cmd-input-cancel-step-desc = Cancel one step: the typed text, the last point, the selection, then the tool.
 cmd-input-hold-contour-detection-label = Hold contour detection
-cmd-input-hold-contour-detection-desc = While held, a wall or slab click traces the clicked edge, chain or region.
+cmd-input-hold-contour-detection-desc = While held, a wall, slab or space click traces the clicked edge, chain, region or room.
 
 ## Reasons a command is disabled (Enabled::No in the command registry)
 

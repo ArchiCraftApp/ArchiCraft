@@ -379,3 +379,34 @@ fn the_space_tool_detects_the_room_under_the_cursor_in_the_plan() {
     assert!(auto_update && seed.distance(p) < 0.05, "{seed}");
     assert_eq!(space.long_name, "Room 1");
 }
+
+/// INP-018, SPC-001: the space tool detects rooms in its Detect method
+/// without the shared toggle, so the status bar shows the indicator only
+/// while detection is toggled or held, like the Design menu's check, in
+/// every method; a click on the shown indicator switches detection off.
+#[test]
+fn the_space_tool_shows_the_indicator_only_while_detection_is_on() {
+    use archicraft_app::tools::SpaceMode;
+    let mut harness = shaft_sample_with("space-indicator", ToolKind::Space);
+    for mode in [SpaceMode::Detect, SpaceMode::Polygon, SpaceMode::Rectangle] {
+        harness.state_mut().workspace().tool.space_mode = mode;
+        harness.run_steps(2);
+        assert!(!shows(&harness, INDICATOR), "{mode:?}: detection off");
+        harness.state_mut().workspace().tool.detection.toggle();
+        harness.run_steps(2);
+        assert!(shows(&harness, INDICATOR), "{mode:?}: detection toggled on");
+        harness.get_by_label(INDICATOR).click();
+        harness.run_steps(2);
+        assert!(
+            !harness.state_mut().workspace().tool.detection.is_on(),
+            "{mode:?}: the click switches it off"
+        );
+        assert!(!shows(&harness, INDICATOR), "{mode:?}: detection off again");
+    }
+    harness.key_down(Key::Space);
+    harness.run_steps(2);
+    assert!(shows(&harness, INDICATOR), "Space held");
+    harness.key_up(Key::Space);
+    harness.run_steps(2);
+    assert!(!shows(&harness, INDICATOR), "Space released");
+}

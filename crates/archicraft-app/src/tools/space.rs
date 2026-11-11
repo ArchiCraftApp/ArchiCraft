@@ -84,8 +84,9 @@ impl SpaceDetection {
     }
 
     /// The pick step (NFR-USE-003): the prompt says why the cursor lies in
-    /// no room, if it does; Esc is a hint where it turns contour detection
-    /// off, while it is on in the polygon or rectangle method.
+    /// no room, if it does; Esc is a hint while the shared contour detection
+    /// is toggled or held (`detection_on`), in any method, since Esc then
+    /// turns it off.
     pub fn step(&self, detection_on: bool) -> StepSpec {
         let hovered = self
             .hovered

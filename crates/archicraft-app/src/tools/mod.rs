@@ -316,6 +316,15 @@ impl ToolState {
         on && self.points.is_empty()
     }
 
+    /// Whether the status bar shows the contour-detection indicator (INP-018):
+    /// while the tool picks contours and detection is toggled or held, as the
+    /// Design menu's check shows it. The space tool's Detect method picks
+    /// rooms without the toggle (SPC-001), so there it shows only with it on,
+    /// and a click on the indicator always switches detection off.
+    pub fn shows_detection(&self) -> bool {
+        self.detecting() && self.detection.is_on()
+    }
+
     /// The contours the tool creates its elements from (INP-018): walls run
     /// along any, a slab needs a closed outline. The preview and the click
     /// both pick with it, so they agree.
