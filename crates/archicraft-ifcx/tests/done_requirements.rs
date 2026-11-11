@@ -745,7 +745,9 @@ fn assert_fully_described(desc: &ValueDescription, value: &Value, at: &str) -> u
 
 /// IFX-061: every `archicraft::` attribute in `data` is declared in the
 /// file's `schemas` with a value description that covers every member it
-/// carries, so the file validates on its own.
+/// carries, so the file validates on its own; among them every member of
+/// the profile records, which the profile sample has of each shape
+/// (PRF-004).
 #[test]
 fn ifx_061_every_archicraft_attribute_has_a_complete_value_description() {
     let (mut project, mut history) = small_project();
@@ -788,6 +790,21 @@ fn ifx_061_every_archicraft_attribute_has_a_complete_value_description() {
         );
         assert!(members > 100, "{members}");
     }
+
+    // The projects above have no profiles, so their `profiles` is empty.
+    let file = parse(&save(&common::profile_sample()));
+    assert!(validate::validate(&file).is_empty());
+    let attribute = file
+        .data
+        .iter()
+        .find_map(|n| n.attributes.get("archicraft::project"))
+        .unwrap();
+    let entry = SchemaEntry::parse(&file.schemas["archicraft::project"]).unwrap();
+    let declared = &entry.value.object_restrictions.as_ref().unwrap().values["profiles"];
+    let records = &attribute["profiles"];
+    assert_eq!(records.as_array().unwrap().len(), 11);
+    let members = assert_fully_described(declared, records, "archicraft::project.profiles");
+    assert!(members > 100, "{members}");
 }
 
 /// IFX-090: `load` dispatches on ifcxVersion and accepts the version the

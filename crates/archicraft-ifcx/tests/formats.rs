@@ -10,9 +10,11 @@
 //! at FORMAT_VERSION 2, the format that added spaces (SPC-001),
 //! `format-3.ifcx` one of the annotations golden as written at
 //! FORMAT_VERSION 3, the format that added texts and text styles (ANN-007),
-//! and `format-4.ifcx` one of the walls-and-slab golden as written at
+//! `format-4.ifcx` one of the walls-and-slab golden as written at
 //! FORMAT_VERSION 4, the format that keeps each tool's parameters apart from
-//! the common members of its defaults slot (ELM-001).
+//! the common members of its defaults slot (ELM-001), and `format-5.ifcx`
+//! the profile sample of tests/common as written at FORMAT_VERSION 5, the
+//! format that stores profiles (PRF-004).
 
 #![allow(clippy::unwrap_used)]
 
@@ -49,11 +51,12 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// an earlier release really wrote.
 #[test]
 fn frozen_format_fixtures_never_change() {
-    let frozen: [(&str, usize, u64); 4] = [
+    let frozen: [(&str, usize, u64); 5] = [
         ("format-1.ifcx", 36_786, 0x4b1c_2083_91de_01b8),
         ("format-2.ifcx", 43_980, 0xf858_2581_17c9_fc49),
         ("format-3.ifcx", 44_960, 0xbe04_c6db_2e23_1a7d),
         ("format-4.ifcx", 34_275, 0x2161_21be_a3d6_c392),
+        ("format-5.ifcx", 33_049, 0xd060_e3f6_b35e_83b9),
     ];
     let mut found: Vec<String> = std::fs::read_dir(formats_dir())
         .unwrap()
@@ -93,6 +96,7 @@ fn format_1_migrates_and_loads_into_the_expected_project() {
         "ifcx-migration-adds-spaces",
         "ifcx-migration-adds-texts",
         "ifcx-migration-nests-tool-parameters",
+        "ifcx-migration-adds-profiles",
     ] {
         assert!(
             steps.iter().any(|s| s.ends_with(&format!("change={change})"))),
@@ -298,7 +302,7 @@ fn step_infos(report: &MigrationReport) -> Vec<String> {
 /// declarations of the current golden file of its sample, the two-storey
 /// shell. (The file holds an earlier edition of that sample, with other
 /// identities and without predefined types or snap flags, so the equality
-/// with the golden file is checked on the format 3 file below.)
+/// with the golden file is checked on the format 4 file below.)
 #[test]
 fn format_v1_files_migrate_with_a_report() {
     let loaded = archicraft_ifcx::load(&format_1()).unwrap();
@@ -333,16 +337,16 @@ fn format_v1_files_migrate_with_a_report() {
 }
 
 /// IFX-062: the frozen file of the format before this release's, the
-/// annotations sample at format 3, loads into the project the current
+/// walls-and-slab sample at format 4, loads into the project the current
 /// golden file of that sample holds, with a report of the one step to
-/// [`FORMAT_VERSION`] that keeps the tools' parameters apart, its one info
-/// problem and nothing else; saved with the golden file's header options, it
-/// is the golden file byte for byte.
+/// [`FORMAT_VERSION`] that adds profiles, its one info problem and nothing
+/// else; saved with the golden file's header options, it is the golden file
+/// byte for byte.
 #[test]
 fn the_previous_format_migrates_to_the_golden_file() {
-    let bytes = std::fs::read(formats_dir().join("format-3.ifcx")).unwrap();
+    let bytes = std::fs::read(formats_dir().join("format-4.ifcx")).unwrap();
     let loaded = archicraft_ifcx::load(&bytes).unwrap();
-    let golden_bytes = golden("annotations");
+    let golden_bytes = golden("walls-and-slab");
     let current = archicraft_ifcx::load(&golden_bytes).unwrap();
     assert!(current.problems.is_empty(), "{:#?}", current.problems);
     assert_eq!(current.migrated, None);
@@ -350,9 +354,9 @@ fn the_previous_format_migrates_to_the_golden_file() {
     assert_eq!(
         loaded.migrated,
         Some(MigrationReport {
-            from: 3,
+            from: 4,
             to: FORMAT_VERSION,
-            steps: vec!["ifcx-migration-nests-tool-parameters"],
+            steps: vec!["ifcx-migration-adds-profiles"],
         })
     );
     let infos: Vec<String> = loaded.problems.iter().map(|p| p.message.to_string()).collect();
@@ -398,6 +402,65 @@ fn format_4_loads_its_tool_parameters() {
     let mut names: Vec<&str> = project.elements.values().map(|e| e.name.as_str()).collect();
     names.sort_unstable();
     assert_eq!(names, ["SL-001", "W-001", "W-002", "W-003", "W-004"]);
+    assert!(project.integrity_problems().is_empty());
+}
+
+/// IFX-091, IFX-062, PRF-004, PRF-005: a file written at format 5 loads
+/// into the project it holds with no problem but the reports of later
+/// migration steps: its profiles in list order, one of each parametric
+/// shape at 1.1 times the shape's typical dimensions, the I shape with its
+/// origin off the centre and the Z shape with its usage flags, the custom
+/// profile's two regions with their materials and hole, and the catalogue
+/// profile's designation.
+#[test]
+fn format_5_loads_its_profiles() {
+    use archicraft_model::{ParametricShape, ProfileShape, ProfileUsage};
+
+    let bytes = std::fs::read(formats_dir().join("format-5.ifcx")).unwrap();
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    assert!(
+        loaded.problems.iter().all(|p| p.severity == Severity::Info),
+        "{:#?}",
+        loaded.problems
+    );
+    let project = &loaded.project;
+    let names: Vec<&str> = project.profiles.iter().map(|p| p.name.as_str()).collect();
+    let mut expected: Vec<String> = ParametricShape::ALL
+        .iter()
+        .map(|s| format!("Parametric {}", s.code()))
+        .collect();
+    expected.extend(["Composite".to_owned(), "IPE 200".to_owned()]);
+    assert_eq!(names, expected);
+    let material = |id| project.material(id).unwrap().name.as_str();
+    for (profile, typical) in project.profiles.iter().zip(ParametricShape::ALL) {
+        let ProfileShape::Parametric { shape, material: m } = &profile.shape else {
+            panic!("{profile:?}");
+        };
+        let scaled: Vec<f64> = typical.dimensions().iter().map(|(_, v)| v * 1.1).collect();
+        let read: Vec<f64> = shape.dimensions().iter().map(|(_, v)| *v).collect();
+        assert_eq!(read, scaled, "{}", profile.name);
+        assert_eq!(material(*m), "Steel");
+    }
+    assert_eq!(project.profiles[4].origin, DVec2::new(0.1 + 0.2, -1.0 / 3.0));
+    assert_eq!(
+        project.profiles[8].usage,
+        ProfileUsage {
+            columns: false,
+            beams: true,
+            walls: true,
+            railings: false
+        }
+    );
+    let ProfileShape::Custom { regions } = &project.profiles[9].shape else {
+        panic!("{:?}", project.profiles[9]);
+    };
+    let regions: Vec<(&str, usize, usize)> = regions
+        .iter()
+        .map(|r| (material(r.material), r.outer.len(), r.holes.len()))
+        .collect();
+    assert_eq!(regions, [("Reinforced concrete", 4, 1), ("Steel", 4, 0)]);
+    assert_eq!(project.profiles[10].catalogue.as_deref(), Some("IPE 200"));
+    assert!(project.profiles[..10].iter().all(|p| p.catalogue.is_none()));
     assert!(project.integrity_problems().is_empty());
 }
 

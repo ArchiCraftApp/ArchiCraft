@@ -339,11 +339,8 @@ pub struct Project {
     pub layers: Vec<Layer>,
     pub materials: Vec<Material>,
     /// The profiles columns and beams use, in list order (SRS 3.4,
-    /// PRF-004). Not stored in IFCX yet: archicraft-jrtb adds them to
-    /// `archicraft::project`. Until then nothing creates a profile in a
-    /// saved project, and an empty list is left out of the serde form, so
-    /// that the form keeps matching what a file stores.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// PRF-004), stored as `profiles` of `archicraft::project` (PRJ-007).
+    #[serde(default)]
     pub profiles: Vec<Profile>,
     /// The text styles the project's texts refer to, in list order
     /// (ANN-007); valid together by [`crate::text::check_text_styles`]. A

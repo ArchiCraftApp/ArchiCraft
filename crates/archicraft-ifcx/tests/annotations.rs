@@ -539,17 +539,17 @@ fn annotation_entries_are_read_after_every_element_node() {
 }
 
 /// IFX-062: storing notes as entries is no change of the ArchiCraft format:
-/// the format version is the one of the release kinds, 4 since the tools'
-/// parameters are kept apart in their slots, and texts (format 3) were the
-/// first release kind whose elements are entries (the golden files and the
-/// conformance run pin the release content).
+/// the format version is the one of the release kinds, 5 since profiles
+/// are stored (format 4 kept the tools' parameters apart), and texts
+/// (format 3) were the first release kind whose elements are entries (the
+/// golden files and the conformance run pin the release content).
 #[test]
 fn notes_as_entries_keep_the_format_version() {
-    assert_eq!(FORMAT_VERSION, 4);
+    assert_eq!(FORMAT_VERSION, 5);
     let (project, _) = shell_with_notes();
     let file: Value = serde_json::from_slice(&save(&project)).unwrap();
     assert_eq!(
         file["data"][0]["attributes"]["archicraft::project"]["formatVersion"],
-        "4"
+        "5"
     );
 }

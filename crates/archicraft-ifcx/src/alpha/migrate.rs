@@ -70,6 +70,11 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         description: "ifcx-migration-nests-tool-parameters",
         apply: nests_tool_parameters,
     },
+    Migration {
+        from: 4,
+        description: "ifcx-migration-adds-profiles",
+        apply: adds_profiles,
+    },
 ];
 
 /// What the reader's migration did (IFX-062): the format the file was
@@ -139,6 +144,14 @@ fn nests_tool_parameters(file: &mut IfcxFile, _: &mut Vec<Problem>) {
         }
     }
 }
+
+/// Format 5 stores the project's profiles as `profiles` of
+/// `archicraft::project` (PRF-004), and the column and beam kinds that use
+/// them join it. A format 4 file has neither, and the reader reads a project
+/// without a `profiles` member as one without profiles, so nothing changes:
+/// the step exists so that a reader of format 4 flags the files of format 5
+/// as newer (IFX-062) instead of dropping their profiles.
+fn adds_profiles(_: &mut IfcxFile, _: &mut Vec<Problem>) {}
 
 /// The format version of the file and the path of its project node: the last
 /// entry with `archicraft::project` wins, as when the file is composed. Of
@@ -877,6 +890,19 @@ mod tests {
         let mut file = original.clone();
         (step(3).apply)(&mut file, &mut problems);
         assert_eq!(file, original);
+    }
+
+    /// IFX-062, PRF-004: the profiles step changes nothing of a minimal
+    /// file: a project of format 4 has no profiles, and the reader reads a
+    /// missing `profiles` member as none.
+    #[test]
+    fn the_profiles_step_changes_nothing_of_a_minimal_file() {
+        let original = minimal(4, serde_json::json!({"toolDefaults": {}, "counters": {"wall": 0}}));
+        let mut file = original.clone();
+        let mut problems = Vec::new();
+        (step(4).apply)(&mut file, &mut problems);
+        assert_eq!(file, original);
+        assert!(problems.is_empty(), "{problems:#?}");
     }
 
     /// IFX-062: the tool defaults of a file written at format 3, migrated,

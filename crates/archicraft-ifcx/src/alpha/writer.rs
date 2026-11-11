@@ -25,8 +25,8 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use super::kinds::{self, CODECS, annotations};
-use super::relations;
 use super::schema::{self, FORMAT_VERSION};
+use super::{profiles, relations};
 use crate::container::{Header, IfcxFile, Import, Node};
 use crate::json::{self, round_coordinate};
 use crate::message::Message;
@@ -185,8 +185,9 @@ fn group_record(g: &Group) -> Value {
 }
 
 /// `archicraft::project`: settings and every resource, used or not (IFX-060,
-/// IFX-067). `groups` only when the project has groups (ELM-015), so files
-/// of projects without them stay as they were.
+/// IFX-067), the profiles among them, an empty list without any (PRF-004).
+/// `groups` only when the project has groups (ELM-015), so files of
+/// projects without them stay as they were.
 fn project_attribute(p: &Project, warnings: &mut Vec<Problem>) -> Value {
     let units = &p.settings.units;
     let grid = &p.settings.plan_grid;
@@ -227,6 +228,7 @@ fn project_attribute(p: &Project, warnings: &mut Vec<Problem>) -> Value {
         "groundStorey": p.storeys.ground().to_string(),
         "layers": p.layers.iter().map(layer_record).collect::<Vec<_>>(),
         "materials": p.materials.iter().map(material_record).collect::<Vec<_>>(),
+        "profiles": profiles::write(&p.profiles),
         "textStyles": p.text_styles.iter().map(text_style_record).collect::<Vec<_>>(),
         "toolDefaults": tool_defaults(p, warnings),
         "views": p.views.iter().map(|v| json!({

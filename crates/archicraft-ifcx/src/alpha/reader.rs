@@ -22,22 +22,28 @@
 //! `planGrid` (files from before INP-013), the `snapExcluded` flag of
 //! elements and layers, written only when set (INP-017), and the project's
 //! `groups`, a group's `parent`, an element's `group` and the `group`
-//! counter, written only for projects with groups (ELM-015), an element
-//! node's `archicraft::relations`, written only for an element with
-//! explicit relations (SRS 3.3, [`super::relations`]), an element's `name`
-//! in `archicraft::element`, written only when its node shows another name
-//! (a space's room name, SPC-001), a text's and the text tool's `sizeMm`,
-//! written only for a size override (ANN-007), and a storey node's
-//! `archicraft::annotations`, written only for a storey with elements of the
-//! kinds that are not IFCX nodes (ANN-010, [`super::kinds::annotations`]),
-//! whose entries leave out the same optional members as an element node.
-//! Their absence is no problem.
+//! counter, written only for projects with groups (ELM-015), the project's
+//! `profiles`, which files of format 4 and earlier do not have, and a
+//! profile's `catalogue`, written only for a catalogue profile (PRF-004,
+//! [`super::profiles`]), an element node's `archicraft::relations`, written
+//! only for an element with explicit relations (SRS 3.3,
+//! [`super::relations`]), an element's `name` in `archicraft::element`,
+//! written only when its node shows another name (a space's room name,
+//! SPC-001), a text's and the text tool's `sizeMm`, written only for a size
+//! override (ANN-007), and a storey node's `archicraft::annotations`,
+//! written only for a storey with elements of the kinds that are not IFCX
+//! nodes (ANN-010, [`super::kinds::annotations`]), whose entries leave out
+//! the same optional members as an element node. Their absence is no
+//! problem.
 //!
-//! The element nodes are read first, storey by storey, then the nodes'
-//! explicit relations, then the annotation entries, which may need both
-//! (a dimension's binding), and last the relations that name an entry.
-//! Then the project builds its derived relation index once (SRS 3.3,
-//! STR-006), which the edits keep up to date from then on.
+//! The profiles are read first, once the project has its materials, then
+//! the tool defaults, so that a defaults slot can name a profile as an
+//! element can (PRF-004). Then the element nodes are read, storey by
+//! storey, then the nodes' explicit relations, then the annotation
+//! entries, which may need both (a dimension's binding), and last the
+//! relations that name an entry. Then the project builds its derived
+//! relation index once (SRS 3.3, STR-006), which the edits keep up to date
+//! from then on.
 //!
 //! An opened file holds its attribute values as raw JSON text
 //! ([`crate::validate::parse_raw`]); the reader parses the attributes it
@@ -76,9 +82,9 @@ use uuid::Uuid;
 
 use super::kinds::{self, Codec, ReadContext, annotations};
 use super::migrate::{self, Migration, MigrationReport};
-use super::relations;
 use super::schema::{self, FORMAT_VERSION};
 use super::writer::IFCX_VERSION;
+use super::{profiles, relations};
 use crate::container::{AttributeValue, IfcxFile};
 use crate::message::Message;
 use crate::validate::{self, FlatNode, Problem};
@@ -265,7 +271,7 @@ pub(crate) fn points(value: &Value) -> Result<Vec<DVec2>, Message> {
 }
 
 /// A point in the field `key`, its problem named with the field.
-fn point_field(map: &Object, key: &str) -> Result<DVec2, Message> {
+pub(crate) fn point_field(map: &Object, key: &str) -> Result<DVec2, Message> {
     point(field(map, key)?).map_err(|e| about("ifcx-field-point", key).nested("reason", e))
 }
 
@@ -674,6 +680,8 @@ struct ProjectData {
     views: Vec<View3d>,
     /// The element groups (ELM-015), repaired into a tree.
     groups: IndexMap<GroupId, Group>,
+    /// The profile records (PRF-004), read once the materials are known.
+    profile_records: Vec<Value>,
     /// The `counters` object, read once the elements are known.
     counters: Result<Object, Message>,
     /// The file's `formatVersion`, if it is readable.
@@ -767,6 +775,9 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
     let group_records = report
         .optional(attr, "groups", |m, key| array(m, key).cloned())
         .unwrap_or_default();
+    let profile_records = report
+        .optional(attr, "profiles", |m, key| array(m, key).cloned())
+        .unwrap_or_default();
     let counters = object(attr, "counters").cloned();
 
     let settings = read_settings(
@@ -830,6 +841,7 @@ fn read_project_data(attr: &Object, path: &str, current: u32, problems: &mut Vec
         tool_defaults,
         views,
         groups,
+        profile_records,
         counters,
         format,
         newer_format,
@@ -1460,13 +1472,6 @@ fn read_migrated<A: AttributeValue>(
     // The format the file was written in, which says what it can lack
     // (IFX-062): before its migration, else as it states it.
     let written = migrated.as_ref().map(|m| m.from).or(data.format).unwrap_or(current);
-    let tool_defaults = read_tool_defaults(
-        data.tool_defaults.as_ref(),
-        (&data.materials, &data.layers, &data.text_styles),
-        written,
-        root_path,
-        &mut problems,
-    );
 
     let storey_entries = building
         .map(|(_, b)| read_storeys(&nodes, b, &mut problems))
@@ -1499,7 +1504,7 @@ fn read_migrated<A: AttributeValue>(
         elements: IndexMap::new(),
         groups: data.groups,
         relations: RelationStore::default(),
-        tool_defaults,
+        tool_defaults: ToolDefaults::default(),
         views: data.views,
         counters: NameCounters::default(),
         group_counter: 0,
@@ -1511,6 +1516,16 @@ fn read_migrated<A: AttributeValue>(
         problems.push(Problem::warning(None, Message::new("ifcx-data-version-invalid")));
         0
     });
+    // PRF-004: the profiles, checked against the materials, before the
+    // tool defaults and the elements, which use them.
+    project.profiles = profiles::read(&data.profile_records, &project, root_path, &mut problems);
+    project.tool_defaults = read_tool_defaults(
+        data.tool_defaults.as_ref(),
+        (&project.materials, &project.layers, &project.text_styles),
+        written,
+        root_path,
+        &mut problems,
+    );
 
     let mut seen = HashSet::new();
     // The elements read, in file order, for the relations pass below.

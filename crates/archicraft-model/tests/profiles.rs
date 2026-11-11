@@ -77,8 +77,8 @@ fn projects_with_and_without_profiles_deserialise() {
     let read: Project = serde_json::from_value(without).unwrap();
     assert!(read.profiles.is_empty());
 
-    // An empty list is left out, so the form matches what a file stores
-    // until profiles are persisted (archicraft-jrtb).
+    // An empty list is part of the form, as every file stores `profiles`
+    // (IFX-060).
     let empty = serde_json::to_value(default_metric_project()).unwrap();
-    assert!(empty.get("profiles").is_none());
+    assert_eq!(empty["profiles"], serde_json::json!([]));
 }

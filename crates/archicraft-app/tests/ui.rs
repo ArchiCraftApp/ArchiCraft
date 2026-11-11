@@ -2971,8 +2971,9 @@ fn a_migrated_file_opens_with_the_migration_in_the_load_report() {
         "The file was written in ArchiCraft format 1 by an earlier version and was converted to format {current}. \
          Saving stores it in format {current}."
     ));
+    harness.get_by_label_contains("migrated from format 3 to format 4: keeps each tool's parameters apart");
     harness.get_by_label_contains(&format!(
-        "migrated from format {} to format {current}: keeps each tool's parameters apart",
+        "migrated from format {} to format {current}: adds profiles, columns and beams",
         current - 1
     ));
     harness.get_by_label("OK").click();

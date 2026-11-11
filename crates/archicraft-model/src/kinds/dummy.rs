@@ -45,10 +45,9 @@ pub struct Dummy {
     /// Places the element under the site instead of a storey (Table 5-1).
     pub site_level: bool,
     /// A profile the element uses as a column uses its cross-section, to
-    /// exercise the profile commands and the change log (PRF-004). Not
-    /// stored in IFCX, and left out of the serde form while `None`, so the
-    /// codec's field table does not see it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// exercise the profile commands, the change log and the reference to a
+    /// stored profile (PRF-004).
+    #[serde(default)]
     pub profile: Option<ProfileId>,
 }
 

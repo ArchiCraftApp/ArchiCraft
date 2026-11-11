@@ -329,6 +329,187 @@ expression: review_view(&bytes)
                 }
               }
             },
+            "profiles": {
+              "dataType": "Array",
+              "arrayRestrictions": {
+                "value": {
+                  "dataType": "Object",
+                  "objectRestrictions": {
+                    "values": {
+                      "id": {
+                        "dataType": "String"
+                      },
+                      "name": {
+                        "dataType": "String"
+                      },
+                      "origin": {
+                        "dataType": "Array",
+                        "arrayRestrictions": {
+                          "value": {
+                            "dataType": "Real",
+                            "quantityKind": "Length"
+                          }
+                        }
+                      },
+                      "usage": {
+                        "dataType": "Object",
+                        "objectRestrictions": {
+                          "values": {
+                            "columns": {
+                              "dataType": "Boolean"
+                            },
+                            "beams": {
+                              "dataType": "Boolean"
+                            },
+                            "walls": {
+                              "dataType": "Boolean"
+                            },
+                            "railings": {
+                              "dataType": "Boolean"
+                            }
+                          }
+                        }
+                      },
+                      "catalogue": {
+                        "dataType": "String",
+                        "optional": true
+                      },
+                      "shape": {
+                        "dataType": "Object",
+                        "objectRestrictions": {
+                          "values": {
+                            "kind": {
+                              "dataType": "Enum",
+                              "enumRestrictions": {
+                                "options": [
+                                  "rectangle",
+                                  "circle",
+                                  "rectangular_hollow",
+                                  "circular_hollow",
+                                  "i",
+                                  "t",
+                                  "l",
+                                  "u",
+                                  "z",
+                                  "custom"
+                                ]
+                              }
+                            },
+                            "dimensions": {
+                              "dataType": "Object",
+                              "objectRestrictions": {
+                                "values": {
+                                  "width": {
+                                    "dataType": "Real",
+                                    "quantityKind": "Length",
+                                    "optional": true
+                                  },
+                                  "height": {
+                                    "dataType": "Real",
+                                    "quantityKind": "Length",
+                                    "optional": true
+                                  },
+                                  "diameter": {
+                                    "dataType": "Real",
+                                    "quantityKind": "Length",
+                                    "optional": true
+                                  },
+                                  "thickness": {
+                                    "dataType": "Real",
+                                    "quantityKind": "Length",
+                                    "optional": true
+                                  },
+                                  "outerRadius": {
+                                    "dataType": "Real",
+                                    "quantityKind": "Length",
+                                    "optional": true
+                                  },
+                                  "web": {
+                                    "dataType": "Real",
+                                    "quantityKind": "Length",
+                                    "optional": true
+                                  },
+                                  "flange": {
+                                    "dataType": "Real",
+                                    "quantityKind": "Length",
+                                    "optional": true
+                                  },
+                                  "rootRadius": {
+                                    "dataType": "Real",
+                                    "quantityKind": "Length",
+                                    "optional": true
+                                  },
+                                  "toeRadius": {
+                                    "dataType": "Real",
+                                    "quantityKind": "Length",
+                                    "optional": true
+                                  }
+                                }
+                              },
+                              "optional": true
+                            },
+                            "material": {
+                              "dataType": "String",
+                              "optional": true
+                            },
+                            "regions": {
+                              "dataType": "Array",
+                              "arrayRestrictions": {
+                                "value": {
+                                  "dataType": "Object",
+                                  "objectRestrictions": {
+                                    "values": {
+                                      "material": {
+                                        "dataType": "String"
+                                      },
+                                      "outer": {
+                                        "dataType": "Array",
+                                        "arrayRestrictions": {
+                                          "value": {
+                                            "dataType": "Array",
+                                            "arrayRestrictions": {
+                                              "value": {
+                                                "dataType": "Real",
+                                                "quantityKind": "Length"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      },
+                                      "holes": {
+                                        "dataType": "Array",
+                                        "arrayRestrictions": {
+                                          "value": {
+                                            "dataType": "Array",
+                                            "arrayRestrictions": {
+                                              "value": {
+                                                "dataType": "Array",
+                                                "arrayRestrictions": {
+                                                  "value": {
+                                                    "dataType": "Real",
+                                                    "quantityKind": "Length"
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "optional": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "optional": true
+            },
             "textStyles": {
               "dataType": "Array",
               "arrayRestrictions": {
@@ -1363,7 +1544,7 @@ expression: review_view(&bytes)
         },
         "bsi::ifc::prop::Name": "Walls and slab",
         "archicraft::project": {
-          "formatVersion": "4",
+          "formatVersion": "5",
           "info": {
             "number": "",
             "client": "",
@@ -1817,6 +1998,7 @@ expression: review_view(&bytes)
               }
             }
           ],
+          "profiles": [],
           "textStyles": [
             {
               "id": "4959959b-c6ef-54f4-a7a6-93144f276435",

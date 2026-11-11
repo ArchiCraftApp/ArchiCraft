@@ -53,6 +53,7 @@ ifcx-migrated = migrated from format { $from_text } to format { $to_text }: { $c
 ifcx-migration-adds-spaces = adds space elements
 ifcx-migration-adds-texts = adds texts and the template's text styles
 ifcx-migration-nests-tool-parameters = keeps each tool's parameters apart from its layer, position and classification
+ifcx-migration-adds-profiles = adds profiles, columns and beams
 
 ## The load report (PRJ-008): “<record> skipped: <reason>” and
 ## “<record> repaired: <reason>”.
@@ -71,6 +72,9 @@ ifcx-record-layer = layer record { $index_text }
 ifcx-record-view = view record { $index_text }
 ifcx-record-group = group record { $index_text }
 ifcx-record-text-style = text style record { $index_text }
+# A profile record without a readable ID or name, by its place in the list.
+ifcx-record-profile = profile record { $index_text }
+ifcx-record-profile-named = profile { $name }
 ifcx-record-tool-defaults = tool defaults
 ifcx-record-counters = counters
 ifcx-record-site = site
@@ -126,6 +130,11 @@ ifcx-tool-class-not-allowed = { $class } is not an allowed class for the { $kind
 ifcx-group-listed-twice = the project lists a group of the same ID before it
 ifcx-group-parent-missing = its parent group does not exist; it is an outermost group now
 ifcx-group-cycle = its parent groups lead back to it; it is an outermost group now
+ifcx-profile-listed-twice = the project lists a profile of the same ID before it
+ifcx-profile-material-missing = a material of the profile does not exist; “{ $name }” is used
+ifcx-profile-member-unused = its shape has no “{ $key }”; it is left out
+# $index_text counts the regions of a custom profile.
+ifcx-profile-region = region { $index_text }: { $reason }
 ifcx-storey-listed-twice = the building lists it more than once
 ifcx-storey-no-data = it has no ArchiCraft data; elevation { $elevation } and height { $height } are assumed
 ifcx-storey-height-min = “height” is below the minimum; { $min } is used
@@ -143,6 +152,7 @@ ifcx-text-style-missing = the text style does not exist; “{ $name }” is used
 ifcx-text-styles-template-used = { $reason }; the template's text styles are used
 ifcx-text-styles-none = the project has no valid text style
 ifcx-element-group-missing = its group does not exist; it is ungrouped
+ifcx-element-profile-missing = its profile does not exist; it is left out
 ifcx-relation-target-missing = its { $relation } relation to { $text } names no element; it is dropped
 ifcx-relation-listed-twice = its { $relation } relation is listed twice; it is read once
 ifcx-parameters-missing = { $kind } parameters are missing
