@@ -53,6 +53,15 @@ impl VerticalLink {
         }
     }
 
+    /// The number of storeys of a top linked relative to the home storey
+    /// (ELM-006), `None` for another top.
+    pub fn relative_top(&self) -> Option<i32> {
+        match self.top {
+            TopLink::Relative { storeys, .. } => Some(storeys),
+            TopLink::Fixed { .. } | TopLink::Storey { .. } => None,
+        }
+    }
+
     /// Re-expresses the link for a new home storey at `target_elevation`
     /// without moving the element: the base offset is recomputed and the top
     /// becomes a fixed height (STR-004). `None`, leaving the link unchanged,

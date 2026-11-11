@@ -19,10 +19,11 @@
 //! The store also keeps a derived index, so that the dependency queries
 //! ([`RelationStore::relations_of`], [`RelationStore::dependents_of`],
 //! [`RelationStore::neighbours`], [`RelationStore::host_of`],
-//! [`RelationStore::storey_dependents`]) do not scan the project: the
-//! explicit relations of each element and the storey links of each element
-//! and each storey. The index follows from the explicit relations and the
-//! element data alone. It is rebuilt once after a load
+//! [`RelationStore::storey_dependents`], [`RelationStore::moved_by_storeys`])
+//! do not scan the project: the explicit relations of each element, the
+//! storey links of each element and each storey, and the elements whose top
+//! is linked relative to their home storey. The index follows from the
+//! explicit relations and the element data alone. It is rebuilt once after a load
 //! ([`crate::project::Project::rebuild_indexes`]) and kept exact by every
 //! edit: the store's own [`RelationStore::insert`] and
 //! [`RelationStore::remove`], and [`RelationStore::update_element`] for each
@@ -38,6 +39,7 @@ use uuid::Uuid;
 
 use crate::element::Element;
 use crate::ids::{ElementId, RelationId, StoreyId};
+use crate::storey::StoreyList;
 
 /// Namespace of the name-based (version 5) identities of relations.
 pub const RELATION_NAMESPACE: Uuid = Uuid::from_u128(0x3b8e_1f52_7c4a_5d90_8e61_a2f4_0c9d_7b36);
@@ -205,6 +207,12 @@ fn storey_links_of(element: &Element) -> Vec<(StoreyId, StoreyRole)> {
         .collect()
 }
 
+/// The home storey and the number of storeys of `element`'s top if it is
+/// linked relative to the home storey (ELM-006, STR-006).
+fn relative_top_of(element: &Element) -> Option<(StoreyId, i32)> {
+    Some((element.storey, element.kind.relative_top()?))
+}
+
 /// What the store derives from its explicit relations and the elements
 /// (SRS 3.3). Ordered maps, so that two indexes with the same content are
 /// equal and the queries are deterministic; no entry is ever empty, so an
@@ -217,6 +225,12 @@ struct Index {
     links: BTreeMap<ElementId, Vec<(StoreyId, StoreyRole)>>,
     /// The elements with a storey link to each storey.
     linked: BTreeMap<StoreyId, BTreeSet<ElementId>>,
+    /// The home storey and the number of storeys of each element whose top
+    /// is linked relative to its home storey.
+    relative_of: BTreeMap<ElementId, (StoreyId, i32)>,
+    /// The elements whose top is linked relative to their home storey, by
+    /// home storey and number of storeys.
+    relative: BTreeMap<StoreyId, BTreeMap<i32, BTreeSet<ElementId>>>,
 }
 
 impl Index {
@@ -238,6 +252,45 @@ impl Index {
                     }
                 }
             }
+        }
+    }
+
+    /// Replaces what the index holds of the element `element`: its storey
+    /// links by `links` and its relative top by `relative`.
+    fn set_element(
+        &mut self,
+        element: ElementId,
+        links: Vec<(StoreyId, StoreyRole)>,
+        relative: Option<(StoreyId, i32)>,
+    ) {
+        self.set_relative(element, relative);
+        self.set_links(element, links);
+    }
+
+    /// Replaces the relative top of `element` (home storey and number of
+    /// storeys) by `relative`.
+    fn set_relative(&mut self, element: ElementId, relative: Option<(StoreyId, i32)>) {
+        if let Some((home, n)) = self.relative_of.remove(&element)
+            && let Some(by_n) = self.relative.get_mut(&home)
+        {
+            if let Some(elements) = by_n.get_mut(&n) {
+                elements.remove(&element);
+                if elements.is_empty() {
+                    by_n.remove(&n);
+                }
+            }
+            if by_n.is_empty() {
+                self.relative.remove(&home);
+            }
+        }
+        if let Some((home, n)) = relative {
+            self.relative
+                .entry(home)
+                .or_default()
+                .entry(n)
+                .or_default()
+                .insert(element);
+            self.relative_of.insert(element, (home, n));
         }
     }
 
@@ -426,21 +479,69 @@ impl RelationStore {
     /// elevation it reaches changes the home storey's elevation or height
     /// (the top storey's height being the nominal one the extrapolation
     /// repeats). A link further away also moves with the storeys between,
-    /// which a caller looking for everything a storey edit moves adds.
+    /// while its home storey stays: [`Self::moved_by_storeys`] finds
+    /// everything a storey edit moves.
     pub fn storey_dependents(&self, storey: StoreyId) -> BTreeSet<ElementId> {
         self.index.linked.get(&storey).cloned().unwrap_or_default()
     }
 
-    /// Replaces the derived storey links of the element `id` by those of
-    /// `element`, its new version, or drops them when the element is gone
-    /// (`None`) (STR-006). Every edit that inserts, removes or replaces an
+    /// The elements whose vertical extent can differ between the storey
+    /// lists `before` and `after` (STR-006, ELM-005, ELM-006): what a
+    /// storey edit, its undo or its redo moves, for checking the edit
+    /// against the elements or evaluating them again. They are the storey
+    /// dependents ([`Self::storey_dependents`]) of every storey whose
+    /// elevation differs or that is in one list only, which holds every
+    /// element whose base moves and every top linked to a storey by its
+    /// identity, and the elements whose top is linked relative to their
+    /// home storey where the elevation that link reaches differs
+    /// ([`StoreyList::relative_elevation`], extrapolated past the top and
+    /// the bottom storey): a link to a storey further than the next moves
+    /// with the storeys between and with a change of the storey order,
+    /// while the home storey can stay. A height alone moves nothing but the
+    /// extrapolation past the top storey, which the second part compares.
+    ///
+    /// The elevations are compared exactly, so the result holds every
+    /// element whose extent changes at all, and an element whose extent
+    /// stays only if it is homed on or linked to a storey that moves and its
+    /// other end moves alike. Either index, from before or after the edit,
+    /// gives every element that is in the project before and after it, as a
+    /// storey edit changes the links only of elements it keeps in place
+    /// ([`crate::command::Command::DeleteStorey`]). The cost is the storeys
+    /// of both lists and the distinct pairs of home storey and number of
+    /// storeys of the relative links, not the elements.
+    pub fn moved_by_storeys(&self, before: &StoreyList, after: &StoreyList) -> BTreeSet<ElementId> {
+        let elevation = |list: &StoreyList, id: StoreyId| list.get(id).map(|s| s.elevation);
+        let mut moved = BTreeSet::new();
+        for id in before.iter().chain(after.iter()).map(|s| s.id) {
+            if elevation(before, id) != elevation(after, id)
+                && let Some(elements) = self.index.linked.get(&id)
+            {
+                moved.extend(elements);
+            }
+        }
+        for (&home, by_n) in &self.index.relative {
+            for (&n, elements) in by_n {
+                if before.relative_elevation(home, n) != after.relative_elevation(home, n) {
+                    moved.extend(elements);
+                }
+            }
+        }
+        moved
+    }
+
+    /// Replaces the derived storey links and the relative top of the
+    /// element `id` by those of `element`, its new version, or drops them
+    /// when the element is gone (`None`) (STR-006). Every edit that inserts, removes or replaces an
     /// element calls it ([`crate::command::Edit::apply`]), so the index stays
     /// exact through undo and redo at the cost of the elements an edit
     /// touches.
     pub fn update_element(&mut self, id: ElementId, element: Option<&Element>) {
         debug_assert!(element.is_none_or(|e| e.id == id), "the element's own id");
-        self.index
-            .set_links(id, element.map(storey_links_of).unwrap_or_default());
+        self.index.set_element(
+            id,
+            element.map(storey_links_of).unwrap_or_default(),
+            element.and_then(relative_top_of),
+        );
     }
 
     /// Builds the index from scratch, from the explicit relations and
@@ -452,7 +553,7 @@ impl RelationStore {
             index.add_relation(*id, relation);
         }
         for element in elements {
-            index.set_links(element.id, storey_links_of(element));
+            index.set_element(element.id, storey_links_of(element), relative_top_of(element));
         }
         self.index = index;
         #[cfg(debug_assertions)]
