@@ -1,6 +1,6 @@
 //! Body-less elements bound to a drafting view (ANN-002), through the
-//! body-less test kind, which stands in for texts, 2D drafting elements,
-//! markers and dimensions: the view's serde form, the binding to the home
+//! body-less test kind, which stands in for 2D drafting elements, markers
+//! and dimensions: the view's serde form, the binding to the home
 //! storey's plan, the rebinding when the element moves to another storey
 //! and the flat vertical extent.
 

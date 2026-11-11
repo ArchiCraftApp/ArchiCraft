@@ -134,7 +134,7 @@ fn elm_011_class_sets_match_the_srs() {
         // The test kind stands in for free-form solids and objects.
         assert_eq!(KindTag::Dummy.ifc_classes(), IfcClass::SELECTABLE_D5);
         assert_eq!(KindTag::Dummy.descriptor().default_class, BuildingElementProxy);
-        // The body-less test kind stands in for texts and dimensions.
+        // The body-less test kind stands in for markers and dimensions.
         assert_eq!(KindTag::Note.ifc_classes(), IfcClass::ANNOTATION_CLASSES);
         assert_eq!(KindTag::Note.descriptor().default_class, Annotation);
     }
