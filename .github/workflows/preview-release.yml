@@ -10,6 +10,9 @@ name: Preview release
 # packaging/macos/AppIcon.icon. The commit must have passed CI unless allow_untested is set. Start
 # it with /preview-release (.claude/skills/preview-release) or by hand:
 # gh workflow run preview-release.yml --ref main -f notes="What to try"
+# To try a change to this workflow, run it on the change's branch with -f publish=false: it builds
+# the four packages as artifacts of the run and publishes nothing (no tag, no release), whatever
+# the commit's CI says.
 on:
   workflow_dispatch:
     inputs:
@@ -21,13 +24,18 @@ on:
         description: Publish even though CI has not passed on the commit
         type: boolean
         default: false
+      publish:
+        description: Publish the pre-release (off only builds the packages, to try a change to this workflow)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
-# One preview at a time; a second one waits instead of cancelling the first.
+# One preview at a time; a second one waits instead of cancelling the first. A run that publishes
+# nothing has a group per branch, so it neither holds up a preview nor cancels one waiting.
 concurrency:
-  group: preview-release
+  group: preview-release${{ !inputs.publish && format('-try-{0}', github.ref) || '' }}
   cancel-in-progress: false
 
 env:
@@ -52,18 +60,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ALLOW_UNTESTED: ${{ inputs.allow_untested }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
           sha="$(git rev-parse HEAD)"
           version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
           id="$version-$(date -u +%Y%m%d)-${sha:0:7}"
           tag="preview-$id"
-          if gh release view "$tag" >/dev/null 2>&1; then
+          # A run that publishes nothing needs neither a free tag nor a passed CI run.
+          if [ "$PUBLISH" = true ] && gh release view "$tag" >/dev/null 2>&1; then
             echo "::error::Release $tag exists already: this commit has a preview from today."
             exit 1
           fi
           ci="$(gh run list --workflow ci.yml --commit "$sha" --limit 1 --json status,conclusion \
             --jq '.[0] | "\(.status) \(.conclusion)"')"
-          if [ "$ci" != "completed success" ]; then
+          if [ "$PUBLISH" = true ] && [ "$ci" != "completed success" ]; then
             if [ "$ALLOW_UNTESTED" = true ]; then
               echo "::warning::CI has not passed on $sha (${ci:-no run}); publishing anyway (allow_untested)."
             else
@@ -73,13 +83,19 @@ jobs:
           fi
           echo "id=$id" >>"$GITHUB_OUTPUT"
           echo "tag=$tag" >>"$GITHUB_OUTPUT"
-          echo "Preview $tag of $sha" >>"$GITHUB_STEP_SUMMARY"
+          if [ "$PUBLISH" = true ]; then
+            echo "Preview $tag of $sha" >>"$GITHUB_STEP_SUMMARY"
+          else
+            echo "Packages of $sha named for $tag, not published (publish is off)" >>"$GITHUB_STEP_SUMMARY"
+          fi
 
   package:
     name: Package (${{ matrix.name }})
     needs: prepare
     strategy:
-      fail-fast: true
+      # Each leg on its own: one that fails on an outage or never gets a runner leaves the others
+      # to finish, and re-running the failed jobs rebuilds only those.
+      fail-fast: false
       matrix:
         include:
           # NFR-PORT-002: Apple silicon only.
@@ -122,13 +138,13 @@ jobs:
       - name: Install Pillow for the Windows icon
         if: runner.os == 'Windows'
         run: python -m pip install --disable-pip-version-check pillow==11.3.0
-      # elfutils has eu-strip, which flatpak-builder only recommends but runs on the binary.
+      # elfutils has eu-strip, which flatpak-builder only recommends but runs on the binary. When
+      # the runner's Ubuntu mirrors fail or stall, the script falls back to an Ubuntu mirror
+      # outside Canonical's DNS within about 4 minutes; its limits end all downloads within 15.
       - name: Install flatpak-builder and Pillow for the Flatpak bundle
         if: matrix.script == 'scripts/package-flatpak.sh'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            flatpak flatpak-builder elfutils python3-pil
+        timeout-minutes: 20
+        run: scripts/ci-apt-install.sh flatpak flatpak-builder elfutils python3-pil
       - name: Build and package
         env:
           SCRIPT: ${{ matrix.script }}
@@ -149,6 +165,8 @@ jobs:
   release:
     name: Publish the pre-release
     needs: [prepare, package]
+    # With publish off the packages stay artifacts of the run.
+    if: inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

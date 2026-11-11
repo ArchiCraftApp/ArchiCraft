@@ -54,9 +54,33 @@ on its own.
      in a few lines. A failure in `Name and CI status` is usually a preview of the same commit
      from today or a CI run that did not pass; one in `Package (…)` is a build or packaging
      error of that package (`scripts/package-macos.sh`, `scripts/package-linux.sh`,
-     `scripts/package-flatpak.sh`, `scripts/package-windows.sh`). `Package (Linux Flatpak)`
-     also fails when Flathub, where it fetches the freedesktop runtime and SDK, is
-     unreachable. Propose the fix; do not retry blindly.
+     `scripts/package-flatpak.sh`, `scripts/package-windows.sh`). Propose the fix; do not
+     retry blindly. Two kinds of failure are outages, not errors:
+     - A leg cancelled with the annotation "The job was not acquired by Runner of type hosted
+       even after multiple attempts" got no runner. It is mostly `Package (macOS)`: GitHub's
+       macOS arm64 runners run short at times.
+     - `Package (Linux Flatpak)` failing in its install step although
+       `scripts/ci-apt-install.sh` fell back to its mirror outside Canonical's DNS (the log
+       shows "Temporary failure resolving" or time-outs on both), or in its build when Flathub,
+       where it fetches the freedesktop runtime and SDK, is unreachable. Check
+       https://status.canonical.com and the open issues of `actions/runner-images`.
+
+     For either, tell the user what was down, and once it is back re-run the failed jobs with
+     `gh run rerun <id> --failed`: the legs run independently, so the packages already built
+     stay in the run, and the publish job runs again with the re-run legs.
+
+## Trying a change to the workflow
+
+A real run publishes a pre-release, so a change to the workflow or the packaging scripts is
+tried with `publish` off before a preview needs it:
+
+```bash
+gh workflow run preview-release.yml --ref <branch> -f publish=false
+```
+
+That run uses the branch's copy of the workflow and builds the four packages as artifacts of
+the run, with no tag, no release and no check of the commit's CI. Its concurrency group is
+per branch, so it neither holds up a preview nor cancels one waiting.
 
 ## Cleaning up
 

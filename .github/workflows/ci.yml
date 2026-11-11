@@ -246,6 +246,10 @@ jobs:
         run: scripts/check-legal.sh
       - name: Negative self-test of the guards
         run: scripts/guards-selftest.sh
+      # Guards no requirement: the preview release installs the Flatpak leg's tools with it, and
+      # its fallback runs only during an outage of the Ubuntu mirrors.
+      - name: Tests of the apt fallback of the preview release (scripts/ci-apt-install.sh)
+        run: python3 scripts/tests/test_ci_apt_install.py
 
   # docs/testing.md, "Implementation status": docs/status/requirements.json is the only tracked
   # copy of the status (the tables are rendered on demand), every done row names a test or CI
