@@ -372,3 +372,22 @@ fn updating_a_profile_changes_the_columns_that_use_it() {
     let undone = ModelGeometry::evaluate_incremental(&p, &updated);
     assert!(relative(undone.get(element.id).unwrap().volume(), body.volume()) < 1e-12);
 }
+
+/// COL-001: the cross-section area the properties show is that of the
+/// section the body is swept from: 0.09 m² for the D.2 square, so the body
+/// is the area times the 3 m height; a circle's is its inscribed polygon's,
+/// as in the body; an element that is no column has none.
+#[test]
+fn the_section_area_is_the_swept_sections() {
+    use archicraft_geometry::kinds::column::section_area;
+    let (p, element, body) = column_on(0, DVec2::ZERO, |_| {});
+    let area = section_area(&p, &element).unwrap();
+    assert!(relative(area, 0.09) < 1e-12, "{area}");
+    assert!(relative(body.volume(), area * 3.0) < 1e-12);
+    let (p, element, body) = column_on(0, DVec2::ZERO, |c| c.section = CrossSection::Circular { diameter: 0.4 });
+    let area = section_area(&p, &element).unwrap();
+    assert!(area < PI * 0.04 && relative(area, PI * 0.04) < 0.01, "{area}");
+    assert!(relative(body.volume(), area * 3.0) < 1e-9);
+    let wall = p.new_wall(p.storeys.ground(), DVec2::ZERO, DVec2::X, 0);
+    assert_eq!(section_area(&p, &wall), None);
+}

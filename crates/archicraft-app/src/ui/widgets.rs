@@ -397,6 +397,55 @@ pub fn choice_response<T: Clone + PartialEq>(
     (response, picked.filter(|p| current != Some(p)))
 }
 
+/// The anchor grid (COL-001): the first nine `options`, the points of a
+/// section's bounding box row by row from the top left, as a 3 × 3 grid of
+/// small toggle buttons, then the others, such as 'Profile origin', as
+/// toggle buttons with their label. Each button's tooltip and accessible
+/// name is its option's label; `current` is `None` for a mixed value, which
+/// checks none. Returns the option picked, if it differs from `current`.
+/// The grid is the one beams will use (BEA-001).
+pub fn anchor_grid<T: Clone + PartialEq>(
+    ui: &mut Ui,
+    id: Id,
+    current: Option<&T>,
+    options: &[(T, String)],
+) -> Option<T> {
+    let mut picked = None;
+    let mut toggle = |ui: &mut Ui, (value, label): &(T, String), text: &str| {
+        let selected = current == Some(value);
+        let response = ui
+            .add(
+                egui::Button::selectable(selected, text)
+                    .small()
+                    .min_size(egui::vec2(12.0, 12.0)),
+            )
+            .on_hover_text(label);
+        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, label));
+        if response.clicked() && !selected {
+            picked = Some(value.clone());
+        }
+    };
+    let (points, others) = options.split_at(options.len().min(9));
+    ui.horizontal(|ui| {
+        egui::Grid::new(id)
+            .spacing([1.0, 1.0])
+            .min_col_width(0.0)
+            .min_row_height(0.0)
+            .show(ui, |ui| {
+                for (n, option) in points.iter().enumerate() {
+                    toggle(ui, option, "");
+                    if n % 3 == 2 {
+                        ui.end_row();
+                    }
+                }
+            });
+        for option in others {
+            toggle(ui, option, &option.1);
+        }
+    });
+    picked
+}
+
 /// The common value of all items, or `None` if they differ or there are
 /// none.
 pub fn common<T: PartialEq>(mut values: impl Iterator<Item = T>) -> Option<T> {

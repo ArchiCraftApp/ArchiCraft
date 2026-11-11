@@ -34,11 +34,14 @@
 //! - kind-specific keys, such as `reference_line` and `reference_offset`
 //!   (walls), `slab_reference` and `elevation_offset` (slabs), `long_name`
 //!   and `number` (spaces), `content`, `text_style`, `size`,
-//!   `anchor_position` and `angle` (texts), `x` and `y` (notes). A stair's
-//!   rule set joins as one composite field, `rules`.
+//!   `anchor_position` and `angle` (texts), `x` and `y` (notes),
+//!   `section_kind`, `width`, `depth`, `diameter`, `profile`, `anchor`,
+//!   `rotation`, `top_cut`, `top_cut_angle`, `bottom_cut` and
+//!   `bottom_cut_angle` (columns, which beams will share). A stair's rule
+//!   set joins as one composite field, `rules`.
 
 use crate::element::{Element, IfcClass, Position, PredefinedType, StructuralFunction};
-use crate::ids::{LayerId, MaterialId, StoreyId, TextStyleId};
+use crate::ids::{LayerId, MaterialId, ProfileId, StoreyId, TextStyleId};
 use crate::message::Message;
 use crate::project::Project;
 
@@ -81,6 +84,25 @@ pub enum FieldType {
     /// A size in paper millimetres, or none for the style's size
     /// ([`FieldValue::OptionalSize`], ANN-007).
     OptionalSize,
+    /// One of the anchor points [`FieldSpec::options`] lists, as a
+    /// [`FieldValue::Code`]: the nine points of a cross-section's bounding
+    /// box first, row by row from the top left
+    /// ([`crate::kinds::Anchor::ALL`]), then further points such as a
+    /// profile's origin (COL-001). Drawn as a 3 × 3 grid.
+    Anchor,
+    /// A read-only remark in place of a value, such as a profile column's
+    /// "Materials from profile": the value is the [`FieldValue::Code`] of
+    /// the model message key shown. Its setter does nothing and settings
+    /// transfer never copies it.
+    Remark,
+}
+
+impl FieldType {
+    /// Whether the field's values are the options [`FieldSpec::options`]
+    /// lists: a choice or an anchor.
+    pub fn has_options(self) -> bool {
+        matches!(self, FieldType::Choice | FieldType::Anchor)
+    }
 }
 
 /// A field's value. Lengths are metres and angles radians (CLAUDE.md).
@@ -97,6 +119,7 @@ pub enum FieldValue {
     Layer(LayerId),
     Material(MaterialId),
     TextStyle(TextStyleId),
+    Profile(ProfileId),
     Text(String),
     OptionalSize(Option<f64>),
 }
@@ -167,7 +190,8 @@ pub struct FieldSpec {
     pub transfer: Transfer,
     pub get: Getter,
     pub set: Setter,
-    /// The options of a [`FieldType::Choice`] field; `None` for others.
+    /// The options of a [`FieldType::Choice`] or [`FieldType::Anchor`]
+    /// field; `None` for others.
     pub options: Option<Options>,
 }
 
@@ -210,6 +234,28 @@ impl FieldSpec {
             options: Some(options),
             ..Self::new(key, label, section, FieldType::Choice, get, set)
         }
+    }
+
+    /// A [`FieldType::Anchor`] field over `options`, the nine points of a
+    /// section's box first.
+    pub const fn anchor(
+        key: &'static str,
+        label: &'static str,
+        section: Section,
+        get: Getter,
+        set: Setter,
+        options: Options,
+    ) -> Self {
+        Self {
+            field_type: FieldType::Anchor,
+            ..Self::choice(key, label, section, get, set, options)
+        }
+    }
+
+    /// A [`FieldType::Remark`] that `get` shows or hides; settings transfer
+    /// never copies it.
+    pub const fn remark(key: &'static str, label: &'static str, section: Section, get: Getter) -> Self {
+        Self::new(key, label, section, FieldType::Remark, get, |_, _, _| {}).not_transferred()
     }
 
     /// The field with the range `min..=max`, whose violations the validator
@@ -286,14 +332,20 @@ pub fn fields_of(element: &Element) -> impl Iterator<Item = &'static FieldSpec> 
 pub const NO_PREDEFINED_TYPE: &str = "none";
 
 /// The fields of the element envelope, which every kind has: material (for
-/// kinds built of one), layer, IFC class (ELM-011), predefined type
+/// kinds built of one, replaced by a remark where a profile brings the
+/// materials, PRF-004), layer, IFC class (ELM-011), predefined type
 /// (IFX-024), position (ELM-012) and structural function (ELM-020).
 pub static COMMON_FIELDS: &[FieldSpec] = &[
     FieldSpec::choice(
         "material",
         "model-field-material",
         Section::ModelAppearance,
-        |e, _| e.kind.material().map(FieldValue::Material),
+        |e, _| {
+            e.kind
+                .material()
+                .filter(|_| !e.kind.material_from_profile())
+                .map(FieldValue::Material)
+        },
         |e, v, _| {
             if let FieldValue::Material(m) = v {
                 e.kind.set_material(*m);
@@ -304,6 +356,16 @@ pub static COMMON_FIELDS: &[FieldSpec] = &[
                 .iter()
                 .map(|m| (FieldValue::Material(m.id), OptionLabel::Name(m.name.clone())))
                 .collect()
+        },
+    ),
+    FieldSpec::remark(
+        "profile_materials",
+        "model-field-material",
+        Section::ModelAppearance,
+        |e, _| {
+            e.kind
+                .material_from_profile()
+                .then_some(FieldValue::Code("model-field-material-from-profile"))
         },
     ),
     FieldSpec::choice(

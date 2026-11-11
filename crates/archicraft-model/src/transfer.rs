@@ -16,7 +16,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, KindTag};
-use crate::fields::{FieldSpec, FieldType, FieldValue, Transfer, fields_of};
+use crate::fields::{FieldSpec, FieldValue, Transfer, fields_of};
 use crate::ids::ElementId;
 use crate::kinds::VERTICAL_FIELD_KEYS;
 use crate::message::Message;
@@ -202,7 +202,7 @@ fn accept(spec: &FieldSpec, value: &FieldValue, target: &Element, project: &Proj
     (spec.set)(&mut candidate, value, project);
     // A setter that cannot hold the value leaves another one.
     if (spec.get)(&candidate, project).as_ref() != Some(value) {
-        return Err(if spec.field_type == FieldType::Choice {
+        return Err(if spec.field_type.has_options() {
             SkipReason::NotOffered
         } else {
             SkipReason::Inapplicable

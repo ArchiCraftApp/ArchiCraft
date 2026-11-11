@@ -340,6 +340,23 @@ pub const ALL_KEYS: &[&str] = &[
     "model-field-angle",
     "model-field-x",
     "model-field-y",
+    "model-field-section",
+    "model-field-width",
+    "model-field-depth",
+    "model-field-diameter",
+    "model-field-profile",
+    "model-field-anchor",
+    "model-field-rotation",
+    "model-field-top-cut",
+    "model-field-top-cut-angle",
+    "model-field-bottom-cut",
+    "model-field-bottom-cut-angle",
+    "model-field-material-from-profile",
+    "model-section-rectangular",
+    "model-section-circular",
+    "model-section-profile",
+    "model-column-cut-horizontal",
+    "model-column-cut-angle",
     "model-predefined-type-none",
     "model-position-undefined",
     "model-position-exterior",
@@ -360,6 +377,9 @@ pub const ALL_KEYS: &[&str] = &[
     "model-anchor-bottom-left",
     "model-anchor-bottom-center",
     "model-anchor-bottom-right",
+    // Member anchors (Anchor::label_key, COL-001): the nine above and the
+    // profile origin.
+    "model-anchor-profile-origin",
 ];
 
 /// Every argument name a [`Message`] of this crate uses. Names are
