@@ -15,7 +15,7 @@ use archicraft_app::input::{
 };
 use archicraft_app::persistence::DataDirs;
 use archicraft_app::persistence::prefs::Preferences;
-use archicraft_app::tools::{ToolKind, WallMode};
+use archicraft_app::tools::{SpaceMode, ToolKind, WallMode};
 use archicraft_app::ui::{icons, view_bar};
 use archicraft_app::views::render3d::DisplayMode;
 use archicraft_app::workspace::{Consumer, Pane};
@@ -1054,6 +1054,31 @@ fn a_wall_mode_from_the_palette_shows_in_the_strip() {
     assert_eq!(harness.state_mut().workspace().tool.wall_mode, WallMode::Chain);
     assert_eq!(selected(&harness, "Chain"), Some(Toggled::True));
     assert_eq!(selected(&harness, "Single"), Some(Toggled::False));
+}
+
+/// SPC-001, UI-017: with the space tool active, the properties strip shows
+/// its methods Detect, Polygon and Rectangle with the current one checked,
+/// Detect by default; a method invoked from the palette moves the check.
+#[test]
+fn the_space_methods_show_in_the_strip_with_the_current_one_checked() {
+    let mut harness = harness("strip-space-mode");
+    invoke_from_palette(&mut harness, commands::tools::command(ToolKind::Space));
+    assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Space);
+    let checked = |harness: &Harness<'static, ArchiCraftApp>| {
+        ["Detect", "Polygon", "Rectangle"].map(|label| {
+            harness
+                .get(By::new().role(Role::Button).label(label))
+                .accesskit_node()
+                .toggled()
+        })
+    };
+    let (yes, no) = (Some(Toggled::True), Some(Toggled::False));
+    assert_eq!(checked(&harness), [yes, no, no], "Detect is the default");
+    invoke_from_palette(&mut harness, commands::tools::space_mode(SpaceMode::Rectangle));
+    assert_eq!(harness.state_mut().workspace().tool.space_mode, SpaceMode::Rectangle);
+    assert_eq!(checked(&harness), [no, no, yes]);
+    invoke_from_palette(&mut harness, commands::tools::space_mode(SpaceMode::Polygon));
+    assert_eq!(checked(&harness), [no, yes, no]);
 }
 
 /// UI-017, VIEW-020, VIEW-050: the display mode and the projection of the
@@ -3664,12 +3689,13 @@ fn panels_switch_modes_only_through_commands() {
         let source: String = source.split_whitespace().collect::<Vec<_>>().join(" ");
         // Field assignments; ` = ` with its spaces leaves out `==`, and the
         // leading dot leaves out bindings such as `let projection =`.
-        for field in [".wall_mode", ".slab_mode", ".mode", ".projection"] {
+        for field in [".wall_mode", ".slab_mode", ".space_mode", ".mode", ".projection"] {
             assert!(!source.contains(&format!("{field} = ")), "{file} assigns `{field}`");
         }
         for borrow in [
             "&mut ws.tool.wall_mode",
             "&mut ws.tool.slab_mode",
+            "&mut ws.tool.space_mode",
             "&mut state.mode",
             "&mut state.camera.projection",
             "apply_preset(",

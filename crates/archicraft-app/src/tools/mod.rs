@@ -1379,6 +1379,45 @@ mod tests {
         assert_eq!(doc.space_region_builds(), 2, "cached for the revision");
     }
 
+    /// SPC-001: on the upper storey the shaft walls stand free in the room
+    /// around (2, 3); the tool previews their outer faces as a hole, and the
+    /// detected space a click creates has that one hole, the rectangle x
+    /// 0.9425-3.0575, y 6.4425-8.0575 (2.115 m x 1.615 m), and the room's
+    /// area less the hole and the interior wall.
+    #[test]
+    fn free_standing_walls_become_a_hole_of_the_detected_space() {
+        let p = DVec2::new(2.0, 3.0);
+        let (mut doc, storey, mut tool) = space_tool_on_the_shaft_sample(1, p);
+        let preview = preview_at(&tool, &doc.project, p);
+        assert_eq!(preview.len(), 2, "the boundary and the shaft's hole: {preview:?}");
+
+        let Outcome::Execute(command) = tool.commit(&doc.project, storey, p) else {
+            panic!("the click creates the space")
+        };
+        doc.execute(command).expect("the space with a hole is valid");
+        let (element, space) = last_space(&doc);
+        assert_eq!(element.storey, storey);
+        let (outer, holes) = space.boundary.to_points();
+        assert_eq!(holes.len(), 1, "{holes:?}");
+        assert_eq!(preview, [(outer, true), (holes[0].clone(), true)], "as previewed");
+        let (h, lo, hi) = (0.115 / 2.0, DVec2::new(1.0, 6.5), DVec2::new(3.0, 8.0));
+        for corner in [
+            DVec2::new(lo.x - h, lo.y - h),
+            DVec2::new(hi.x + h, lo.y - h),
+            DVec2::new(hi.x + h, hi.y + h),
+            DVec2::new(lo.x - h, hi.y + h),
+        ] {
+            assert!(
+                holes[0].iter().any(|q| q.distance(corner) < MODEL_TOLERANCE),
+                "{corner} is a corner of the hole {:?}",
+                holes[0]
+            );
+        }
+        let area = 11.5 * 8.5 - 0.115 * 5.75 - 2.115 * 1.615;
+        let net: f64 = space.boundary.indexed_rings().map(|(_, ring)| ring.signed_area()).sum();
+        assert!((net - area).abs() < 1e-6, "{net}");
+    }
+
     /// SPC-001, NFR-USE-003: a click outside the building or inside a wall
     /// creates nothing, previews nothing, and the prompt says why.
     #[test]
