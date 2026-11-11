@@ -178,32 +178,57 @@ pub struct Preview {
 }
 
 /// The preview of a click in `mode` on the element `id`, from a rehearsal
-/// with clones: nothing changes until the click.
+/// with clones: nothing changes until the click. An inject previews the
+/// elements the click goes into, as the inject chooses them: with `id` in
+/// the selection only its editable elements, counted in the title and
+/// refused only when none is; the lists are those of `id`, or of the first
+/// editable selected element while `id` is locked.
 pub fn preview(ws: &Workspace, mode: TransferMode, id: ElementId) -> Option<Preview> {
     let project = &ws.doc.project;
-    let element = project.element(id)?;
-    let name = element.name.clone();
-    let title = match mode {
-        TransferMode::PickUp => tr!("view-transfer-preview-pick-up", name = name),
-        TransferMode::Inject => match ws.selection.len() {
-            n if n > 1 && ws.selection.contains(&id) => tr!(
-                "view-transfer-preview-inject-selection",
-                count = n,
-                count_text = ws.count_text(n),
-                name = name,
-            ),
-            _ => tr!("view-transfer-preview-inject", name = name),
-        },
-    };
+    let hovered = project.element(id)?;
     let refused = |title, reason| Preview {
         title,
         applied: Vec::new(),
         skipped: Vec::new(),
         refused: Some(reason),
     };
-    if mode == TransferMode::Inject && !project.is_editable(element) {
-        return Some(refused(title, tr!("view-transfer-preview-locked")));
-    }
+    let (title, element) = match mode {
+        TransferMode::PickUp => (
+            tr!("view-transfer-preview-pick-up", name = hovered.name.clone()),
+            hovered,
+        ),
+        TransferMode::Inject => {
+            let locked = || {
+                Some(refused(
+                    tr!("view-transfer-preview-inject", name = hovered.name.clone()),
+                    tr!("view-transfer-preview-locked"),
+                ))
+            };
+            let Some((targets, _)) = inject_targets(ws, hovered) else {
+                return locked();
+            };
+            let shown = if targets.contains(&id) {
+                hovered
+            } else {
+                project.element(*targets.first()?)?
+            };
+            // A locked element alone is refused by the command (ELM-013).
+            if !project.is_editable(shown) {
+                return locked();
+            }
+            let name = shown.name.clone();
+            let title = match targets.len() {
+                1 => tr!("view-transfer-preview-inject", name = name),
+                n => tr!(
+                    "view-transfer-preview-inject-selection",
+                    count = n,
+                    count_text = ws.count_text(n),
+                    name = name,
+                ),
+            };
+            (title, shown)
+        }
+    };
     let Some((target, report)) = rehearse(ws, mode, element) else {
         return Some(refused(title, tr!("status-inject-no-defaults")));
     };
@@ -251,30 +276,37 @@ fn pick_up(ws: &mut Workspace, element: &Element) {
     }
 }
 
+/// The elements an inject on `element` goes into (ELM-003), with the count
+/// of the selection's locked elements it skips: every editable element of
+/// the selection when `element` is selected, otherwise `element` alone,
+/// which the command refuses with the lock's reason when it is locked
+/// (ELM-013). `None` when `element` is selected and every selected element
+/// is locked.
+fn inject_targets(ws: &Workspace, element: &Element) -> Option<(Vec<ElementId>, usize)> {
+    let project = &ws.doc.project;
+    let selected = ws.selected_ids();
+    if !selected.contains(&element.id) {
+        return Some((vec![element.id], 0));
+    }
+    let editable: Vec<ElementId> = selected
+        .iter()
+        .copied()
+        .filter(|id| project.element(*id).is_some_and(|e| project.is_editable(e)))
+        .collect();
+    let locked = selected.len() - editable.len();
+    (!editable.is_empty()).then_some((editable, locked))
+}
+
 fn inject(ws: &mut Workspace, element: &Element) {
     let Some(kind) = ws.tool.kind.element_kind() else {
         ws.error(tr!("status-inject-no-defaults"));
         return;
     };
-    let project = &ws.doc.project;
-    let selected = ws.selected_ids();
-    let (targets, locked) = if selected.contains(&element.id) {
-        let editable: Vec<ElementId> = selected
-            .iter()
-            .copied()
-            .filter(|id| project.element(*id).is_some_and(|e| project.is_editable(e)))
-            .collect();
-        let locked = selected.len() - editable.len();
-        if editable.is_empty() {
-            ws.error(tr!("status-selection-locked"));
-            return;
-        }
-        (editable, locked)
-    } else {
-        // A locked element is refused by the command with the lock's reason
-        // (ELM-013).
-        (vec![element.id], 0)
+    let Some((targets, locked)) = inject_targets(ws, element) else {
+        ws.error(tr!("status-selection-locked"));
+        return;
     };
+    let project = &ws.doc.project;
     let preview = match targets.as_slice() {
         [only] => project
             .element(*only)
@@ -359,7 +391,12 @@ fn skip_text(ws: &Workspace, target: &Element, key: &str, reason: &SkipReason) -
 mod tests {
     #![allow(clippy::unwrap_used)]
 
+    use archicraft_model::glam::DVec2;
+    use archicraft_model::template::default_metric_project;
+
     use super::*;
+    use crate::document::Document;
+    use crate::persistence::prefs::Preferences;
 
     const NONE: Modifiers = Modifiers {
         shift: false,
@@ -425,5 +462,113 @@ mod tests {
         assert_eq!(state.latched(), Some(TransferMode::PickUp));
         state.latch(TransferMode::PickUp);
         assert_eq!(state.latched(), None, "a second invocation ends it");
+    }
+
+    /// A workspace with the wall tool and four walls, the last two locked.
+    fn walls() -> (Workspace, Vec<ElementId>) {
+        let mut ws = Workspace::new(Document::new(default_metric_project(), 100), Preferences::default());
+        let p = &ws.doc.project;
+        let ground = p.storeys.ground();
+        let walls: Vec<Element> = (0..4)
+            .map(|n| {
+                let y = 3.0 * f64::from(n);
+                let mut e = p.new_wall(ground, DVec2::new(0.0, y), DVec2::new(4.0, y), n);
+                e.locked = n >= 2;
+                e
+            })
+            .collect();
+        let ids = walls.iter().map(|e| e.id).collect();
+        assert!(ws.execute(Command::AddElements(walls)));
+        ws.select_tool(ToolKind::Wall);
+        (ws, ids)
+    }
+
+    fn name(ws: &Workspace, id: ElementId) -> String {
+        ws.doc.project.element(id).unwrap().name.clone()
+    }
+
+    /// ELM-003, EDT-020: hovering a selected element previews the inject
+    /// into the selection's editable elements, which it counts, as the
+    /// click does; a locked hovered element among them previews the inject
+    /// into the others instead of refusing.
+    #[test]
+    fn an_inject_preview_on_the_selection_counts_only_its_editable_elements() {
+        let (mut ws, ids) = walls();
+        ws.selection = [ids[0], ids[1], ids[2]].into_iter().collect();
+        let on_editable = preview(&ws, TransferMode::Inject, ids[0]).unwrap();
+        assert_eq!(
+            on_editable.title,
+            format!("Inject into 2 selected elements, such as {}", name(&ws, ids[0]))
+        );
+        assert_eq!(on_editable.refused, None);
+        assert!(on_editable.applied.contains(&"Thickness".to_owned()), "{on_editable:?}");
+
+        let on_locked = preview(&ws, TransferMode::Inject, ids[2]).unwrap();
+        assert_eq!(on_locked.refused, None, "the click injects into the others");
+        assert!(on_locked.title.contains("2 selected elements"), "{}", on_locked.title);
+        assert!(on_locked.applied.contains(&"Thickness".to_owned()), "{on_locked:?}");
+
+        // One editable element left: the inject goes into it alone.
+        ws.selection = [ids[1], ids[2]].into_iter().collect();
+        let one = preview(&ws, TransferMode::Inject, ids[2]).unwrap();
+        assert_eq!(one.title, format!("Inject into {}", name(&ws, ids[1])));
+        assert_eq!(one.refused, None);
+    }
+
+    /// ELM-003, ELM-013: an inject preview refuses a locked element that
+    /// would be the only target, and a selection with nothing editable; a
+    /// pick-up from a locked element changes only the defaults and goes.
+    #[test]
+    fn an_inject_preview_refuses_a_locked_element_alone() {
+        let (mut ws, ids) = walls();
+        let locked = Some("Locked: nothing would change".to_owned());
+        let alone = preview(&ws, TransferMode::Inject, ids[2]).unwrap();
+        assert_eq!(alone.title, format!("Inject into {}", name(&ws, ids[2])));
+        assert_eq!(alone.refused, locked);
+        assert!(alone.applied.is_empty() && alone.skipped.is_empty());
+        for selection in [vec![ids[2]], vec![ids[2], ids[3]]] {
+            ws.selection = selection.into_iter().collect();
+            assert_eq!(preview(&ws, TransferMode::Inject, ids[2]).unwrap().refused, locked);
+        }
+        // Not selected: the click injects into the hovered element alone.
+        let unselected = preview(&ws, TransferMode::Inject, ids[0]).unwrap();
+        assert_eq!(unselected.title, format!("Inject into {}", name(&ws, ids[0])));
+        assert_eq!(unselected.refused, None);
+        let pick_up = preview(&ws, TransferMode::PickUp, ids[2]).unwrap();
+        assert_eq!(pick_up.refused, None);
+        assert!(pick_up.applied.contains(&"Thickness".to_owned()), "{pick_up:?}");
+    }
+
+    /// ELM-003: with a tool that has no defaults (selection, measure), an
+    /// inject preview says to choose the tool whose settings to inject.
+    #[test]
+    fn an_inject_preview_without_tool_defaults_says_to_choose_a_tool() {
+        let (mut ws, ids) = walls();
+        for tool in [ToolKind::Select, ToolKind::Measure] {
+            ws.select_tool(tool);
+            let preview = preview(&ws, TransferMode::Inject, ids[0]).unwrap();
+            assert_eq!(preview.title, format!("Inject into {}", name(&ws, ids[0])));
+            assert_eq!(
+                preview.refused,
+                Some("Choose the tool whose settings to inject".to_owned())
+            );
+        }
+    }
+
+    /// ELM-003, EDT-020: when the target rejects the transfer as a whole (a
+    /// text without content, which the validator refuses however its
+    /// settings are), the preview lists nothing as transferred, so the
+    /// tooltip says there is nothing to transfer, and refuses nothing.
+    #[test]
+    fn a_preview_where_nothing_fits_lists_nothing_as_transferred() {
+        let (mut ws, _) = walls();
+        let p = &ws.doc.project;
+        let text = p.new_text(p.storeys.ground(), DVec2::new(10.0, 0.0), "", 0);
+        let id = text.id;
+        ws.doc.project.elements.insert(id, text);
+        let preview = preview(&ws, TransferMode::Inject, id).unwrap();
+        assert_eq!(preview.refused, None);
+        assert!(preview.applied.is_empty(), "{preview:?}");
+        assert!(!preview.skipped.is_empty(), "the skipped settings say why: {preview:?}");
     }
 }

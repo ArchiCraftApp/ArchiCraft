@@ -159,9 +159,11 @@ pub struct Workspace {
     /// The keys of the commands; the plan view matches its local keys
     /// against it (UI-009).
     pub keymap: Keymap,
-    /// Local commands of the plan view invoked other than by their key (the
-    /// palette), for the active plan view to run; the app drops the ones
-    /// no plan view ran by the end of the frame (HW-003).
+    /// Local commands of the views invoked other than by their key (the
+    /// palette), for the active view to run: the active plan view runs them
+    /// all, the active 3D view `input.cancel-step`, which ends a latched
+    /// parameter transfer there (ELM-003); the app drops them at the end of
+    /// the frame (HW-003).
     pub view_commands: Vec<CommandId>,
     /// Frame and latency samples (NFR-PERF-001).
     #[cfg(feature = "perf")]

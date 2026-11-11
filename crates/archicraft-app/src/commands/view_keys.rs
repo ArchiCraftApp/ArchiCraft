@@ -1,13 +1,15 @@
-//! The keys the plan view handles itself (HW-003, NFR-A11Y-001, UI-009):
+//! The keys the views handle themselves (HW-003, NFR-A11Y-001, UI-009):
 //! cycling the wall reference line (WAL-007), the overlapping candidates
 //! (SEL-001), the keys of point input (INP-003) and the key held for contour
 //! detection (INP-018). They are commands, so
 //! they are listed with the other shortcuts and can be rebound, but they are
 //! [local](super::CommandSpec::local): the plan view matches their keys
-//! against the [`Keymap`](super::Keymap) and the state of its tool. Invoked
-//! another way (the palette, tests), they wait in
-//! [`Workspace::view_commands`] for the active plan view, except the wall
-//! reference line, which needs no view.
+//! against the [`Keymap`](super::Keymap) and the state of its tool, and the
+//! 3D view matches Esc ([`CANCEL_STEP`]) to end a latched parameter transfer
+//! (ELM-003). Invoked another way (the palette, tests), they wait in
+//! [`Workspace::view_commands`] for the active view: the active plan view
+//! runs them all, the active 3D view only [`CANCEL_STEP`]; the wall
+//! reference line needs no view.
 //!
 //! [`Workspace::view_commands`]: crate::workspace::Workspace::view_commands
 
@@ -38,7 +40,7 @@ pub const CANCEL_STEP: CommandId = CommandId::new("input.cancel-step");
 /// way, it switches detection on or off like `tool.contour-detection`.
 pub const HOLD_CONTOUR_DETECTION: CommandId = CommandId::new("input.hold-contour-detection");
 
-/// The local commands of the plan view.
+/// The local commands of the views.
 pub const ALL: [CommandId; 7] = [
     CYCLE_REFERENCE_LINE,
     CYCLE_CANDIDATES,

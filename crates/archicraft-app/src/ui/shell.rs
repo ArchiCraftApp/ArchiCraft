@@ -239,10 +239,15 @@ pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: u
     let mut chosen = None;
     ui.horizontal(|ui| {
         // The prompt of the step in progress (INP-001, NFR-USE-003); a
-        // latched parameter transfer takes the clicks first (ELM-003). An
-        // open text editor names its keys whichever tool opened it, the
-        // selection tool included (ANN-007).
-        let prompt = match cx.transfer {
+        // latched parameter transfer takes the clicks first (ELM-003), but
+        // not from a transient consumer or the open text editor, whose own
+        // prompt shows then, as the views give them the clicks. An open text
+        // editor names its keys whichever tool opened it, the selection tool
+        // included (ANN-007).
+        let transfer = cx
+            .transfer
+            .filter(|_| ws.active_consumer == Consumer::Tool && ws.tool.editor.is_none());
+        let prompt = match transfer {
             Some(TransferMode::PickUp) => Some(tr!("status-prompt-pick-up")),
             Some(TransferMode::Inject) => Some(tr!("status-prompt-inject")),
             None => None,
