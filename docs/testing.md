@@ -809,7 +809,10 @@ limit validates in about 10 ms in a release build, whatever its shape
 the test holds each slab to 100 ms only in a release build, `cargo test --release -p
 archicraft-model --lib validate`, and to 250 ms in the gate's and CI's test builds),
 and agrees with testing every pair of edges (`rings_validate_as_with_every_pair_of_edges_tested`,
-`slabs_validate_as_with_every_pair_of_edges_tested`). Beyond D.9, two bounds keep a small
+`slabs_validate_as_with_every_pair_of_edges_tested`). D.9 limits a custom profile to 32 regions
+(`MAX_PROFILE_REGIONS`) and its region outlines to 100,000 crossings less than the model
+tolerance deep (`MAX_PROFILE_CROSSINGS`), so a profile at both limits validates within the same
+budget (`custom_profiles_at_the_limit_validate_quickly`). Beyond D.9, two bounds keep a small
 crafted file from stalling the reader (found by the first fuzz campaign, Fuzzing): a storey
 that the building lists more than once is read once, the further listings reported, and so is
 an element listed more than once in one storey or several.
