@@ -281,18 +281,25 @@ mod tests {
     }
 
     /// The file bytes after the header object, which holds the save time and
-    /// the data version.
+    /// the data version. The header is parsed, so a brace in a string, such
+    /// as the author, does not end it.
     fn without_header(bytes: &[u8]) -> &[u8] {
-        let end = bytes.iter().position(|&b| b == b'}').unwrap();
-        &bytes[end..]
+        const START: &[u8] = br#"{"header":"#;
+        assert!(bytes.starts_with(START), "a compact file starts with its header");
+        let rest = &bytes[START.len()..];
+        let mut header = serde_json::Deserializer::from_slice(rest).into_iter::<serde_json::Value>();
+        assert!(matches!(header.next(), Some(Ok(serde_json::Value::Object(_)))));
+        &rest[header.byte_offset()..]
     }
 
     /// IFX-008: indented output holds the same project as compact output, and
-    /// choosing it once leaves later compact saves unchanged.
+    /// choosing it once leaves later compact saves unchanged, also for an
+    /// author with braces.
     #[test]
     fn indented_save_reads_back_and_leaves_compact_saves_unchanged() {
+        const AUTHOR: &str = "Test {braced} }";
         let original = archicraft_model::samples::storey_with_walls_and_slab();
-        let (indented, _) = Document::new(original.clone(), 100).to_bytes("Test", true);
+        let (indented, _) = Document::new(original.clone(), 100).to_bytes(AUTHOR, true);
         let text = std::str::from_utf8(&indented).unwrap();
         assert!(text.starts_with("{\n  \"header\": {\n    \""), "{}", &text[..40]);
         assert!(text.lines().count() > 20, "indented output spans many lines");
@@ -309,9 +316,9 @@ mod tests {
         expected.data_version = original.data_version + 1;
         assert_eq!(loaded.project, expected);
 
-        let (compact, _) = Document::new(original, 100).to_bytes("Test", false);
+        let (compact, _) = Document::new(original, 100).to_bytes(AUTHOR, false);
         assert!(!compact.contains(&b'\n'), "compact output is one line");
-        let (again, _) = Document::new(loaded.project, 100).to_bytes("Test", false);
+        let (again, _) = Document::new(loaded.project, 100).to_bytes(AUTHOR, false);
         assert!(
             without_header(&again) == without_header(&compact),
             "a compact save after an indented one is the same file"

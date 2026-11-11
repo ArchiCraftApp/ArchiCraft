@@ -2821,6 +2821,7 @@ fn unreadable_or_oversized_file_shows_cannot_open() {
         harness.run_steps(2);
         assert!(harness.query_by_label("Cannot open the project").is_none());
     }
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// A damaged file opens, and the load report lists what was skipped or
@@ -3137,6 +3138,110 @@ fn tab_cycles_snap_candidates_in_the_plan_view() {
     assert_eq!(after.snap, before.candidates[1], "Tab chose the second candidate");
     assert!(ws.tool.points.is_empty());
     assert!(ws.input.typed.is_empty());
+}
+
+/// Opens File > Preferences and waits until its window takes clicks.
+fn open_preferences(harness: &mut Harness<'static, ArchiCraftApp>) {
+    harness.get_by_label("File").click();
+    harness.run_steps(2);
+    harness.get_by_label_contains("Preferences").click();
+    harness.run_steps(4);
+}
+
+/// UI-008: Primary+Comma, the shortcut of Preferences, works while a text
+/// field is focused; pressed again with the window open and an edited
+/// field, it keeps the draft instead of starting a new one from the applied
+/// preferences, and OK applies the edit.
+#[test]
+fn preferences_shortcut_keeps_an_open_draft() {
+    let mut harness = harness("preferences-keep-draft");
+    open_preferences(&mut harness);
+    harness.get(text_field("ArchiCraft user")).click();
+    harness.run_steps(2);
+    assert!(harness.get(text_field("ArchiCraft user")).is_focused());
+    harness.key_press(Key::End);
+    harness.event(Event::Text(" Two".into()));
+    harness.run_steps(2);
+    harness.get(text_field("ArchiCraft user Two"));
+
+    let primary = Modifiers {
+        ctrl: true,
+        command: true,
+        ..Modifiers::NONE
+    };
+    harness.key_press_modifiers(primary, Key::Comma);
+    harness.run_steps(2);
+    harness.get(text_field("ArchiCraft user Two"));
+    assert!(
+        harness.query(text_field("ArchiCraft user")).is_none(),
+        "the draft was replaced"
+    );
+    assert_eq!(harness.state_mut().workspace().prefs.author, "ArchiCraft user");
+
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    assert_eq!(harness.state_mut().workspace().prefs.author, "ArchiCraft user Two");
+}
+
+/// UI-015, SW-001: the Preferences window is not modal; the toolbox's
+/// columns and the recent projects changed while it is open keep their new
+/// values when OK applies the window's own edit.
+#[test]
+fn preferences_ok_keeps_toolbox_columns_and_recent_projects() {
+    let mut harness = harness("preferences-keep-others");
+    open_preferences(&mut harness);
+    let recent = std::path::PathBuf::from("/projects/opened-meanwhile.ifcx");
+    {
+        let prefs = &mut harness.state_mut().workspace().prefs;
+        assert_eq!(prefs.toolbox_columns, 1);
+        prefs.toolbox_columns = 2;
+        prefs.add_recent(&recent);
+    }
+    harness.run_steps(2);
+    harness.get_by_label("Indented IFCX (human-readable)").click();
+    harness.run_steps(2);
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    let prefs = &harness.state_mut().workspace().prefs;
+    assert!(prefs.indented_ifcx, "the dialog's own edit applies");
+    assert_eq!(prefs.toolbox_columns, 2);
+    assert_eq!(prefs.recent.first(), Some(&recent));
+}
+
+/// INP-010, WAL-007: the division mode chosen in the properties strip and the
+/// wall reference lines toggled from the View menu while Preferences is
+/// open keep their new values when OK applies the window.
+#[test]
+fn preferences_ok_keeps_the_division_mode_changed_in_the_strip() {
+    let mut harness = harness("preferences-keep-division");
+    harness.get_by_label("Wall").click();
+    harness.run_steps(2);
+    open_preferences(&mut harness);
+    harness
+        .get(By::new().role(Role::ComboBox).value(tr!("tool-division-half").as_str()))
+        .click();
+    harness.run_steps(2);
+    harness.get_by_label(&tr!("tool-division-equal")).click();
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state_mut().workspace().prefs.input.division,
+        DivisionMode::Equal(4)
+    );
+    {
+        let prefs = &mut harness.state_mut().workspace().prefs;
+        assert!(!prefs.show_reference_lines);
+        prefs.show_reference_lines = true;
+    }
+    harness.run_steps(2);
+    harness.get_by_label("OK").click();
+    harness.run_steps(2);
+    let prefs = &harness.state_mut().workspace().prefs;
+    assert_eq!(
+        prefs.input.division,
+        DivisionMode::Equal(4),
+        "OK reverted the division mode"
+    );
+    assert!(prefs.show_reference_lines, "OK reverted the reference lines");
 }
 
 /// SET-001, INP-020: the Preferences window gathers snap radius, angle

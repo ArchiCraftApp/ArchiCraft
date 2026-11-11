@@ -1029,8 +1029,7 @@ fn prj_004_nfr_rel_002_an_abandoned_autosave_is_offered_at_start() {
 /// interval of `prefs.autosave_minutes` has passed.
 #[test]
 fn prj_004_nfr_rel_002_autosaves_follow_the_preference_interval() {
-    let dir = data_dir("prj-004-interval");
-    let mut h = harness_in(&dir, Preferences::default(), 1.0);
+    let (mut h, clock, dir) = start_with_clock("prj-004-interval", Preferences::default());
     assert_eq!(h.state_mut().workspace().prefs.autosave_minutes, 5);
     let sessions: Vec<PathBuf> = fs::read_dir(DataDirs::at(&dir).recovery())
         .expect("the recovery folder")
@@ -1043,18 +1042,19 @@ fn prj_004_nfr_rel_002_autosaves_follow_the_preference_interval() {
 
     // An edit within the five minutes is not autosaved yet.
     add_wall(&mut h, DVec2::ZERO, DVec2::new(4.0, 0.0));
-    h.run_steps(3);
-    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(advance_clock(&mut h, &clock, Duration::from_secs(4 * 60)), 0);
     assert!(!autosave.exists(), "autosaved before the interval passed");
 
-    // With an interval of zero minutes the next frame autosaves.
-    h.state_mut().workspace().prefs.autosave_minutes = 0;
-    h.run_steps(1);
+    // Once the five minutes have passed, the next frame autosaves.
+    assert_eq!(advance_clock(&mut h, &clock, Duration::from_secs(60)), 1);
     assert!(wait_for(&autosave), "no autosave in {}", session.display());
     let model = fs::read(session.join("autosave.ifcx")).expect("the autosaved model");
     let saved = archicraft_ifcx::load(&model).expect("a readable autosave");
     assert_eq!(saved.project.elements.len(), 1);
     assert_eq!(h.state_mut().workspace().doc.path, None, "no project file was written");
+
+    drop(h);
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// How long a test waits for the autosave thread.
@@ -1312,6 +1312,7 @@ fn nfr_acc_005_property_fields_round_only_the_display() {
 
     h.get(strip_field("0.123")).click();
     h.run_steps(1);
+    assert!(h.get(strip_field("0.123")).is_focused(), "the click focuses the field");
     h.key_press(Key::Enter);
     h.run_steps(2);
     assert_eq!(stored(&mut h), Some(thickness.to_bits()), "the shown value was stored");
