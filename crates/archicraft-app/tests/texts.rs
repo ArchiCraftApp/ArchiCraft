@@ -567,6 +567,7 @@ fn the_text_tool_places_a_typed_text_as_one_undo_step() {
     let (anchor, points_per_metre) = anchor_on_screen(&mut harness);
     click_at(&mut harness, anchor);
     assert_eq!(editor(&mut harness).as_deref(), Some(""), "the click opens the editor");
+    assert_present(&harness, EDITOR_STATUS);
     let (rect, size) = {
         let ws = harness.state_mut().workspace();
         ws.plan_views[&ws.active_storey].editor.unwrap()
@@ -785,13 +786,14 @@ fn a_double_click_on_another_text_commits_the_editor_and_edits_that_text() {
 const EDITOR_STATUS: &str = "Text: type the text, a click outside places it · Enter starts a new line \
      · Ctrl/Cmd+Enter places the text · Esc cancels the text";
 
-/// ANN-007, UI-008, NFR-USE-003, SEL-003: with the selection tool, the editor a
-/// double-click opens on the text "Note" shows its prompt and its Enter,
-/// Ctrl/Cmd+Enter and Esc keys in the status line, as with the Text tool,
-/// and S typed there switches no tool (UI-008); a press-and-drag in the plan around the text "Other" commits the typed
-/// edit as one undo step and does nothing else: it starts no area
-/// selection, so "Other" stays unselected. Once the editor is closed, the
-/// status line is the selection tool's again.
+/// ANN-007, UI-008, NFR-USE-003, SEL-003: with the selection tool, the
+/// editor a double-click opens on the text "Note" shows its prompt and its
+/// Enter, Ctrl/Cmd+Enter and Esc keys in the status line, as with the Text
+/// tool, and S typed there switches no tool (UI-008); a press-and-drag in
+/// the plan around the text "Other" commits the typed edit as one undo step
+/// and does nothing else: it starts no area selection, so "Other" stays
+/// unselected. Once the editor is closed, the status line is the selection
+/// tool's again.
 #[test]
 fn with_the_selection_tool_the_editor_shows_its_keys_and_a_committing_drag_selects_nothing() {
     let (mut harness, note) = shell_with_text("text-select-drag");

@@ -384,14 +384,12 @@ impl ToolState {
     /// place of the active consumer's step, so an editor a double-click
     /// opened with the selection tool names its keys too.
     pub fn editor_step(&self) -> Option<StepSpec> {
-        self.editor.as_ref()?;
-        let hints = vec![
-            KeyHint::new("Enter", tr!("prompt-text-key-newline")),
-            KeyHint::new("Ctrl/Cmd+Enter", tr!("prompt-text-key-commit")),
-            KeyHint::new("Esc", tr!("prompt-text-key-cancel")),
-        ];
-        Some(StepSpec {
-            hints,
+        self.editor.is_some().then(|| StepSpec {
+            hints: vec![
+                KeyHint::new("Enter", tr!("prompt-text-key-newline")),
+                KeyHint::new("Ctrl/Cmd+Enter", tr!("prompt-text-key-commit")),
+                KeyHint::new("Esc", tr!("prompt-text-key-cancel")),
+            ],
             ..StepSpec::new(tr!("prompt-text-type"), Expect::Point)
         })
     }
