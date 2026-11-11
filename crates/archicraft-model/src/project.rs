@@ -220,6 +220,21 @@ pub struct DefaultsSlot {
 }
 
 impl DefaultsSlot {
+    /// The slot whose new elements get `prototype`'s layer, position,
+    /// structural function, IFC class with its predefined type and payload
+    /// (ELM-001). Identity, name and storey, which a slot does not hold, are
+    /// dropped; a payload linked to storeys keeps its links as they are.
+    pub fn from_prototype(prototype: Element) -> Self {
+        Self {
+            layer: prototype.layer,
+            position: prototype.position,
+            structural: prototype.structural,
+            ifc_class: prototype.ifc_class,
+            predefined_type: prototype.predefined_type,
+            kind: prototype.kind,
+        }
+    }
+
     pub fn tag(&self) -> KindTag {
         self.kind.tag()
     }

@@ -83,14 +83,7 @@ fn apply(ws: &mut Workspace, editing: Editing) {
             }
             // The edited prototype becomes the slot (ELM-001).
             let mut defaults = ws.doc.project.tool_defaults.clone();
-            defaults.insert(DefaultsSlot {
-                layer: e.layer,
-                position: e.position,
-                structural: e.structural,
-                ifc_class: e.ifc_class,
-                predefined_type: e.predefined_type,
-                kind: e.kind,
-            });
+            defaults.insert(DefaultsSlot::from_prototype(e));
             ws.execute(Command::SetToolDefaults(defaults));
         }
     }

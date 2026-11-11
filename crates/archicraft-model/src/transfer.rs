@@ -93,7 +93,7 @@ fn number(value: &FieldValue) -> Option<f64> {
 /// result, the base and top fields, which together set the vertical extent,
 /// stay as the target had them and are reported with the reason; when it
 /// still rejects that, `target` stays as it was and every field is reported.
-/// `target` ends normalised by the validator. Its identity, home storey and
+/// When a result passes, `target` ends normalised by the validator. Its identity, home storey and
 /// geometry, which no transferable field holds, stay unchanged.
 pub fn transfer_settings(source: &Element, target: &mut Element, project: &Project) -> TransferReport {
     let check = |e: &Element| {
@@ -257,7 +257,15 @@ mod tests {
     /// keeps the target's reference line points, name and home storey.
     #[test]
     fn wall_to_wall_copies_every_setting_but_identity_and_geometry() {
-        let (p, source, before, _) = project();
+        let (mut p, mut source, before, _) = project();
+        // The source stands on the first floor with a relative top, so a
+        // copied home storey would show (ELM-003).
+        source.storey = p.storeys.relative(p.storeys.ground(), 1).unwrap().id;
+        source.as_wall_mut().unwrap().top = TopLink::Relative {
+            storeys: 1,
+            offset: 0.20,
+        };
+        p.elements.insert(source.id, source.clone());
         let mut target = before.clone();
         let report = transfer_settings(&source, &mut target, &p);
         assert_eq!(
@@ -267,7 +275,7 @@ mod tests {
                 "reference_line",
                 "base_offset",
                 "top_mode",
-                "top_storey",
+                "linked_storey",
                 "top_offset",
                 "material",
                 "layer",

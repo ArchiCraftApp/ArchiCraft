@@ -798,6 +798,7 @@ fn settings_source(project: &Project, source: SettingsSource) -> Result<Element,
 /// Plans [`Command::InjectSettings`] through [`plan_update_elements`], which
 /// checks locks (ELM-013) and validates, and reports a command that changes
 /// nothing as [`CommandError::NoChange`] (ELM-003).
+///
 /// Every target takes at least its envelope fields (layer, position), so
 /// the command is refused as unsupported only when no target passes its
 /// validator with any of the source's settings, such as a target linked to
@@ -845,17 +846,10 @@ fn plan_pick_up_settings(project: &Project, element: ElementId, into: KindTag) -
     if prototype == before {
         return Err(CommandError::NoChange);
     }
-    let mut kind = prototype.kind;
-    kind.place_on(project.storeys.ground());
+    let mut slot = DefaultsSlot::from_prototype(prototype);
+    slot.kind.place_on(project.storeys.ground());
     let mut defaults = project.tool_defaults.clone();
-    defaults.insert(DefaultsSlot {
-        layer: prototype.layer,
-        position: prototype.position,
-        structural: prototype.structural,
-        ifc_class: prototype.ifc_class,
-        predefined_type: prototype.predefined_type,
-        kind,
-    });
+    defaults.insert(slot);
     Command::SetToolDefaults(defaults).plan(project)
 }
 

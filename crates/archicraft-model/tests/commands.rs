@@ -3023,3 +3023,34 @@ fn inject_settings_is_refused_when_no_target_takes_any_setting() {
         ("Invalid", "model-error-transfer-unsupported")
     );
 }
+
+/// ELM-003: a target that takes no setting does not stop the others: the
+/// wall whose top is linked to a storey that is gone stays as it was, and
+/// the source wall takes the slab's settings.
+#[test]
+fn inject_settings_changes_the_targets_that_take_settings_and_keeps_the_others() {
+    let (mut p, _, [source, target, slab]) = transfer_project();
+    let first = p.storeys.relative(ground(&p), 1).unwrap().id;
+    if let Some(w) = p.elements.get_mut(&target).and_then(Element::as_wall_mut) {
+        w.top = TopLink::Storey {
+            storey: first,
+            offset: 0.0,
+        };
+    }
+    p.storeys = p.storeys.remove(first).unwrap();
+    let before = p.clone();
+    let mut h = History::default();
+    h.execute(
+        &mut p,
+        Command::InjectSettings {
+            source: SettingsSource::Element(slab),
+            targets: vec![target, source],
+        },
+    )
+    .unwrap();
+    assert_eq!(p.element(target), before.element(target));
+    let (w, sl) = (p.element(source).unwrap(), p.element(slab).unwrap());
+    assert_eq!(w.as_wall().unwrap().thickness, sl.as_slab().unwrap().thickness);
+    assert_eq!((w.layer, w.position), (sl.layer, sl.position));
+    assert_ne!(p.element(source), before.element(source));
+}
