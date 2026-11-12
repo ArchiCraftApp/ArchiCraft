@@ -145,6 +145,7 @@ pub const ALL_KEYS: &[&str] = &[
     "ifcx-element-profile-missing",
     "ifcx-column-cut-horizontal",
     "ifcx-column-profile-missing",
+    "ifcx-column-profile-not-for-columns",
     "ifcx-relation-target-missing",
     "ifcx-relation-listed-twice",
     "ifcx-parameters-missing",
