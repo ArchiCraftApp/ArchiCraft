@@ -93,6 +93,7 @@ mod tests {
     use egui::load::{Bytes, SizeHint};
 
     use super::*;
+    use crate::ui::command_widgets::ICON;
 
     /// The SVG source of `icon`.
     fn source(icon: &ImageSource<'static>) -> &'static [u8] {
@@ -117,8 +118,9 @@ mod tests {
     }
 
     /// UI-001: every icon is a 24-unit square SVG of white paint only, which
-    /// a button tints with its text colour, at the toolbar's 16, the
-    /// toolbox's 20 and twice that many pixels: each pixel is white with some
+    /// a button tints with its text colour, at the one icon side of toolbar
+    /// and toolbox ([`ICON`], 28 pt), twice that many pixels (200 %
+    /// scaling) and 48 pixels: each pixel is white with some
     /// alpha (premultiplied, so r = g = b = a), the lines cover 5 to 40 % of
     /// the square (drawn, and outlines rather than filled shapes), at twice
     /// the size some pixels are opaque, and the border of one unit stays
@@ -133,7 +135,7 @@ mod tests {
             for banned in ["<text", "<image", "href", "<style", "<script"] {
                 assert!(!text.contains(banned), "{name} contains {banned}");
             }
-            for px in [16, 20, 40, 48] {
+            for px in [ICON as u32, 2 * ICON as u32, 48] {
                 let image = raster(&icon, px);
                 assert_eq!(image.size, [px as usize; 2], "{name}");
                 assert!(
@@ -144,7 +146,7 @@ mod tests {
                     image.pixels.iter().map(|p| f64::from(p.a())).sum::<f64>() / (255.0 * image.pixels.len() as f64);
                 assert!((0.05..=0.4).contains(&ink), "{name} at {px} px covers {ink:.2}");
                 // A 1.5-unit line is 2.5 pixels wide at 40 px, so it covers
-                // whole pixels; at 16 px it is one pixel and may straddle two.
+                // whole pixels; at 28 px it is under two and may straddle three.
                 assert!(
                     px < 40 || image.pixels.iter().any(|p| p.a() == 255),
                     "{name} at {px} px has no opaque pixel"
