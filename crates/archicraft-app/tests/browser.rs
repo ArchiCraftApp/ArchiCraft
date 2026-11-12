@@ -1,24 +1,27 @@
-//! The project browser's icons (VIEW-003, UI-001): a plan sheet at each
-//! storey, a camera at each perspective view and a tall box at each
-//! parallel view, tinted like the row's text, and the whole row still
-//! opens its view.
+//! The project browser (VIEW-003, UI-001): a plan sheet at each storey, a
+//! camera at each perspective view and a tall box at each parallel view,
+//! tinted like the row's text, and the whole row still opens its view.
+//! Saved camera views (VIEW-004) are saved from the 3D view and opened,
+//! renamed, updated and deleted from their rows.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
 
 use archicraft_app::ArchiCraftApp;
-use archicraft_app::commands::{Origin, Target, view3d};
+use archicraft_app::commands::{Origin, Registry, Target, view3d};
 use archicraft_app::persistence::prefs::ThemeChoice;
 use archicraft_app::ui::icons;
+use archicraft_app::views::camera::Camera3d;
 use archicraft_app::workspace::Pane;
-use archicraft_model::project::Projection;
+use archicraft_model::project::{Projection, View3d, ViewCamera};
 use archicraft_model::{StoreyId, ViewId};
 use common::harness;
+use egui::accesskit::Role;
 use egui::epaint::{Color32, Rect, Shape};
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{By, NodeT, Queryable};
 
 type App = Harness<'static, ArchiCraftApp>;
 
@@ -221,4 +224,262 @@ fn switching_a_views_projection_switches_its_icon() {
 fn the_view_icon_is_chosen_by_projection() {
     assert_eq!(uri(icons::view_icon(Projection::Perspective)), uri(icons::CAMERA));
     assert_eq!(uri(icons::view_icon(Projection::Parallel)), uri(icons::PARALLEL_BOX));
+}
+
+/// Drags with `button` from `pos` to `to` in four steps with `modifiers`
+/// held.
+fn drag(h: &mut App, pos: Pos2, to: Pos2, button: PointerButton, modifiers: Modifiers) {
+    h.event(Event::ModifiersChanged(modifiers));
+    h.hover_at(pos);
+    h.run_steps(1);
+    h.event(Event::PointerButton {
+        pos,
+        button,
+        pressed: true,
+        modifiers,
+    });
+    h.run_steps(1);
+    for i in 1..=4 {
+        h.hover_at(pos + (to - pos) * (i as f32 / 4.0));
+        h.run_steps(1);
+    }
+    h.event(Event::PointerButton {
+        pos: to,
+        button,
+        pressed: false,
+        modifiers,
+    });
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+}
+
+/// Orbits the open 3D view `view` with Shift and the middle button
+/// (VIEW-021) and returns its new camera.
+fn orbit(h: &mut App, view: ViewId, by: egui::Vec2) -> Camera3d {
+    let (rect, before) = tab_camera(h, view).expect("the view is open");
+    let center = rect.center();
+    drag(h, center, center + by, PointerButton::Middle, Modifiers::SHIFT);
+    let (_, after) = tab_camera(h, view).expect("the view is open");
+    assert!((after.yaw - before.yaw).abs() > 1e-3, "the drag orbits the view");
+    after
+}
+
+/// The rect and the camera of the open 3D view `view`, `None` without one.
+fn tab_camera(h: &mut App, view: ViewId) -> Option<(Rect, Camera3d)> {
+    let state = h.state_mut().workspace().views_3d.get(&view)?;
+    Some((state.last_rect(), state.camera))
+}
+
+/// Opens the browser row with `text` with a click on it.
+fn open_row(h: &mut App, text: &str) {
+    let at = row(h, text).center();
+    click_at(h, at);
+}
+
+/// Clicks the secondary button at `pos`, which opens a context menu.
+fn secondary_click(h: &mut App, pos: Pos2) {
+    h.hover_at(pos);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(Event::PointerButton {
+            pos,
+            button: PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+}
+
+/// Opens the context menu of the browser row with `text`.
+fn context_menu_of(h: &mut App, text: &str) {
+    let at = row(h, text).center();
+    secondary_click(h, at);
+}
+
+/// The saved view named `name`, if the project has one.
+fn saved_view(h: &mut App, name: &str) -> Option<View3d> {
+    let views = &h.state_mut().workspace().doc.project.views;
+    views.iter().find(|v| v.name == name).cloned()
+}
+
+fn undo_len(h: &mut App) -> usize {
+    h.state_mut().workspace().doc.history.undo_len()
+}
+
+fn has_tab(h: &mut App, view: ViewId) -> bool {
+    h.state_mut().tree_mut().tiles.find_pane(&Pane::View3d(view)).is_some()
+}
+
+/// Asserts that `camera` shows the saved viewpoint `saved` within 1e-9:
+/// target, distance, yaw, pitch and field of view.
+fn assert_shows(camera: &Camera3d, saved: ViewCamera) {
+    let close = |a: f64, b: f64| (a - b).abs() <= 1e-9;
+    assert!(
+        (camera.target - saved.target).length() <= 1e-9
+            && close(camera.distance, saved.distance)
+            && close(camera.yaw, saved.yaw)
+            && close(camera.pitch, saved.pitch)
+            && close(camera.fov_y, saved.fov_y),
+        "{camera:?} does not show {saved:?}"
+    );
+}
+
+/// VIEW-004, VIEW-003, VIEW-020, UI-001: the 3D view-control bar's camera
+/// icon button saves the viewpoint of the orbited 3D perspective as
+/// "Camera 1", listed under 3D views with the camera icon and holding that
+/// camera. Opened from the browser after another view, its tab shows the
+/// saved viewpoint. Navigating adds no undo step, saving adds one
+/// (UND-005).
+#[test]
+fn save_camera_lists_the_viewpoint_and_opening_it_shows_it() {
+    let mut h = harness("browser-save-camera");
+    open_row(&mut h, "3D perspective");
+    let perspective = view_named(&mut h, "3D perspective");
+    let steps = undo_len(&mut h);
+    let orbited = orbit(&mut h, perspective, egui::vec2(60.0, -25.0));
+    assert_eq!(undo_len(&mut h), steps, "navigation adds no undo step (UND-005)");
+
+    let button = h.get_by_label("Save camera").rect();
+    let painted = painted_in(&h, button);
+    let images: Vec<&str> = painted.images.iter().map(|(name, _, _)| name.as_str()).collect();
+    assert_eq!(images, [uri(icons::CAMERA)], "the bar's button is the camera icon");
+    assert!(painted.text.is_empty(), "the bar's button has no text: {painted:?}");
+    h.get_by_label("Save camera").click();
+    h.run_steps(2);
+    assert_eq!(undo_len(&mut h), steps + 1, "saving is one undo step");
+    let camera = saved_view(&mut h, "Camera 1").expect("Camera 1 is saved");
+    assert_eq!(camera.projection, Projection::Perspective);
+    let saved = camera.camera.expect("Camera 1 has a camera");
+    assert_shows(&orbited, saved);
+    assert_eq!(icon_of(&h, "Camera 1"), uri(icons::CAMERA));
+    assert_eq!(
+        active_pane(&mut h),
+        Some(Pane::View3d(perspective)),
+        "saving keeps the tab"
+    );
+
+    open_row(&mut h, "3D parallel");
+    assert_eq!(
+        active_pane(&mut h),
+        Some(Pane::View3d(view_named(&mut h, "3D parallel")))
+    );
+    open_row(&mut h, "Camera 1");
+    assert_eq!(active_pane(&mut h), Some(Pane::View3d(camera.id)));
+    let (_, shown) = tab_camera(&mut h, camera.id).expect("Camera 1 is open");
+    assert_shows(&shown, saved);
+    assert_eq!(shown.projection, Projection::Perspective);
+    assert_eq!(undo_len(&mut h), steps + 1, "opening adds no undo step (UND-005)");
+}
+
+/// VIEW-004, UI-017: Save camera is also in the View menu and the context
+/// menu of the browser's "3D views" header, greyed out while a plan is
+/// active; from the header it saves the active 3D view's viewpoint.
+#[test]
+fn save_camera_is_in_the_view_menu_and_the_views_header() {
+    let save = Registry::get().command(view3d::SAVE_CAMERA);
+    assert_eq!(save.menu.map(|m| m.path), Some("view"));
+    assert_eq!(save.icon.as_ref().and_then(|i| i.uri()), icons::CAMERA.uri());
+
+    let mut h = harness("browser-save-camera-header");
+    let header = h.get_by_label("3D views").rect().center();
+    secondary_click(&mut h, header);
+    assert!(
+        h.get_by_label("Save camera").accesskit_node().is_disabled(),
+        "no 3D view is active"
+    );
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+
+    open_row(&mut h, "3D parallel");
+    let parallel = view_named(&mut h, "3D parallel");
+    let (_, shown) = tab_camera(&mut h, parallel).expect("3D parallel is open");
+    secondary_click(&mut h, header);
+    // The menu item, beside the header; the view-control bar has the other.
+    let item = h
+        .query_all_by_label("Save camera")
+        .min_by(|a, b| {
+            let d = |n: &egui_kittest::Node<'_>| n.rect().center().distance(header);
+            d(a).total_cmp(&d(b))
+        })
+        .expect("the header's menu has Save camera");
+    assert!(
+        item.rect().center().distance(header) < 200.0,
+        "the menu item, not the bar's button: {:?}",
+        item.rect()
+    );
+    item.click();
+    h.run_steps(2);
+    let camera = saved_view(&mut h, "Camera 1").expect("Camera 1 is saved");
+    assert_eq!(camera.projection, Projection::Parallel);
+    assert_shows(&shown, camera.camera.expect("a camera"));
+    assert_eq!(icon_of(&h, "Camera 1"), uri(icons::PARALLEL_BOX));
+}
+
+/// VIEW-004, VIEW-003, UND-005: a camera view's context menu renames it,
+/// updates its camera from its open tab (greyed out while it has none),
+/// and deletes it with its tab; each is one undo step and undo brings the
+/// deleted view back. Opening an open camera view returns its tab to the
+/// saved viewpoint.
+#[test]
+fn camera_views_are_renamed_updated_and_deleted_from_the_browser() {
+    let mut h = harness("browser-camera-menu");
+    open_row(&mut h, "3D perspective");
+    let ctx = h.ctx.clone();
+    let app = h.state_mut();
+    let target = Target::active(app.workspace());
+    app.invoke(&ctx, view3d::SAVE_CAMERA, target, Origin::Test);
+    h.run_steps(2);
+    let id = saved_view(&mut h, "Camera 1").expect("Camera 1 is saved").id;
+
+    context_menu_of(&mut h, "Camera 1");
+    assert!(
+        h.get_by_label("Update camera").accesskit_node().is_disabled(),
+        "Camera 1 has no open tab"
+    );
+    let steps = undo_len(&mut h);
+    h.get_by_label("Rename").click();
+    h.run_steps(2);
+    h.get(By::new().role(Role::TextInput)).type_text("Entrance");
+    h.run_steps(1);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    assert!(saved_view(&mut h, "Camera 1").is_none());
+    assert_eq!(saved_view(&mut h, "Entrance").map(|v| v.id), Some(id));
+    assert_eq!(undo_len(&mut h), steps + 1, "renaming is one undo step");
+    row(&h, "Entrance");
+
+    open_row(&mut h, "Entrance");
+    let orbited = orbit(&mut h, id, egui::vec2(-50.0, 20.0));
+    assert_eq!(undo_len(&mut h), steps + 1, "navigation adds no undo step (UND-005)");
+    context_menu_of(&mut h, "Entrance");
+    h.get_by_label("Update camera").click();
+    h.run_steps(2);
+    assert_eq!(undo_len(&mut h), steps + 2, "updating is one undo step");
+    let updated = saved_view(&mut h, "Entrance").and_then(|v| v.camera).expect("a camera");
+    assert_shows(&orbited, updated);
+
+    open_row(&mut h, "3D parallel");
+    open_row(&mut h, "Entrance");
+    let (_, shown) = tab_camera(&mut h, id).expect("Entrance is open");
+    assert_shows(&shown, updated);
+    orbit(&mut h, id, egui::vec2(40.0, 10.0));
+    open_row(&mut h, "Entrance");
+    let (_, reset) = tab_camera(&mut h, id).expect("Entrance is open");
+    assert_shows(&reset, updated);
+
+    context_menu_of(&mut h, "Entrance");
+    h.get_by_label("Delete").click();
+    h.run_steps(3);
+    assert!(saved_view(&mut h, "Entrance").is_none());
+    assert_eq!(undo_len(&mut h), steps + 3, "deleting is one undo step");
+    assert!(!has_tab(&mut h, id), "its tab is closed");
+    assert_ne!(active_pane(&mut h), Some(Pane::View3d(id)));
+    assert_eq!(h.query_all_by_label("Entrance").count(), 0, "its row is gone");
+
+    h.state_mut().workspace().undo();
+    h.run_steps(2);
+    let back = saved_view(&mut h, "Entrance").expect("undo brings it back");
+    assert_eq!((back.id, back.camera), (id, Some(updated)));
+    row(&h, "Entrance");
 }

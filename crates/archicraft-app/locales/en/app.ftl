@@ -268,6 +268,8 @@ view-bar-reference-lines = Reference lines
 # The menu of the 3D view presets.
 view-bar-views = Views
 view-bar-perspective = Perspective
+# The icon button that saves the viewpoint as a camera view (VIEW-004).
+view-bar-save-camera = Save camera
 view-bar-display-mode-hint = How the active 3D view draws the model.
 view-bar-view-preset-hint = Turn the camera of the active 3D view to a standard direction.
 
@@ -332,6 +334,9 @@ view-3d-overlay = { $projection } · { $mode }
 view-3d-overlay-orbit = { $projection } · { $mode } · Orbit
 view-projection-perspective = Perspective
 view-projection-parallel = Parallel
+# The word a saved camera view is named by, followed by its number: Camera 1
+# (VIEW-004).
+view-camera-name = Camera
 
 ## Display modes of the 3D views (VIEW-050), from DisplayMode::label_key
 

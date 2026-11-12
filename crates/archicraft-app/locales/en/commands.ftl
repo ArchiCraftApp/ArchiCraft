@@ -105,6 +105,14 @@ cmd-view3d-preset-dimetric-label = Dimetric
 cmd-view3d-preset-dimetric-desc = Look at the model from above at the dimetric angle in the active 3D view.
 cmd-view3d-toggle-projection-label = Perspective
 cmd-view3d-toggle-projection-desc = Switch the active 3D view between perspective and parallel projection.
+cmd-view3d-save-camera-label = Save camera
+cmd-view3d-save-camera-desc = Save the viewpoint of the active 3D view as a new camera view in the project browser.
+cmd-view3d-update-camera-label = Update camera
+cmd-view3d-update-camera-desc = Store the current viewpoint of the 3D view's open tab in the view.
+cmd-view3d-rename-view-label = Rename
+cmd-view3d-rename-view-desc = Rename the 3D view in the project browser.
+cmd-view3d-delete-view-label = Delete
+cmd-view3d-delete-view-desc = Delete the 3D view and close its tab.
 
 ## Design
 
@@ -203,4 +211,5 @@ cmd-reason-no-user-origin = No user origin is placed.
 cmd-reason-nothing-to-group = Select at least two elements or groups to group.
 cmd-reason-nothing-grouped = No selected element belongs to a group.
 cmd-reason-no-3d-view = No 3D view is active.
+cmd-reason-view-not-open = The view has no open tab.
 cmd-reason-no-material-selected = No material is selected in the Materials dialog.
