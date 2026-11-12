@@ -7,7 +7,7 @@ use archicraft_model::{ElementId, Project, ViewId};
 use eframe::egui_wgpu;
 use egui::{Align2, Color32, CursorIcon, Event, FontId, PointerButton, Pos2, Rect, Sense, Ui};
 
-use super::camera::Camera3d;
+use super::camera::{Camera3d, MAX_DISTANCE, MIN_DISTANCE};
 use super::plan::{modifiers, transfer_cursor, transfer_glyph, transfer_tooltip};
 use super::render3d::{DisplayMode, Renderer3d, Viewport, build_scene};
 use super::transfer;
@@ -57,6 +57,22 @@ impl View3dState {
     /// its distance (UI-001).
     pub fn zoom_percent(&self) -> f64 {
         self.fit_distance / self.camera.distance * 100.0
+    }
+
+    /// The zoom limits in percent, from the camera's distance limits.
+    pub fn zoom_limits(&self) -> (f64, f64) {
+        (
+            self.fit_distance / MAX_DISTANCE * 100.0,
+            self.fit_distance / MIN_DISTANCE * 100.0,
+        )
+    }
+
+    /// Zooms to exactly `percent` about the centre of the view: the camera
+    /// keeps its target and moves to `fit_distance × 100 / percent`, within
+    /// the distance limits (UI-001). View state, so it is not undoable
+    /// (UND-005).
+    pub fn set_zoom_percent(&mut self, percent: f64) {
+        self.camera.distance = (self.fit_distance * 100.0 / percent).clamp(MIN_DISTANCE, MAX_DISTANCE);
     }
 
     pub fn last_rect(&self) -> Rect {
