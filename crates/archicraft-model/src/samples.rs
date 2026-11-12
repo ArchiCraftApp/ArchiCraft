@@ -356,7 +356,7 @@ pub fn two_storey_shell() -> Project {
 
 /// [`two_storey_shell`] with a shaft on the upper storey: four 11.5 cm
 /// interior walls referenced at their centres around x 1.0-3.0, y 6.5-8.0,
-/// joined at the corners, which stand free in the room (INP-018). The
+/// joined at the corners; the shaft stands free in the room (INP-018). The
 /// shaft's inner faces enclose 1.885 m x 1.385 m = 2.610725 m². Not a
 /// reference model.
 pub fn two_storey_shell_with_shaft() -> Project {

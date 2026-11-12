@@ -9,53 +9,11 @@ use std::time::{Duration, Instant};
 use archicraft_geometry::evaluate::evaluate_element;
 use archicraft_model::glam::DVec2;
 use archicraft_model::template::default_metric_project;
+use archicraft_model::test_outlines::{comb, rectangle_with_holes};
 use archicraft_model::{Element, Project};
 
 /// The slab point limit of SRS Appendix D.9 (SLB-003).
 const LIMIT: usize = 10_000;
-
-/// A comb of `teeth` unit teeth on a 1 m deep back, counter-clockwise:
-/// `4 * teeth + 3` points (the comb of archicraft-model's validation
-/// tests, reversed).
-fn comb(teeth: usize) -> Vec<DVec2> {
-    let mut ring = Vec::with_capacity(4 * teeth + 3);
-    for i in 0..teeth {
-        let x = 2.0 * i as f64;
-        ring.extend([
-            DVec2::new(x, 0.0),
-            DVec2::new(x, 1.0),
-            DVec2::new(x + 1.0, 1.0),
-            DVec2::new(x + 1.0, 0.0),
-        ]);
-    }
-    let end = 2.0 * teeth as f64;
-    ring.extend([DVec2::new(end, 0.0), DVec2::new(end, -1.0), DVec2::new(0.0, -1.0)]);
-    ring.reverse();
-    ring
-}
-
-/// A rectangle with `count` square holes of 0.5 m on a 1 m grid, holes
-/// clockwise: `4 + 4 * count` points.
-fn rectangle_with_holes(count: usize) -> (Vec<DVec2>, Vec<Vec<DVec2>>) {
-    let columns = (count as f64).sqrt().ceil() as usize;
-    let rows = count.div_ceil(columns);
-    let size = DVec2::new(columns as f64, rows as f64);
-    let outline = vec![DVec2::ZERO, DVec2::new(size.x, 0.0), size, DVec2::new(0.0, size.y)];
-    let holes = (0..count)
-        .map(|k| {
-            let corner = DVec2::new((k % columns) as f64, (k / columns) as f64) + DVec2::splat(0.25);
-            [
-                DVec2::ZERO,
-                DVec2::new(0.0, 0.5),
-                DVec2::splat(0.5),
-                DVec2::new(0.5, 0.0),
-            ]
-            .map(|p| corner + p)
-            .to_vec()
-        })
-        .collect();
-    (outline, holes)
-}
 
 fn area(ring: &[DVec2]) -> f64 {
     let n = ring.len();
@@ -64,7 +22,9 @@ fn area(ring: &[DVec2]) -> f64 {
 
 fn slabs_at_the_limit(project: &Project) -> Vec<(&'static str, Element, f64)> {
     let storey = project.storeys.ground();
-    let outline = comb((LIMIT - 4) / 4);
+    // The comb counter-clockwise, as the slab tool draws it.
+    let mut outline = comb((LIMIT - 4) / 4);
+    outline.reverse();
     assert_eq!(outline.len(), LIMIT - 1);
     let comb_area = area(&outline);
     let (rectangle, holes) = rectangle_with_holes((LIMIT - 4) / 4);

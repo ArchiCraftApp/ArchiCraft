@@ -7,8 +7,9 @@
 use archicraft_geometry::contour::{Chain, ContourGraph, ContourOptions, PlanSegmentSource, Region, Segment};
 use archicraft_geometry::{ModelGeometry, PlanDrawing, ViewRange, plan_drawing};
 use archicraft_model::glam::DVec2;
+use archicraft_model::outline::Ring;
 use archicraft_model::samples::{FixtureBuilder, two_storey_shell, two_storey_shell_with_shaft};
-use archicraft_model::{ANGLE_TOLERANCE, MODEL_TOLERANCE, Position, Project, ReferenceLine};
+use archicraft_model::{ANGLE_TOLERANCE, Command, History, MODEL_TOLERANCE, Position, Project, ReferenceLine, TopLink};
 
 const MICROMETRE: f64 = 1e-6;
 
@@ -44,14 +45,6 @@ fn ring_segments(points: &[DVec2]) -> Vec<[DVec2; 2]> {
 
 fn rectangle(min: DVec2, max: DVec2) -> Vec<DVec2> {
     vec![min, v(max.x, min.y), max, v(min.x, max.y)]
-}
-
-/// Signed area of a ring, positive for counter-clockwise.
-fn signed_area(ring: &[DVec2]) -> f64 {
-    (0..ring.len())
-        .map(|i| ring[i].perp_dot(ring[(i + 1) % ring.len()]))
-        .sum::<f64>()
-        / 2.0
 }
 
 /// Asserts that `found` is the ring `expected`, in the same direction and
@@ -114,9 +107,9 @@ fn spaces_inside_a_room_do_not_split_its_region() {
     let ground = p.storeys.ground();
     let tall = p.new_space(ground, rectangle(v(1.0, 1.0), v(4.0, 5.0)), Vec::new(), 0);
     let mut low = p.new_space(ground, rectangle(v(6.0, 1.0), v(10.0, 7.0)), Vec::new(), 1);
-    low.as_space_mut().unwrap().link.top = archicraft_model::TopLink::Fixed { height: 0.5 };
-    archicraft_model::History::default()
-        .execute(&mut p, archicraft_model::Command::AddElements(vec![tall, low]))
+    low.as_space_mut().unwrap().link.top = TopLink::Fixed { height: 0.5 };
+    History::default()
+        .execute(&mut p, Command::AddElements(vec![tall, low]))
         .unwrap();
 
     let graph = ContourGraph::build(&plan_of(&p, 0), &ContourOptions::default());
@@ -140,7 +133,8 @@ fn the_smallest_region_around_a_point_in_the_ground_room() {
     let room = graph.region_at(v(2.0, 3.0)).unwrap();
     assert_ring(&room.outer, &ground_room());
     let area = 11.5 * 8.5 - 0.115 * 5.75;
-    assert!((signed_area(&room.outer) - 97.08875).abs() < 1e-6, "{room:?}");
+    let signed_area = Ring::<()>::from_points(room.outer.iter().copied()).signed_area();
+    assert!((signed_area - 97.08875).abs() < 1e-6, "{room:?}");
     assert!((room.area() - area).abs() < 1e-6);
     assert!(room.islands.is_empty(), "{:?}", room.islands);
 
@@ -188,6 +182,9 @@ fn the_shaft_walls_on_the_upper_storey_are_an_island_of_the_room() {
     let walls = graph.region_at(v(1.0, 7.25)).unwrap();
     assert_ring(&walls.outer, &rectangle(v(0.9425, 6.4425), v(3.0575, 8.0575)));
     assert_eq!(walls.islands.len(), 1, "{:?}", walls.islands);
+    let mut inside = inner;
+    inside.reverse();
+    assert_ring(&walls.islands[0], &inside);
 
     assert_eq!(graph.region_at(v(-1.0, 3.0)), None, "outside the building");
 }
@@ -220,6 +217,49 @@ fn a_gap_below_the_tolerance_closes_the_region_and_a_wider_one_does_not() {
     assert_eq!(region.outer.len(), 4, "the side's two halves merge: {region:?}");
     split_side[4][0] = v(2.0 + 20.0 * MICROMETRE, 0.0);
     assert_eq!(graph_of(&split_side).region_at(v(2.0, 2.0)), None);
+}
+
+/// INP-018, NFR-ACC-003: a crossing point snaps to a vertex within the
+/// model tolerance. A line into a 4 m square that crosses its south side
+/// 5 µm from the south-east corner adds no vertex there: the graph has the
+/// square's corners and the line's ends, the square's four sides and the
+/// line split at the corner, and the square is the region around its
+/// centre, the line's inner half an antenna in it.
+#[test]
+fn a_crossing_5_um_from_a_vertex_snaps_to_it() {
+    let square = rectangle(v(0.0, 0.0), v(4.0, 4.0));
+    let corner = square[1];
+    let crossing = corner - v(5.0 * MICROMETRE, 0.0);
+    let along = v(-0.5, 1.0);
+    let line = [crossing - along, crossing + along];
+    assert!(
+        distance_to_ring(&line, corner) < MODEL_TOLERANCE,
+        "the line passes the corner"
+    );
+    let mut segments = ring_segments(&square);
+    segments.push(line);
+    let graph = graph_of(&segments);
+
+    let edges: Vec<Segment> = graph.edges().collect();
+    assert_eq!(edges.len(), 6, "four sides and the line in two: {edges:?}");
+    let mut vertices: Vec<DVec2> = edges.iter().flat_map(|edge| edge.points).collect();
+    vertices.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+    vertices.dedup();
+    let mut expected: Vec<DVec2> = square.iter().copied().chain(line).collect();
+    expected.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+    assert_eq!(vertices, expected, "no vertex at the crossing {crossing}");
+    for end in line {
+        assert!(
+            edges
+                .iter()
+                .any(|edge| edge.points.contains(&end) && edge.points.contains(&corner)),
+            "the line runs from {end} to the corner: {edges:?}"
+        );
+    }
+
+    let region = graph.region_at(v(2.0, 2.0)).unwrap();
+    assert_ring(&region.outer, &square);
+    assert!(region.islands.is_empty(), "{region:?}");
 }
 
 /// INP-018: overlapping collinear segments become one set of edges: no
@@ -616,6 +656,46 @@ fn slab_outlines_on_wall_faces_create_no_zero_area_faces() {
     assert_eq!(areas.len(), 2, "{areas:?}");
     assert!((areas[0] - (48.0 - 41.25)).abs() < 1e-6, "{areas:?}");
     assert!((areas[1] - 41.25).abs() < 1e-6, "{areas:?}");
+}
+
+/// INP-018: the plan source passes on the projected and overhead lines as
+/// well as the outlines of the cut. On a storey without walls, a slab at the
+/// storey elevation, below the cut plane, bounds a region with its projected
+/// outline, and a slab 2.5 m up, above the cut plane, one with its overhead
+/// outline.
+#[test]
+fn projected_and_overhead_lines_bound_regions() {
+    let mut b = FixtureBuilder::new("slabs-below-and-above").titled("Slabs below and above the cut plane");
+    let ground = b.storey(0);
+    let below = rectangle(v(0.0, 0.0), v(4.0, 3.0));
+    let above = rectangle(v(6.0, 0.0), v(10.0, 3.0));
+    b.slab(ground, below.clone(), Vec::new());
+    let ceiling = b.slab(ground, above.clone(), Vec::new());
+    b.edit(ceiling, |e| e.as_slab_mut().unwrap().offset = 2.5);
+    let plan = plan_of(&b.finish(), 0);
+    assert!(plan.cut_regions.is_empty(), "nothing is cut: {:?}", plan.cut_regions);
+    let [floor, ceiling] = plan.elements.as_slice() else {
+        panic!("two slabs: {:?}", plan.elements);
+    };
+    assert!(!floor.projected.is_empty() && floor.overhead.is_empty(), "{floor:?}");
+    assert!(
+        ceiling.projected.is_empty() && !ceiling.overhead.is_empty(),
+        "{ceiling:?}"
+    );
+
+    let segments = plan.segments(&ContourOptions::default());
+    for &[a, b] in floor.projected.iter().chain(&ceiling.overhead) {
+        assert!(
+            segments.contains(&Segment::new(a, b)),
+            "{a} - {b} is missing: {segments:?}"
+        );
+    }
+    let graph = ContourGraph::build(&plan, &ContourOptions::default());
+    for (seed, outline) in [(v(2.0, 1.5), &below), (v(8.0, 1.5), &above)] {
+        let region = graph.region_at(seed).unwrap_or_else(|| panic!("no region at {seed}"));
+        assert_ring(&region.outer, outline);
+        assert!(region.islands.is_empty(), "{region:?}");
+    }
 }
 
 /// INP-018: on the ground storey of the two-storey shell, the clicked edge

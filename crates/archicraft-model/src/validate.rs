@@ -314,8 +314,9 @@ pub fn validate_wall(wall: &Wall) -> Result<(), Message> {
 
 /// Range checks for the base offset and top of a vertical element (ELM-006).
 /// A storey the top is linked to is checked by the kind, and the resulting
-/// extent by [`validate_element`]. The fixed-height message names walls;
-/// spaces and columns check a fixed height with their own message first.
+/// extent by [`validate_element`]. The fixed-height message names walls: a
+/// kind with a fixed-height message of its own, as spaces and columns have,
+/// checks a fixed height before it calls this.
 pub fn check_vertical_link(link: &VerticalLink) -> Result<(), Message> {
     check_offset(link.base_offset, "model-error-base-offset-range")?;
     match link.top {
@@ -723,6 +724,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
+    use crate::test_outlines::{comb, long_comb, rectangle_with_holes};
 
     /// The signed area of a ring of points, positive counter-clockwise.
     fn signed_area(ring: &[DVec2]) -> f64 {
@@ -777,29 +779,6 @@ mod tests {
         assert!(validate_slab_polygon(&square(4.0), &[outside]).is_err());
         let touching: Vec<DVec2> = square(1.0);
         assert!(validate_slab_polygon(&square(4.0), &[touching]).is_err());
-    }
-
-    /// A comb with `teeth` teeth: `4 * teeth + 3` points, right angles only
-    /// and no self-intersection.
-    fn comb(teeth: usize) -> Vec<DVec2> {
-        long_comb(teeth, 1.0)
-    }
-
-    /// [`comb`] with teeth `length` long, 1 m wide and 1 m apart.
-    fn long_comb(teeth: usize, length: f64) -> Vec<DVec2> {
-        let mut ring = Vec::new();
-        for i in 0..teeth {
-            let x = 2.0 * i as f64;
-            ring.extend([
-                DVec2::new(x, 0.0),
-                DVec2::new(x, length),
-                DVec2::new(x + 1.0, length),
-                DVec2::new(x + 1.0, 0.0),
-            ]);
-        }
-        let end = 2.0 * teeth as f64;
-        ring.extend([DVec2::new(end, 0.0), DVec2::new(end, -1.0), DVec2::new(0.0, -1.0)]);
-        ring
     }
 
     /// `ring` turned by `degrees` about the origin.
@@ -970,15 +949,13 @@ mod tests {
     /// that thousands of long edges are side by side.
     fn slabs_at_the_limit() -> Vec<(&'static str, Vec<DVec2>, Holes)> {
         let teeth = (MAX_SLAB_POINTS - 3) / 4;
-        let grid_holes: Vec<Vec<DVec2>> = (0..teeth)
-            .map(|i| moved(&square(0.5), DVec2::new((i % 50) as f64, (i / 50) as f64) + 0.25))
-            .collect();
+        let (rectangle, grid_holes) = rectangle_with_holes(teeth);
         let base_holes: Vec<Vec<DVec2>> = (0..teeth / 2)
             .map(|i| moved(&square(0.5), DVec2::new(2.0 * i as f64 + 0.25, -0.75)))
             .collect();
         vec![
             ("comb", comb(teeth), Vec::new()),
-            ("rectangle with holes", square(50.0), grid_holes),
+            ("rectangle with holes", rectangle, grid_holes),
             ("comb with holes", comb(teeth / 2 + 1), base_holes),
             (
                 "long comb turned by 30°",

@@ -7,13 +7,14 @@
 use std::f64::consts::FRAC_PI_6;
 
 use archicraft_geometry::space::{RegionError, SpaceRegions, space_region};
+use archicraft_geometry::{ContourGraph, ContourOptions, ModelGeometry, ViewRange, plan_drawing};
 use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::{Anchor, Column, CrossSection};
 use archicraft_model::outline::Outline;
 use archicraft_model::samples::two_storey_shell_with_shaft;
 use archicraft_model::template::default_metric_project;
 use archicraft_model::{
-    Command, Element, History, MODEL_TOLERANCE, Profile, ProfileRegion, Project, ReferenceLine, StoreyId,
+    Command, Element, ElementId, History, MODEL_TOLERANCE, Profile, ProfileRegion, Project, ReferenceLine, StoreyId,
 };
 
 fn v(x: f64, y: f64) -> DVec2 {
@@ -184,6 +185,156 @@ fn one_graph_answers_every_seed_whatever_the_drawing_order() {
             let outline = region.map(|r| Outline::from_point_rings(std::iter::once(r.outer).chain(r.islands)));
             assert_eq!(outline, expected, "storey {index}, {seed}");
         }
+    }
+}
+
+/// SPC-001, INP-018: walls really drawn in another order get other
+/// identities, and junction resolution intersects the faces of two walls in
+/// the order of their identities (`ordered_intersect`), so their corners may
+/// differ in the last bits. The shell's walls, deleted and added again in
+/// reverse through `AddElements`, with new identities in the reverse order
+/// of the old ones so that every junction intersects its faces the other
+/// way round, give the shell's boundaries within the model tolerance.
+#[test]
+fn walls_drawn_again_in_reverse_give_the_same_boundaries() {
+    let project = two_storey_shell_with_shaft();
+    let walls: Vec<Element> = project
+        .elements
+        .values()
+        .filter(|e| e.as_wall().is_some())
+        .cloned()
+        .collect();
+    assert_eq!(walls.len(), 14, "five walls on each storey and the shaft's four");
+    let mut old: Vec<ElementId> = walls.iter().map(|w| w.id).collect();
+    old.sort();
+    let mut new: Vec<ElementId> = walls.iter().map(|_| ElementId::new()).collect();
+    new.sort();
+    new.reverse();
+    let renamed = |id: ElementId| new[old.binary_search(&id).unwrap()];
+    for a in &walls {
+        for b in &walls {
+            assert_eq!(a.id < b.id, renamed(b.id) < renamed(a.id), "{} and {}", a.name, b.name);
+        }
+    }
+
+    let mut redrawn = project.clone();
+    let mut history = History::default();
+    history
+        .execute(&mut redrawn, Command::DeleteElements(old.clone()))
+        .unwrap();
+    let again = walls.iter().rev().map(|wall| Element {
+        id: renamed(wall.id),
+        ..wall.clone()
+    });
+    history
+        .execute(&mut redrawn, Command::AddElements(again.collect()))
+        .unwrap();
+
+    let seeds = [v(2.0, 3.0), v(2.0, 7.25), v(9.0, 7.0), v(1.0, 7.25), v(-1.0, 3.0)];
+    let mut rooms = 0;
+    for index in [0, 1] {
+        let on = storey(&project, index);
+        for seed in seeds {
+            let (drawn, again) = (space_region(&project, on, seed), space_region(&redrawn, on, seed));
+            let (Ok(drawn), Ok(again)) = (&drawn, &again) else {
+                assert_eq!(drawn, again, "storey {index}, {seed}");
+                continue;
+            };
+            let ((outer, holes), (outer_again, holes_again)) = (drawn.to_points(), again.to_points());
+            assert_ring(&outer_again, &outer);
+            assert_eq!(holes_again.len(), holes.len(), "storey {index}, {seed}");
+            for (hole_again, hole) in holes_again.iter().zip(&holes) {
+                assert_ring(hole_again, hole);
+            }
+            rooms += 1;
+        }
+    }
+    assert_eq!(
+        rooms, 7,
+        "four seeds in rooms on the ground storey, two and the shaft above"
+    );
+}
+
+/// The 20 cm wall referenced at its centre from `start` to `end`, the
+/// `nth` new one.
+fn centred_wall(project: &Project, storey: StoreyId, start: DVec2, end: DVec2, nth: u32) -> Element {
+    let mut element = project.new_wall(storey, start, end, nth);
+    let wall = element.as_wall_mut().unwrap();
+    wall.thickness = 0.2;
+    wall.reference_line = ReferenceLine::Center;
+    element
+}
+
+/// [`walled_room`] with a U of three walls like its own standing free in
+/// it: from (1, 2) east to (3, 2), 15 cm north and back west to (1, 2.15).
+/// The middle wall is shorter than it is thick, so its L junctions fold it:
+/// its joined footprint crosses itself, its body has square ends instead
+/// (WAL-027), and the U's outline has a notch at each of its outer corners.
+fn room_with_a_folded_u() -> (Project, StoreyId) {
+    let (mut project, ground) = walled_room(false, &[]);
+    let u = [
+        (v(1.0, 2.0), v(3.0, 2.0)),
+        (v(3.0, 2.0), v(3.0, 2.15)),
+        (v(3.0, 2.15), v(1.0, 2.15)),
+    ];
+    let walls = u
+        .iter()
+        .zip(0..)
+        .map(|(&(start, end), nth)| centred_wall(&project, ground, start, end, nth))
+        .collect();
+    History::default()
+        .execute(&mut project, Command::AddElements(walls))
+        .unwrap();
+    (project, ground)
+}
+
+/// SPC-001, WAL-027: a detected boundary follows the walls' bodies as the
+/// plan and the 3D views show them, also where a junction folds a short
+/// wall and its body falls back to square ends. The U in
+/// [`room_with_a_folded_u`] is an island of the room with a notch at each
+/// outer corner, as in the plan's contour region around the seed, and a seed
+/// in a notch lies in the room, not in a wall's footprint.
+#[test]
+fn a_wall_folded_by_its_junctions_bounds_the_room_with_its_square_ends() {
+    let (project, ground) = room_with_a_folded_u();
+    let seed = v(0.5, 0.5);
+    let boundary = space_region(&project, ground, seed).unwrap();
+    let (outer, holes) = boundary.to_points();
+    assert_ring(&outer, &rectangle(v(0.1, 0.1), v(4.9, 3.9)));
+    assert_eq!(holes.len(), 1, "{holes:?}");
+    // The mitres of the outer corners end on the middle wall's square ends,
+    // 10 cm in from its east face.
+    let mut u = vec![
+        v(1.0, 1.9),
+        v(3.1, 1.9),
+        v(3.0, 2.0),
+        v(3.1, 2.0),
+        v(3.1, 2.15),
+        v(3.0, 2.15),
+        v(3.1, 2.25),
+        v(1.0, 2.25),
+    ];
+    u.reverse();
+    assert_ring(&holes[0], &u);
+
+    let geometry = ModelGeometry::evaluate(&project);
+    assert!(geometry.problems.is_empty(), "{:?}", geometry.problems);
+    let plan = plan_drawing(
+        &project,
+        &geometry,
+        ground,
+        ViewRange::for_storey(&project, ground),
+        |_| true,
+    );
+    let in_plan = ContourGraph::build(&plan, &ContourOptions::default())
+        .region_at(seed)
+        .unwrap();
+    assert_ring(&in_plan.outer, &outer);
+    assert_eq!(in_plan.islands.len(), 1, "{:?}", in_plan.islands);
+    assert_ring(&in_plan.islands[0], &u);
+
+    for notch in [v(3.08, 1.99), v(3.08, 2.16)] {
+        assert_eq!(space_region(&project, ground, notch).as_ref(), Ok(&boundary), "{notch}");
     }
 }
 
