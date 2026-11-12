@@ -12,8 +12,9 @@ use archicraft_app::persistence::DataDirs;
 use archicraft_app::persistence::autosave::{Clock, SystemClock};
 use archicraft_app::persistence::crash::RecentLog;
 use archicraft_app::persistence::prefs::Preferences;
+use egui::accesskit::Role;
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{By, Queryable};
 
 /// The application at 100 % scaling. Its data folder is keyed by `name` and
 /// the process id, so tests running in parallel do not share recovery
@@ -58,6 +59,16 @@ pub fn harness_with_clock(
         .build_eframe(move |_| app);
     harness.run_steps(3);
     harness
+}
+
+/// The entry of an open menu whose label contains `label`: a button wider
+/// than high, unlike the toolbar's square icon button of the same command
+/// (UI-001, UI-017).
+pub fn menu_entry<'h>(harness: &'h Harness<'static, ArchiCraftApp>, label: &'h str) -> egui_kittest::Node<'h> {
+    harness
+        .query_all(By::new().role(Role::Button).label_contains(label))
+        .find(|n| n.rect().width() > n.rect().height() + 1.0)
+        .unwrap_or_else(|| panic!("no menu entry “{label}”"))
 }
 
 pub fn assert_present(harness: &Harness<'static, ArchiCraftApp>, label: &str) {

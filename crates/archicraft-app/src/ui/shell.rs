@@ -9,7 +9,8 @@ use egui::{RichText, Ui};
 
 use super::command_widgets::{ICON_BUTTON, bar_button, menu_item, tool_button, toolbar_button};
 use crate::commands::{
-    CommandCtx, CommandId, CommandSpec, MENUS, MenuEntry, Registry, edit, file, menu_title, toolbox_groups, tools, view,
+    CommandCtx, CommandId, CommandSpec, MENUS, MenuEntry, Registry, edit, file, menu_title, project, toolbox_groups,
+    tools, view,
 };
 use crate::input::InputMode;
 use crate::persistence::prefs::MAX_TOOLBOX_COLUMNS;
@@ -91,8 +92,10 @@ pub fn menu_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx) -> (Option<Command
 
 /// The toolbar below the menu bar (UI-011): Save at the far left (PRJ-003),
 /// a separator, Undo and Redo, a separator, Pick up and Inject parameters
-/// (ELM-003), a separator, the Measure tool (MEA-001), a separator, then
-/// Group and Ungroup (ELM-015), greyed out while they cannot run. Each is
+/// (ELM-003), a separator, the Measure tool (MEA-001), a separator, Group
+/// and Ungroup (ELM-015), greyed out while they cannot run, a separator,
+/// then Layers, Materials and the project settings at the right end, which
+/// open their dialogs (UI-017; the Project menu has them too). Each is
 /// an icon button of the toolbox's size without text (UI-001,
 /// [`toolbar_button`]), its label in the tooltip with the shortcut and
 /// description from the registry. A command with a checked state, such as a
@@ -110,11 +113,14 @@ pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
             tools::MEASURE,
             edit::GROUP,
             edit::UNGROUP,
+            project::LAYERS,
+            project::MATERIALS,
+            project::SETTINGS,
         ];
         for (i, id) in ids.into_iter().enumerate() {
-            // Save, the history, the parameter transfer, the measure tool
-            // and the groups stand apart.
-            if [1, 3, 5, 6].contains(&i) {
+            // Save, the history, the parameter transfer, the measure tool,
+            // the groups and the project's dialogs stand apart.
+            if [1, 3, 5, 6, 8].contains(&i) {
                 ui.separator();
             }
             if toolbar_button(ui, cx, spec(id)) {

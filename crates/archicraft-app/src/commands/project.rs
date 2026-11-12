@@ -6,6 +6,7 @@ use archicraft_model::{Command, Material, MaterialId, Storey, StoreyId};
 use super::{Category, CommandId, CommandSpec, Enabled, Handler};
 use crate::ArchiCraftApp;
 use crate::tr;
+use crate::ui::icons;
 use crate::workspace::Workspace;
 
 pub const STOREYS: CommandId = CommandId::new("project.storeys");
@@ -29,9 +30,10 @@ pub(super) fn specs() -> Vec<CommandSpec> {
     };
     vec![
         project(STOREYS, 0, 0, |app, _, _| app.dialogs.storeys = true),
-        project(LAYERS, 0, 1, |app, _, _| app.dialogs.layers = true),
-        project(MATERIALS, 0, 2, |app, _, _| app.dialogs.materials = true),
-        project(SETTINGS, 0, 3, |app, _, _| app.dialogs.open_project_settings(&app.ws)),
+        // The toolbar shows these three as icons (UI-001, UI-011).
+        project(LAYERS, 0, 1, |app, _, _| app.dialogs.layers = true).icon(icons::LAYERS),
+        project(MATERIALS, 0, 2, |app, _, _| app.dialogs.materials = true).icon(icons::MATERIALS),
+        project(SETTINGS, 0, 3, |app, _, _| app.dialogs.open_project_settings(&app.ws)).icon(icons::SETTINGS),
         project(INSERT_STOREY_ABOVE, 1, 0, |app, _, target| {
             insert_storey(app, target.storey, true)
         }),
