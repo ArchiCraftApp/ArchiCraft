@@ -572,6 +572,13 @@ Any crash, timeout or out-of-memory input fails the job and is uploaded as the
 `fuzz-findings` artefact (the contents of `fuzz/artifacts/`, kept for 30 days); download it
 with `gh run download <run id> -n fuzz-findings` and promote each input as described next.
 
+**Lock file.** `fuzz/` is its own workspace, so the stable build never resolves it, and a
+dependency added to or removed from the model, geometry or IFCX crate leaves
+`fuzz/Cargo.lock` stale. `crates/archicraft-ifcx/tests/fuzz_lock.rs` runs
+`cargo metadata --locked` on `fuzz/Cargo.toml` in the workspace tests, so the pull request that
+makes the lock stale fails there, not the nightly job after it merged. Update the lock with
+`cargo update --workspace --manifest-path fuzz/Cargo.toml` and commit it with the change.
+
 **Promoting a finding.** A crash, timeout or out-of-memory input lands in
 `fuzz/artifacts/<target>/`. Minimise it with
 `cargo +nightly fuzz tmin <target> fuzz/artifacts/<target>/<file>`, fix the cause, and commit
