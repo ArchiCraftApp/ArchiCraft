@@ -355,7 +355,9 @@ roundtrip.rs live in `crates/archicraft-ifcx/tests/roundtrip.rs`, and those name
 The negative self-test (`scripts/guards-selftest.sh`) runs each guard on a canned violation
 (`cargo tree` output in `scripts/testdata/`, and a scratch repository with a trademark line and
 tracked `*.gsm`, `*.png`, `*.svg`, `*.ico`, `*.icns`, `*.webp`, `*.tif` and `*.tiff` files) and
-fails if a guard lets it pass.
+fails if a guard lets it pass. It also runs `scripts/tests/test_macos_actool.sh`, which checks
+the choice of Xcode's actool in `scripts/package-macos.sh` (`scripts/macos-actool.sh`) against
+fake Xcodes and a fake `xcrun`, so it needs no Xcode.
 
 Every requirement marked done in docs/status/requirements.json has a row here.
 

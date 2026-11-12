@@ -461,11 +461,13 @@ pub fn default_metric_project_with(ids: &mut dyn FnMut(&str) -> Uuid) -> Project
                 id: ViewId::from_uuid(ids("view")),
                 name: "3D perspective".to_owned(),
                 projection: Projection::Perspective,
+                camera: None,
             },
             View3d {
                 id: ViewId::from_uuid(ids("view")),
                 name: "3D parallel".to_owned(),
                 projection: Projection::Parallel,
+                camera: None,
             },
         ],
         counters: NameCounters::default(),

@@ -43,13 +43,21 @@ pub const CAMERA: ImageSource<'static> = include_image!("../../assets/icons/came
 /// A tall, steep box drawn in parallel projection: a 3D view in parallel
 /// projection (VIEW-003, VIEW-020).
 pub const PARALLEL_BOX: ImageSource<'static> = include_image!("../../assets/icons/parallel-box.svg");
+/// Three sheets stacked in oblique projection: the Layers dialog (LAY-001,
+/// UI-017).
+pub const LAYERS: ImageSource<'static> = include_image!("../../assets/icons/layers.svg");
+/// A square sample with section hatching: the Materials dialog (MAT-001,
+/// UI-017).
+pub const MATERIALS: ImageSource<'static> = include_image!("../../assets/icons/materials.svg");
+/// A gear: the Project settings dialog (PRJ-009, UI-017).
+pub const SETTINGS: ImageSource<'static> = include_image!("../../assets/icons/settings.svg");
 /// A window outline with its right column marked off and lined: the
 /// project browser beside the views, which the tab row's toggle shows and
 /// hides (UI-004).
 pub const SIDEBAR_RIGHT: ImageSource<'static> = include_image!("../../assets/icons/sidebar-right.svg");
 
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 21] = [
+pub const ALL: [ImageSource<'static>; 24] = [
     SELECT,
     WALL,
     SLAB,
@@ -70,6 +78,9 @@ pub const ALL: [ImageSource<'static>; 21] = [
     PLAN_SHEET,
     CAMERA,
     PARALLEL_BOX,
+    LAYERS,
+    MATERIALS,
+    SETTINGS,
     SIDEBAR_RIGHT,
 ];
 

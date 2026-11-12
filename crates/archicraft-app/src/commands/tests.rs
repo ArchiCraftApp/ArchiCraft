@@ -767,6 +767,9 @@ fn toolbar_commands_are_registered() {
         edit::GROUP,
         edit::UNGROUP,
         edit::SUSPEND_GROUPS,
+        project::LAYERS,
+        project::MATERIALS,
+        project::SETTINGS,
         view::FIT_WINDOW,
         view::PREVIOUS_ZOOM,
         view::NEXT_ZOOM,
@@ -802,6 +805,9 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             "edit::GROUP" => vec![edit::GROUP],
             "edit::UNGROUP" => vec![edit::UNGROUP],
             "tools::MEASURE" => vec![tools::MEASURE],
+            "project::LAYERS" => vec![project::LAYERS],
+            "project::MATERIALS" => vec![project::MATERIALS],
+            "project::SETTINGS" => vec![project::SETTINGS],
             _ => panic!("ui/shell.rs shows {path} in the toolbar: list it here"),
         }
     };
@@ -816,7 +822,7 @@ fn toolbar_and_toolbox_buttons_have_their_own_icons() {
             }
         }
     }
-    assert_eq!(ids.len(), 17, "{ids:?}");
+    assert_eq!(ids.len(), 20, "{ids:?}");
     let mut icons = HashSet::new();
     for id in ids {
         let icon = spec(id.as_str())
@@ -938,9 +944,9 @@ fn command_paths(source: &str) -> Vec<String> {
 /// follows. The toolbar and the status bar invoke their buttons' commands
 /// by id (UI-001, UI-011), through constants of the command modules, and
 /// the toolbox shows the registry's toolbox places; the toolbar names Save,
-/// Undo, Redo, Measure, Group and Ungroup, in that order (the order of the
-/// buttons; Pick up and Inject take their place before Measure), and
-/// nothing else. The scan holds on a CRLF copy of the source too, as a
+/// Undo, Redo, Measure, Group, Ungroup, Layers, Materials and the project
+/// settings, in that order (the order of the buttons; Pick up and Inject
+/// take their place before Measure), and nothing else. The scan holds on a CRLF copy of the source too, as a
 /// Windows checkout with `core.autocrlf` has it.
 #[test]
 fn shell_names_no_command() {
@@ -992,7 +998,10 @@ fn assert_shell_names_no_command(source: &str) {
             "edit::INJECT_PARAMETERS",
             "tools::MEASURE",
             "edit::GROUP",
-            "edit::UNGROUP"
+            "edit::UNGROUP",
+            "project::LAYERS",
+            "project::MATERIALS",
+            "project::SETTINGS"
         ]
     );
     // The toolbox comes from the registry's toolbox places.

@@ -523,6 +523,8 @@ fn read_view(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem
             id: ViewId::from_uuid(id),
             name: text(map, "name")?,
             projection: code(map, "projection", Projection::from_code)?,
+            // Saved cameras are not in IFCX yet (archicraft-55lt0).
+            camera: None,
         })
     });
     view.map_err(|e| report.skipped(e)).ok()
@@ -1435,6 +1437,7 @@ fn read_migrated<A: AttributeValue>(
             id: ViewId::new(),
             name: "3D perspective".into(),
             projection: Projection::Perspective,
+            camera: None,
         });
     }
 

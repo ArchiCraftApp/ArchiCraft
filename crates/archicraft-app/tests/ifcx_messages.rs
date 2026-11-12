@@ -60,6 +60,7 @@ fn representatives() -> Vec<Message> {
         "ifcx-element-group-missing",
         "ifcx-element-profile-missing",
         "ifcx-column-profile-missing",
+        "ifcx-column-profile-not-for-columns",
         "ifcx-no-project",
         "ifcx-project-not-object",
         "ifcx-no-site",

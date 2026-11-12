@@ -63,6 +63,10 @@ fn representatives() -> Vec<Message> {
             "model-label-insert-relation",
             "model-label-remove-relation",
             "model-label-pick-up-settings",
+            "model-label-save-camera",
+            "model-label-update-camera",
+            "model-label-rename-view",
+            "model-label-delete-view",
         ]
         .map(Message::new),
     );
@@ -175,6 +179,10 @@ fn error_representatives() -> Vec<Message> {
         "model-error-duplicate-group-id",
         "model-error-group-not-found",
         "model-error-group-name",
+        "model-error-view-not-found",
+        "model-error-view-name",
+        "model-error-view-camera",
+        "model-error-duplicate-view-id",
         "model-error-group-change",
         "model-error-relation-derived",
         "model-error-relation-not-found",

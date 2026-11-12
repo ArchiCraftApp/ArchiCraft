@@ -19,12 +19,15 @@ use thiserror::Error;
 use crate::changes::ChangeLog;
 use crate::element::{Element, KindTag};
 use crate::group::Group;
-use crate::ids::{ElementId, GroupId, LayerId, MaterialId, ProfileId, RelationId, StoreyId};
+use crate::ids::{ElementId, GroupId, LayerId, MaterialId, ProfileId, RelationId, StoreyId, ViewId};
 use crate::layer::Layer;
 use crate::material::Material;
 use crate::message::Message;
 use crate::profile::Profile;
-use crate::project::{DefaultsSlot, Location, NameCounters, Project, ProjectInfo, ProjectSettings, ToolDefaults};
+use crate::project::{
+    DefaultsSlot, Location, NameCounters, Project, ProjectInfo, ProjectSettings, Projection, ToolDefaults, View3d,
+    ViewCamera,
+};
 use crate::relations::Relation;
 use crate::storey::{MAX_CUT_PLANE_HEIGHT, Storey, StoreyList};
 use crate::tolerance::near_zero;
@@ -157,6 +160,29 @@ pub enum Command {
         element: ElementId,
         into: KindTag,
     },
+    /// Saves a viewpoint as a new 3D view with the identity `view` (VIEW-004,
+    /// VIEW-003), after the other views. It gets `projection`, `camera` and
+    /// the name [`Project::next_view_name`] gives for `base`, the localized
+    /// word for a camera.
+    SaveCamera {
+        view: ViewId,
+        base: String,
+        projection: Projection,
+        camera: ViewCamera,
+    },
+    /// Redefines a 3D view from the current window (VIEW-004): it keeps its
+    /// identity, name and projection and gets `camera`.
+    SetViewCamera {
+        view: ViewId,
+        camera: ViewCamera,
+    },
+    RenameView {
+        view: ViewId,
+        name: String,
+    },
+    DeleteView {
+        view: ViewId,
+    },
 }
 
 /// Why a command was rejected. Each variant carries a message key with its
@@ -238,6 +264,10 @@ impl Command {
                 elements("model-label-inject-settings", distinct.len())
             }
             Command::PickUpSettings { .. } => Message::new("model-label-pick-up-settings"),
+            Command::SaveCamera { .. } => Message::new("model-label-save-camera"),
+            Command::SetViewCamera { .. } => Message::new("model-label-update-camera"),
+            Command::RenameView { .. } => Message::new("model-label-rename-view"),
+            Command::DeleteView { .. } => Message::new("model-label-delete-view"),
         }
     }
 
@@ -439,8 +469,64 @@ impl Command {
             }
             Command::InjectSettings { source, targets } => plan_inject_settings(project, *source, targets),
             Command::PickUpSettings { element, into } => plan_pick_up_settings(project, *element, *into),
+            Command::SaveCamera {
+                view,
+                base,
+                projection,
+                camera,
+            } => {
+                camera.validate().map_err(CommandError::Invalid)?;
+                if base.trim().is_empty() {
+                    return Err(invalid("model-error-view-name"));
+                }
+                if project.view(*view).is_some() {
+                    return Err(invalid("model-error-duplicate-view-id"));
+                }
+                Ok(vec![Edit::InsertView {
+                    index: project.views.len(),
+                    view: View3d {
+                        id: *view,
+                        name: project.next_view_name(base),
+                        projection: *projection,
+                        camera: Some(*camera),
+                    },
+                }])
+            }
+            Command::SetViewCamera { view, camera } => {
+                camera.validate().map_err(CommandError::Invalid)?;
+                let old = find_view(project, *view)?;
+                if old.camera == Some(*camera) {
+                    return Err(CommandError::NoChange);
+                }
+                Ok(vec![Edit::ReplaceView(View3d {
+                    camera: Some(*camera),
+                    ..old.clone()
+                })])
+            }
+            Command::RenameView { view, name } => {
+                let old = find_view(project, *view)?;
+                let name = name.trim();
+                if name.is_empty() {
+                    return Err(invalid("model-error-view-name"));
+                }
+                if old.name == name {
+                    return Err(CommandError::NoChange);
+                }
+                Ok(vec![Edit::ReplaceView(View3d {
+                    name: name.to_owned(),
+                    ..old.clone()
+                })])
+            }
+            Command::DeleteView { view } => {
+                find_view(project, *view)?;
+                Ok(vec![Edit::RemoveView { id: *view }])
+            }
         }
     }
+}
+
+fn find_view(project: &Project, id: ViewId) -> Result<&View3d, CommandError> {
+    project.view(id).ok_or_else(|| not_found("model-error-view-not-found"))
 }
 
 fn find_element(project: &Project, id: ElementId) -> Result<&Element, CommandError> {
@@ -1234,6 +1320,9 @@ pub enum Edit {
     SetGroupCounter(u32),
     InsertRelation(Relation),
     RemoveRelation(RelationId),
+    InsertView { index: usize, view: View3d },
+    RemoveView { id: ViewId },
+    ReplaceView(View3d),
 }
 
 impl Edit {
@@ -1395,6 +1484,31 @@ impl Edit {
                     .remove(id)
                     .ok_or_else(|| not_found("model-error-relation-not-found"))?,
             ),
+            Edit::InsertView { index, view } => {
+                let id = view.id;
+                let index = index.min(project.views.len());
+                project.views.insert(index, view);
+                Edit::RemoveView { id }
+            }
+            Edit::RemoveView { id } => {
+                let index = project
+                    .views
+                    .iter()
+                    .position(|v| v.id == id)
+                    .ok_or_else(|| not_found("model-error-view-not-found"))?;
+                Edit::InsertView {
+                    index,
+                    view: project.views.remove(index),
+                }
+            }
+            Edit::ReplaceView(view) => {
+                let slot = project
+                    .views
+                    .iter_mut()
+                    .find(|v| v.id == view.id)
+                    .ok_or_else(|| not_found("model-error-view-not-found"))?;
+                Edit::ReplaceView(std::mem::replace(slot, view))
+            }
         };
         project.revision += 1;
         stamp_changes(project, &inverse);
@@ -1459,7 +1573,10 @@ fn stamp_changes(project: &mut Project, inverse: &Edit) {
         | Edit::InsertGroup { .. }
         | Edit::RemoveGroup { .. }
         | Edit::ReplaceGroup(_)
-        | Edit::SetGroupCounter(_) => {}
+        | Edit::SetGroupCounter(_)
+        | Edit::InsertView { .. }
+        | Edit::RemoveView { .. }
+        | Edit::ReplaceView(_) => {}
     }
 }
 
