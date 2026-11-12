@@ -1,13 +1,17 @@
 //! The project browser (VIEW-003, STR-003, UI-005).
 
-use archicraft_model::StoreyId;
 use archicraft_model::units::format_length;
-use egui::{Atoms, Button, Image, ImageSource, Response, RichText, TextStyle, Ui, Vec2, WidgetText};
+use archicraft_model::{Command, StoreyId, ViewId};
+use egui::text::{CCursor, CCursorRange};
+use egui::{
+    Atoms, Button, Context, Id, Image, ImageSource, Key, Response, RichText, TextEdit, TextStyle, Ui, Vec2, WidgetText,
+};
 
-use super::command_widgets::menu_item;
+use super::command_widgets::{menu_item, menu_item_for};
 use super::icons;
 use crate::commands::project::{DELETE_STOREY, EDIT_STOREY, INSERT_STOREY_ABOVE, INSERT_STOREY_BELOW};
-use crate::commands::{CommandCtx, Origin, Registry, Target};
+use crate::commands::view3d::{DELETE_VIEW, RENAME_VIEW, SAVE_CAMERA, UPDATE_CAMERA};
+use crate::commands::{CommandCtx, Enabled, Origin, Registry, Target};
 use crate::tr;
 use crate::workspace::{Pane, Request, Workspace};
 
@@ -30,10 +34,102 @@ fn row(ui: &mut Ui, selected: bool, icon: ImageSource<'static>, text: impl Into<
     )
 }
 
+/// Opens the 3D view `view` in a tab (VIEW-003). An open camera view
+/// returns to its saved viewpoint (VIEW-004), as a closed one opens there.
+fn open_view(ws: &mut Workspace, view: ViewId) {
+    if let (Some(saved), Some(state)) = (ws.doc.project.view(view), ws.views_3d.get_mut(&view)) {
+        state.show_saved(saved);
+    }
+    ws.requests.push(Request::OpenPane(Pane::View3d(view)));
+}
+
+/// The context menu of the 3D view `view` (VIEW-003, VIEW-004): Rename,
+/// Update camera, which stores the viewpoint of the view's open tab and is
+/// greyed out while it has none, and Delete. They act on `view`, not on the
+/// active view.
+fn view_menu(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx, view: ViewId) {
+    let open = Enabled::when(ws.views_3d.contains_key(&view), "cmd-reason-view-not-open");
+    for (command, enabled) in [
+        (RENAME_VIEW, Enabled::Yes),
+        (UPDATE_CAMERA, open),
+        (DELETE_VIEW, Enabled::Yes),
+    ] {
+        if menu_item_for(ui, cx, Registry::get().command(command), enabled) {
+            let target = Target::view(ws, view);
+            ws.requests.push(Request::Invoke(command, target, Origin::ContextMenu));
+        }
+    }
+}
+
+/// The name of a 3D view being renamed in its row (VIEW-003), kept in
+/// egui's memory between frames.
+#[derive(Clone, Debug)]
+struct Rename {
+    view: ViewId,
+    text: String,
+    /// Whether the field takes the keyboard focus, with its text selected,
+    /// this frame.
+    focus: bool,
+}
+
+fn rename_id() -> Id {
+    Id::new("browser-rename-view")
+}
+
+/// Starts renaming the 3D view `view` in its browser row (VIEW-003): the
+/// row turns into a field with the view's name selected.
+pub fn start_rename(ctx: &Context, ws: &Workspace, view: ViewId) {
+    if let Some(v) = ws.doc.project.view(view) {
+        let rename = Rename {
+            view,
+            text: v.name.clone(),
+            focus: true,
+        };
+        ctx.data_mut(|d| d.insert_temp(rename_id(), rename));
+    }
+}
+
+/// The name field of `view` while it is being renamed, in place of its
+/// row; returns whether it showed. Enter or a click elsewhere renames the
+/// view, one undo step; Escape keeps the name. A name the project rejects
+/// (an empty one) is reported in the status line.
+fn rename_ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId) -> bool {
+    let Some(mut rename) = ui
+        .data(|d| d.get_temp::<Rename>(rename_id()))
+        .filter(|r| r.view == view)
+    else {
+        return false;
+    };
+    let mut output = TextEdit::singleline(&mut rename.text)
+        .id(rename_id().with(view))
+        .desired_width(f32::INFINITY)
+        .show(ui);
+    if std::mem::take(&mut rename.focus) {
+        output.response.request_focus();
+        let all = CCursorRange::two(CCursor::new(0), CCursor::new(rename.text.chars().count()));
+        output.state.cursor.set_char_range(Some(all));
+        output.state.store(ui.ctx(), output.response.id);
+    }
+    if output.response.lost_focus() {
+        ui.data_mut(|d| d.remove::<Rename>(rename_id()));
+        if !ui.input(|i| i.key_pressed(Key::Escape)) {
+            ws.execute(Command::RenameView {
+                view,
+                name: rename.text,
+            });
+        }
+    } else {
+        ui.data_mut(|d| d.insert_temp(rename_id(), rename));
+    }
+    true
+}
+
 /// The browser (VIEW-003): the storeys, the 3D views and the project. The
-/// storeys' context menus run commands (UI-011, UI-017); Layers, Materials
-/// and the project settings are in the toolbar and the Project menu. Each storey shows a plan sheet, each 3D view the icon of the
-/// projection it shows ([`icons::view_icon`]).
+/// context menus of the storeys, the 3D views and the "3D views" header
+/// run commands (UI-011, UI-017); Layers, Materials and the project
+/// settings are in the toolbar and the Project menu. Each storey shows a
+/// plan sheet, each 3D view, saved cameras included (VIEW-004), the icon of
+/// the projection it shows ([`icons::view_icon`]).
 pub fn ui(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
     egui::CollapsingHeader::new(RichText::new(tr!("browser-storeys")).strong())
         .default_open(true)
@@ -80,7 +176,7 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
                 });
             }
         });
-    egui::CollapsingHeader::new(RichText::new(tr!("browser-views")).strong())
+    let views = egui::CollapsingHeader::new(RichText::new(tr!("browser-views")).strong())
         .default_open(true)
         .show(ui, |ui| {
             // An open view shows its camera's projection, which the
@@ -97,12 +193,25 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
                 })
                 .collect();
             for (id, name, projection) in views {
-                let active = ws.active_pane == Some(Pane::View3d(id));
-                if row(ui, active, icons::view_icon(projection), name).clicked() {
-                    ws.requests.push(Request::OpenPane(Pane::View3d(id)));
+                if rename_ui(ui, ws, id) {
+                    continue;
                 }
+                let active = ws.active_pane == Some(Pane::View3d(id));
+                let response = row(ui, active, icons::view_icon(projection), name);
+                if response.clicked() {
+                    open_view(ws, id);
+                }
+                response.context_menu(|ui| view_menu(ui, ws, cx, id));
             }
         });
+    // Save camera saves the active 3D view's viewpoint (VIEW-004).
+    views.header_response.context_menu(|ui| {
+        if menu_item(ui, cx, Registry::get().command(SAVE_CAMERA)) {
+            let target = Target::active(ws);
+            ws.requests
+                .push(Request::Invoke(SAVE_CAMERA, target, Origin::ContextMenu));
+        }
+    });
     egui::CollapsingHeader::new(RichText::new(tr!("browser-project")).strong())
         .default_open(true)
         .show(ui, |ui| {

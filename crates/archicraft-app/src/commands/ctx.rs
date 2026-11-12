@@ -3,7 +3,7 @@
 //! came from.
 
 use archicraft_model::project::Projection;
-use archicraft_model::{ElementId, StoreyId};
+use archicraft_model::{ElementId, StoreyId, ViewId};
 
 use super::Keymap;
 use crate::tools::{ColumnMode, SlabMode, SpaceMode, ToolKind, WallMode};
@@ -169,6 +169,16 @@ impl Target {
         Self {
             storey,
             pane: Some(Pane::Plan(storey)),
+            element: None,
+        }
+    }
+
+    /// The 3D view `view` with the active storey, as the browser's context
+    /// menu of a 3D view passes it.
+    pub fn view(ws: &Workspace, view: ViewId) -> Self {
+        Self {
+            storey: ws.active_storey,
+            pane: Some(Pane::View3d(view)),
             element: None,
         }
     }

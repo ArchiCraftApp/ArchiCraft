@@ -478,6 +478,17 @@ impl ArchiCraftApp {
         self.tree.make_active(|id, _| id == new);
     }
 
+    /// A pane the tabs show, for the active pane after its tab went.
+    fn shown_pane(&self) -> Option<Pane> {
+        self.tree
+            .active_tiles()
+            .into_iter()
+            .find_map(|tile| match self.tree.tiles.get(tile) {
+                Some(Tile::Pane(pane)) => Some(*pane),
+                _ => None,
+            })
+    }
+
     /// Panes in tab order, for next/previous tab.
     fn panes(&self) -> Vec<Pane> {
         let mut out = Vec::new();
@@ -1175,6 +1186,17 @@ impl eframe::App for ArchiCraftApp {
             self.tree.ui(&mut behavior, ui);
             invoked.extend(behavior.invoked.map(|id| (id, Origin::Toolbar)));
             let closed = std::mem::take(&mut behavior.closed);
+            // A view the project no longer has, deleted or its saving
+            // undone (VIEW-003), lost its tab above (`retain_pane`) and
+            // goes like a closed one.
+            let project = &self.ws.doc.project;
+            let gone = self
+                .ws
+                .views_3d
+                .keys()
+                .filter(|view| project.view(**view).is_none())
+                .map(|view| Pane::View3d(*view));
+            let closed: Vec<Pane> = closed.into_iter().chain(gone).collect();
             for pane in closed {
                 if let Pane::View3d(view) = pane {
                     if self.ws.hover_3d.is_some_and(|(v, _)| v == view) {
@@ -1183,6 +1205,14 @@ impl eframe::App for ArchiCraftApp {
                     if let Some(state) = self.ws.views_3d.remove(&view) {
                         state.release(frame.wgpu_render_state());
                     }
+                }
+            }
+            if let Some(Pane::View3d(view)) = self.ws.active_pane
+                && self.ws.doc.project.view(view).is_none()
+            {
+                self.ws.active_pane = self.shown_pane();
+                if let Some(Pane::Plan(storey)) = self.ws.active_pane {
+                    self.ws.active_storey = storey;
                 }
             }
         });

@@ -2,7 +2,7 @@
 
 use archicraft_geometry::ModelGeometry;
 use archicraft_model::glam::DVec3;
-use archicraft_model::project::Projection;
+use archicraft_model::project::{Projection, View3d};
 use archicraft_model::{ElementId, Project, ViewId};
 use eframe::egui_wgpu;
 use egui::{Align2, Color32, CursorIcon, Event, FontId, PointerButton, Pos2, Rect, Sense, Ui};
@@ -39,6 +39,16 @@ impl View3dState {
             fitted: false,
             viewport: None,
             last_rect: Rect::NOTHING,
+        }
+    }
+
+    /// Returns the camera to the viewpoint and projection saved in `view`
+    /// (VIEW-004), keeping the zoom readout's fitted distance. A view
+    /// without a saved camera keeps its camera.
+    pub fn show_saved(&mut self, view: &View3d) {
+        if let Some(viewpoint) = view.camera {
+            self.camera.set_viewpoint(viewpoint);
+            self.camera.projection = view.projection;
         }
     }
 
@@ -163,6 +173,10 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, view: ViewId, render_state: Option<&e
     let geometry = ws.doc.geometry();
     if !state.fitted {
         state.fit(model_bounds(&ws.doc.project, &geometry, None));
+        // A camera view opens at its saved viewpoint (VIEW-004).
+        if let Some(saved) = ws.doc.project.view(view) {
+            state.show_saved(saved);
+        }
         state.fitted = true;
     }
 

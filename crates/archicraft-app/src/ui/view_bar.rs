@@ -248,8 +248,9 @@ impl ViewBarProvider for PlanBar {
 }
 
 /// The bar of a 3D view: zoom, fit and orbit, the display mode, the view
-/// presets and the projection (VIEW-014, VIEW-020, VIEW-050). The
-/// restriction indicator (VIEW-043) follows with its feature.
+/// presets, the projection and Save camera, a camera icon (VIEW-014,
+/// VIEW-020, VIEW-050, VIEW-004). The restriction indicator (VIEW-043)
+/// follows with its feature.
 #[derive(Clone, Debug)]
 pub struct View3dBar {
     pub view: View3dCtx,
@@ -283,6 +284,8 @@ impl ViewBarProvider for View3dBar {
                     commands: ViewPreset::ALL.into_iter().map(view3d::preset).collect(),
                 },
                 Item::Command(view3d::TOGGLE_PROJECTION, tr!("view-bar-perspective")),
+                // Saves the viewpoint as a camera view (VIEW-004).
+                Item::Icon(view3d::SAVE_CAMERA, tr!("view-bar-save-camera")),
             ]),
             Slot::Rotation | Slot::Scale | Slot::Restrictions => None,
         }

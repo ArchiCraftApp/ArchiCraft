@@ -4,7 +4,7 @@
 //! coordinates are egui points with +Y down.
 
 use archicraft_model::glam::{self, DMat4, DVec2, DVec3, DVec4};
-use archicraft_model::project::Projection;
+use archicraft_model::project::{Projection, ViewCamera};
 use egui::{Pos2, Rect, Vec2};
 
 /// The camera of a plan view: what model point is at the centre of the view
@@ -231,6 +231,28 @@ impl Camera3d {
         self.target = (min + max) / 2.0;
         let radius = ((max - min).length() / 2.0).max(0.5);
         self.distance = radius / (self.fov_y / 2.0).sin() * 1.05;
+    }
+
+    /// The viewpoint to save in a camera view (VIEW-004): everything but
+    /// the projection, which is the view's own.
+    pub fn viewpoint(&self) -> ViewCamera {
+        ViewCamera {
+            target: self.target,
+            distance: self.distance,
+            yaw: self.yaw,
+            pitch: self.pitch,
+            fov_y: self.fov_y,
+        }
+    }
+
+    /// Moves to the saved `viewpoint` (VIEW-004), keeping the projection.
+    /// The pitch stays off the poles, as orbiting keeps it.
+    pub fn set_viewpoint(&mut self, viewpoint: ViewCamera) {
+        self.target = viewpoint.target;
+        self.distance = viewpoint.distance;
+        self.yaw = viewpoint.yaw;
+        self.pitch = viewpoint.pitch.clamp(-MAX_PITCH, MAX_PITCH);
+        self.fov_y = viewpoint.fov_y;
     }
 
     pub fn apply_preset(&mut self, preset: ViewPreset) {

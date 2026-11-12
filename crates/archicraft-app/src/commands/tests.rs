@@ -165,6 +165,10 @@ fn command_ids_are_pinned() {
             "view3d.preset.isometric",
             "view3d.preset.dimetric",
             "view3d.toggle-projection",
+            "view3d.save-camera",
+            "view3d.update-camera",
+            "view3d.rename-view",
+            "view3d.delete-view",
             "tool.select",
             "tool.wall",
             "tool.slab",
@@ -464,8 +468,9 @@ fn disabled_commands_name_a_reason_from_the_catalogue() {
         }
     }
     // Undo, Redo, Delete, Group, Ungroup, Zoom to selection, Reset user
-    // origin, the ten commands of the active 3D view and Duplicate material.
-    assert_eq!(reasons, 18);
+    // origin, the fourteen commands of the active 3D view and Duplicate
+    // material.
+    assert_eq!(reasons, 22);
     let everything = CommandCtx {
         can_undo: true,
         can_redo: true,
@@ -688,7 +693,7 @@ fn menus_follow_group_and_order() {
          view.place-user-origin view.reset-user-origin | view/display-mode/ view3d.display.shaded \
          view3d.display.shaded-with-edges view3d.display.hidden-line view3d.display.wireframe \
          view/view-preset/ view3d.preset.top view3d.preset.front view3d.preset.side \
-         view3d.preset.isometric view3d.preset.dimetric view3d.toggle-projection"
+         view3d.preset.isometric view3d.preset.dimetric view3d.toggle-projection view3d.save-camera"
     );
     assert_eq!(
         menu("design"),

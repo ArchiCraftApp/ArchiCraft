@@ -91,8 +91,13 @@ impl KeyNames for UiKeys<'_> {
 /// Adds the command's tooltip to `response`; while the command cannot run,
 /// the tooltip also gives the reason from the catalogue.
 fn with_tooltip(response: Response, ui: &Ui, cx: &CommandCtx, spec: &CommandSpec) -> Response {
+    tooltip_for(response, ui, cx, spec, spec.enabled_in(cx))
+}
+
+/// [`with_tooltip`] with the command's state `enabled` given.
+fn tooltip_for(response: Response, ui: &Ui, cx: &CommandCtx, spec: &CommandSpec, enabled: Enabled) -> Response {
     let text = tooltip_text(spec, &cx.keymap, &UiKeys(ui));
-    match spec.enabled_in(cx) {
+    match enabled {
         Enabled::Yes => response.on_hover_text(text),
         Enabled::No(reason) => response.on_disabled_hover_text(format!("{text}\n{}", tr!(reason))),
     }
@@ -102,8 +107,16 @@ fn with_tooltip(response: Response, ui: &Ui, cx: &CommandCtx, spec: &CommandSpec
 /// enabled state and, for an on/off command, a check box. Closes the menu
 /// and returns true when clicked.
 pub fn menu_item(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec) -> bool {
+    menu_item_for(ui, cx, spec, spec.enabled_in(cx))
+}
+
+/// The [`menu_item`] of `spec` in a context menu whose item decides whether
+/// the command can run (`enabled`), rather than the active view: the
+/// browser's menu of a closed 3D view, for example (VIEW-003).
+pub fn menu_item_for(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, enabled: Enabled) -> bool {
     let label = spec.label_in(cx);
-    let enabled = spec.enabled_in(cx).is_yes();
+    let state = enabled;
+    let enabled = state.is_yes();
     let shortcut = shortcut_text(spec, &cx.keymap, &UiKeys(ui));
     let response = if let Some(mut on) = spec.checked_in(cx) {
         let mut atoms = Atoms::new(label);
@@ -119,7 +132,7 @@ pub fn menu_item(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec) -> bool {
         }
         ui.add_enabled(enabled, button)
     };
-    let clicked = with_tooltip(response, ui, cx, spec).clicked();
+    let clicked = tooltip_for(response, ui, cx, spec, state).clicked();
     if clicked {
         ui.close();
     }
