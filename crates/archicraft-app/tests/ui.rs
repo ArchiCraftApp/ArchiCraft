@@ -29,7 +29,7 @@ use archicraft_model::{
     Command, ElementId, ElementKind, IfcClass, KindTag, Material, PredefinedType, ProjectSettings, ReferenceLine,
     StoreyId, StructuralFunction, TopLink,
 };
-use common::{assert_present, data_dir, harness, harness_at, harness_in};
+use common::{assert_present, data_dir, harness, harness_at, harness_in, open_strip_overflow};
 use egui::accesskit::{Role, Toggled};
 use egui::os::OperatingSystem;
 use egui::{Event, Key, Modifiers, PointerButton};
@@ -1929,6 +1929,7 @@ fn selecting_an_element_shows_its_properties() {
         ws.selection.insert(id);
     }
     harness.run_steps(2);
+    open_strip_overflow(&mut harness);
     harness.get_by_label("Locked");
     harness.get_by_label("Length");
     harness.get_by_label("Home storey");
@@ -1950,6 +1951,7 @@ fn a_selected_wall_can_be_excluded_from_snapping() {
         id
     };
     harness.run_steps(2);
+    open_strip_overflow(&mut harness);
     harness.get_by_label("Snap targets").click();
     harness.run_steps(2);
     let ws = harness.state_mut().workspace();
@@ -2011,6 +2013,7 @@ fn a_kind_without_its_own_panel_shows_the_common_fields() {
         ws.selection.insert(id);
     }
     harness.run_steps(2);
+    open_strip_overflow(&mut harness);
     for common in ["Name", "Layer", "IFC class", "Locked", "Home storey"] {
         harness.get_by_label(common);
     }
@@ -2048,6 +2051,7 @@ fn the_material_row_is_shown_only_for_elements_with_a_material() {
         ws.selection.clear();
         ws.selection.extend(selection);
         harness.run_steps(2);
+        open_strip_overflow(&mut harness);
         harness.get_by_label("Layer");
         assert_eq!(harness.query_by_label("Material").is_some(), shown, "shown: {shown}");
     }
@@ -2075,20 +2079,22 @@ fn add_wall_and_slab(
     ids
 }
 
-/// Selects only `id` and lets the panel follow.
+/// Selects only `id` and lets the panel follow, its overflow popup open.
 fn select_only(harness: &mut Harness<'static, ArchiCraftApp>, id: ElementId) {
     let ws = harness.state_mut().workspace();
     ws.selection.clear();
     ws.selection.insert(id);
     harness.run_steps(2);
+    open_strip_overflow(harness);
 }
 
-/// Opens the combo box that shows `current`. It is clicked near its left
-/// end: the strip's first row reaches past the right edge of the test
-/// window.
+/// Opens the combo box that shows `current`, in the properties strip's row
+/// or its overflow popup, with a click at its centre: it lies fully inside
+/// the window (UI-002, archicraft-g8c1).
 fn open_combo(harness: &mut Harness<'static, ArchiCraftApp>, current: &str) {
+    open_strip_overflow(harness);
     let rect = harness.get(By::new().role(Role::ComboBox).value(current)).rect();
-    click_at(harness, egui::pos2(rect.min.x + 8.0, rect.center().y));
+    click_at(harness, rect.center());
 }
 
 /// The commands added to the history since it held `applied` of them.
@@ -3964,10 +3970,10 @@ fn dragging_the_division_value_saves_the_preferences_once() {
 
 /// INP-010, UI-002: at the default window width the properties strip of the
 /// wall and the slab tool, with their methods and the Division control,
-/// keeps the height of the two rows the strip reserves, the height it has
-/// with the selection tool.
+/// keeps the height of its one row, the height it has with the selection
+/// tool.
 #[test]
-fn the_tool_strips_with_the_division_control_keep_two_rows() {
+fn the_tool_strips_with_the_division_control_keep_the_strips_height() {
     let mut harness = harness("division-strip");
     let reserved = panel(&harness, "properties").height();
     for tool in ["Wall", "Slab"] {

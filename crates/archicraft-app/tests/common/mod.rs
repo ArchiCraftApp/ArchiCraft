@@ -66,3 +66,55 @@ pub fn assert_present(harness: &Harness<'static, ArchiCraftApp>, label: &str) {
         "“{label}” is missing"
     );
 }
+
+/// Opens the overflow popup of the properties strip, if the strip hides
+/// units and the popup is closed, so that every unit of the strip is shown
+/// (UI-002): in the row or in the popup.
+pub fn open_strip_overflow(harness: &mut Harness<'static, ArchiCraftApp>) {
+    toggle_strip_overflow(harness, true);
+}
+
+/// Closes the overflow popup of the properties strip with its chevron, if
+/// it is open.
+pub fn close_strip_overflow(harness: &mut Harness<'static, ArchiCraftApp>) {
+    toggle_strip_overflow(harness, false);
+}
+
+/// Clicks the chevron of the properties strip unless its overflow popup is
+/// already `open` or closed as asked.
+fn toggle_strip_overflow(harness: &mut Harness<'static, ArchiCraftApp>, open: bool) {
+    use archicraft_app::tr;
+    use archicraft_app::ui::{properties, strip};
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::By;
+
+    let id = strip::overflow_id(properties::strip_id());
+    if harness.ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false) == open {
+        return;
+    }
+    let label = tr!("dlg-properties-more");
+    let Some(button) = harness.query(By::new().role(Role::Button).label(&label)) else {
+        return;
+    };
+    button.click();
+    harness.run_steps(3);
+}
+
+/// The rectangle of the properties strip's overflow popup, while it is
+/// open.
+pub fn strip_overflow_rect(harness: &Harness<'static, ArchiCraftApp>) -> Option<egui::Rect> {
+    use archicraft_app::ui::{properties, strip};
+
+    let id = strip::overflow_id(properties::strip_id());
+    let open = harness.ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    harness.ctx.memory(|m| m.area_rect(id)).filter(|_| open)
+}
+
+/// Whether the centre of `rect` lies in the properties strip: in its row
+/// or in its open overflow popup (UI-002).
+pub fn in_strip(harness: &Harness<'static, ArchiCraftApp>, rect: egui::Rect) -> bool {
+    let row = egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new("properties"))
+        .map_or(egui::Rect::NOTHING, |p| p.outer_rect);
+    let overflow = strip_overflow_rect(harness).unwrap_or(egui::Rect::NOTHING);
+    row.contains(rect.center()) || overflow.contains(rect.center())
+}

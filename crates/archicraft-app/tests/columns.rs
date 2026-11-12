@@ -12,7 +12,7 @@ use archicraft_model::kinds::{Anchor, ColumnCut, CrossSection};
 use archicraft_model::profile::{ParametricShape, Profile};
 use archicraft_model::units::{format_area, format_length};
 use archicraft_model::{Command, ElementId};
-use common::{assert_present, harness};
+use common::{assert_present, harness, open_strip_overflow};
 use egui::Key;
 use egui::accesskit::{Role, Toggled};
 use egui_kittest::Harness;
@@ -34,6 +34,7 @@ fn select_column(harness: &mut Harness<'static, ArchiCraftApp>, section: Option<
     ws.selection.clear();
     ws.selection.insert(id);
     harness.run_steps(2);
+    open_strip_overflow(harness);
     id
 }
 
@@ -56,11 +57,28 @@ fn assert_one_update(commands: &[Command], id: ElementId) {
     );
 }
 
-/// Opens the combo box that shows `current`, clicked near its left end as
-/// in ui.rs.
+/// Opens the combo box that shows `current` with a click at its centre.
 fn open_combo(harness: &mut Harness<'static, ArchiCraftApp>, current: &str) {
-    let rect = harness.get(By::new().role(Role::ComboBox).value(current)).rect();
-    let pos = egui::pos2(rect.min.x + 8.0, rect.center().y);
+    open_strip_overflow(harness);
+    let pos = harness
+        .get(By::new().role(Role::ComboBox).value(current))
+        .rect()
+        .center();
+    click_at(harness, pos);
+}
+
+/// Shows the anchor grid: in the strip's row it is the drop-down of the
+/// 'Anchor point' combo box (UI-002), in the overflow popup it shows as it
+/// is.
+fn open_anchor_grid(harness: &mut Harness<'static, ArchiCraftApp>) {
+    open_strip_overflow(harness);
+    let combo = By::new().role(Role::ComboBox).label("Anchor point");
+    if let Some(pos) = harness.query(combo).map(|n| n.rect().center()) {
+        click_at(harness, pos);
+    }
+}
+
+fn click_at(harness: &mut Harness<'static, ArchiCraftApp>, pos: egui::Pos2) {
     harness.hover_at(pos);
     harness.run_steps(1);
     for pressed in [true, false] {
@@ -154,11 +172,14 @@ fn a_top_cut_of_15_degrees_is_one_update() {
 
 /// COL-001: the anchor is a grid of nine toggles named after their points,
 /// the centre checked; clicking 'Bottom left' is one UpdateElements. A
-/// rectangle offers no profile origin.
+/// rectangle offers no profile origin. In the strip's row the grid opens
+/// from a combo box that shows the current point (UI-002).
 #[test]
 fn the_anchor_grid_picks_one_of_nine_points() {
     let mut harness = harness("column-anchor");
     let id = select_column(&mut harness, None);
+    harness.get(By::new().role(Role::ComboBox).label("Anchor point").value("Centre"));
+    open_anchor_grid(&mut harness);
     let toggle = |label: &'static str| By::new().role(Role::Button).label(label);
     for label in [
         "Top left",
@@ -196,6 +217,13 @@ fn the_anchor_grid_picks_one_of_nine_points() {
         .unwrap()
         .anchor;
     assert_eq!(anchor, Anchor::BottomLeft);
+    harness.get(
+        By::new()
+            .role(Role::ComboBox)
+            .label("Anchor point")
+            .value("Bottom left"),
+    );
+    open_anchor_grid(&mut harness);
     assert_eq!(
         harness.get(toggle("Bottom left")).accesskit_node().toggled(),
         Some(Toggled::True)
@@ -233,7 +261,10 @@ fn profiles_without_the_columns_flag_are_not_offered() {
     select_column(&mut harness, Some(CrossSection::Profile(pier)));
     harness.get(By::new().role(Role::ComboBox).value("Profile"));
     assert_present(&harness, "Materials from profile");
+    open_anchor_grid(&mut harness);
     assert_present(&harness, "Profile origin");
+    // A second click on the combo box closes the grid.
+    open_anchor_grid(&mut harness);
     assert!(harness.query_by_label("Width").is_none());
     let piers = harness.query_all_by_label("Pier").count();
     open_combo(&mut harness, "Pier");

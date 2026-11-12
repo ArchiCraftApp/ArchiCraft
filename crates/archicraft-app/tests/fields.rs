@@ -12,7 +12,7 @@ use archicraft_app::workspace::Request;
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::format_length;
 use archicraft_model::{Command, ElementKind, KindTag, TopLink};
-use common::{data_dir, harness};
+use common::{data_dir, harness, open_strip_overflow, strip_overflow_rect};
 use egui::Key;
 use egui::accesskit::Role;
 use egui_kittest::Harness;
@@ -34,7 +34,7 @@ fn the_panel_code_has_no_per_kind_branches() {
 }
 
 /// UI-002: the strip shows a selected wall's and a selected slab's
-/// declared fields with today's labels.
+/// declared fields with today's labels, in its row or its overflow popup.
 #[test]
 fn the_strip_shows_the_wall_and_slab_fields() {
     let mut harness = harness("fields-wall-slab");
@@ -67,13 +67,15 @@ fn the_strip_shows_the_wall_and_slab_fields() {
         ws.selection.clear();
         ws.selection.insert(id);
         harness.run_steps(2);
+        open_strip_overflow(&mut harness);
         let strip = panel(&harness, "properties");
+        let overflow = strip_overflow_rect(&harness).unwrap_or(egui::Rect::NOTHING);
         for label in labels {
             assert!(
                 harness
                     .query_all_by_label(label)
-                    .any(|n| strip.contains(n.rect().center())),
-                "{label} is in the strip"
+                    .any(|n| strip.contains(n.rect().center()) || overflow.contains(n.rect().center())),
+                "{label} is in the strip or its overflow popup"
             );
         }
     }

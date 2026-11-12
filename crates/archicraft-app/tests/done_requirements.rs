@@ -35,7 +35,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::project::Projection;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit, format_length};
 use archicraft_model::{Command, ElementId, ElementKind, StoreyId, ViewId};
-use common::{assert_present, data_dir, harness, harness_at, harness_in, harness_with_clock};
+use common::{assert_present, data_dir, harness, harness_at, harness_in, harness_with_clock, open_strip_overflow};
 use egui::accesskit::Role;
 use egui::{Event, Id, Key, Modifiers, MouseWheelUnit, PointerButton, Pos2, Rect, TouchPhase, Vec2};
 use egui_kittest::Harness;
@@ -1597,6 +1597,7 @@ fn str_009_the_length_and_angle_rows_change_the_displayed_values() {
         ws.selection.insert(wall);
     }
     h.run_steps(2);
+    open_strip_overflow(&mut h);
     assert_present(&h, "4.000 m");
 
     open_from_menu(&mut h, "Project", "Project settings…");
@@ -1615,6 +1616,7 @@ fn str_009_the_length_and_angle_rows_change_the_displayed_values() {
         (units.length, units.length_decimals, units.angle, units.angle_decimals),
         (LengthUnit::Millimeter, 1, AngleUnit::Gradians, 1)
     );
+    open_strip_overflow(&mut h);
     assert_present(&h, "4000.0 mm");
     open_from_menu(&mut h, "Project", "Project settings…");
     h.get(strip_field("33.3"));

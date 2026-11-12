@@ -8,5 +8,6 @@ pub mod fields;
 pub mod icons;
 pub mod properties;
 pub mod shell;
+pub mod strip;
 pub mod view_bar;
 pub mod widgets;
