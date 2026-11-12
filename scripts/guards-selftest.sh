@@ -6,7 +6,9 @@
 #   library-part and image files (SVG, icon, WebP and TIFF included) outside the allowlists
 #   (NFR-LEG-002)
 # It also runs scripts/tests/test_macos_actool.sh, the test of package-macos.sh's choice of
-# Xcode's actool against fake Xcodes, which needs no Xcode.
+# Xcode's actool against fake Xcodes, which needs no Xcode, and
+# scripts/tests/test_flatpak_builder_version.sh, the test of package-flatpak.sh's
+# flatpak-builder version check, which needs no flatpak.
 # Usage: scripts/guards-selftest.sh
 set -eu
 root="$(git rev-parse --show-toplevel)"
@@ -65,6 +67,8 @@ done
 
 expect pass "package-macos.sh's choice of actool (scripts/tests/test_macos_actool.sh)" \
     sh "$root/scripts/tests/test_macos_actool.sh"
+expect pass "package-flatpak.sh's flatpak-builder version check (scripts/tests/test_flatpak_builder_version.sh)" \
+    sh "$root/scripts/tests/test_flatpak_builder_version.sh"
 
 if [ "$failures" -ne 0 ]; then
     echo "$failures guard self-test(s) failed"
