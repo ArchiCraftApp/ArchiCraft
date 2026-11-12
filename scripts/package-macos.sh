@@ -15,35 +15,10 @@ if [ "$(uname -s)" != Darwin ]; then
     exit 1
 fi
 
-# The app icon is the Icon Composer document packaging/macos/AppIcon.icon (the gradient and
-# the mark of ArchiCraft_Logo.svg), which only actool from Xcode 26 or newer compiles: the
-# selected Xcode's, otherwise the newest in /Applications (GitHub's macOS 15 runners keep
-# Xcode 26 next to an older default).
-actool_version() {
-    "$1" --version 2>/dev/null | awk '/short-bundle-version/ {
-        getline; gsub(/[^0-9.]/, ""); split($0, v, "."); print v[1] * 10000 + v[2] * 100 + v[3]; exit
-    }'
-}
-selected=$(xcrun --find actool 2>/dev/null || true)
-actool=
-best=0
-for tool in "$selected" /Applications/Xcode*.app/Contents/Developer/usr/bin/actool; do
-    [ -x "$tool" ] || continue
-    version=$(actool_version "$tool")
-    [ "${version:-0}" -ge 260000 ] || continue
-    if [ "$tool" = "$selected" ]; then
-        actool=$tool
-        break
-    fi
-    if [ "$version" -gt "$best" ]; then
-        actool=$tool
-        best=$version
-    fi
-done
-if [ -z "$actool" ]; then
-    echo "package-macos.sh needs Xcode 26 or newer: its actool compiles packaging/macos/AppIcon.icon" >&2
-    exit 1
-fi
+# The app icon needs actool from Xcode 26 or newer (scripts/macos-actool.sh, tested by
+# scripts/tests/test_macos_actool.sh).
+. scripts/macos-actool.sh
+actool=$(pick_actool) || exit 1
 
 cargo build --release --locked -p archicraft-app --bin archicraft
 
