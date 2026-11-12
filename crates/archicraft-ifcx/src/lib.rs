@@ -16,6 +16,7 @@
 
 pub mod alpha;
 pub mod container;
+pub mod fuzz;
 pub mod json;
 pub mod message;
 pub mod registry;

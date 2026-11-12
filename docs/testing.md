@@ -437,7 +437,7 @@ never see it, and only fuzzing needs a nightly toolchain.
 
 | Target | Input | What may not happen |
 |---|---|---|
-| `ifcx_load` | arbitrary bytes | a panic along the application's open path: `archicraft_ifcx::load`, then `ModelGeometry::evaluate`, `save` and `load` again; a rejection without a message |
+| `ifcx_load` | arbitrary bytes | a panic along the application's open path (`archicraft_ifcx::fuzz::open_path`): `archicraft_ifcx::load`, then `ModelGeometry::evaluate`, `save` (without the body meshes beyond 200,000 mesh points, **Memory** below) and `load` again; a rejection without a message |
 | `ifcx_validate` | arbitrary bytes | a panic in `validate::parse`, `validate::parse_raw` or `validate::validate`; the two parsers disagreeing: one accepting an input the other rejects, different messages for a rejected input, or different validation problems for an accepted one |
 | `units_parse` | arbitrary UTF-8 | a panic in `parse_length` or `parse_length_expr` (every length unit) or `parse_angle` or `parse_angle_expr` (every angle unit) with every number format; a non-finite accepted value |
 
@@ -468,8 +468,10 @@ the golden file `walls-and-slab.ifcx` changed:
   ground storey listed 5,000 times among the building's children (finding 2), a slab of 999
   points listed 20,000 times among its storey's children (finding 3, 1.1 MB), 2,000 storeys,
   500 walls meeting at one point and a grid of 100 by 100 crossing walls. The input of finding
-  4, 400 slabs of 999 points, is left out: it still takes 50 s through `ifcx_load` (**Memory**
-  below, archicraft-91jj), beyond the 10 s time-out, so every run would report it.
+  4, 400 slabs of 999 points, is left out: through `ifcx_load` it takes 4.7 s since
+  archicraft-tuy0 (**Memory** below), within the 10 s time-out but at half of it on a fast host,
+  and far longer in the debug build of the seed tests. Its shape is tested with 40 more slabs,
+  beyond the bound of the round trip (`many_slabs_round_trip_without_their_bodies`).
 - `extreme-<node>-<attribute>-<value>`: every number of one ArchiCraft attribute of one node
   (the attributes of the 8 nodes whose ArchiCraft data holds numbers: the project, two storeys,
   four walls and the slab) replaced by one of eleven values: 0, −0.0, −1, 10⁻¹², 10¹⁵, the
@@ -749,8 +751,38 @@ the fuzz runs: in a release build, opening the input took 2.7 s and opening the 
 in `validate_ring`), whose self-intersection checks grew with the square of the points.
 archicraft-91jj made them a sweep line: in a release build opening the input now takes 0.3 s
 and opening the saved file 0.8 s (2026-10-22, Apple M-series). Through the fuzz target the
-input still takes 45 s, with validation about an eighth of the samples; the rest is reading,
-evaluating and saving the 52.6 MB under AddressSanitizer (archicraft-tuy0).
+input still took 45 s, with validation about an eighth of the samples; the rest was reading,
+evaluating and saving the 52.6 MB under AddressSanitizer.
+
+That 45 s, and the 50 s before, are the `Executed … in` line of libFuzzer, which runs a file given
+on the command line twice: the second run is its leak check (`-detect_leaks=1`, the default under
+AddressSanitizer). One execution, the unit the `-timeout=10` of the fuzz runs bounds, took about
+half. A profile of the target on the input (`sample`, archicraft-tuy0, 2026-11-12) found no single
+hot spot: of one execution, the first load took 1.9 s (two thirds of it the slab checks in
+`validate_ring`), the evaluation 0.8 s, saving the 52.6 MB 5.3 s and loading them again 6.4 s;
+the callbacks of libFuzzer's coverage and comparison instrumentation
+(`__sanitizer_cov_trace_*cmp*`) took about 60 % of the busy samples, spread over the JSON
+reading and writing of every byte, and AddressSanitizer's allocator most of the rest. Several
+times faster JSON under that instrumentation is beyond tuning, so the round trip is bounded
+instead: the saved file grows with the body meshes, not with the input (2.4 million mesh points
+here, a 3.4 MB input saved as 52.6 MB), so `archicraft_ifcx::fuzz::open_path`, which the target
+and its stable replays run, saves a project whose bodies have more than
+`ROUND_TRIP_MESH_POINTS` (200,000) points without them (`save_for_round_trip`): each element
+keeps only its axis. Its save then takes 0.3 s and writes 3.4 MB, and the second load 1.9 s: the
+round trip still writes and reads every element with its axis, every storey and the project's
+materials, and leaves out the body nodes and the material nodes that only bodies refer to, which
+every smaller input reaches. 200,000 points bound the meshes of the saved file at about 4.4 MB,
+about the fuzz runs' `-max_len`; the largest seed has 12,120 points, so every seed and regression
+file still round-trips with its bodies (the seed and regression tests check it). On the same host
+(Apple silicon, load average 5, `ifcx_load -rss_limit_mb=2048 <input>`):
+
+| Target | `Executed … in` (two runs) | One run (`-detect_leaks=0`) | Peak RSS |
+|---|---|---|---|
+| `main` (`147225c`) | 27.9 s | 13.8 s | 1,194 MB |
+| with archicraft-tuy0 | 9.5 s (three runs: 9.4 to 9.5 s) | 4.7 s | 928 MB |
+
+The first load and the evaluation, 2.7 s of the 4.7 s, are what remains; nearly two thirds of
+the first load are the slab checks, which the second load repeats.
 
 **Licences.** The fuzz crate is outside the workspace, so `cargo deny` does not list it;
 this paragraph is its entry in the licence inventory (NFR-LEG-001). Beyond the ArchiCraft

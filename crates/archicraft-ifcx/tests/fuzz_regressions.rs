@@ -1,6 +1,6 @@
 //! Fuzz regressions (NFR-REL-007, NFR-SEC-003): every file in
 //! `tests/fuzz-regressions/` goes through the open path of the `ifcx_load`
-//! fuzz target (`fuzz/fuzz_targets/ifcx_load.rs`) on stable, in the normal
+//! fuzz target (`archicraft_ifcx::fuzz::open_path`) on stable, in the normal
 //! test job: load, and when that succeeds evaluate the geometry, save and
 //! load again. None of it may panic, a rejected file carries a message, and
 //! no file takes longer than the fuzz runs' time-out (`-timeout=10` in
@@ -12,12 +12,10 @@
 
 #![allow(clippy::unwrap_used)]
 
-mod common;
-
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use archicraft_geometry::ModelGeometry;
+use archicraft_ifcx::fuzz::{Opened, open_path};
 
 /// The time-out of the fuzz runs (`scripts/fuzz-run.sh`): an input that
 /// takes longer is a finding.
@@ -37,20 +35,10 @@ fn regression_files() -> Vec<PathBuf> {
     files
 }
 
-/// The open path of the `ifcx_load` fuzz target.
-fn open(bytes: &[u8]) {
-    match archicraft_ifcx::load(bytes) {
-        Ok(outcome) => {
-            let geometry = ModelGeometry::evaluate(&outcome.project);
-            let (saved, _warnings) = archicraft_ifcx::save(&outcome.project, &geometry, &common::options(), false);
-            let _ = archicraft_ifcx::load(&saved);
-        }
-        Err(problem) => assert!(!problem.message.key().is_empty(), "rejected without a message"),
-    }
-}
-
 /// NFR-REL-007, NFR-SEC-003: no file of the regression corpus crashes the
-/// open path or stalls it beyond the fuzz runs' time-out.
+/// open path or stalls it beyond the fuzz runs' time-out, and each one the
+/// reader loads is saved with its body meshes: none comes near the bound
+/// of the round trip (`archicraft_ifcx::fuzz::ROUND_TRIP_MESH_POINTS`).
 #[test]
 fn every_fuzz_regression_opens_without_panicking() {
     let files = regression_files();
@@ -58,9 +46,10 @@ fn every_fuzz_regression_opens_without_panicking() {
     for path in files {
         let bytes = std::fs::read(&path).unwrap();
         let start = Instant::now();
-        let outcome = std::panic::catch_unwind(|| open(&bytes));
+        let outcome = std::panic::catch_unwind(|| open_path(&bytes));
         let elapsed = start.elapsed();
-        assert!(outcome.is_ok(), "{} panicked", path.display());
+        let opened = outcome.unwrap_or_else(|_| panic!("{} panicked", path.display()));
+        assert_ne!(opened, Opened::RoundTrip { bodies: false }, "{}", path.display());
         assert!(elapsed < TIME_LIMIT, "{} took {elapsed:?}", path.display());
     }
 }
