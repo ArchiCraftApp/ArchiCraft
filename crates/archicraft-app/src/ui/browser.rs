@@ -4,10 +4,10 @@ use archicraft_model::StoreyId;
 use archicraft_model::units::format_length;
 use egui::{Atoms, Button, Image, ImageSource, Response, RichText, TextStyle, Ui, Vec2, WidgetText};
 
-use super::command_widgets::{bar_button, menu_item};
+use super::command_widgets::menu_item;
 use super::icons;
 use crate::commands::project::{DELETE_STOREY, EDIT_STOREY, INSERT_STOREY_ABOVE, INSERT_STOREY_BELOW};
-use crate::commands::{CommandCtx, Origin, Registry, Target, project};
+use crate::commands::{CommandCtx, Origin, Registry, Target};
 use crate::tr;
 use crate::workspace::{Pane, Request, Workspace};
 
@@ -31,8 +31,8 @@ fn row(ui: &mut Ui, selected: bool, icon: ImageSource<'static>, text: impl Into<
 }
 
 /// The browser (VIEW-003): the storeys, the 3D views and the project. The
-/// storeys' context menus and the project's buttons run commands (UI-011,
-/// UI-017). Each storey shows a plan sheet, each 3D view the icon of the
+/// storeys' context menus run commands (UI-011, UI-017); Layers, Materials
+/// and the project settings are in the toolbar and the Project menu. Each storey shows a plan sheet, each 3D view the icon of the
 /// projection it shows ([`icons::view_icon`]).
 pub fn ui(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
     egui::CollapsingHeader::new(RichText::new(tr!("browser-storeys")).strong())
@@ -115,17 +115,5 @@ pub fn ui(ui: &mut Ui, ws: &mut Workspace, cx: &CommandCtx) {
                 count = count,
                 count_text = ws.count_text(count)
             ));
-            ui.horizontal_wrapped(|ui| {
-                for (command, label) in [
-                    (project::LAYERS, tr!("browser-layers")),
-                    (project::MATERIALS, tr!("browser-materials")),
-                    (project::SETTINGS, tr!("browser-settings")),
-                ] {
-                    if bar_button(ui, cx, Registry::get().command(command), &label) {
-                        let target = Target::active(ws);
-                        ws.requests.push(Request::Invoke(command, target, Origin::Panel));
-                    }
-                }
-            });
         });
 }

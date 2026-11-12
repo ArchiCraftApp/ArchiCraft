@@ -304,9 +304,6 @@ browser-elements =
         [one] { $count_text } element
        *[other] { $count_text } elements
     }
-browser-layers = Layers…
-browser-materials = Materials…
-browser-settings = Settings…
 # The name of a storey inserted at or above the ground storey; $number: its
 # storey number with two digits, such as 02.
 browser-new-storey = { $number } Storey

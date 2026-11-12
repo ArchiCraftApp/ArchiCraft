@@ -164,8 +164,8 @@ pub fn toolbar_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec) -> bool 
     icon_button(ui, cx, spec, &spec.label(), &spec.label_in(cx))
 }
 
-/// A bar button of `spec` with the short `label`, for the status line, the
-/// view-control bar and the project browser: a button, or a selectable
+/// A bar button of `spec` with the short `label`, for the status line and
+/// the view-control bar: a button, or a selectable
 /// button for an on/off command, both in the one text size of the bars
 /// (UI-001, `ui::style`), so they are equally high. Returns true when
 /// clicked.

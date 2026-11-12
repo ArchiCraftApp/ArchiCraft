@@ -35,7 +35,9 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::project::Projection;
 use archicraft_model::units::{AngleUnit, AreaUnit, LengthUnit, SlopeFormat, UnitSettings, VolumeUnit, format_length};
 use archicraft_model::{Command, ElementId, ElementKind, StoreyId, ViewId};
-use common::{assert_present, data_dir, harness, harness_at, harness_in, harness_with_clock, open_strip_overflow};
+use common::{
+    assert_present, data_dir, harness, harness_at, harness_in, harness_with_clock, menu_entry, open_strip_overflow,
+};
 use egui::accesskit::Role;
 use egui::{Event, Id, Key, Modifiers, MouseWheelUnit, PointerButton, Pos2, Rect, TouchPhase, Vec2};
 use egui_kittest::Harness;
@@ -1355,7 +1357,7 @@ fn open_from_menu(h: &mut App, menu: &str, entry: &str) {
     // The menu bar comes first; the browser may name a section the same.
     h.query_all_by_label(menu).next().expect("the menu").click();
     h.run_steps(2);
-    h.get_by_label_contains(entry).click();
+    menu_entry(h, entry).click();
     h.run_steps(4);
 }
 
