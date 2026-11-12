@@ -463,12 +463,12 @@ a field out, so `crates/archicraft-ifcx/examples/fuzz_seeds.rs` writes 108 such 
 the golden file `walls-and-slab.ifcx` changed:
 
 - `stress-*`: the shapes of the first campaign's hand-crafted inputs (**Campaigns** below), at
-  sizes within the fuzz runs' limits since its fixes: a slab outline of 999 points (just below
-  the limit) and one of 32,003 points (finding 1, now skipped before the quadratic checks), the
-  ground storey listed 5,000 times among the building's children (finding 2), a slab of 999
-  points listed 20,000 times among its storey's children (finding 3, 1.1 MB), 2,000 storeys,
-  500 walls meeting at one point and a grid of 100 by 100 crossing walls. The input of finding
-  4, 400 slabs of 999 points, is left out: through `ifcx_load` it takes 4.7 s since
+  sizes within the fuzz runs' limits since its fixes: a slab outline of 9,999 points (just below
+  the 10,000-point limit) and one of 32,003 points (finding 1, now skipped before the polygon
+  checks), the ground storey listed 5,000 times among the building's children (finding 2), a
+  slab of 999 points listed 20,000 times among its storey's children (finding 3, 1.1 MB), 2,000
+  storeys, 500 walls meeting at one point and a grid of 100 by 100 crossing walls. The input of
+  finding 4, 400 slabs of 999 points, is left out: through `ifcx_load` it takes 4.7 s since
   archicraft-tuy0 (**Memory** below), within the 10 s time-out but at half of it on a fast host,
   and far longer in the debug build of the seed tests. Its shape is tested with 40 more slabs,
   beyond the bound of the round trip (`many_slabs_round_trip_without_their_bodies`).
@@ -488,9 +488,10 @@ within the 10 s time-out, check that each stress seed opens as the campaign's fi
 slab beyond the limit skipped, each further listing reported), that each `extreme-*` seed holds
 its value and that each coverage seed reaches its branches. Through the AddressSanitizer build
 of `ifcx_load` the slowest seeds, the 2,000 storeys and the 500 walls, take 0.5 s each and at
-most 242 MB. The large seeds slow each execution down but reach more coverage. Two minutes of
-each target on a fresh corpus (2026-10-22), from the 27 files without the hand-crafted seeds,
-with the `extreme-*` and `coverage-*` seeds, and with all of them: `ifcx_validate` ran 234, 198
+most 242 MB; the slab of 9,999 points takes 0.4 s and 191 MB (archicraft-vk7k, load average 16).
+The large seeds slow each execution down but reach more coverage. Two minutes of each target on
+a fresh corpus (2026-10-22), from the 27 files without the hand-crafted seeds, with the
+`extreme-*` and `coverage-*` seeds, and with all of them: `ifcx_validate` ran 234, 198
 and 169 inputs a second and reached `cov` 4,032 / `ft` 13,233, 3,975 / 13,230 and 4,035 /
 14,277; `ifcx_load` ran 260, 228 and 158 inputs a second and reached 8,055 / 22,827, 8,517 /
 25,473 and 8,773 / 26,724. The rates depend on the host's load: repeated while the host was
@@ -772,9 +773,10 @@ keeps only its axis. Its save then takes 0.3 s and writes 3.4 MB, and the second
 round trip still writes and reads every element with its axis, every storey and the project's
 materials, and leaves out the body nodes and the material nodes that only bodies refer to, which
 every smaller input reaches. 200,000 points bound the meshes of the saved file at about 4.4 MB,
-about the fuzz runs' `-max_len`; the largest seed has 12,120 points, so every seed and regression
-file still round-trips with its bodies (the seed and regression tests check it). On the same host
-(Apple silicon, load average 5, `ifcx_load -rss_limit_mb=2048 <input>`):
+about the fuzz runs' `-max_len`; the largest seed, the slab of 9,999 points, has 60,090 points,
+so every seed and regression file still round-trips with its bodies (the seed and regression
+tests check it). On the same host (Apple silicon, load average 5,
+`ifcx_load -rss_limit_mb=2048 <input>`):
 
 | Target | `Executed … in` (two runs) | One run (`-detect_leaks=0`) | Peak RSS |
 |---|---|---|---|

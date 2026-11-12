@@ -29,8 +29,8 @@ use crate::WriteOptions;
 /// its bodies (NFR-SEC-003). A body of a closed mesh has about twice as many
 /// triangles as points, so this bounds the meshes of the saved file at about
 /// 4.4 MB, the size of the fuzz runs' longest input (`-max_len`, 4 MB):
-/// about 33 slabs of 999 points. The largest seed of `examples/fuzz_seeds.rs`
-/// has 12,120 points.
+/// about 33 slabs of 999 points. The largest seed of `examples/fuzz_seeds.rs`,
+/// a slab of 9,999 points, has 60,090 points.
 pub const ROUND_TRIP_MESH_POINTS: usize = 200_000;
 
 /// What [`open_path`] did with an input.
