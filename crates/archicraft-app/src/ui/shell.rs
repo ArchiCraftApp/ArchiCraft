@@ -267,7 +267,7 @@ pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: u
                 },
             )
         });
-        ui.label(RichText::new(prompt).small());
+        ui.label(prompt);
         // MEA-001: the values of the measurement, in working units.
         if ws.tool.kind == ToolKind::Measure && ws.active_consumer == Consumer::Tool {
             let readout = ws
@@ -280,14 +280,14 @@ pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: u
                     .into_iter()
                     .map(|(label, value)| format!("{label} {value}"))
                     .collect();
-                ui.label(RichText::new(text.join("  ")).small().monospace());
+                ui.label(RichText::new(text.join("  ")).monospace());
             }
         }
         if let Some(status) = &ws.status
             && status.since.elapsed() < Duration::from_secs(8)
         {
             ui.separator();
-            let text = RichText::new(&status.text).small();
+            let text = RichText::new(&status.text);
             if status.error {
                 ui.colored_label(ui.visuals().error_fg_color, text);
             } else {
@@ -322,7 +322,7 @@ pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: u
                     .get(storey)
                     .map(|s| s.name.clone())
                     .unwrap_or_default();
-                ui.label(RichText::new(tr!("status-plan", storey = name)).small());
+                ui.label(tr!("status-plan", storey = name));
                 // INP-014: the cursor's X and Y from the user origin, along
                 // its axes.
                 if let Some(cursor) = ws.plan_views.get(&storey).and_then(|state| state.cursor) {
@@ -331,7 +331,7 @@ pub fn status_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx, problem_count: u
                     let nf = ws.prefs.number_format();
                     let x = format_length(p.x, units, &nf, true);
                     let y = format_length(p.y, units, &nf, true);
-                    ui.label(RichText::new(tr!("status-cursor", x = x, y = y)).small().monospace());
+                    ui.label(RichText::new(tr!("status-cursor", x = x, y = y)).monospace());
                 }
             }
         });

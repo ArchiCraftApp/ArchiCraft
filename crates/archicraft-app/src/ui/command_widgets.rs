@@ -155,13 +155,16 @@ pub fn tool_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, label: &str
         .clicked()
 }
 
-/// A status-bar button of `spec` with the short `label`: a small button, or
-/// a selectable label for an on/off command. Returns true when clicked.
+/// A bar button of `spec` with the short `label`, for the status line, the
+/// view-control bar and the project browser: a button, or a selectable
+/// button for an on/off command, both in the one text size of the bars
+/// (UI-001, `ui::style`), so they are equally high. Returns true when
+/// clicked.
 pub fn bar_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, label: &str) -> bool {
     let enabled = spec.enabled_in(cx).is_yes();
     let response = match spec.checked_in(cx) {
         Some(on) => ui.add_enabled(enabled, Button::selectable(on, label)),
-        None => ui.add_enabled(enabled, Button::new(RichText::new(label).small()).small()),
+        None => ui.add_enabled(enabled, Button::new(label)),
     };
     with_tooltip(response, ui, cx, spec).clicked()
 }

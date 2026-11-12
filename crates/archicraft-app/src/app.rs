@@ -20,7 +20,7 @@ use crate::persistence::prefs::{Preferences, ThemeChoice};
 use crate::persistence::{DataDirs, save_atomically};
 use crate::tr;
 use crate::ui::dialogs::{self, Dialogs};
-use crate::ui::{browser, icons, properties, shell, view_bar};
+use crate::ui::{browser, icons, properties, shell, style, view_bar};
 use crate::views::plan;
 use crate::views::view3d::{self, View3dState, model_bounds};
 use crate::workspace::{Pane, Request, Workspace};
@@ -647,6 +647,9 @@ impl ArchiCraftApp {
             self.title = title;
         }
         if self.theme != Some(self.ws.prefs.theme) {
+            // UI-001: one text size in the bars, for both themes, from the
+            // first frame on.
+            style::apply(ctx);
             ctx.set_theme(match self.ws.prefs.theme {
                 ThemeChoice::System => ThemePreference::System,
                 ThemeChoice::Light => ThemePreference::Light,

@@ -276,7 +276,7 @@ fn item_ui(ui: &mut Ui, cx: &CommandCtx, item: Item) -> Option<BarAction> {
             }
         }
         Item::Readout(text) => {
-            ui.label(RichText::new(text).small().monospace());
+            ui.label(RichText::new(text).monospace());
         }
         Item::Choice {
             salt,
@@ -381,7 +381,7 @@ fn scale_ui(
             field.request_focus();
         }
         if let Some(error) = &c.error {
-            ui.label(RichText::new(error).small().color(ui.visuals().error_fg_color));
+            ui.colored_label(ui.visuals().error_fg_color, error);
         }
         if field.lost_focus() {
             if ui.input(|i| i.key_pressed(Key::Enter)) {
