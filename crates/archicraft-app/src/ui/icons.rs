@@ -123,6 +123,32 @@ mod tests {
         }
     }
 
+    /// PRJ-003, UI-011: Save shows a floppy disk, not the download arrow it
+    /// was mistaken for: at 48 px (two pixels a grid unit) the outline has
+    /// ink in three corners and one cut corner at the top right, the shutter
+    /// hangs from the top edge, the label stands on the bottom edge, and the
+    /// middle column between them, where the arrow's shaft ran, is empty.
+    #[test]
+    fn save_icon_is_a_floppy_disk() {
+        let image = raster(&SAVE, 48);
+        // The alpha of the pixel at grid point (u, v).
+        let ink = |u: f64, v: f64| image[((u * 2.0) as usize, (v * 2.0) as usize)].a();
+        for (u, v) in [(3.5, 3.5), (3.5, 20.5), (20.5, 20.5)] {
+            assert!(ink(u, v) > 128, "the outline misses the corner ({u}, {v})");
+        }
+        assert_eq!(ink(20.5, 3.5), 0, "the top right corner is not cut");
+        assert!(ink(18.5, 5.5) > 128, "the cut corner has no diagonal");
+        for (u, v) in [(7.5, 6.0), (15.5, 6.0), (11.5, 8.5)] {
+            assert!(ink(u, v) > 128, "the shutter misses ({u}, {v})");
+        }
+        for (u, v) in [(7.0, 17.0), (17.0, 17.0), (12.0, 14.0)] {
+            assert!(ink(u, v) > 128, "the label misses ({u}, {v})");
+        }
+        for v in [10.0, 11.0, 12.0] {
+            assert_eq!(ink(12.0, v), 0, "a line runs down the middle at {v}, like an arrow");
+        }
+    }
+
     /// No two icons are the same drawing or share a texture name.
     #[test]
     fn icons_differ() {
