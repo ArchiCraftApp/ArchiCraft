@@ -8,7 +8,7 @@ use archicraft_geometry::contour::{Chain, ContourGraph, ContourOptions, PlanSegm
 use archicraft_geometry::{ModelGeometry, PlanDrawing, ViewRange, plan_drawing};
 use archicraft_model::glam::DVec2;
 use archicraft_model::samples::{FixtureBuilder, two_storey_shell, two_storey_shell_with_shaft};
-use archicraft_model::{MODEL_TOLERANCE, Position, Project, ReferenceLine};
+use archicraft_model::{ANGLE_TOLERANCE, MODEL_TOLERANCE, Position, Project, ReferenceLine};
 
 const MICROMETRE: f64 = 1e-6;
 
@@ -256,6 +256,126 @@ fn collinear_overlapping_segments_are_deduplicated() {
     assert_eq!(regions.len(), 1, "{regions:?}");
     assert_ring(&regions[0].outer, &corners);
     assert_eq!(graph.edges().count(), 12, "every side in three pieces");
+}
+
+/// INP-018, NFR-ACC-003: two 100 m segments crossing in their middles at
+/// 0.0003°, parallel within `ANGLE_TOLERANCE`, are split at the crossing,
+/// although neither has an end on the other (their ends are 0.26 mm apart);
+/// with their ends joined, the two thin triangles they bound are the regions.
+#[test]
+fn segments_crossing_at_a_very_shallow_angle_are_split_at_the_crossing() {
+    let angle = 0.0003_f64.to_radians();
+    assert!(angle.sin() < ANGLE_TOLERANCE, "parallel within the angle tolerance");
+    let (centre, heading) = (v(20.0, 30.0), 0.7);
+    let half = |turn: f64| DVec2::from_angle(heading + turn) * 50.0;
+    let (a, b) = (half(-angle / 2.0), half(angle / 2.0));
+    let [a0, a1, b0, b1] = [centre - a, centre + a, centre - b, centre + b];
+    assert!(a1.distance(b1) > 20.0 * MODEL_TOLERANCE, "no end on the other segment");
+
+    let crossing = graph_of(&[[a0, a1], [b0, b1]]);
+    let edges: Vec<Segment> = crossing.edges().collect();
+    assert_eq!(edges.len(), 4, "each segment in two halves: {edges:?}");
+    for edge in &edges {
+        let [p, q] = edge.points;
+        assert!(
+            p.distance(centre) < MODEL_TOLERANCE || q.distance(centre) < MODEL_TOLERANCE,
+            "{edge:?} does not end at the crossing {centre}"
+        );
+    }
+
+    let graph = graph_of(&[[a0, a1], [b0, b1], [a0, b0], [a1, b1]]);
+    assert_eq!(graph.regions().len(), 2, "{:?}", graph.regions());
+    let along = DVec2::from_angle(heading) * 25.0;
+    let area = 0.5 * 50.0 * 50.0 * angle.sin();
+    for (probe, triangle) in [(centre + along, [centre, a1, b1]), (centre - along, [centre, a0, b0])] {
+        let region = graph.region_at(probe).unwrap_or_else(|| panic!("no region at {probe}"));
+        assert_ring(&region.outer, &triangle);
+        assert!(region.islands.is_empty(), "{region:?}");
+        assert!((region.area() - area).abs() < 1e-9, "{} is not {area}", region.area());
+    }
+    assert_eq!(
+        graph.region_at(centre + along.perp() * 1e-4),
+        None,
+        "beside the triangles"
+    );
+}
+
+/// The distance from `p` to the nearest point of the closed ring `ring`.
+fn distance_to_ring(ring: &[DVec2], p: DVec2) -> f64 {
+    (0..ring.len())
+        .map(|i| {
+            let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
+            let t = ((p - a).dot(b - a) / a.distance_squared(b)).clamp(0.0, 1.0);
+            p.distance(a.lerp(b, t))
+        })
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// The piece angle at which a tessellation of a circle of radius `radius`
+/// deviates by `deviation` from the circle between its vertices.
+fn piece_angle(radius: f64, deviation: f64) -> f64 {
+    2.0 * (1.0 - deviation / radius).acos()
+}
+
+/// INP-018, NFR-ACC-003: a sector of a 5 m circle, a 64-gon of its centre
+/// and 63 vertices of a tessellated arc whose pieces deviate from the circle
+/// by less than the tolerance, keeps every vertex it leaves out within
+/// `MODEL_TOLERANCE` of its boundary, and still leaves vertices out where the
+/// tessellation is finer than the tolerance needs.
+#[test]
+fn a_finely_tessellated_arc_simplifies_within_the_tolerance() {
+    let (centre, radius) = (v(1.0, 2.0), 5.0);
+    for fraction in [1.0 / 256.0, 1.0 / 64.0, 1.0 / 16.0, 1.0 / 4.0, 0.99] {
+        let step = piece_angle(radius, fraction * MODEL_TOLERANCE);
+        let mut sector: Vec<DVec2> = (0..63)
+            .map(|k| centre + DVec2::from_angle(1.2 + k as f64 * step) * radius)
+            .collect();
+        sector.push(centre);
+        let inside = centre + DVec2::from_angle(1.2 + 31.0 * step) * 4.0;
+        let region = graph_of(&ring_segments(&sector))
+            .region_at(inside)
+            .unwrap_or_else(|| panic!("no region at {inside} for {fraction}"));
+        for (k, p) in sector.iter().enumerate() {
+            let distance = distance_to_ring(&region.outer, *p);
+            assert!(
+                distance < MODEL_TOLERANCE,
+                "deviation {fraction}: vertex {k} is {distance} m off {:?}",
+                region.outer
+            );
+        }
+        if fraction <= 1.0 / 16.0 {
+            assert!(region.outer.len() < sector.len(), "{fraction}: nothing left out");
+        }
+    }
+}
+
+/// INP-018, NFR-ACC-003: a 5 m circle tessellated so finely that it deviates
+/// from the circle by a sixteenth of the tolerance, a ring without corners,
+/// simplifies within the tolerance, and the island it makes of a square
+/// around it simplifies to the same points, in reverse.
+#[test]
+fn a_finely_tessellated_circle_and_its_island_simplify_alike() {
+    let (centre, radius) = (v(-3.0, 4.0), 5.0);
+    let n = (std::f64::consts::TAU / piece_angle(radius, MODEL_TOLERANCE / 16.0)).ceil() as usize;
+    let circle: Vec<DVec2> = (0..n)
+        .map(|k| centre + DVec2::from_angle(0.3 + k as f64 * std::f64::consts::TAU / n as f64) * radius)
+        .collect();
+    let mut segments = ring_segments(&circle);
+    segments.extend(ring_segments(&rectangle(centre - v(6.0, 6.0), centre + v(6.0, 6.0))));
+    let graph = graph_of(&segments);
+
+    let disc = graph.region_at(centre).unwrap();
+    assert!(disc.outer.len() < n, "nothing left out of {n}");
+    for (k, p) in circle.iter().enumerate() {
+        let distance = distance_to_ring(&disc.outer, *p);
+        assert!(distance < MODEL_TOLERANCE, "vertex {k} of {n} is {distance} m off");
+    }
+
+    let room = graph.region_at(centre + v(5.5, 5.5)).unwrap();
+    assert_eq!(room.islands.len(), 1, "{room:?}");
+    let mut island = room.islands[0].clone();
+    island.reverse();
+    assert_ring(&island, &disc.outer);
 }
 
 /// INP-018: lines that end inside a region (antennas) are not part of its

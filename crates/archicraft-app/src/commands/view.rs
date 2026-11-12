@@ -33,10 +33,12 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         // the application turns off (`zoom_with_keyboard`).
         view(ZOOM_IN.as_str(), |app, _, target| zoom(app, target, ZOOM_STEP))
             .menu("view", 0, 0)
-            .bind(Binding::primary(Key::Equals)),
+            .bind(Binding::primary(Key::Equals))
+            .icon(icons::ZOOM_IN),
         view(ZOOM_OUT.as_str(), |app, _, target| zoom(app, target, 1.0 / ZOOM_STEP))
             .menu("view", 0, 1)
-            .bind(Binding::primary(Key::Minus)),
+            .bind(Binding::primary(Key::Minus))
+            .icon(icons::ZOOM_OUT),
         view(FIT_WINDOW.as_str(), |app, _, target| app.zoom_pane(target.pane, None))
             .menu("view", 0, 2)
             .bind(Binding::key(Key::F))

@@ -536,6 +536,29 @@ impl ArchiCraftApp {
         }
     }
 
+    /// Zooms the active view to exactly `percent` about its centre, the
+    /// zoom typed into the view-control bar (UI-001): a plan to the camera
+    /// scale at which it reads `percent` against its drawing scale, as one
+    /// step of previous zoom (VIEW-014), a 3D view to the camera distance.
+    /// View state, so no undo step (UND-005).
+    fn set_zoom_percent(&mut self, ctx: &egui::Context, percent: f64) {
+        match self.ws.active_pane {
+            Some(Pane::Plan(storey)) => {
+                if let Some(state) = self.ws.plan_views.get_mut(&storey) {
+                    let drawing_scale = f64::from(state.scale.denominator());
+                    let scale = view_bar::plan_zoom_scale(percent, ctx.zoom_factor(), drawing_scale);
+                    state.zoom_by(scale / state.camera.scale);
+                }
+            }
+            Some(Pane::View3d(view)) => {
+                if let Some(state) = self.ws.views_3d.get_mut(&view) {
+                    state.set_zoom_percent(percent);
+                }
+            }
+            None => {}
+        }
+    }
+
     /// Invokes the command `id` on `target` (UI-017). Menus, shortcuts and
     /// the toolbar all come through here; with the test recorder installed
     /// the invocation is recorded instead of run.
@@ -1113,6 +1136,8 @@ impl eframe::App for ArchiCraftApp {
                         state.scale = scale;
                     }
                 }
+                Some(view_bar::BarAction::Zoom(percent)) => self.set_zoom_percent(&ctx, percent),
+                Some(view_bar::BarAction::Rejected(reason)) => self.ws.error(reason),
                 None => {}
             }
         }

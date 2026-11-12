@@ -249,6 +249,11 @@ view-bar-zoom-out = Zoom out
 # The view's zoom; $percent: the number in the user's number format. In a
 # plan 100 % is paper size at the drawing scale, in 3D the fitted view.
 view-bar-zoom = { $percent } %
+view-bar-zoom-hint = The zoom of the view. Click to type a percentage, Enter applies it, Esc keeps the zoom.
+# A typed zoom that is not a number; $text: what was typed.
+view-bar-zoom-not-a-number = “{ $text }” is not a zoom. Type a percentage such as 150.
+# A typed zoom outside the view's limits; $min and $max in percent.
+view-bar-zoom-out-of-range = Type a zoom between { $min } % and { $max } %.
 view-bar-previous-zoom = ◀ Previous zoom
 view-bar-next-zoom = Next zoom ▶
 view-bar-fit = Fit

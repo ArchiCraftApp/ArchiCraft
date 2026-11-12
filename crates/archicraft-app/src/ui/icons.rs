@@ -10,7 +10,8 @@
 //! They are white only: a button multiplies them by its text colour
 //! (`Button::image_tint_follows_text_color`), so an icon follows the theme,
 //! hover, selection and the disabled state like the label beside it. The
-//! project browser's rows tint their icons the same way (VIEW-003).
+//! project browser's rows tint their icons the same way (VIEW-003), and the
+//! view-control bar shows Zoom out, Zoom in, Fit and Orbit as icon buttons.
 
 use archicraft_model::project::Projection;
 use egui::{Context, ImageSource, include_image};
@@ -43,6 +44,11 @@ pub const CAMERA: ImageSource<'static> = include_image!("../../assets/icons/came
 /// A tall, steep box drawn in parallel projection: a 3D view in parallel
 /// projection (VIEW-003, VIEW-020).
 pub const PARALLEL_BOX: ImageSource<'static> = include_image!("../../assets/icons/parallel-box.svg");
+/// A magnifier with a plus and one with a minus: Zoom in and Zoom out of
+/// the view-control bar (UI-001, VIEW-014).
+pub const ZOOM_IN: ImageSource<'static> = include_image!("../../assets/icons/zoom-in.svg");
+pub const ZOOM_OUT: ImageSource<'static> = include_image!("../../assets/icons/zoom-out.svg");
+
 /// Three sheets stacked in oblique projection: the Layers dialog (LAY-001,
 /// UI-017).
 pub const LAYERS: ImageSource<'static> = include_image!("../../assets/icons/layers.svg");
@@ -57,7 +63,7 @@ pub const SETTINGS: ImageSource<'static> = include_image!("../../assets/icons/se
 pub const SIDEBAR_RIGHT: ImageSource<'static> = include_image!("../../assets/icons/sidebar-right.svg");
 
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 24] = [
+pub const ALL: [ImageSource<'static>; 26] = [
     SELECT,
     WALL,
     SLAB,
@@ -81,6 +87,8 @@ pub const ALL: [ImageSource<'static>; 24] = [
     LAYERS,
     MATERIALS,
     SETTINGS,
+    ZOOM_IN,
+    ZOOM_OUT,
     SIDEBAR_RIGHT,
 ];
 
