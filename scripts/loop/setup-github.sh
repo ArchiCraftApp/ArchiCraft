@@ -34,6 +34,7 @@ set -euo pipefail
 # archicraft-erpe (selftest.sh checks both ways).
 required=(
     "Test (ubuntu-24.04)"
+    "Feature tests (ubuntu-24.04)"
     "Format and clippy"
     "IFCX conformance (buildingSMART reference code)"
     "Licences and sources"

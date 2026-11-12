@@ -55,6 +55,28 @@ jobs:
         run: scripts/ci-disk-space.sh "after the build"
       - name: Test
         run: cargo test --workspace --locked
+      - name: Disk space at the end of the job
+        if: ${{ !cancelled() }}
+        run: scripts/ci-disk-space.sh "at the end of the job"
+
+  # The feature builds, on a runner of their own so they run beside the job Test instead of after
+  # it, which was the longest path of a CI run (archicraft-9m2qx). rust-cache keys its cache by
+  # the job, so this job's cache never overwrites Test's. Both count towards the repository's
+  # 10 GB cache limit (6 GB used on 2026-11-11), past which GitHub evicts the least recently used.
+  features:
+    name: Feature tests (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    env:
+      # As in the job Test (archicraft-r8sta): line tables keep the debug builds small enough for
+      # a runner with the 14 GB GitHub guarantees.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space (remove unused preinstalled toolchains)
+        run: sudo rm -rf /usr/share/swift /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL
+      - name: Install the pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
       # NFR-PERF-001: the frame-time and latency instrumentation is off by default; build
       # and test it on one OS so the feature-gated code cannot rot (docs/performance/README.md).
       - name: Build with the perf feature
