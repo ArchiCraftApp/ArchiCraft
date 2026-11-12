@@ -27,7 +27,7 @@ use archicraft_app::{ArchiCraftApp, tr};
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::format_area;
 use archicraft_model::{ElementId, ReferenceLine, Space, Text, Wall};
-use common::{assert_present, data_dir, harness_in};
+use common::{assert_present, data_dir, harness_in, in_strip, open_strip_overflow};
 use egui::accesskit::Role;
 use egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
@@ -156,12 +156,10 @@ fn shown_area(harness: &mut App, space: ElementId) -> String {
     format_area(area, &ws.doc.project.settings.units, &ws.prefs.number_format())
 }
 
-/// Whether a node labelled `label` lies in the properties strip.
+/// Whether a node labelled `label` lies in the properties strip, in its
+/// row or its overflow popup.
 fn in_properties(harness: &App, label: &str) -> bool {
-    let strip = panel(harness, "properties");
-    harness
-        .query_all_by_label(label)
-        .any(|n| strip.contains(n.rect().center()))
+    harness.query_all_by_label(label).any(|n| in_strip(harness, n.rect()))
 }
 
 /// Types `text` into the text field at `rect` and commits it with Enter.
@@ -261,9 +259,9 @@ fn step_1_room(harness: &mut App) -> ElementId {
         ["Room 1", shown.as_str()],
         "the area on the line below the name"
     );
-    let strip = panel(harness, "properties");
-    let name_field = harness.get(By::new().role(Role::TextInput).value("Room 1"));
-    assert!(strip.contains(name_field.rect().center()), "the name is in the strip");
+    open_strip_overflow(harness);
+    let name_field = harness.get(By::new().role(Role::TextInput).value("Room 1")).rect();
+    assert!(in_strip(harness, name_field), "the name is in the strip");
     assert!(in_properties(harness, &shown), "the area is in the strip");
     *room
 }
@@ -339,6 +337,7 @@ fn step_3_text(harness: &mut App) -> ElementId {
     assert_eq!(selection, [note], "a click on the note selects it");
 
     let steps = undo_len(harness);
+    open_strip_overflow(harness);
     let rect = harness.get(By::new().role(Role::TextInput).label("Size (mm)")).rect();
     type_into(harness, rect, "5");
     assert_eq!(undo_len(harness), steps + 1, "the size is one undo step");

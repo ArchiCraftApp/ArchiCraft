@@ -446,6 +446,29 @@ pub fn anchor_grid<T: Clone + PartialEq>(
     picked
 }
 
+/// The anchor grid of [`anchor_grid`] in the drop-down of a combo box that
+/// shows the current point's label, for the one line of the properties
+/// strip (UI-002, COL-001). Returns the combo box and the option picked, if
+/// it differs from `current`.
+pub fn anchor_choice<T: Clone + PartialEq>(
+    ui: &mut Ui,
+    id: Id,
+    current: Option<&T>,
+    options: &[(T, String)],
+    width: f32,
+) -> (Response, Option<T>) {
+    let selected_text = current
+        .and_then(|c| options.iter().find(|(v, _)| v == c))
+        .map_or_else(|| "Mixed".to_owned(), |(_, label)| label.clone());
+    let mut picked = None;
+    let response = egui::ComboBox::from_id_salt(id)
+        .selected_text(selected_text)
+        .width(width)
+        .show_ui(ui, |ui| picked = anchor_grid(ui, id.with("grid"), current, options))
+        .response;
+    (response, picked)
+}
+
 /// The common value of all items, or `None` if they differ or there are
 /// none.
 pub fn common<T: PartialEq>(mut values: impl Iterator<Item = T>) -> Option<T> {

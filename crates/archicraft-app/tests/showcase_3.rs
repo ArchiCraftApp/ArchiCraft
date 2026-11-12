@@ -37,7 +37,7 @@ use archicraft_model::glam::DVec2;
 use archicraft_model::kinds::{Anchor, CrossSection};
 use archicraft_model::units::{format_angle, format_length};
 use archicraft_model::{Element, ElementId};
-use common::{assert_present, data_dir, harness_in};
+use common::{assert_present, data_dir, harness_in, in_strip, open_strip_overflow};
 use egui::accesskit::{Role, Toggled};
 use egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
@@ -164,10 +164,9 @@ fn shown_length(harness: &mut App, metres: f64) -> String {
 
 /// The value of the strip's text field labelled `label`.
 fn strip_value(harness: &App, label: &str) -> String {
-    let strip = panel(harness, "properties");
     harness
         .query_all(By::new().role(Role::TextInput).label(label))
-        .find(|n| strip.contains(n.rect().center()))
+        .find(|n| in_strip(harness, n.rect()))
         .unwrap_or_else(|| panic!("no field “{label}” in the strip"))
         .value()
         .unwrap_or_default()
@@ -277,6 +276,7 @@ fn step_2_views(harness: &mut App, [single, rotated]: [ElementId; 2]) {
     let selection: Vec<ElementId> = harness.state_mut().workspace().selection.iter().copied().collect();
     assert_eq!(selection, [rotated], "a click in the 3D view selects the column");
 
+    open_strip_overflow(harness);
     for label in ["Cross-section", "Anchor point", "Top cut", "Bottom cut"] {
         assert_present(harness, label);
     }
@@ -299,8 +299,13 @@ fn step_2_views(harness: &mut App, [single, rotated]: [ElementId; 2]) {
             .is_some(),
         "the section kind"
     );
-    let centre = harness.get(By::new().role(Role::Button).label("Centre"));
-    assert_eq!(centre.accesskit_node().toggled(), Some(Toggled::True), "the anchor");
+    // In the strip's row the anchor grid opens from a combo box that shows
+    // the point; in the overflow popup the grid shows as it is (UI-002).
+    let combo = By::new().role(Role::ComboBox).label("Anchor point").value("Centre");
+    if harness.query(combo).is_none() {
+        let centre = harness.get(By::new().role(Role::Button).label("Centre"));
+        assert_eq!(centre.accesskit_node().toggled(), Some(Toggled::True), "the anchor");
+    }
 
     // Back to the plan for the walls, with nothing selected.
     let ws = harness.state_mut().workspace();
@@ -381,10 +386,10 @@ fn step_3_transfer(harness: &mut App) -> [ElementId; 4] {
     let selection: Vec<ElementId> = harness.state_mut().workspace().selection.iter().copied().collect();
     assert_eq!(selection, [walls[0]]);
     let typed = shown_length(harness, 0.3);
-    let strip = panel(harness, "properties");
+    open_strip_overflow(harness);
     let field = harness
         .query_all(By::new().role(Role::TextInput).label("Thickness"))
-        .find(|n| strip.contains(n.rect().center()))
+        .find(|n| in_strip(harness, n.rect()))
         .unwrap()
         .rect();
     press_at(harness, field.left_center() + egui::vec2(4.0, 0.0));

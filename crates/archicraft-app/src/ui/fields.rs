@@ -99,7 +99,7 @@ impl Fields<'_> {
     /// The width of a widget that is `strip` wide in the strip.
     pub fn width(&self, strip: f32) -> f32 {
         match self.layout {
-            Layout::Strip => strip,
+            Layout::Strip | Layout::Overflow => strip,
             Layout::Grid => 180.0,
         }
     }
@@ -113,9 +113,8 @@ impl Fields<'_> {
                 node.push_labelled_by(label.id.accesskit_id());
             });
         }
-        match self.layout {
-            Layout::Strip => ui.add_space(8.0),
-            Layout::Grid => ui.end_row(),
+        if self.layout == Layout::Grid {
+            ui.end_row();
         }
     }
 
@@ -175,6 +174,14 @@ impl Fields<'_> {
                     let (response, picked) = widgets::choice_response(ui, id, value, &options, f.width(110.0));
                     (picked.map_or(Edited::Unchanged, Edited::Changed), Some(response.id))
                 }
+                // The strip's row is one line high: there the grid opens
+                // from a combo box that shows the current point.
+                FieldType::Anchor if f.layout == Layout::Strip => {
+                    let options = f.options(spec);
+                    let value = common(values.iter());
+                    let (response, picked) = widgets::anchor_choice(ui, id, value, &options, f.width(110.0));
+                    (picked.map_or(Edited::Unchanged, Edited::Changed), Some(response.id))
+                }
                 // COL-001: nine toggles in a 3 × 3 grid and the further
                 // anchors; each names itself, so the row label stays apart.
                 FieldType::Anchor => {
@@ -195,7 +202,18 @@ impl Fields<'_> {
                 }
                 FieldType::MultilineText => {
                     let value = common(values.iter().filter_map(as_text));
-                    let (_, edited) = widgets::multiline_text(ui, id, value, f.width(140.0));
+                    let width = f.width(140.0);
+                    // In the strip's row, one line shows and the others
+                    // scroll.
+                    let max_height = match f.layout {
+                        Layout::Strip => ui.spacing().interact_size.y,
+                        Layout::Overflow | Layout::Grid => f32::INFINITY,
+                    };
+                    let (_, edited) = egui::ScrollArea::vertical()
+                        .id_salt(id.with("scroll"))
+                        .max_height(max_height)
+                        .show(ui, |ui| widgets::multiline_text(ui, id, value, width))
+                        .inner;
                     (map(edited, FieldValue::Text), Some(id))
                 }
                 FieldType::OptionalSize => {

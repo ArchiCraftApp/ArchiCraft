@@ -14,7 +14,7 @@ use archicraft_ifcx::WriteOptions;
 use archicraft_model::glam::DVec2;
 use archicraft_model::units::{format_area, format_length};
 use archicraft_model::{Command, DrawingScale, ElementId, ElementKind, KindTag, TopLink, samples};
-use common::{data_dir, harness};
+use common::{close_strip_overflow, data_dir, harness, in_strip, open_strip_overflow};
 use egui::accesskit::Role;
 use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::Harness;
@@ -335,19 +335,11 @@ fn one_click_in_a_room_names_it_and_the_properties_show_name_and_area() {
     let (_, lines, _) = stamp(&mut harness, room);
     assert_eq!(lines, ["Room 1", area.as_str()], "the area directly below the name");
 
-    let properties = egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new("properties"))
-        .unwrap()
-        .outer_rect;
-    let name_field = harness.get(By::new().role(Role::TextInput).value("Room 1"));
-    assert!(
-        properties.contains(name_field.rect().center()),
-        "the name is in the strip"
-    );
-    let area_label = harness.get_by_label(&area);
-    assert!(
-        properties.contains(area_label.rect().center()),
-        "the area is in the strip"
-    );
+    open_strip_overflow(&mut harness);
+    let name_field = harness.get(By::new().role(Role::TextInput).value("Room 1")).rect();
+    assert!(in_strip(&harness, name_field), "the name is in the strip");
+    let area_label = harness.get_by_label(&area).rect();
+    assert!(in_strip(&harness, area_label), "the area is in the strip");
 
     let undo = harness.state_mut().workspace().doc.history.undo_len();
     let rect = harness.get(By::new().role(Role::TextInput).value("Room 1")).rect();
@@ -357,6 +349,8 @@ fn one_click_in_a_room_names_it_and_the_properties_show_name_and_area() {
     assert_eq!(ws.doc.history.undo_len(), undo + 1, "one undo step");
     assert_eq!(stamp(&mut harness, room).1, ["Kitchen", area.as_str()]);
 
+    // The popup lies over the project browser.
+    close_strip_overflow(&mut harness);
     open_upper_plan(&mut harness);
     let shaft = click_in_plan(&mut harness, DVec2::new(2.0, 7.25)).expect("the click creates a space in the shaft");
     let ws = harness.state_mut().workspace();
@@ -422,12 +416,10 @@ fn a_selected_space_shows_and_edits_its_name_number_height_and_area() {
         ws.selection.insert(space);
     }
     harness.run_steps(3);
-    let properties = egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new("properties"))
-        .unwrap()
-        .outer_rect;
+    open_strip_overflow(&mut harness);
     let number = fields_with_hint(&harness, "0.01")
         .into_iter()
-        .find(|r| properties.contains(r.center()))
+        .find(|r| in_strip(&harness, *r))
         .expect("the number with the suggestion as hint");
     for label in [
         "Room name",
@@ -439,17 +431,13 @@ fn a_selected_space_shows_and_edits_its_name_number_height_and_area() {
         "Area",
     ] {
         assert!(
-            harness
-                .query_all_by_label(label)
-                .any(|n| properties.contains(n.rect().center())),
+            harness.query_all_by_label(label).any(|n| in_strip(&harness, n.rect())),
             "{label} is in the strip"
         );
     }
     let area = shown_area(&mut harness, space);
     assert!(
-        harness
-            .query_all_by_label(&area)
-            .any(|n| properties.contains(n.rect().center())),
+        harness.query_all_by_label(&area).any(|n| in_strip(&harness, n.rect())),
         "the net area {area} is in the strip"
     );
 
@@ -480,7 +468,7 @@ fn a_selected_space_shows_and_edits_its_name_number_height_and_area() {
     let zeros: Vec<egui::Rect> = harness
         .query_all(By::new().role(Role::TextInput).value(&zero))
         .map(|n| n.rect())
-        .filter(|r| properties.contains(r.center()))
+        .filter(|r| in_strip(&harness, *r))
         .collect();
     assert_eq!(zeros.len(), 2, "base offset and top offset: {zeros:?}");
     let typed = length(&mut harness, 0.1);
@@ -490,7 +478,7 @@ fn a_selected_space_shows_and_edits_its_name_number_height_and_area() {
     let top_offset = harness
         .query_all(By::new().role(Role::TextInput).value(&zero))
         .map(|n| n.rect())
-        .find(|r| properties.contains(r.center()))
+        .find(|r| in_strip(&harness, *r))
         .unwrap();
     let typed = length(&mut harness, 2.5);
     type_into(&mut harness, top_offset, &typed);
@@ -524,7 +512,7 @@ fn a_selected_space_shows_and_edits_its_name_number_height_and_area() {
         assert!(
             harness
                 .query_all_by_label(label)
-                .any(|n| !properties.contains(n.rect().center()) && n.rect().min.y > section.min.y),
+                .any(|n| !in_strip(&harness, n.rect()) && n.rect().min.y > section.min.y),
             "{label} is in the dialog's Space section"
         );
     }

@@ -14,7 +14,7 @@ use archicraft_geometry::ModelGeometry;
 use archicraft_ifcx::WriteOptions;
 use archicraft_model::glam::DVec2;
 use archicraft_model::{AnchorPos, Command, ElementId, samples};
-use common::{assert_present, data_dir, harness};
+use common::{assert_present, data_dir, harness, open_strip_overflow};
 use egui::accesskit::Role;
 use egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
@@ -105,6 +105,7 @@ fn select(harness: &mut App, id: ElementId) {
     ws.selection.clear();
     ws.selection.insert(id);
     harness.run_steps(2);
+    open_strip_overflow(harness);
 }
 
 /// Opens the combo box labelled `combo` and picks `option`.
@@ -163,6 +164,7 @@ fn a_text_is_drawn_at_paper_size_picked_resized_and_deleted() {
     }
 
     let steps = undo_len(&mut harness);
+    open_strip_overflow(&mut harness);
     let size_field = || By::new().role(Role::TextInput).label("Size (mm)");
     harness.get(size_field()).click();
     harness.run_steps(1);
@@ -179,9 +181,13 @@ fn a_text_is_drawn_at_paper_size_picked_resized_and_deleted() {
         doubled.size,
         drawn.size
     );
+    // egui rounds a galley's rows to whole points, so the height doubles
+    // up to one point.
     assert!(
-        close(doubled.extent.y, drawn.extent.y * 2.0),
-        "the drawn height doubles"
+        (doubled.extent.y - drawn.extent.y * 2.0).abs() <= 1.0,
+        "the drawn height doubles: {} is not twice {}",
+        doubled.extent.y,
+        drawn.extent.y
     );
     assert!(doubled.quad[3].distance(anchor) < 0.5, "the anchor stays");
 
@@ -194,7 +200,12 @@ fn a_text_is_drawn_at_paper_size_picked_resized_and_deleted() {
         halved.size,
         doubled.size
     );
-    assert!(close(halved.extent.y, doubled.extent.y / 2.0));
+    assert!(
+        (halved.extent.y - doubled.extent.y / 2.0).abs() <= 1.0,
+        "{} is not half of {}",
+        halved.extent.y,
+        doubled.extent.y
+    );
 
     let steps = undo_len(&mut harness);
     harness.key_press(Key::Delete);
@@ -435,6 +446,7 @@ fn the_size_field_clears_to_the_style_and_keeps_a_mixed_value() {
         ws.selection.extend([small, large]);
     }
     harness.run_steps(2);
+    open_strip_overflow(&mut harness);
     assert_eq!(harness.get(size_field()).value().as_deref(), Some(""));
     let steps = undo_len(&mut harness);
     harness.get(size_field()).click();
@@ -1001,6 +1013,7 @@ fn the_text_tools_defaults_have_no_content_row() {
     let mut harness = shell("text-defaults");
     harness.state_mut().workspace().select_tool(ToolKind::Text);
     harness.run_steps(3);
+    open_strip_overflow(&mut harness);
     assert!(
         harness
             .query(By::new().role(Role::ComboBox).label("Text style"))
