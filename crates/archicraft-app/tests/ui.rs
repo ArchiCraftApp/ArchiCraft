@@ -1240,6 +1240,132 @@ fn zoom_readout(harness: &mut Harness<'static, ArchiCraftApp>, percent: f64) -> 
     tr!("view-bar-zoom", percent = nf.format_decimal(percent, 0))
 }
 
+/// UI-001: from the first frame, both themes show the Body, Button and
+/// Monospace text styles at one size of at least 14 pt, the one size of the
+/// bars' texts.
+#[test]
+fn the_start_up_style_has_one_text_size_of_at_least_14_pt() {
+    let harness = harness("text-size");
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        let style = harness.ctx.style_of(theme);
+        let sizes = [
+            egui::TextStyle::Body,
+            egui::TextStyle::Button,
+            egui::TextStyle::Monospace,
+        ]
+        .map(|s| style.text_styles[&s].size);
+        assert!(sizes.iter().all(|&s| s == sizes[0]), "{theme:?}: {sizes:?}");
+        assert!(sizes[0] >= 14.0, "{theme:?}: {sizes:?}");
+    }
+}
+
+/// The widgets that overlap the panel `name`, other than the ones that
+/// hold the whole panel (the window and its root): each with its label or
+/// value and its rectangle.
+fn panel_widgets(harness: &Harness<'static, ArchiCraftApp>, name: &str) -> Vec<(String, egui::Rect)> {
+    let panel = panel(harness, name);
+    harness
+        .root()
+        .children_recursive()
+        .filter(|node| {
+            let ak = node.accesskit_node();
+            ak.role() != Role::TextRun
+                && ak.bounding_box().is_some()
+                && node.rect().intersect(panel).is_positive()
+                && !node.rect().contains_rect(panel)
+        })
+        .map(|node| {
+            let ak = node.accesskit_node();
+            let text = ak
+                .label()
+                .or_else(|| ak.value())
+                .map(|t| t.to_string())
+                .unwrap_or_default();
+            (text, node.rect())
+        })
+        .collect()
+}
+
+/// Asserts that every widget overlapping the panel `name` lies inside it
+/// (not clipped at its edges) and that each of `labels` is among them.
+fn assert_unclipped(harness: &Harness<'static, ArchiCraftApp>, name: &str, labels: &[&str]) {
+    let panel = panel(harness, name);
+    let widgets = panel_widgets(harness, name);
+    for (text, rect) in &widgets {
+        assert!(
+            panel.expand(0.5).contains_rect(*rect),
+            "“{text}” {rect:?} is clipped by the {name} panel {panel:?}"
+        );
+    }
+    for label in labels {
+        assert!(
+            widgets.iter().any(|(t, _)| t == label),
+            "the {name} panel lacks “{label}”: {widgets:?}"
+        );
+    }
+}
+
+/// The height of the button `label` in the panel `name`.
+fn button_height(harness: &Harness<'static, ArchiCraftApp>, name: &str, label: &str) -> f32 {
+    let panel = panel(harness, name);
+    harness
+        .query_all(By::new().role(Role::Button).label(label))
+        .find(|n| panel.contains(n.rect().center()))
+        .unwrap_or_else(|| panic!("no button “{label}” in the {name} panel"))
+        .rect()
+        .height()
+}
+
+/// UI-001 (Jakob's request 21): at 1400 x 900 in a plan and in a 3D view,
+/// every item of the view-control bar and of the status line lies inside
+/// its panel at the one text size, and the bar's command buttons (Zoom in,
+/// Fit) are as high as its on/off buttons (Reference lines, Orbit,
+/// Perspective).
+#[test]
+fn the_view_bar_and_status_line_show_their_items_unclipped_at_one_height() {
+    let mut harness = harness("bars-unclipped");
+    let size = harness.ctx.content_rect().size();
+    assert_eq!(size, egui::vec2(1400.0, 900.0));
+    let plan_items = [
+        "Zoom in",
+        "Zoom out",
+        "Fit",
+        "◀ Previous zoom",
+        "Next zoom ▶",
+        "Reference lines",
+    ];
+    let prompt = tr!("status-prompt-select");
+    assert_unclipped(&harness, "view_bar", &plan_items);
+    assert_unclipped(&harness, "status", &[&prompt]);
+    let status = panel_widgets(&harness, "status");
+    assert!(
+        status.iter().any(|(t, _)| t.starts_with("Plan:")),
+        "the storey: {status:?}"
+    );
+    assert!(
+        status.iter().any(|(t, _)| t.contains("problem")),
+        "the problems: {status:?}"
+    );
+    let zoom_in = button_height(&harness, "view_bar", "Zoom in");
+    for label in ["Fit", "Reference lines"] {
+        assert_eq!(button_height(&harness, "view_bar", label), zoom_in, "{label}");
+    }
+
+    harness.get_by_label("Plan/3D").click();
+    harness.run_steps(3);
+    assert!(matches!(
+        harness.state_mut().workspace().active_pane,
+        Some(Pane::View3d(_))
+    ));
+    let view3d_items = ["Zoom in", "Zoom out", "Fit", "Orbit", "Perspective"];
+    assert_unclipped(&harness, "view_bar", &view3d_items);
+    assert_unclipped(&harness, "status", &[&prompt]);
+    let zoom_in = button_height(&harness, "view_bar", "Zoom in");
+    for label in ["Fit", "Orbit", "Perspective"] {
+        assert_eq!(button_height(&harness, "view_bar", label), zoom_in, "{label}");
+    }
+}
+
 /// UI-001: the view-control bar of a plan and of a 3D view shows Zoom in,
 /// Zoom out, Fit and the zoom readout; the plan bar also shows its drawing
 /// scale (VIEW-013), the 3D bar the display mode, the view presets and the
