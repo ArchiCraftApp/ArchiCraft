@@ -1054,9 +1054,10 @@ impl eframe::App for ArchiCraftApp {
             self.ws.prefs.toolbox_columns = columns;
             self.save_prefs();
         }
+        // VIEW-003: wide enough for a storey row with its icon on one line.
         egui::Panel::right("browser")
             .resizable(true)
-            .default_size(240.0)
+            .default_size(260.0)
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| browser::ui(ui, &mut self.ws, &cx));
             });

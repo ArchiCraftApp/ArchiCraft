@@ -9,8 +9,10 @@
 //! Fit, Orbit and Plan/3D too), so the icon of a new tool can follow them.
 //! They are white only: a button multiplies them by its text colour
 //! (`Button::image_tint_follows_text_color`), so an icon follows the theme,
-//! hover, selection and the disabled state like the label beside it.
+//! hover, selection and the disabled state like the label beside it. The
+//! project browser's rows tint their icons the same way (VIEW-003).
 
+use archicraft_model::project::Projection;
 use egui::{Context, ImageSource, include_image};
 
 pub const SELECT: ImageSource<'static> = include_image!("../../assets/icons/select.svg");
@@ -32,12 +34,49 @@ pub const MEASURE: ImageSource<'static> = include_image!("../../assets/icons/mea
 /// the glossary's terms).
 pub const PICK_UP: ImageSource<'static> = include_image!("../../assets/icons/pick-up.svg");
 pub const INJECT: ImageSource<'static> = include_image!("../../assets/icons/inject.svg");
+/// A sheet with a folded corner and a floor plan on it: a storey in the
+/// project browser, each storey being a plan sheet (VIEW-003).
+pub const PLAN_SHEET: ImageSource<'static> = include_image!("../../assets/icons/plan-sheet.svg");
+/// A camera with its lens: a 3D view in perspective, and a saved camera
+/// (VIEW-003, VIEW-020).
+pub const CAMERA: ImageSource<'static> = include_image!("../../assets/icons/camera.svg");
+/// A tall, steep box drawn in parallel projection: a 3D view in parallel
+/// projection (VIEW-003, VIEW-020).
+pub const PARALLEL_BOX: ImageSource<'static> = include_image!("../../assets/icons/parallel-box.svg");
 
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 17] = [
-    SELECT, WALL, SLAB, SPACE, TEXT, COLUMN, FIT, ORBIT, PLAN_3D, UNDO, REDO, SAVE, GROUP, UNGROUP, MEASURE, PICK_UP,
+pub const ALL: [ImageSource<'static>; 20] = [
+    SELECT,
+    WALL,
+    SLAB,
+    SPACE,
+    TEXT,
+    COLUMN,
+    FIT,
+    ORBIT,
+    PLAN_3D,
+    UNDO,
+    REDO,
+    SAVE,
+    GROUP,
+    UNGROUP,
+    MEASURE,
+    PICK_UP,
     INJECT,
+    PLAN_SHEET,
+    CAMERA,
+    PARALLEL_BOX,
 ];
+
+/// The icon of a 3D view, or of a saved camera, by the projection it shows
+/// (VIEW-003, VIEW-020): the camera for perspective, the parallel box for
+/// parallel projection.
+pub fn view_icon(projection: Projection) -> ImageSource<'static> {
+    match projection {
+        Projection::Perspective => CAMERA,
+        Projection::Parallel => PARALLEL_BOX,
+    }
+}
 
 /// Installs the loader that rasterises the icons for the screen's pixels
 /// (NFR-PORT-005). It does nothing once installed, so the application calls
