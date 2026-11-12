@@ -145,11 +145,11 @@ fn stress() -> Vec<(String, Value)> {
         edit(&mut file);
         seeds.push((format!("stress-{name}"), file));
     };
-    // MAX_SLAB_POINTS: within the limit (1,000 at the campaign, 10,000 since
-    // archicraft-91jj), every check runs on the outline; far above it
+    // MAX_SLAB_POINTS: just below the limit (1,000 at the campaign, 10,000
+    // since archicraft-91jj), every check runs on the outline; far above it
     // (finding 1, a 16 s time-out), the slab is skipped before.
-    seed("slab-outline-999-points", &|f| {
-        node(f, "SL-001")["attributes"]["archicraft::slab"]["outline"] = comb(999);
+    seed("slab-outline-9999-points", &|f| {
+        node(f, "SL-001")["attributes"]["archicraft::slab"]["outline"] = comb(9_999);
     });
     seed("slab-outline-32003-points", &|f| {
         node(f, "SL-001")["attributes"]["archicraft::slab"]["outline"] = comb(32_003);
@@ -432,6 +432,7 @@ mod tests {
     use archicraft_geometry::ModelGeometry;
     use archicraft_ifcx::ReadOutcome;
     use archicraft_ifcx::fuzz::{Opened, ROUND_TRIP_MESH_POINTS, mesh_points, open_path, save_for_round_trip};
+    use archicraft_model::validate::MAX_SLAB_POINTS;
     use archicraft_model::{PlanGrid, ReferenceLine, TopLink};
     use serde_json::{Value, json};
 
@@ -582,8 +583,19 @@ mod tests {
     /// walls are all loaded.
     #[test]
     fn the_stress_seeds_open_as_the_campaign_fixes_intend() {
-        let at_limit = load("stress-slab-outline-999-points");
+        let at_limit = load("stress-slab-outline-9999-points");
         assert_eq!(at_limit.project.elements.len(), 5, "{:#?}", at_limit.problems);
+        // SLB-003 (archicraft-vk7k): the loaded slab has all 9,999 points,
+        // just below the limit.
+        let slab_points: Vec<_> = at_limit
+            .project
+            .elements
+            .iter()
+            .filter_map(|(_, e)| e.as_slab())
+            .map(|s| s.outline.node_count())
+            .collect();
+        assert_eq!(slab_points, [9_999]);
+        assert_eq!(MAX_SLAB_POINTS, 10_000);
         let beyond = load("stress-slab-outline-32003-points");
         assert_eq!(beyond.project.elements.len(), 4);
         assert_eq!(
