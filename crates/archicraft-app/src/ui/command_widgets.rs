@@ -164,6 +164,13 @@ pub fn toolbar_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec) -> bool 
     icon_button(ui, cx, spec, &spec.label(), &spec.label_in(cx))
 }
 
+/// An icon button of `spec` for the view-control bar (UI-001): an
+/// [`icon_button`] of the toolbox's size whose accessible name and tooltip
+/// title are the short `label`.
+pub fn bar_icon_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, label: &str) -> bool {
+    icon_button(ui, cx, spec, label, label)
+}
+
 /// A bar button of `spec` with the short `label`, for the status line and
 /// the view-control bar: a button, or a selectable
 /// button for an on/off command, both in the one text size of the bars

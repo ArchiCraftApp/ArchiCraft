@@ -26,6 +26,10 @@ impl Default for Camera2d {
 
 pub const MIN_SCALE: f64 = 0.05;
 pub const MAX_SCALE: f64 = 100_000.0;
+/// The limits of a 3D camera's distance from its target, in metres: the
+/// zoom limits of a 3D view.
+pub const MIN_DISTANCE: f64 = 0.05;
+pub const MAX_DISTANCE: f64 = 1e6;
 
 impl Camera2d {
     pub fn to_screen(&self, rect: Rect, p: DVec2) -> Pos2 {
@@ -218,7 +222,7 @@ impl Camera3d {
             self.target
         };
         let factor = factor.clamp(0.2, 5.0);
-        self.distance = (self.distance * factor).clamp(0.05, 1e6);
+        self.distance = (self.distance * factor).clamp(MIN_DISTANCE, MAX_DISTANCE);
         self.target = anchor + (self.target - anchor) * factor;
     }
 

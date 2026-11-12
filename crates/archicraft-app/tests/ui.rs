@@ -883,8 +883,9 @@ fn the_toolbar_tooltips_show_label_shortcut_description_and_reason() {
 }
 
 /// UI-011: hovering a toolbox tool shows the command's description and its
-/// shortcut; View ▸ Fit to window and the status bar's Fit button show the
-/// command's description with its shortcut, from the same command.
+/// shortcut; View ▸ Fit to window shows the command's description with its
+/// shortcut, and the view-control bar's Fit icon button its label, shortcut
+/// and description, from the same command.
 #[test]
 fn toolbox_menu_and_status_bar_tooltips_show_description_and_shortcut() {
     let mut harness = harness("command-tooltips");
@@ -903,16 +904,22 @@ fn toolbox_menu_and_status_bar_tooltips_show_description_and_shortcut() {
     assert_present(&harness, &fit);
     harness.key_press(Key::Escape);
     harness.run_steps(2);
-    // The status bar's Fit lies below the toolbox's.
-    let status_fit = harness
+    // The view-control bar's Fit lies below the toolbox's.
+    let bar_fit = harness
         .query_all_by_label("Fit")
         .map(|n| n.rect())
         .max_by(|a, b| a.min.y.total_cmp(&b.min.y))
         .unwrap()
         .center();
-    harness.hover_at(status_fit);
+    assert!(panel(&harness, "view_bar").contains(bar_fit));
+    harness.hover_at(bar_fit);
     harness.run_steps(4);
-    assert_present(&harness, &fit);
+    let description = Registry::get().command(commands::view::FIT_WINDOW).description();
+    let key = harness.ctx.format_shortcut(&Binding::key(Key::F).shortcut());
+    for text in [description.as_str(), key.as_str()] {
+        assert_present(&harness, text);
+    }
+    assert_eq!(harness.query_all_by_label("Fit").count(), 3, "the tooltip's title");
 }
 
 /// UI-011, UI-009: the tooltip shows the key the keymap binds now; with the
@@ -1684,6 +1691,184 @@ fn zoom_in_and_out_zoom_the_active_view() {
     harness.get_by_label("Zoom out").click();
     harness.run_steps(2);
     assert!((distance(&mut harness) - fitted).abs() < 1e-9);
+}
+
+/// The button labelled `label` in the view-control bar.
+fn view_bar_button<'h>(harness: &'h Harness<'static, ArchiCraftApp>, label: &'h str) -> egui_kittest::Node<'h> {
+    let bar = panel(harness, "view_bar");
+    harness
+        .query_all(By::new().role(Role::Button).label(label))
+        .find(|n| bar.contains(n.rect().center()))
+        .unwrap_or_else(|| panic!("no {label} button in the view-control bar"))
+}
+
+/// Asserts that the view-control bar's `labels` are icon buttons: squares
+/// of side [`ICON_BUTTON`] without text.
+fn assert_icon_buttons(harness: &Harness<'static, ArchiCraftApp>, labels: &[&str]) {
+    for label in labels {
+        let node = view_bar_button(harness, label);
+        let rect = node.rect();
+        assert!(
+            (rect.width() - ICON_BUTTON).abs() < 0.5 && (rect.height() - ICON_BUTTON).abs() < 0.5,
+            "{label} is not a {ICON_BUTTON} pt square: {rect:?}"
+        );
+        assert!(
+            node.children()
+                .all(|child| child.accesskit_node().role() != Role::TextRun),
+            "{label} shows text"
+        );
+    }
+}
+
+/// UI-001, UI-011: in a plan and in a 3D view, Zoom out, Zoom in and Fit,
+/// and in 3D Orbit, are icon buttons of the toolbox's size without text,
+/// found by their labels; clicking them still zooms, fits and toggles
+/// orbit, which shows selected while it is on. The other controls keep
+/// their text.
+#[test]
+fn the_view_bar_zoom_fit_and_orbit_are_icon_buttons() {
+    let mut harness = harness("view-bar-icons");
+    assert_icon_buttons(&harness, &["Zoom out", "Zoom in", "Fit"]);
+    let texts = view_bar_texts(&harness);
+    for label in ["◀ Previous zoom", "Next zoom ▶", "Reference lines"] {
+        assert!(texts.iter().any(|t| t == label), "{label} in {texts:?}");
+    }
+    let scale = |harness: &mut Harness<'static, ArchiCraftApp>| {
+        let ws = harness.state_mut().workspace();
+        ws.plan_views[&ws.active_storey].camera.scale
+    };
+    let before = scale(&mut harness);
+    view_bar_button(&harness, "Zoom in").click();
+    harness.run_steps(2);
+    view_bar_button(&harness, "Zoom in").click();
+    harness.run_steps(2);
+    let zoomed = scale(&mut harness);
+    assert!((zoomed / before - 1.25 * 1.25).abs() < 1e-9, "{before} → {zoomed}");
+    view_bar_button(&harness, "Zoom out").click();
+    harness.run_steps(2);
+    assert!((scale(&mut harness) / before - 1.25).abs() < 1e-9);
+    view_bar_button(&harness, "Fit").click();
+    harness.run_steps(2);
+    let fitted = scale(&mut harness);
+    assert!((fitted / before - 1.25).abs() > 1e-6, "Fit zooms: {fitted}");
+
+    harness.get_by_label("Plan/3D").click();
+    harness.run_steps(3);
+    let Some(Pane::View3d(view)) = harness.state_mut().workspace().active_pane else {
+        panic!("no 3D view");
+    };
+    assert_icon_buttons(&harness, &["Zoom out", "Zoom in", "Fit", "Orbit"]);
+    let texts = view_bar_texts(&harness);
+    assert!(texts.iter().any(|t| t == "Perspective"), "{texts:?}");
+    let distance =
+        |harness: &mut Harness<'static, ArchiCraftApp>| harness.state_mut().workspace().views_3d[&view].camera.distance;
+    let start = distance(&mut harness);
+    view_bar_button(&harness, "Zoom in").click();
+    harness.run_steps(2);
+    assert!((distance(&mut harness) - start / 1.25).abs() < 1e-9);
+    view_bar_button(&harness, "Fit").click();
+    harness.run_steps(2);
+    assert!(
+        (distance(&mut harness) - start).abs() < 1e-9,
+        "Fit returns to the fitted view"
+    );
+    for on in [true, false] {
+        view_bar_button(&harness, "Orbit").click();
+        harness.run_steps(2);
+        assert_eq!(harness.state_mut().workspace().views_3d[&view].orbit, on);
+        let toggled = if on { Toggled::True } else { Toggled::False };
+        assert_eq!(
+            view_bar_button(&harness, "Orbit").accesskit_node().toggled(),
+            Some(toggled)
+        );
+    }
+}
+
+/// Clicks the zoom readout, which shows `shown`, and types `text` into the
+/// field it turns into, over the selected percentage.
+fn type_zoom(harness: &mut Harness<'static, ArchiCraftApp>, shown: &str, text: &str) {
+    view_bar_button(harness, shown).click();
+    harness.run_steps(2);
+    harness.get(By::new().role(Role::TextInput)).type_text(text);
+    harness.run_steps(1);
+}
+
+/// UI-001, VIEW-014, UND-005: clicking the zoom readout of a plan, typing
+/// 150 and Enter zooms the plan to 150 % against its drawing scale, and the
+/// readout shows it; this makes no undo step, and Previous zoom returns to
+/// the zoom before. Escape after typing, text that is not a zoom and a zoom
+/// of 0 keep the zoom, the last two with the reason in the status line. In
+/// a 3D view the typed zoom sets the camera distance to 150 % of the
+/// fitted view.
+#[test]
+fn a_typed_zoom_zooms_the_active_view() {
+    let mut harness = harness("typed-zoom");
+    let zoom_factor = harness.ctx.zoom_factor();
+    let scale = |harness: &mut Harness<'static, ArchiCraftApp>| {
+        let ws = harness.state_mut().workspace();
+        ws.plan_views[&ws.active_storey].camera.scale
+    };
+    let undo_len =
+        |harness: &mut Harness<'static, ArchiCraftApp>| harness.state_mut().workspace().doc.history.undo_len();
+    let undo_before = undo_len(&mut harness);
+    let before = scale(&mut harness);
+    let shown = zoom_readout(&mut harness, view_bar::plan_zoom_percent(before, zoom_factor, 100.0));
+
+    type_zoom(&mut harness, &shown, "150");
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    let percent = view_bar::plan_zoom_percent(scale(&mut harness), zoom_factor, 100.0);
+    assert!((percent / 150.0 - 1.0).abs() < 0.005, "{percent} %");
+    let texts = view_bar_texts(&harness);
+    assert!(texts.contains(&"150 %".to_owned()), "{texts:?}");
+    assert_eq!(undo_len(&mut harness), undo_before, "zooming is no undo step");
+    let at_150 = scale(&mut harness);
+
+    type_zoom(&mut harness, "150 %", "175");
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    assert_eq!(scale(&mut harness), at_150, "Escape keeps the zoom");
+    assert!(harness.query(By::new().role(Role::TextInput)).is_none());
+    view_bar_button(&harness, "150 %");
+
+    for (text, reason) in [
+        ("abc", "“abc” is not a zoom. Type a percentage such as 150."),
+        ("0", "Type a zoom between"),
+    ] {
+        type_zoom(&mut harness, "150 %", text);
+        harness.key_press(Key::Enter);
+        harness.run_steps(2);
+        assert_eq!(scale(&mut harness), at_150, "{text} keeps the zoom");
+        let status = harness
+            .state_mut()
+            .workspace()
+            .status
+            .clone()
+            .expect("a status message");
+        assert!(status.error && status.text.starts_with(reason), "{text}: {status:?}");
+    }
+
+    view_bar_button(&harness, "◀ Previous zoom").click();
+    harness.run_steps(2);
+    assert_eq!(scale(&mut harness), before, "Previous zoom returns to the zoom before");
+
+    harness.get_by_label("Plan/3D").click();
+    harness.run_steps(3);
+    let Some(Pane::View3d(view)) = harness.state_mut().workspace().active_pane else {
+        panic!("no 3D view");
+    };
+    type_zoom(&mut harness, "100 %", "150");
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    let percent = harness.state_mut().workspace().views_3d[&view].zoom_percent();
+    assert!((percent / 150.0 - 1.0).abs() < 0.005, "{percent} %");
+    assert!(view_bar_texts(&harness).contains(&"150 %".to_owned()));
+    type_zoom(&mut harness, "150 %", "300");
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    let percent = harness.state_mut().workspace().views_3d[&view].zoom_percent();
+    assert!((percent / 150.0 - 1.0).abs() < 0.005, "Escape keeps {percent} %");
+    assert_eq!(undo_len(&mut harness), undo_before, "zooming is no undo step");
 }
 
 /// PRJ-003: closing a project with unsaved changes asks whether to save,

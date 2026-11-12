@@ -370,7 +370,9 @@ fn the_space_tool_detects_the_room_under_the_cursor_in_the_plan() {
     assert_eq!(harness.state_mut().workspace().tool.kind, ToolKind::Space);
     assert!(detecting(&mut harness));
 
-    let outside = DVec2::new(6.0, -0.3);
+    // East of the building, inside the plan whatever the height of the bars
+    // below it: the plan is wider than the building.
+    let outside = DVec2::new(12.6, 4.5);
     hover(&mut harness, outside);
     hover(&mut harness, outside);
     let prompt = harness.state_mut().workspace().consumer().step().unwrap().prompt;
