@@ -370,6 +370,14 @@ class ShowcaseDemos(unittest.TestCase):
         accepted, = dashboard.showcase_demos(demo(1, [], verify_status="closed", status="closed"))
         self.assertEqual((shown["state"], accepted["state"]), ("demo", "accepted"))
 
+    def test_a_demo_numbered_in_between_comes_between_its_neighbours(self):
+        between = [bead("x-mid", type="epic", title="Showcase 3.5: toolbar and icons", minutes=None),
+                   bead("x-mid.1", needs=["x-c"], parent="x-mid"), bead("x-c")]
+        demos = dashboard.showcase_demos(demo(4, ["x-d"]) + between + demo(3, []) + [bead("x-d", needs=["x-mid.1"])])
+        self.assertEqual([(d["n"], d["id"]) for d in demos], [(3, "x-d3"), (3.5, "x-mid"), (4, "x-d4")])
+        self.assertEqual([t["id"] for t in demos[1]["tasks"]], ["x-c", "x-mid.1"])
+        self.assertEqual([t["id"] for t in demos[2]["tasks"]], ["x-d", "x-d4.1"])
+
 
 class RequirementStatus(unittest.TestCase):
     """The roadmap page counts the requirements from docs/status/requirements.json, which is their
