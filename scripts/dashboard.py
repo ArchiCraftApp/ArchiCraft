@@ -8,7 +8,7 @@ sessions, remove finished worktrees and branches, run the sweep). Python 3 stand
 
 The Roadmap page (/roadmap) shows how far the roadmap has come: the epics of docs/roadmap.md
 placed by their dependencies with the share of their task estimates that is done, the
-increments with their exit criteria, the six demos of the showcase track, the SRS requirement status of docs/status/requirements.json
+increments with their exit criteria, the demos of the showcase track, the SRS requirement status of docs/status/requirements.json
 and the pace of the last 7 days. The Code map page (/code) shows the Rust modules of origin/main as a component map and as a
 dependency graph, coloured by how recently or how much they changed, with the files that open
 PRs and running sessions are changing now.
@@ -1122,14 +1122,14 @@ def build_roadmap_doc(sha):
     return {"sha": sha, **roadmap, "reqs": status_counts(reqs), "scenarios": scenarios, "req_history": history}
 
 
-SHOWCASE_TITLE = re.compile(r"^Showcase (\d+): (.+)$")
+SHOWCASE_TITLE = re.compile(r"^Showcase (\d+(?:\.\d+)?): (.+)$")
 
 
 def showcase_demos(beads, ready=(), live=None):
     """The demos of the roadmap's showcase track, in order, from the beads alone.
 
     A demo is an epic labelled `showcase` titled "Showcase <n>: ...", holding one verification
-    task. The demo's beads are the showcase beads its verification task waits for, transitively,
+    task. <n> may have a decimal part ("Showcase 3.5") for a demo slotted in between two others. The demo's beads are the showcase beads its verification task waits for, transitively,
     that no earlier demo already needs (the "cumulative" counts of docs/roadmap.md). A bead the
     loop split counts through its leaves.
     """
@@ -1145,7 +1145,8 @@ def showcase_demos(beads, ready=(), live=None):
             return [b]
         return [x for c in kids[b["id"]] for x in leaves(c)]
     is_showcase = lambda b: "showcase" in (b.get("labels") or [])
-    epics = sorted(((int(m.group(1)), m.group(2), b) for b in beads
+    num = lambda s: float(s) if "." in s else int(s)
+    epics = sorted(((num(m.group(1)), m.group(2), b) for b in beads
                     if b.get("issue_type") == "epic" and is_showcase(b)
                     for m in [SHOWCASE_TITLE.match(b["title"])] if m), key=lambda t: t[0])
     est = lambda x: x.get("estimated_minutes") or 0
@@ -2634,7 +2635,7 @@ function showcase() {
   const tasks = !shown ? "" : `<h3>Demo ${shown.n}: ${esc(shown.title)} <span class="small mute">${shown.n === demo ? "all tasks" : "next up"} · the last task is the demo's verification</span></h3>` +
     (shown.n === demo ? shown.tasks : shown.tasks.filter(t => t.status !== "closed").slice(0, 8)).map(taskRow).join("");
   const all = D.reduce((s, d) => s + d.est_total, 0), allDone = D.reduce((s, d) => s + d.est_done, 0);
-  return sec("Showcase demos", `<div class="small mute" style="margin-bottom:8px">Jakob's feature requests of 2026-11-03 as six demos, one after another (docs/roadmap.md, "Showcase track"). A demo's beads are the showcase beads its verification task needs that no earlier demo needs. The loop stops for the demo when its verification task closes.</div>
+  return sec("Showcase demos", `<div class="small mute" style="margin-bottom:8px">Jakob's feature requests as demos, one after another (docs/roadmap.md, "Showcase track"). A demo's beads are the showcase beads its verification task needs that no earlier demo needs. The loop stops for the demo when its verification task closes.</div>
     <div class="demos">${tiles}</div>${tasks}`, "wide", `<span class="small mute">${pct(allDone, all)}% of ${h(all)} h · click a demo for all its tasks</span>`);
 }
 
