@@ -909,6 +909,8 @@ mod tests {
         let (_, times) = timed(Duration::from_millis(1), slow);
         assert_eq!(times.len(), ATTEMPTS, "{times:?}");
         assert!(times.iter().all(|&time| time >= Duration::from_millis(2)), "{times:?}");
+        // The default panic hook prints the message of this caught panic to
+        // the test output; that is expected and not a failure.
         let failed = std::panic::catch_unwind(|| within_budget(Duration::from_millis(1), "a slow run", slow));
         let message = failed.unwrap_err().downcast::<String>().unwrap();
         assert!(message.starts_with("a slow run took ["), "{message}");
@@ -919,18 +921,24 @@ mod tests {
     /// pair of edges, as the polygon checks did before the sweep
     /// (archicraft-91jj): for the comb at the point limit that takes about
     /// 16 yardsticks, more than [`BUDGET_IN_YARDSTICKS`], on any machine.
-    /// Load only makes it slower.
+    /// Load only adds time, so the run is compared with the smaller of two
+    /// budgets measured just before and just after it: a burst of load
+    /// during one yardstick alone, as while other tests still run in
+    /// parallel, inflates that budget but not both (archicraft-m84ph).
     #[test]
     fn the_budget_catches_testing_every_pair_of_edges() {
-        let budget = time_budget();
+        let before = time_budget();
         let ring = validate_ring(&comb((MAX_SLAB_POINTS - 3) / 4)).unwrap();
         let rings = sweep::Rings::new(&[&ring]);
         let start = Instant::now();
         assert!(sweep::every_pair(&rings).is_ok());
         let elapsed = start.elapsed();
+        let after = time_budget();
+        let budget = before.min(after);
         assert!(
             elapsed > budget,
-            "testing every pair took {elapsed:?}, within the budget of {budget:?}"
+            "testing every pair took {elapsed:?}, within the budget of {budget:?} \
+             (the smaller of {before:?} before and {after:?} after it)"
         );
     }
 
