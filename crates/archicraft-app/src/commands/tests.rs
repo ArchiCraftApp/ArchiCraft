@@ -152,6 +152,7 @@ fn command_ids_are_pinned() {
             "view.orbit",
             "view.reference-lines",
             "view.problems",
+            "view.toggle-browser",
             "view.place-user-origin",
             "view.reset-user-origin",
             "view3d.display.shaded",
@@ -683,7 +684,7 @@ fn menus_follow_group_and_order() {
         menu("view"),
         "view.zoom-in view.zoom-out view.fit-window view.zoom-selection view.previous-zoom view.next-zoom | \
          view.switch-plan-3d \
-         view.next-tab view.previous-tab view.orbit | view.reference-lines view.problems | \
+         view.next-tab view.previous-tab view.orbit | view.reference-lines view.problems view.toggle-browser | \
          view.place-user-origin view.reset-user-origin | view/display-mode/ view3d.display.shaded \
          view3d.display.shaded-with-edges view3d.display.hidden-line view3d.display.wireframe \
          view/view-preset/ view3d.preset.top view3d.preset.front view3d.preset.side \

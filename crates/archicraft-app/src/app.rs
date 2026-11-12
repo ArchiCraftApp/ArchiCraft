@@ -11,16 +11,16 @@ use eframe::egui_wgpu;
 use egui::{Id, RichText, ThemePreference, Ui, ViewportCommand, WidgetText};
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 
-use crate::commands::{CommandCtx, CommandId, Invocation, Origin, Registry, Target, view_keys};
+use crate::commands::{CommandCtx, CommandId, Invocation, Origin, Registry, Target, view, view_keys};
 use crate::document::{Document, unsaved_question, window_title};
 use crate::i18n::{self, Localizer};
 use crate::persistence::autosave::{Abandoned, Autosaver, Clock, Session, SystemClock, find_abandoned};
 use crate::persistence::crash::{RecentLog, reports_since};
-use crate::persistence::prefs::{Preferences, ThemeChoice};
+use crate::persistence::prefs::{BROWSER_MIN_WIDTH, Preferences, ThemeChoice};
 use crate::persistence::{DataDirs, save_atomically};
 use crate::tr;
 use crate::ui::dialogs::{self, Dialogs};
-use crate::ui::{browser, icons, properties, shell, style, view_bar};
+use crate::ui::{browser, icons, properties, shell, style, tab_bar, view_bar};
 use crate::views::plan;
 use crate::views::view3d::{self, View3dState, model_bounds};
 use crate::workspace::{Pane, Request, Workspace};
@@ -104,6 +104,9 @@ pub struct ArchiCraftApp {
     /// (NFR-L10N-001).
     localizer: Rc<Localizer>,
     released: Vec<View3dState>,
+    /// A drag of the browser's edge changed its width in the preferences,
+    /// which are saved once the drag ends (UI-015).
+    browser_resized: bool,
     /// A lower limit than Appendix D.9's for the files opened or recovered
     /// (NFR-SEC-003), set only by tests; `None` reads them with
     /// [`archicraft_ifcx::load_path`] and its limit.
@@ -188,6 +191,7 @@ impl ArchiCraftApp {
             theme: None,
             localizer: Rc::new(Localizer::english()),
             released: Vec::new(),
+            browser_resized: false,
             file_size_limit: None,
             recorder: None,
             save_dialog: None,
@@ -881,6 +885,52 @@ impl ArchiCraftApp {
         self.ws.perf.edit_settled(self.ws.doc.project.revision, current);
     }
 
+    /// The project browser (VIEW-003) in a right panel whose left edge the
+    /// user drags to make it wider or narrower, between
+    /// [`BROWSER_MIN_WIDTH`] and half the window (UI-015). The width the
+    /// preferences keep is the one shown, after a restart too: while egui's
+    /// own record of the panel holds another width (none yet, one from
+    /// eframe's memory or from before a drag), the panel is set to it
+    /// exactly; otherwise it may take any width in its range, so the edge
+    /// shows the two-way resize cursor. A drag of the edge stores the new
+    /// width and saves it once the drag ends. The browser's scroll area
+    /// takes the panel's full width: shrunk to its rows, it set the panel's
+    /// width every frame and undid every resize.
+    fn browser_panel(&mut self, ui: &mut Ui, cx: &CommandCtx) {
+        let id = Id::new("browser");
+        let max = (ui.ctx().content_rect().width() / 2.0).max(BROWSER_MIN_WIDTH);
+        let width = self.ws.prefs.browser_width.clamp(BROWSER_MIN_WIDTH, max);
+        let dragging = ui.ctx().dragged_id().is_some();
+        let in_step = egui::containers::panel::PanelState::load(ui.ctx(), id)
+            .is_some_and(|state| (state.outer_rect.width() - width).abs() <= 0.25);
+        let panel = egui::Panel::right(id).resizable(true);
+        // An exact size would hold the edge during a drag.
+        let panel = if dragging || in_step {
+            panel.size_range(BROWSER_MIN_WIDTH..=max)
+        } else {
+            panel.exact_size(width)
+        };
+        let shown = panel
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| browser::ui(ui, &mut self.ws, cx));
+            })
+            .response
+            .rect
+            .width();
+        // Only a drag of the edge changes the width shown, and a window too
+        // narrow for the stored width does not overwrite it.
+        if dragging && (shown - width).abs() > 0.25 {
+            self.ws.prefs.browser_width = shown;
+            self.browser_resized = true;
+        }
+        if !dragging && self.browser_resized {
+            self.browser_resized = false;
+            self.save_prefs();
+        }
+    }
+
     /// Ends held contour detection (INP-018) once its key is up. It runs
     /// every frame, so a key released while no plan view is shown does not
     /// keep detection on.
@@ -907,8 +957,15 @@ impl ArchiCraftApp {
 
 struct Behavior<'a> {
     ws: &'a mut Workspace,
+    /// The state of the frame the tab row's toggle shows (UI-011).
+    cx: &'a CommandCtx,
+    /// The rectangle of all views, to find the tab bar in its top right
+    /// corner.
+    views: egui::Rect,
     render_state: Option<&'a egui_wgpu::RenderState>,
     closed: Vec<Pane>,
+    /// The command of the tab row's toggle, when clicked.
+    invoked: Option<CommandId>,
 }
 
 impl egui_tiles::Behavior<Pane> for Behavior<'_> {
@@ -948,6 +1005,24 @@ impl egui_tiles::Behavior<Pane> for Behavior<'_> {
             }
         }
         response
+    }
+
+    /// UI-004: the browser toggle at the right end of the tab bar in the top
+    /// right corner of the views, so there is one even with split views.
+    fn top_bar_right_ui(
+        &mut self,
+        _tiles: &Tiles<Pane>,
+        ui: &mut Ui,
+        _tile_id: TileId,
+        _tabs: &egui_tiles::Tabs,
+        _scroll_offset: &mut f32,
+    ) {
+        if tab_bar::is_top_right(ui.max_rect(), self.views)
+            && let spec = Registry::get().command(view::TOGGLE_BROWSER)
+            && tab_bar::icon_button(ui, self.cx, spec)
+        {
+            self.invoked = Some(spec.id);
+        }
     }
 
     fn is_tab_closable(&self, _tiles: &Tiles<Pane>, _tile_id: TileId) -> bool {
@@ -1054,13 +1129,9 @@ impl eframe::App for ArchiCraftApp {
             self.ws.prefs.toolbox_columns = columns;
             self.save_prefs();
         }
-        // VIEW-003: wide enough for a storey row with its icon on one line.
-        egui::Panel::right("browser")
-            .resizable(true)
-            .default_size(260.0)
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| browser::ui(ui, &mut self.ws, &cx));
-            });
+        if self.ws.prefs.browser_shown {
+            self.browser_panel(ui, &cx);
+        }
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
             if self.tree.root.is_none() {
                 ui.centered_and_justified(|ui| {
@@ -1070,10 +1141,14 @@ impl eframe::App for ArchiCraftApp {
             }
             let mut behavior = Behavior {
                 ws: &mut self.ws,
+                cx: &cx,
+                views: ui.max_rect(),
                 render_state: frame.wgpu_render_state(),
                 closed: Vec::new(),
+                invoked: None,
             };
             self.tree.ui(&mut behavior, ui);
+            invoked.extend(behavior.invoked.map(|id| (id, Origin::Toolbar)));
             let closed = std::mem::take(&mut behavior.closed);
             for pane in closed {
                 if let Pane::View3d(view) = pane {

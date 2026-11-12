@@ -38,6 +38,8 @@ pub struct CommandCtx {
     /// The problems panel is open.
     pub problems_open: bool,
     pub reference_lines_shown: bool,
+    /// The project browser is shown (UI-004).
+    pub browser_shown: bool,
     pub user_origin_placed: bool,
     /// The active tool and the geometry methods of the wall, slab and space
     /// tools (WAL-001, SLB-001, SPC-001).
@@ -95,6 +97,7 @@ impl CommandCtx {
             text_focused,
             problems_open: dialogs.problems,
             reference_lines_shown: ws.prefs.show_reference_lines,
+            browser_shown: ws.prefs.browser_shown,
             user_origin_placed: ws.frames.user_origin.is_placed(),
             tool: ws.tool.kind,
             wall_mode: ws.tool.wall_mode,

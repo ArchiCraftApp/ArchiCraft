@@ -19,6 +19,9 @@ pub const SWITCH_PLAN_3D: CommandId = CommandId::new("view.switch-plan-3d");
 pub const ORBIT: CommandId = CommandId::new("view.orbit");
 pub const PROBLEMS: CommandId = CommandId::new("view.problems");
 pub const REFERENCE_LINES: CommandId = CommandId::new("view.reference-lines");
+/// Shows or hides the project browser (UI-004): the View menu's entry and
+/// the toggle at the right end of the view tab row.
+pub const TOGGLE_BROWSER: CommandId = CommandId::new("view.toggle-browser");
 
 /// How much one Zoom in or Zoom out step magnifies or shrinks the view.
 const ZOOM_STEP: f64 = 1.25;
@@ -112,6 +115,15 @@ pub(super) fn specs() -> Vec<CommandSpec> {
         .bind(Binding::primary(Key::M).shift())
         .scope(Scope::TextSafe)
         .checked_when(|cx| cx.problems_open),
+        // UI-004, UI-015: hidden, the browser is not drawn and the views take
+        // its space; it shows again at the width it had.
+        view(TOGGLE_BROWSER.as_str(), |app, _, _| {
+            app.ws.prefs.browser_shown = !app.ws.prefs.browser_shown;
+            app.save_prefs();
+        })
+        .menu("view", 2, 2)
+        .icon(icons::SIDEBAR_RIGHT)
+        .checked_when(|cx| cx.browser_shown),
         // INP-014: the user origin of the plan views.
         view("view.place-user-origin", |app, _, _| app.ws.place_user_origin()).menu("view", 3, 0),
         view("view.reset-user-origin", |app, _, _| app.ws.reset_user_origin())

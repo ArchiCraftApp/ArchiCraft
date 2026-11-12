@@ -43,9 +43,13 @@ pub const CAMERA: ImageSource<'static> = include_image!("../../assets/icons/came
 /// A tall, steep box drawn in parallel projection: a 3D view in parallel
 /// projection (VIEW-003, VIEW-020).
 pub const PARALLEL_BOX: ImageSource<'static> = include_image!("../../assets/icons/parallel-box.svg");
+/// A window outline with its right column marked off and lined: the
+/// project browser beside the views, which the tab row's toggle shows and
+/// hides (UI-004).
+pub const SIDEBAR_RIGHT: ImageSource<'static> = include_image!("../../assets/icons/sidebar-right.svg");
 
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 20] = [
+pub const ALL: [ImageSource<'static>; 21] = [
     SELECT,
     WALL,
     SLAB,
@@ -66,6 +70,7 @@ pub const ALL: [ImageSource<'static>; 20] = [
     PLAN_SHEET,
     CAMERA,
     PARALLEL_BOX,
+    SIDEBAR_RIGHT,
 ];
 
 /// The icon of a 3D view, or of a saved camera, by the projection it shows
