@@ -102,11 +102,14 @@ ifcx-field-unknown-value = “{ $key }” has the unknown value “{ $value }”
 ifcx-field-not-uuid = “{ $key }” is not a UUID
 ifcx-field-out-of-range = “{ $key }” is out of range
 ifcx-field-point = “{ $key }”: { $reason }
+# The saved camera of a 3D view; $key is its field, “camera”.
+ifcx-field-camera = “{ $key }”: { $reason }
 ifcx-field-colour-component = “{ $key }” has a non-numeric component
 ifcx-field-not-colour = “{ $key }” is not a colour
 ifcx-point-not-list = a point is not a list
 ifcx-point-not-numeric = a point has non-numeric coordinates
 ifcx-point-coordinates = a point does not have two coordinates
+ifcx-point-three-coordinates = a point does not have three coordinates
 ifcx-points-not-list = a point list is not a list
 ifcx-not-object = it is not an object
 ifcx-path-not-uuid = the path is not a UUID; the object gets a new identity

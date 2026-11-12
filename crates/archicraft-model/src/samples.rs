@@ -8,16 +8,16 @@
 
 use std::collections::BTreeMap;
 
-use glam::DVec2;
+use glam::{DVec2, DVec3};
 use uuid::Uuid;
 
 use crate::command::{Command, History};
 use crate::element::{Element, ElementKind, IfcClass, KindTag, Position, PredefinedType, StructuralFunction, TopLink};
-use crate::ids::{ElementId, LayerId, MaterialId, ProfileId, StoreyId};
+use crate::ids::{ElementId, LayerId, MaterialId, ProfileId, StoreyId, ViewId};
 use crate::kinds::{Anchor, BoundarySource, ColumnCut, CrossSection, ReferenceLine};
 use crate::layer::Layer;
 use crate::profile::{ParametricShape, Profile, ProfileRegion};
-use crate::project::{DefaultsSlot, Project};
+use crate::project::{DefaultsSlot, Project, Projection, ViewCamera};
 use crate::storey::Storey;
 use crate::template::{TEXT_STYLES, default_metric_project_with, template_text_style_id};
 use crate::text::AnchorPos;
@@ -273,6 +273,22 @@ impl FixtureBuilder {
         execute(&mut self.project, &mut self.history, Command::SetToolDefaults(defaults));
     }
 
+    /// Saves `camera` as a 3D view with `projection` through `SaveCamera`
+    /// (VIEW-004), named `<base> <n>` with the first free `n`, with an
+    /// identity of the role `view`, and returns that identity.
+    pub fn camera(&mut self, base: &str, projection: Projection, camera: ViewCamera) -> ViewId {
+        self.commit();
+        let view = ViewId::from_uuid(self.id("view"));
+        let save = Command::SaveCamera {
+            view,
+            base: base.to_owned(),
+            projection,
+            camera,
+        };
+        execute(&mut self.project, &mut self.history, save);
+        view
+    }
+
     /// Adds the elements created since the last commit with one
     /// `AddElements` command.
     pub fn commit(&mut self) {
@@ -499,7 +515,10 @@ fn add_two_storey_shell(b: &mut FixtureBuilder) -> [StoreyId; 2] {
 /// `C-005` of the steel profile `I 200`, anchored at the profile's insertion
 /// origin, its top right corner, and turned by 90 degrees; and `C-006` of
 /// the custom profile `Composite`, a hollow concrete square with a steel
-/// plate beside it, one body per region.
+/// plate beside it, one body per region. Two saved camera views (VIEW-004):
+/// `Camera 1`, a perspective from the south-west looking at a point
+/// 2.0 + 0.1 + 0.2 m high (every digit, NFR-ACC-002), and `Camera 2`, a
+/// parallel view from the north-east.
 pub fn two_storey_shell_with_columns() -> Project {
     let mut b = FixtureBuilder::new("two-storey-shell-with-columns").titled("Two-storey shell with columns");
     let [ground, upper] = add_two_storey_shell(&mut b);
@@ -563,6 +582,22 @@ pub fn two_storey_shell_with_columns() -> Project {
     b.column(upper, DVec2::new(3.5, 7.5), 0.0, |c| {
         c.section = CrossSection::Profile(composite)
     });
+    let south_west = ViewCamera {
+        target: DVec3::new(6.0, 4.5, 2.0 + 0.1 + 0.2),
+        distance: 24.0 + 0.1 + 0.2,
+        yaw: -3.0 * std::f64::consts::FRAC_PI_4,
+        pitch: std::f64::consts::FRAC_PI_6,
+        fov_y: std::f64::consts::FRAC_PI_4,
+    };
+    b.camera("Camera", Projection::Perspective, south_west);
+    let north_east = ViewCamera {
+        target: DVec3::new(6.0, 4.5, 3.0),
+        distance: 30.0,
+        yaw: std::f64::consts::FRAC_PI_4,
+        pitch: 1.0 / 3.0,
+        fov_y: std::f64::consts::FRAC_PI_4,
+    };
+    b.camera("Camera", Projection::Parallel, north_east);
     b.finish()
 }
 

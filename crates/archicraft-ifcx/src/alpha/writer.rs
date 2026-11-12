@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, HashSet};
 use archicraft_geometry::{MATERIAL_LESS_COLOR, MATERIAL_LESS_OPACITY, ModelGeometry, TriMesh};
 use archicraft_model::glam::DVec3;
 use archicraft_model::material::Material;
-use archicraft_model::project::NameCounters;
+use archicraft_model::project::{NameCounters, View3d};
 use archicraft_model::relations::RelationStore;
 use archicraft_model::{
     Element, Group, KindTag, Layer, MaterialId, PredefinedType, Project, StructuralFunction, TextStyle,
@@ -231,17 +231,33 @@ fn project_attribute(p: &Project, warnings: &mut Vec<Problem>) -> Value {
         "profiles": profiles::write(&p.profiles),
         "textStyles": p.text_styles.iter().map(text_style_record).collect::<Vec<_>>(),
         "toolDefaults": tool_defaults(p, warnings),
-        "views": p.views.iter().map(|v| json!({
-            "id": v.id.to_string(),
-            "name": v.name,
-            "projection": v.projection.code(),
-        })).collect::<Vec<_>>(),
+        "views": p.views.iter().map(view_record).collect::<Vec<_>>(),
         "counters": counters(&p.counters, p.group_counter),
     });
     if !p.groups.is_empty() {
         value["groups"] = p.groups.values().map(group_record).collect();
     }
     value
+}
+
+/// A 3D view (VIEW-002) with its saved camera (VIEW-004) when it has one,
+/// at full precision (NFR-ACC-002); a plain viewpoint has no `camera`.
+fn view_record(v: &View3d) -> Value {
+    let mut record = json!({
+        "id": v.id.to_string(),
+        "name": v.name,
+        "projection": v.projection.code(),
+    });
+    if let Some(c) = &v.camera {
+        record["camera"] = json!({
+            "target": [c.target.x, c.target.y, c.target.z],
+            "distance": c.distance,
+            "yaw": c.yaw,
+            "pitch": c.pitch,
+            "fovY": c.fov_y,
+        });
+    }
+    record
 }
 
 /// Name counters (ELM-019) by kind code: every kind that has a tool, so that

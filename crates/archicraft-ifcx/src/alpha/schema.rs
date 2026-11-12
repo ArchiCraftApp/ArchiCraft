@@ -238,6 +238,23 @@ fn plan_grid() -> Value {
     ])
 }
 
+/// The saved viewpoint of a 3D view (VIEW-004): the point looked at, the
+/// distance from it, the yaw around +Z from +X, the pitch above the horizon
+/// and the vertical field of view of the perspective projection, at full
+/// precision (NFR-ACC-002). Optional: written only for a view with a saved
+/// camera, so plain viewpoints and files written before cameras existed
+/// have none, and a reader of an earlier release skips it. An addition, not
+/// a changed shape, so it needs no new format (IFX-062).
+fn view_camera() -> Value {
+    optional(object(&[
+        ("target", array(length())),
+        ("distance", length()),
+        ("yaw", angle()),
+        ("pitch", angle()),
+        ("fovY", angle()),
+    ]))
+}
+
 fn project(present: &[&dyn Codec]) -> Value {
     object(&[
         ("formatVersion", string()),
@@ -318,6 +335,7 @@ fn project(present: &[&dyn Codec]) -> Value {
                 ("id", string()),
                 ("name", string()),
                 ("projection", enumeration(["perspective", "parallel"])),
+                ("camera", view_camera()),
             ])),
         ),
         ("counters", counters(present)),

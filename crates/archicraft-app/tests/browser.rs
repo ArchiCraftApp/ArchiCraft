@@ -372,6 +372,51 @@ fn save_camera_lists_the_viewpoint_and_opening_it_shows_it() {
     assert_eq!(undo_len(&mut h), steps + 1, "opening adds no undo step (UND-005)");
 }
 
+/// VIEW-004, PRJ-003, IFX-001: a saved camera survives saving and
+/// reopening. Saved from the toolbar, its file dialog answered by the
+/// stand-in, and opened in a new window, the project lists "Camera 1" under
+/// 3D views with the camera icon, and opening it shows the saved viewpoint
+/// (within 1e-9) in its projection.
+#[test]
+fn a_saved_camera_survives_saving_and_reopening() {
+    let mut h = harness("browser-camera-reopen");
+    open_row(&mut h, "3D perspective");
+    let perspective = view_named(&mut h, "3D perspective");
+    let orbited = orbit(&mut h, perspective, egui::vec2(-45.0, 30.0));
+    h.get_by_label("Save camera").click();
+    h.run_steps(2);
+    let camera = saved_view(&mut h, "Camera 1").expect("Camera 1 is saved");
+    let saved = camera.camera.expect("Camera 1 has a camera");
+    assert_shows(&orbited, saved);
+
+    let dir = common::data_dir("browser-camera-reopen-file");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("cameras.ifcx");
+    h.state_mut().stub_save_dialog(Some(path.clone()));
+    h.get(By::new().role(Role::Button).label("Save")).click();
+    h.run_steps(2);
+    assert_eq!(h.state().save_dialogs_asked(), 1, "the first save asks");
+    assert!(path.is_file(), "the project is saved");
+    assert!(!h.state_mut().workspace().doc.is_dirty());
+
+    let mut reopened = harness("browser-camera-reopened");
+    reopened.state_mut().open_path(&path);
+    reopened.run_steps(3);
+    assert_eq!(
+        reopened.state_mut().workspace().doc.path.as_deref(),
+        Some(path.as_path())
+    );
+    let listed = saved_view(&mut reopened, "Camera 1").expect("Camera 1 is listed after reopening");
+    assert_eq!((listed.id, listed.projection), (camera.id, Projection::Perspective));
+    assert_eq!(icon_of(&reopened, "Camera 1"), uri(icons::CAMERA));
+    open_row(&mut reopened, "Camera 1");
+    assert_eq!(active_pane(&mut reopened), Some(Pane::View3d(camera.id)));
+    let (_, shown) = tab_camera(&mut reopened, camera.id).expect("Camera 1 is open");
+    assert_shows(&shown, saved);
+    assert_eq!(shown.projection, Projection::Perspective);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// VIEW-004, UI-017: Save camera is also in the View menu and the context
 /// menu of the browser's "3D views" header, greyed out while a plan is
 /// active; from the header it saves the active 3D view's viewpoint.

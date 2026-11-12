@@ -1132,6 +1132,39 @@ expression: review_view(&bytes)
                             "parallel"
                           ]
                         }
+                      },
+                      "camera": {
+                        "dataType": "Object",
+                        "objectRestrictions": {
+                          "values": {
+                            "target": {
+                              "dataType": "Array",
+                              "arrayRestrictions": {
+                                "value": {
+                                  "dataType": "Real",
+                                  "quantityKind": "Length"
+                                }
+                              }
+                            },
+                            "distance": {
+                              "dataType": "Real",
+                              "quantityKind": "Length"
+                            },
+                            "yaw": {
+                              "dataType": "Real",
+                              "quantityKind": "Plane angle"
+                            },
+                            "pitch": {
+                              "dataType": "Real",
+                              "quantityKind": "Plane angle"
+                            },
+                            "fovY": {
+                              "dataType": "Real",
+                              "quantityKind": "Plane angle"
+                            }
+                          }
+                        },
+                        "optional": true
                       }
                     }
                   }
