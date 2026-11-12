@@ -76,7 +76,7 @@ For Linux desktops there is also a Flatpak bundle, which GNOME Software, KDE Dis
 entry and icons, and which they or `flatpak uninstall com.graphicraft.archicraft` remove
 again. `scripts/package-flatpak.sh` builds it into
 `target/flatpak/ArchiCraft-<version>-linux-<arch>.flatpak` on Linux with `flatpak`,
-`flatpak-builder` 1.4 or newer and Python with Pillow (on Ubuntu 24.04 or later:
+`flatpak-builder` 1.4 or newer and Python with Pillow (on Debian 13 or Ubuntu 24.04 or later:
 `apt install flatpak flatpak-builder python3-pil`; the flatpak-builder 1.2 of Ubuntu 22.04
 cannot build against the current freedesktop SDK). Installing it fetches the freedesktop
 runtime from Flathub when it is missing, and the bundle has no update source. The sandbox
