@@ -5,6 +5,8 @@
 # - scripts/check-legal.sh in a scratch repository with a trademark line and tracked
 #   library-part and image files (SVG, icon, WebP and TIFF included) outside the allowlists
 #   (NFR-LEG-002)
+# It also runs scripts/tests/test_macos_actool.sh, the test of package-macos.sh's choice of
+# Xcode's actool against fake Xcodes, which needs no Xcode.
 # Usage: scripts/guards-selftest.sh
 set -eu
 root="$(git rev-parse --show-toplevel)"
@@ -60,6 +62,9 @@ for asset in library/door.gsm assets/screenshot.png assets/icons/copied.svg \
     git -C "$scratch" rm -q --cached "$asset"
     rm "$scratch/$asset"
 done
+
+expect pass "package-macos.sh's choice of actool (scripts/tests/test_macos_actool.sh)" \
+    sh "$root/scripts/tests/test_macos_actool.sh"
 
 if [ "$failures" -ne 0 ]; then
     echo "$failures guard self-test(s) failed"
