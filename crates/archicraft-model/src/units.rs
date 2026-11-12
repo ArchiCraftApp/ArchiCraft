@@ -426,7 +426,8 @@ fn format_dms(radians: f64, decimals: usize, nf: &NumberFormat) -> String {
 /// (`1 : 1.732`) with the run in the length decimals; zero is `0 : 1`.
 /// `with_unit` only drops the `°` and `%` of the first two, so the text
 /// still reads back in its format: a ratio keeps its colon, and a slope that
-/// has no percent or ratio (vertical, or a run that rounds to zero) is shown
+/// has no percent or ratio (vertical, or a run that rounds to zero or to a
+/// ratio within [`ANGLE_TOLERANCE`] of a right angle) is shown
 /// in degrees with the degree sign. A pitch within [`ANGLE_TOLERANCE`] of a
 /// right angle is vertical.
 pub fn format_slope(pitch: f64, units: &UnitSettings, nf: &NumberFormat, with_unit: bool) -> String {
@@ -449,7 +450,13 @@ pub fn format_slope(pitch: f64, units: &UnitSettings, nf: &NumberFormat, with_un
             }
             let run = 1.0 / pitch.tan().abs();
             let run_text = nf.format_decimal(run, usize::from(units.length_decimals));
-            if run_text.chars().all(|c| c == '0' || c == nf.decimal_separator) {
+            // The rounded run must read back as a slope `parse_slope` accepts:
+            // a run that rounds to zero, or to one so small that `1 : run` is
+            // within `ANGLE_TOLERANCE` of a right angle, is vertical.
+            let shown_vertical = nf
+                .parse_decimal(&run_text)
+                .is_none_or(|shown| (1.0 / shown).atan() >= std::f64::consts::FRAC_PI_2 - ANGLE_TOLERANCE);
+            if shown_vertical {
                 return degrees(true);
             }
             let sign = if pitch < 0.0 { "-" } else { "" };
@@ -1296,6 +1303,45 @@ mod tests {
                 assert!(text.ends_with('"'), "{text}");
             }
         }
+        let units = UnitSettings {
+            angle: AngleUnit::DegreesMinutesSeconds,
+            angle_decimals: 0,
+            ..UnitSettings::default()
+        };
+        assert_eq!(format_angle(-1e300, &units, &nf(), true), "-2562047788015215°30'08\"");
+    }
+
+    /// STR-009, NFR-L10N-003: a ratio slope near the vertical threshold
+    /// never shows a run that `parse_slope` rejects as vertical; at 5 and 6
+    /// length decimals such a pitch falls back to degrees, and every text
+    /// reads back.
+    #[test]
+    fn ratio_slopes_near_vertical_read_back_at_fine_length_decimals() {
+        use std::f64::consts::FRAC_PI_2;
+        let threshold = FRAC_PI_2 - ANGLE_TOLERANCE;
+        for length_decimals in [5, 6] {
+            let units = UnitSettings {
+                slope: SlopeFormat::Ratio,
+                length_decimals,
+                ..UnitSettings::default()
+            };
+            for run in [1e-5_f64, 1.4e-5, 1e-6, 1.5e-6, 2e-6, 5e-6, 9e-6] {
+                let pitch = (1.0 / run).atan();
+                for pitch in [pitch, -pitch, threshold - 1e-9, -(threshold - 1e-9)] {
+                    let text = format_slope(pitch, &units, &nf(), true);
+                    let back = parse_slope(&text, SlopeFormat::Ratio, &nf());
+                    assert!(back.is_ok(), "{pitch} at {length_decimals} decimals: {text}");
+                }
+            }
+        }
+        // 1 : 0.00001 is within the tolerance of a right angle: degrees.
+        let units = UnitSettings {
+            slope: SlopeFormat::Ratio,
+            length_decimals: 5,
+            ..UnitSettings::default()
+        };
+        let text = format_slope(1e5f64.atan(), &units, &nf(), true);
+        assert!(text.ends_with('°'), "{text}");
     }
 
     /// NFR-L10N-003: typed angles accept the suffix of every angle unit,
