@@ -73,6 +73,11 @@ pub struct Preferences {
     /// The columns of tool buttons in the toolbox, one or two (UI-001,
     /// UI-015, default one).
     pub toolbox_columns: u8,
+    /// The width of the project browser in points (UI-015, default 260),
+    /// kept while the browser is hidden.
+    pub browser_width: f32,
+    /// Whether the project browser is shown (UI-004, default on).
+    pub browser_shown: bool,
     /// Recently opened projects, newest first (SW-001).
     pub recent: Vec<PathBuf>,
     /// File name of the newest crash report the user has been told about.
@@ -99,6 +104,8 @@ impl Default for Preferences {
             show_reference_lines: false,
             indented_ifcx: false,
             toolbox_columns: 1,
+            browser_width: BROWSER_DEFAULT_WIDTH,
+            browser_shown: true,
             recent: Vec::new(),
             last_crash_report: None,
         }
@@ -109,6 +116,16 @@ const MAX_RECENT: usize = 10;
 
 /// The most columns of tool buttons the toolbox has (UI-001).
 pub const MAX_TOOLBOX_COLUMNS: u8 = 2;
+
+/// The width the project browser opens with, in points: a storey row with
+/// its icon on one line (VIEW-003).
+pub const BROWSER_DEFAULT_WIDTH: f32 = 260.0;
+/// The narrowest project browser, in points (UI-015): still room for a
+/// storey row's icon, number and the start of its name.
+pub const BROWSER_MIN_WIDTH: f32 = 160.0;
+/// The widest project browser any window allows, in points; the browser
+/// also never takes more than half the window (UI-015).
+pub const BROWSER_MAX_WIDTH: f32 = 4000.0;
 
 /// Reads a value, taking its default for one this version does not know (a
 /// newer version's choice, a typo), so the other preferences of the file
@@ -164,6 +181,11 @@ impl Preferences {
         }
         self.input = self.input.sanitized();
         self.toolbox_columns = self.toolbox_columns.clamp(1, MAX_TOOLBOX_COLUMNS);
+        self.browser_width = if self.browser_width.is_finite() {
+            self.browser_width.clamp(BROWSER_MIN_WIDTH, BROWSER_MAX_WIDTH)
+        } else {
+            BROWSER_DEFAULT_WIDTH
+        };
         self.recent.truncate(MAX_RECENT);
         self
     }
@@ -195,6 +217,8 @@ impl Preferences {
             show_reference_lines,
             indented_ifcx,
             toolbox_columns,
+            browser_width,
+            browser_shown,
             recent,
             last_crash_report,
         } = edited;
@@ -223,6 +247,8 @@ impl Preferences {
             show_reference_lines,
             indented_ifcx,
             toolbox_columns,
+            browser_width,
+            browser_shown,
             recent,
             last_crash_report,
         );
@@ -362,6 +388,33 @@ mod tests {
         assert_eq!(Preferences::load(&path).toolbox_columns, MAX_TOOLBOX_COLUMNS);
         std::fs::write(&path, r#"{"toolbox_columns": 0}"#).unwrap();
         assert_eq!(Preferences::load(&path).toolbox_columns, 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// UI-015, UI-004: the browser's width and whether it is shown survive
+    /// a restart; preference files without them read as the default width,
+    /// shown, and a width outside the limits is clamped.
+    #[test]
+    fn browser_width_and_visibility_round_trip() {
+        let defaults = Preferences::default();
+        assert_eq!(defaults.browser_width, BROWSER_DEFAULT_WIDTH);
+        assert!(defaults.browser_shown);
+        let dir = std::env::temp_dir().join(format!("archicraft-prefs-browser-{}", std::process::id()));
+        let path = dir.join("preferences.json");
+        let prefs = Preferences {
+            browser_width: 333.0,
+            browser_shown: false,
+            ..Preferences::default()
+        };
+        prefs.save(&path).unwrap();
+        assert_eq!(Preferences::load(&path), prefs);
+        std::fs::write(&path, r#"{"author": "Ada"}"#).unwrap();
+        let old = Preferences::load(&path);
+        assert_eq!((old.browser_width, old.browser_shown), (BROWSER_DEFAULT_WIDTH, true));
+        std::fs::write(&path, r#"{"browser_width": 3.0}"#).unwrap();
+        assert_eq!(Preferences::load(&path).browser_width, BROWSER_MIN_WIDTH);
+        std::fs::write(&path, r#"{"browser_width": 1e9}"#).unwrap();
+        assert_eq!(Preferences::load(&path).browser_width, BROWSER_MAX_WIDTH);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -10,5 +10,6 @@ pub mod properties;
 pub mod shell;
 pub mod strip;
 pub mod style;
+pub mod tab_bar;
 pub mod view_bar;
 pub mod widgets;

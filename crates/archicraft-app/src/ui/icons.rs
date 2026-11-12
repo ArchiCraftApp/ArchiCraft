@@ -57,9 +57,13 @@ pub const LAYERS: ImageSource<'static> = include_image!("../../assets/icons/laye
 pub const MATERIALS: ImageSource<'static> = include_image!("../../assets/icons/materials.svg");
 /// A gear: the Project settings dialog (PRJ-009, UI-017).
 pub const SETTINGS: ImageSource<'static> = include_image!("../../assets/icons/settings.svg");
+/// A window outline with its right column marked off and lined: the
+/// project browser beside the views, which the tab row's toggle shows and
+/// hides (UI-004).
+pub const SIDEBAR_RIGHT: ImageSource<'static> = include_image!("../../assets/icons/sidebar-right.svg");
 
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 25] = [
+pub const ALL: [ImageSource<'static>; 26] = [
     SELECT,
     WALL,
     SLAB,
@@ -85,6 +89,7 @@ pub const ALL: [ImageSource<'static>; 25] = [
     SETTINGS,
     ZOOM_IN,
     ZOOM_OUT,
+    SIDEBAR_RIGHT,
 ];
 
 /// The icon of a 3D view, or of a saved camera, by the projection it shows
