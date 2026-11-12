@@ -27,10 +27,21 @@ if [ "$(uname -s)" != Linux ]; then
 fi
 for tool in flatpak flatpak-builder python3; do
     if ! command -v "$tool" >/dev/null 2>&1; then
-        echo "package-flatpak.sh needs $tool (on Debian and Ubuntu: apt install flatpak flatpak-builder python3-pil)" >&2
+        echo "package-flatpak.sh needs $tool (on Debian 13 or Ubuntu 24.04 or later: apt install flatpak flatpak-builder python3-pil)" >&2
         exit 1
     fi
 done
+# flatpak-builder 1.2 (Ubuntu 22.04) runs appstream-compose inside the SDK, which SDK 26.08 no
+# longer has, and fails only after the build. `flatpak-builder --version` prints for example
+# "flatpak-builder 1.4.4".
+builder_version=$(flatpak-builder --version | sed -n 's/^flatpak-builder \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
+builder_major=${builder_version%%.*}
+builder_minor=${builder_version#*.}
+if [ -z "$builder_version" ] || [ "$builder_major" -lt 1 ] ||
+    { [ "$builder_major" -eq 1 ] && [ "$builder_minor" -lt 4 ]; }; then
+    echo "package-flatpak.sh needs flatpak-builder 1.4 or newer, found: $(flatpak-builder --version) (on Debian 13 or Ubuntu 24.04 or later: apt install flatpak-builder)" >&2
+    exit 1
+fi
 if ! python3 -c 'import PIL' 2>/dev/null; then
     echo "package-flatpak.sh needs Pillow for python3 (on Debian and Ubuntu: apt install python3-pil)" >&2
     exit 1
