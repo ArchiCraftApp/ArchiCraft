@@ -51,6 +51,12 @@ pub const MAX_SLAB_POINTS: usize = 10_000;
 /// Smallest dimension of a parametric profile other than a radius, and
 /// the shortest edge of a profile: 0.1 mm (PRF-005, EDT-019).
 pub const MIN_PROFILE_DIMENSION: f64 = MIN_EDGE_LENGTH;
+/// Smallest diameter of a solid circle profile, about 0.14 mm: √2 times
+/// [`MIN_PROFILE_DIMENSION`], so that a quarter of the circle has a chord
+/// of [`MIN_EDGE_LENGTH`] and the circle a section of four points; no
+/// polygon inscribed in a smaller circle has edges that long (PRF-005,
+/// EDT-019).
+pub const MIN_CIRCLE_DIAMETER: f64 = MIN_PROFILE_DIMENSION * std::f64::consts::SQRT_2;
 /// Largest dimension of a profile: of each dimension of a parametric shape
 /// and of the width and height of custom regions together. Also the largest
 /// distance of a profile's origin from its zero, and of a custom profile's
@@ -388,8 +394,9 @@ pub fn validate_space(space: &Space) -> Result<Space, Message> {
 /// The name must not be blank, the origin within
 /// [`MAX_PROFILE_DIMENSION`] of zero and every material must exist. A
 /// parametric shape's dimensions must lie in their ranges
-/// ([`MIN_PROFILE_DIMENSION`]..=[`MAX_PROFILE_DIMENSION`], radii from zero)
-/// and fit together ([`check_parametric_shape`]). A custom profile has one
+/// ([`MIN_PROFILE_DIMENSION`]..=[`MAX_PROFILE_DIMENSION`], radii from zero,
+/// a solid circle's diameter from [`MIN_CIRCLE_DIAMETER`]) and fit together
+/// ([`check_parametric_shape`]). A custom profile has one
 /// to [`MAX_PROFILE_REGIONS`] regions, at most [`MAX_SLAB_POINTS`] points
 /// in all, is at most [`MAX_PROFILE_DIMENSION`] wide and tall, lies within
 /// [`MAX_PROFILE_DIMENSION`] of zero along each axis, and its regions do
@@ -425,7 +432,9 @@ pub fn validate_profile(project: &Project, profile: &Profile) -> Result<Profile,
 }
 
 /// Checks the dimensions of a parametric shape (PRF-005): each in its
-/// range, then that they fit together. Plates leave a gap of at least
+/// range (radii from zero, the diameter of a solid circle from
+/// [`MIN_CIRCLE_DIAMETER`], every other dimension from
+/// [`MIN_PROFILE_DIMENSION`]), then that they fit together. Plates leave a gap of at least
 /// [`MIN_PROFILE_DIMENSION`] in the space they lie in, so the section can
 /// draw it (the bore of a circular hollow section, the hole of a
 /// rectangular one within half its smaller side, the web height between
@@ -441,6 +450,8 @@ pub fn check_parametric_shape(shape: &ParametricShape) -> Result<(), Message> {
     for (dimension, value) in shape.dimensions() {
         let min = if dimension.is_radius() {
             0.0
+        } else if matches!(shape, ParametricShape::Circle { .. }) {
+            MIN_CIRCLE_DIAMETER
         } else {
             MIN_PROFILE_DIMENSION
         };
@@ -1520,6 +1531,30 @@ mod tests {
                         assert_eq!(named_dimension(&error), dimension.label_key());
                     }
                 }
+            }
+        }
+
+        /// PRF-005, EDT-019: a circle needs a diameter of at least
+        /// MIN_CIRCLE_DIAMETER, √2 times MIN_PROFILE_DIMENSION, for a
+        /// section: its quarter chord is then MIN_EDGE_LENGTH. A smaller
+        /// diameter, MIN_PROFILE_DIMENSION included, is rejected naming the
+        /// diameter and that minimum; the bore of a circular hollow section
+        /// is a gap and keeps MIN_PROFILE_DIMENSION.
+        #[test]
+        fn circles_too_small_for_a_section_are_rejected_naming_the_diameter() {
+            let circle = |diameter| ParametricShape::Circle { diameter };
+            let r = MIN_CIRCLE_DIAMETER / 2.0;
+            assert!(DVec2::new(r, 0.0).distance(DVec2::new(0.0, r)) >= MIN_EDGE_LENGTH);
+            assert!(check(circle(MIN_CIRCLE_DIAMETER)).is_ok());
+            for diameter in [
+                MIN_CIRCLE_DIAMETER.next_down(),
+                1.4 * MIN_PROFILE_DIMENSION,
+                MIN_PROFILE_DIMENSION,
+            ] {
+                let error = check(circle(diameter)).unwrap_err();
+                assert_eq!(error.key(), "model-error-profile-dimension-range", "{diameter}");
+                assert_eq!(named_dimension(&error), D::Diameter.label_key());
+                assert_eq!(error.arg("min"), Some(&Arg::Length(MIN_CIRCLE_DIAMETER)));
             }
         }
 

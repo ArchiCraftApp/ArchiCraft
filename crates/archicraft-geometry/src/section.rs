@@ -401,14 +401,19 @@ fn shape_loops(shape: &ParametricShape, tessellation: &Tessellation) -> (Section
         } => {
             // The inner fillets share the outer ones' centres and counts.
             let inner_radius = (outer_radius - thickness).max(0.0);
-            let hole = rounded(&rectangle(x - thickness, y - thickness, inner_radius, outer_radius));
+            let hole = rounded(&rectangle(
+                inset(x, thickness),
+                inset(y, thickness),
+                inner_radius,
+                outer_radius,
+            ));
             let outer = rounded(&rectangle(x, y, outer_radius, outer_radius));
             (outer, vec![hole.reversed()])
         }
         ParametricShape::CircularHollow { diameter, thickness } => {
             // The bore takes the outer circle's count, so the rings nest.
             let radius = diameter / 2.0;
-            let hole = circle_loop(radius - thickness, radius, tessellation);
+            let hole = circle_loop(inset(radius, thickness), radius, tessellation);
             (circle_loop(radius, radius, tessellation), vec![hole.reversed()])
         }
         ParametricShape::IShape {
@@ -418,7 +423,7 @@ fn shape_loops(shape: &ParametricShape, tessellation: &Tessellation) -> (Section
             ..
         } => {
             // f: the inner face of the flanges, w: the faces of the web.
-            let (w, f) = (web / 2.0, y - flange);
+            let (w, f) = (web / 2.0, inset(y, flange));
             let corners = [
                 Corner::sharp(-x, -y),
                 Corner::sharp(x, -y),
@@ -441,7 +446,7 @@ fn shape_loops(shape: &ParametricShape, tessellation: &Tessellation) -> (Section
             root_radius: r,
             ..
         } => {
-            let (w, f) = (web / 2.0, y - flange);
+            let (w, f) = (web / 2.0, inset(y, flange));
             let corners = [
                 Corner::sharp(-w, -y),
                 Corner::sharp(w, -y),
@@ -461,7 +466,7 @@ fn shape_loops(shape: &ParametricShape, tessellation: &Tessellation) -> (Section
             ..
         } => {
             // The inner faces of the vertical and the horizontal leg.
-            let (ix, iy) = (-x + thickness, -y + thickness);
+            let (ix, iy) = (-inset(x, thickness), -inset(y, thickness));
             let corners = [
                 Corner::sharp(-x, -y),
                 Corner::sharp(x, -y),
@@ -479,7 +484,7 @@ fn shape_loops(shape: &ParametricShape, tessellation: &Tessellation) -> (Section
             ..
         } => {
             // w: the inner face of the web, f: that of the flanges.
-            let (w, f) = (-x + web, y - flange);
+            let (w, f) = (-inset(x, web), inset(y, flange));
             let corners = [
                 Corner::sharp(-x, -y),
                 Corner::sharp(x, -y),
@@ -493,7 +498,7 @@ fn shape_loops(shape: &ParametricShape, tessellation: &Tessellation) -> (Section
             (rounded(&corners), Vec::new())
         }
         ParametricShape::ZShape { web, flange, .. } => {
-            let (w, f) = (web / 2.0, y - flange);
+            let (w, f) = (web / 2.0, inset(y, flange));
             let corners = [
                 Corner::sharp(-x, -y),
                 Corner::sharp(w, -y),
@@ -507,6 +512,28 @@ fn shape_loops(shape: &ParametricShape, tessellation: &Tessellation) -> (Section
             (rounded(&corners), Vec::new())
         }
     }
+}
+
+/// The inner face of a plate `plate` thick whose outer face lies at `face`
+/// (positive), towards zero: `face - plate`, lowered to the next value below
+/// while rounding leaves the plate as the section measures it, `face`
+/// minus the result, thinner than `plate` (PRF-005, EDT-019). So a plate of
+/// MIN_PROFILE_DIMENSION has edges of [`MIN_EDGE_LENGTH`] across it however
+/// far from zero its faces lie, which [`cleaned`] would otherwise merge. A
+/// face at `-face` has its inner face at `-inset(face, plate)`, negation
+/// being exact.
+///
+/// `face - plate` is exact unless `plate` is below half of `face`; then
+/// the result lies within a factor of two of `face`, so `face` minus it is
+/// exact, and one or two steps of half a unit in the last place of `face`
+/// suffice. The gap beside the plate, more than half of `face`, stays far
+/// larger than those steps.
+fn inset(face: f64, plate: f64) -> f64 {
+    let mut inner = face - plate;
+    while face - inner < plate {
+        inner = inner.next_down();
+    }
+    inner
 }
 
 /// A corner of a polygon and the radius of the fillet that rounds it (zero

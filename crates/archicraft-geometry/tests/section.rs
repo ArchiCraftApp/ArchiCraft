@@ -545,9 +545,8 @@ fn accepted_limit(shape: ParametricShape, dimension: ProfileDimension, towards: 
 /// value accepted, to the last bit, and from there each radius to its
 /// largest. Plates then leave gaps of MIN_PROFILE_DIMENSION, radii fill
 /// those gaps, and the shape's checks meet in every combination of one
-/// dimension and one radius. A smallest value that is the range minimum
-/// itself, MIN_PROFILE_DIMENSION, is left out: a circle of that diameter
-/// and some plates of that thickness have no section yet (archicraft-ymqhf).
+/// dimension and one radius; plates and a circle's diameter reach their
+/// range minimum, MIN_PROFILE_DIMENSION and MIN_CIRCLE_DIAMETER.
 #[test]
 fn every_accepted_limit_has_a_section() {
     let tessellations = [
@@ -567,9 +566,6 @@ fn every_accepted_limit_has_a_section() {
             };
             for towards in [MAX_PROFILE_DIMENSION, min] {
                 let edge = accepted_limit(start, dimension, towards);
-                if towards == min && min > 0.0 && *{ edge }.dimension_mut(dimension).unwrap() == min {
-                    continue;
-                }
                 let radii = edge.dimensions().into_iter().filter(|(d, _)| d.is_radius());
                 let shapes = std::iter::once(edge)
                     .chain(radii.map(|(radius, _)| accepted_limit(edge, radius, MAX_PROFILE_DIMENSION)));
@@ -585,6 +581,70 @@ fn every_accepted_limit_has_a_section() {
         }
     }
     assert!(checked > 1000, "{checked}");
+}
+
+/// PRF-005, EDT-019: a plate of the smallest accepted value,
+/// MIN_PROFILE_DIMENSION, has a section whatever the size of the shape, also
+/// where the faces it lies between are far from zero and their difference
+/// rounds below the plate: each flange, web and wall of each typical,
+/// default and limit shape at the minimum, the shape scaled through 64
+/// sizes, its radii set to zero where they no longer fit, and from there
+/// each radius at its largest. The T of 62.5 × 250 mm with a flange of
+/// 0.1 mm is one whose flange faces lay less than 0.1 mm apart
+/// (archicraft-ymqhf).
+#[test]
+fn plates_of_the_smallest_accepted_value_have_a_section() {
+    use ProfileDimension as D;
+    let min = MIN_PROFILE_DIMENSION;
+    let tee = ParametricShape::TShape {
+        height: 0.0625,
+        width: 0.25,
+        web: 0.015625,
+        flange: min,
+        root_radius: 0.046875,
+    };
+    assert_valid(&section(tee), "the T");
+    let set = |mut shape: ParametricShape, dimension: D, value: f64| {
+        *shape.dimension_mut(dimension).unwrap() = value;
+        shape
+    };
+    let mut checked = 0;
+    for start in TYPICAL.into_iter().chain(ParametricShape::ALL).chain(limits()) {
+        let plates = start
+            .dimensions()
+            .into_iter()
+            .filter(|(d, _)| matches!(d, D::Thickness | D::Web | D::Flange));
+        for (plate, _) in plates {
+            for k in 0..64 {
+                let scale = 1.0 + f64::from(k) * 0.37;
+                let mut shape = start;
+                for (dimension, value) in start.dimensions() {
+                    if matches!(dimension, D::Width | D::Height | D::Diameter) {
+                        shape = set(shape, dimension, (value * scale).min(MAX_PROFILE_DIMENSION));
+                    }
+                }
+                shape = set(shape, plate, min);
+                if check_parametric_shape(&shape).is_err() {
+                    for (radius, _) in start.dimensions().into_iter().filter(|(d, _)| d.is_radius()) {
+                        shape = set(shape, radius, 0.0);
+                    }
+                }
+                if check_parametric_shape(&shape).is_err() {
+                    continue;
+                }
+                let radii = shape.dimensions().into_iter().filter(|(d, _)| d.is_radius());
+                let shapes = std::iter::once(shape)
+                    .chain(radii.map(|(radius, _)| accepted_limit(shape, radius, MAX_PROFILE_DIMENSION)));
+                for shape in shapes {
+                    let section = parametric_section(&shape, MaterialId::new(), &defaults())
+                        .unwrap_or_else(|e| panic!("{shape:?}: {e}"));
+                    assert_valid(&section, &format!("{shape:?}"));
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert!(checked > 2000, "{checked}");
 }
 
 /// IFX-034: the angle rule and the chord rule, whichever needs more
