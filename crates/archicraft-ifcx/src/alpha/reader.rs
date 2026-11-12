@@ -30,7 +30,8 @@
 //! [`super::relations`]), an element's `name` in `archicraft::element`,
 //! written only when its node shows another name (a space's room name,
 //! SPC-001), a text's and the text tool's `sizeMm`, written only for a size
-//! override (ANN-007), and a storey node's `archicraft::annotations`,
+//! override (ANN-007), a 3D view's `camera`, written only for a saved
+//! camera (VIEW-004), and a storey node's `archicraft::annotations`,
 //! written only for a storey with elements of the kinds that are not IFCX
 //! nodes (ANN-010, [`super::kinds::annotations`]), whose entries leave out
 //! the same optional members as an element node. Their absence is no
@@ -56,10 +57,10 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use archicraft_model::changes::ChangeLog;
-use archicraft_model::glam::DVec2;
+use archicraft_model::glam::{DVec2, DVec3};
 use archicraft_model::material::{CutFill, FillPattern, Material, MaterialCategory, Rgb};
 use archicraft_model::project::{
-    Building, DefaultsSlot, Location, NameCounters, Projection, Site, Tessellation, ToolDefaults, View3d,
+    Building, DefaultsSlot, Location, NameCounters, Projection, Site, Tessellation, ToolDefaults, View3d, ViewCamera,
 };
 use archicraft_model::relations::RelationStore;
 use archicraft_model::storey::MIN_STOREY_HEIGHT;
@@ -273,6 +274,22 @@ pub(crate) fn points(value: &Value) -> Result<Vec<DVec2>, Message> {
 /// A point in the field `key`, its problem named with the field.
 pub(crate) fn point_field(map: &Object, key: &str) -> Result<DVec2, Message> {
     point(field(map, key)?).map_err(|e| about("ifcx-field-point", key).nested("reason", e))
+}
+
+/// A point of three coordinates in the field `key`, a view camera's target
+/// (VIEW-004), its problem named with the field.
+fn point3_field(map: &Object, key: &str) -> Result<DVec3, Message> {
+    let wrong = |reason: &'static str| about("ifcx-field-point", key).nested("reason", Message::new(reason));
+    let items = field(map, key)?
+        .as_array()
+        .ok_or_else(|| wrong("ifcx-point-not-list"))?;
+    let [x, y, z] = items.as_slice() else {
+        return Err(wrong("ifcx-point-three-coordinates"));
+    };
+    match (x.as_f64(), y.as_f64(), z.as_f64()) {
+        (Some(x), Some(y), Some(z)) if x.is_finite() && y.is_finite() && z.is_finite() => Ok(DVec3::new(x, y, z)),
+        _ => Err(wrong("ifcx-point-not-numeric")),
+    }
 }
 
 fn rgb(map: &Object, key: &str) -> Result<Rgb, Message> {
@@ -511,7 +528,10 @@ fn templates_used(
 }
 
 /// View record `index` of the project at `path`. A view has no field with a
-/// sensible default, so an invalid one skips the view.
+/// sensible default, so an invalid one skips the view. Its saved camera
+/// (VIEW-004) is optional: a plain viewpoint has none, nor has any view of
+/// a file written before cameras existed, and one that cannot be used is
+/// left out with a warning, so the view opens at the default camera.
 fn read_view(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem>) -> Option<View3d> {
     let mut report = Report::new(problems, path, record("ifcx-record-view", index));
     let Some(map) = value.as_object() else {
@@ -523,11 +543,33 @@ fn read_view(index: usize, value: &Value, path: &str, problems: &mut Vec<Problem
             id: ViewId::from_uuid(id),
             name: text(map, "name")?,
             projection: code(map, "projection", Projection::from_code)?,
-            // Saved cameras are not in IFCX yet (archicraft-55lt0).
             camera: None,
         })
     });
-    view.map_err(|e| report.skipped(e)).ok()
+    let mut view = view.map_err(|e| report.skipped(e)).ok()?;
+    view.camera = report.optional(map, "camera", view_camera);
+    Some(view)
+}
+
+/// The saved camera in the member `key` of a view record (VIEW-004), or why
+/// it cannot be used, named with the member: a member missing or of the
+/// wrong type, a target without three coordinates, or values the model
+/// rejects, such as a distance of zero or a field of view outside (0, π)
+/// ([`ViewCamera::validate`], NFR-REL-005).
+fn view_camera(map: &Object, key: &str) -> Result<ViewCamera, Message> {
+    let members = object(map, key)?;
+    let read = || {
+        let camera = ViewCamera {
+            target: point3_field(members, "target")?,
+            distance: real(members, "distance")?,
+            yaw: real(members, "yaw")?,
+            pitch: real(members, "pitch")?,
+            fov_y: real(members, "fovY")?,
+        };
+        camera.validate()?;
+        Ok(camera)
+    };
+    read().map_err(|e| about("ifcx-field-camera", key).nested("reason", e))
 }
 
 /// Group record `index` of the project at `path` (ELM-015). A record without

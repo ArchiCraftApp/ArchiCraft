@@ -49,6 +49,15 @@ const FIXTURES: &[Fixture] = &[
         },
     },
     Fixture {
+        name: "bad-view-cameras",
+        damage: |v| {
+            let views = project_attr(v)["views"].as_array_mut().unwrap();
+            let camera = |target: Value, distance: f64| json!({"target": target, "distance": distance, "yaw": 0.5, "pitch": 0.3, "fovY": 0.8});
+            views[0]["camera"] = camera(json!([6.0, 4.0, 1.5]), 0.0);
+            views[1]["camera"] = camera(json!([6.0, 4.0]), 25.0);
+        },
+    },
+    Fixture {
         name: "missing-tool-defaults",
         damage: |v| {
             project_attr(v).as_object_mut().unwrap().remove("toolDefaults");
@@ -298,6 +307,34 @@ fn malformed_view_records_are_skipped_and_reported() {
             "reason=ifcx-not-object",
         ],
     );
+}
+
+/// PRJ-008, VIEW-004: a view's camera with a distance of zero and one whose
+/// target has two coordinates are each left out with a warning naming the
+/// view record; both views load as plain viewpoints, and nothing else is
+/// reported.
+#[test]
+fn invalid_view_cameras_are_left_out_and_reported() {
+    let (outcome, value) = load("bad-view-cameras");
+    assert_eq!(outcome.project.views, reference_model().views);
+    assert!(outcome.project.views.iter().all(|v| v.camera.is_none()));
+    let root = root_path(&value);
+    for (index, reason) in [
+        (0, "reason=model-error-view-camera"),
+        (1, "reason=ifcx-point-three-coordinates"),
+    ] {
+        let p = problem(
+            &outcome,
+            &root,
+            &[
+                &format!("ifcx-repaired(record=ifcx-record-view(index={index})"),
+                r#"ifcx-left-out(reason=ifcx-field-camera(key="camera""#,
+                reason,
+            ],
+        );
+        assert_eq!(p.severity, Severity::Warning);
+    }
+    assert_eq!(outcome.problems.len(), 2, "{:#?}", outcome.problems);
 }
 
 /// PRJ-008: missing tool defaults are reported once and the template's
