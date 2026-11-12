@@ -15,7 +15,6 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4.12"
 archicraft-model = { path = "../crates/archicraft-model" }
-archicraft-geometry = { path = "../crates/archicraft-geometry" }
 archicraft-ifcx = { path = "../crates/archicraft-ifcx" }
 
 [workspace]

@@ -430,11 +430,12 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use archicraft_geometry::ModelGeometry;
-    use archicraft_ifcx::{ReadOutcome, WriteOptions};
+    use archicraft_ifcx::ReadOutcome;
+    use archicraft_ifcx::fuzz::{Opened, ROUND_TRIP_MESH_POINTS, mesh_points, open_path, save_for_round_trip};
     use archicraft_model::{PlanGrid, ReferenceLine, TopLink};
-    use serde_json::Value;
+    use serde_json::{Value, json};
 
-    use super::{CROSSING, EXTREMES, MARKER, WALLS_AT_ONE_POINT, golden, seeds};
+    use super::{CROSSING, EXTREMES, MARKER, WALLS_AT_ONE_POINT, add_copy, comb, data, golden, node, seeds};
 
     /// The fuzz runs' `-max_len` (`scripts/fuzz-run.sh`): libFuzzer
     /// truncates a longer seed.
@@ -442,24 +443,6 @@ mod tests {
 
     /// The time-out of the fuzz runs (`scripts/fuzz-run.sh`).
     const TIME_LIMIT: Duration = Duration::from_secs(10);
-
-    /// The open path of the `ifcx_load` fuzz target: load, then evaluate,
-    /// save and load again. A rejected file carries a message.
-    fn open(bytes: &[u8]) {
-        match archicraft_ifcx::load(bytes) {
-            Ok(outcome) => {
-                let geometry = ModelGeometry::evaluate(&outcome.project);
-                let options = WriteOptions {
-                    author: "Fuzz".into(),
-                    timestamp: "2026-10-20T00:00:00Z".into(),
-                    data_version: 1,
-                };
-                let (saved, _warnings) = archicraft_ifcx::save(&outcome.project, &geometry, &options, false);
-                let _ = archicraft_ifcx::load(&saved);
-            }
-            Err(problem) => assert!(!problem.message.key().is_empty(), "rejected without a message"),
-        }
-    }
 
     fn seed(name: &str) -> Vec<u8> {
         seeds()
@@ -526,17 +509,70 @@ mod tests {
     }
 
     /// NFR-REL-007, NFR-SEC-003: every seed goes through the open path of
-    /// the `ifcx_load` fuzz target without panicking, within the fuzz runs'
-    /// time-out, so the corpus starts without a finding.
+    /// the `ifcx_load` fuzz target (`archicraft_ifcx::fuzz::open_path`)
+    /// without panicking, within the fuzz runs' time-out, so the corpus
+    /// starts without a finding. Each seed the reader loads is saved with
+    /// its body meshes: the bound of the round trip leaves the seeds' reach
+    /// into the mesh writer as it was.
     #[test]
     fn every_seed_opens_along_the_fuzz_target_path() {
         for (name, bytes) in seeds() {
             let start = Instant::now();
-            let outcome = std::panic::catch_unwind(|| open(&bytes));
+            let outcome = std::panic::catch_unwind(|| open_path(&bytes));
             let elapsed = start.elapsed();
-            assert!(outcome.is_ok(), "{name} panicked");
+            let opened = outcome.unwrap_or_else(|_| panic!("{name} panicked"));
+            assert_ne!(opened, Opened::RoundTrip { bodies: false }, "{name}");
             assert!(elapsed < TIME_LIMIT, "{name} took {elapsed:?}");
         }
+    }
+
+    /// NFR-REL-007, NFR-SEC-003 (archicraft-tuy0): the shape of the first
+    /// campaign's finding 4, many valid slabs of 999 points, saves to far
+    /// more than its own size with its body meshes (400 slabs: 3.4 MB saved
+    /// as 52.6 MB), which under AddressSanitizer took longer than the fuzz
+    /// runs' time-out. Beyond `ROUND_TRIP_MESH_POINTS` the open path saves
+    /// such a project without its bodies, and every slab is still loaded.
+    #[test]
+    fn many_slabs_round_trip_without_their_bodies() {
+        const SLABS: usize = 40;
+        let mut file = golden();
+        node(&mut file, "SL-001")["attributes"]["archicraft::slab"]["outline"] = comb(999);
+        for k in 0..SLABS {
+            let index = add_copy(&mut file, "SL-001", "00 Ground floor", &format!("Slab_{k:05}"), k);
+            data(&mut file)[index]["attributes"]["bsi::ifc::prop::Name"] = json!(format!("SL-{:04}", k + 100));
+        }
+        let bytes = serde_json::to_vec(&file).expect("JSON serialises");
+        assert!(bytes.len() < MAX_LEN);
+
+        let outcome = archicraft_ifcx::load(&bytes).unwrap_or_else(|p| panic!("{}", p.message));
+        assert_eq!(outcome.project.elements.len(), SLABS + 5, "{:#?}", outcome.problems);
+        let geometry = ModelGeometry::evaluate(&outcome.project);
+        let points = mesh_points(&geometry);
+        assert!(points > ROUND_TRIP_MESH_POINTS, "{points} mesh points");
+        assert_eq!(open_path(&bytes), Opened::RoundTrip { bodies: false });
+
+        let (saved, bodies) = save_for_round_trip(&outcome.project, &geometry);
+        assert!(!bodies);
+        let text = String::from_utf8(saved.clone()).expect("UTF-8");
+        assert!(!text.contains("usd::usdgeom::mesh"), "a body was saved");
+        assert!(
+            text.contains("usd::usdgeom::basiscurves"),
+            "the wall axes were not saved"
+        );
+        let reopened = archicraft_ifcx::load(&saved).unwrap_or_else(|p| panic!("{}", p.message));
+        assert_eq!(reopened.project.elements.len(), SLABS + 5, "{:#?}", reopened.problems);
+    }
+
+    /// NFR-REL-007: within the bound the save of the open path holds the
+    /// body meshes.
+    #[test]
+    fn a_seed_within_the_bound_round_trips_with_its_bodies() {
+        let outcome = load(&format!("stress-{WALLS_AT_ONE_POINT}-walls-at-one-point"));
+        let geometry = ModelGeometry::evaluate(&outcome.project);
+        let (saved, bodies) = save_for_round_trip(&outcome.project, &geometry);
+        assert!(bodies);
+        let text = String::from_utf8(saved).expect("UTF-8");
+        assert_eq!(text.matches("usd::usdgeom::mesh").count(), WALLS_AT_ONE_POINT + 5);
     }
 
     /// NFR-SEC-003: the stress seeds open as the first campaign's fixes
