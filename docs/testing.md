@@ -815,17 +815,21 @@ D.9 also limits a slab to 10,000 points in its outline and holes together (`MAX_
 in `crates/archicraft-model/src/validate.rs`), checked before the polygon checks. Those are a
 sweep line that tests a few pairs of edges per point (`validate/sweep.rs`), so a slab at the
 limit validates in about 10 ms in a release build, whatever its shape
-(`slabs_at_the_point_limit_validate_quickly`, `the_sweep_tests_a_few_pairs_of_edges_per_point`;
-the test holds each slab to 100 ms only in a release build, `cargo test --release -p
-archicraft-model --lib validate`, and to 250 ms in the gate's and CI's test builds),
+(`slabs_at_the_point_limit_validate_quickly`, `the_sweep_tests_a_few_pairs_of_edges_per_point`),
 and agrees with testing every pair of edges (`rings_validate_as_with_every_pair_of_edges_tested`,
 `slabs_validate_as_with_every_pair_of_edges_tested`). D.9 limits a custom profile to 32 regions
 (`MAX_PROFILE_REGIONS`) and its region outlines to 100,000 crossings less than the model
 tolerance deep (`MAX_PROFILE_CROSSINGS`), so a profile at both limits validates within the same
-budget (`custom_profiles_at_the_limit_validate_quickly`). Beyond D.9, two bounds keep a small
-crafted file from stalling the reader (found by the first fuzz campaign, Fuzzing): a storey
-that the building lists more than once is read once, the further listings reported, and so is
-an element listed more than once in one storey or several.
+budget (`custom_profiles_at_the_limit_validate_quickly`). That budget is not a fixed time, which
+either fails on a slow or loaded CI runner or misses a regression on a fast machine: it is six
+yardsticks, the time testing every pair of edges of a ring of 2,500 points takes on the same
+machine and build, the median of three runs. A slab takes up to about 0.3 of them, a profile 1.7,
+and testing every pair of edges at the point limit, as before the sweep, 16
+(`the_budget_catches_testing_every_pair_of_edges`). A run over the budget runs again, up to five
+times, since load only adds time to a run (`a_run_over_the_budget_runs_again`). Beyond D.9,
+two bounds keep a small crafted file from stalling the reader (found by the first fuzz
+campaign, Fuzzing): a storey that the building lists more than once is read once, the further
+listings reported, and so is an element listed more than once in one storey or several.
 
 **No execution.** File content only ever becomes data: the reader has no `eval`, loads no
 plugins or libraries and spawns no processes, and nothing in a file selects code to run.

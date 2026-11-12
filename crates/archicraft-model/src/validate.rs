@@ -813,6 +813,127 @@ mod tests {
         ring.iter().map(|&p| p + offset).collect()
     }
 
+    /// The points of the ring of [`yardstick`], a quarter of the point
+    /// limit: testing every pair of edges at the limit tests 16 times as
+    /// many pairs.
+    const YARDSTICK_POINTS: usize = MAX_SLAB_POINTS / 4;
+
+    /// The time a slab or custom profile at the point limit may take to
+    /// validate, in [`yardstick`]s. The sweeps take up to about 0.3 for a
+    /// slab and 1.7 for a profile, in test and release builds alike, and
+    /// under 4 with three to six busy threads for each core, while
+    /// testing every pair of edges at the limit takes about 16
+    /// (`the_budget_catches_testing_every_pair_of_edges`).
+    const BUDGET_IN_YARDSTICKS: u32 = 6;
+
+    /// How many times [`timed`] runs a validation at most.
+    const ATTEMPTS: usize = 5;
+
+    /// How long testing every pair of edges of a ring of
+    /// [`YARDSTICK_POINTS`] takes in this build on this machine, the median
+    /// of three runs (about 40 ms in a test build on an M4 Pro). A machine
+    /// or build that is slower at the polygon checks, or busier, is about as
+    /// much slower at this, so a budget in yardsticks holds on a slow or
+    /// loaded CI runner as on a fast developer machine, where a fixed one
+    /// fails or misses a regression. Each run takes about as long as the
+    /// slowest validations at the limit, so both see the same share of a
+    /// loaded machine, which a run within one time slice would not.
+    fn yardstick() -> Duration {
+        let circle = (0..YARDSTICK_POINTS).map(|i| DVec2::from_angle(TAU * i as f64 / YARDSTICK_POINTS as f64));
+        let ring = validate_ring(&circle.collect::<Vec<_>>()).unwrap();
+        let rings = sweep::Rings::new(&[&ring]);
+        let run = || {
+            let start = Instant::now();
+            assert!(sweep::every_pair(&rings).is_ok());
+            start.elapsed()
+        };
+        let mut times: Vec<Duration> = (0..3).map(|_| run()).collect();
+        times.sort();
+        times[1]
+    }
+
+    /// [`BUDGET_IN_YARDSTICKS`] on this machine.
+    fn time_budget() -> Duration {
+        BUDGET_IN_YARDSTICKS * yardstick()
+    }
+
+    /// Runs `run` until a run takes less than `budget`, at most
+    /// [`ATTEMPTS`] times, and returns the last result and the time of each
+    /// run. Load on the machine, as from tests running in parallel or a busy
+    /// CI runner, only adds time to a run, while a regression in the cost of
+    /// `run` slows down every run, so the fastest of a few shows the cost.
+    fn timed<T>(budget: Duration, mut run: impl FnMut() -> T) -> (T, Vec<Duration>) {
+        let mut times = Vec::with_capacity(ATTEMPTS);
+        loop {
+            let start = Instant::now();
+            let result = run();
+            let elapsed = start.elapsed();
+            times.push(elapsed);
+            if elapsed < budget || times.len() == ATTEMPTS {
+                return (result, times);
+            }
+        }
+    }
+
+    /// The result of `run` after asserting that one of up to [`ATTEMPTS`]
+    /// runs of it ([`timed`]) took less than `budget`.
+    fn within_budget<T>(budget: Duration, name: &str, run: impl FnMut() -> T) -> T {
+        let (result, times) = timed(budget, run);
+        assert!(
+            times.iter().any(|&time| time < budget),
+            "{name} took {times:?}, over the budget of {budget:?} each time"
+        );
+        result
+    }
+
+    /// A run slowed down once, as by load on the machine, runs again and
+    /// counts with its second time; a run within the budget runs once; a
+    /// run over the budget every time, as after a regression in its cost,
+    /// runs [`ATTEMPTS`] times and fails.
+    #[test]
+    fn a_run_over_the_budget_runs_again() {
+        let budget = Duration::from_millis(50);
+        let mut runs = 0;
+        let slow_once = || {
+            runs += 1;
+            if runs == 1 {
+                std::thread::sleep(2 * budget);
+            }
+        };
+        let (_, times) = timed(budget, slow_once);
+        assert_eq!(times.len(), 2, "{times:?}");
+        assert!(times[0] >= 2 * budget && times[1] < budget, "{times:?}");
+        let (_, times) = timed(budget, || ());
+        assert_eq!(times.len(), 1, "{times:?}");
+        let slow = || std::thread::sleep(Duration::from_millis(2));
+        let (_, times) = timed(Duration::from_millis(1), slow);
+        assert_eq!(times.len(), ATTEMPTS, "{times:?}");
+        assert!(times.iter().all(|&time| time >= Duration::from_millis(2)), "{times:?}");
+        let failed = std::panic::catch_unwind(|| within_budget(Duration::from_millis(1), "a slow run", slow));
+        let message = failed.unwrap_err().downcast::<String>().unwrap();
+        assert!(message.starts_with("a slow run took ["), "{message}");
+        assert!(message.ends_with("over the budget of 1ms each time"), "{message}");
+    }
+
+    /// NFR-SEC-003: the time budget catches a regression to testing every
+    /// pair of edges, as the polygon checks did before the sweep
+    /// (archicraft-91jj): for the comb at the point limit that takes about
+    /// 16 yardsticks, more than [`BUDGET_IN_YARDSTICKS`], on any machine.
+    /// Load only makes it slower.
+    #[test]
+    fn the_budget_catches_testing_every_pair_of_edges() {
+        let budget = time_budget();
+        let ring = validate_ring(&comb((MAX_SLAB_POINTS - 3) / 4)).unwrap();
+        let rings = sweep::Rings::new(&[&ring]);
+        let start = Instant::now();
+        assert!(sweep::every_pair(&rings).is_ok());
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed > budget,
+            "testing every pair took {elapsed:?}, within the budget of {budget:?}"
+        );
+    }
+
     /// NFR-SEC-003, SLB-003: a slab may have up to 10,000 points in its
     /// outline and holes together (SRS Appendix D.9); a slab with more is
     /// rejected with a message before the polygon checks run.
@@ -866,23 +987,20 @@ mod tests {
 
     /// NFR-SEC-003, SLB-003: the polygon checks grow little faster than the
     /// points, not with their square, so each slab of [`slabs_at_the_limit`]
-    /// validates in under 100 ms in a release build (about 10 ms; testing
-    /// every pair of edges took about 0.6 s for one). Test builds, optimised
-    /// less, get 250 ms.
+    /// validates within [`BUDGET_IN_YARDSTICKS`] (up to about 0.3
+    /// yardsticks, 10 ms in a test build on an M4 Pro; testing every pair of
+    /// edges takes about 16).
     #[test]
     fn slabs_at_the_point_limit_validate_quickly() {
-        let budget = Duration::from_millis(if cfg!(debug_assertions) { 250 } else { 100 });
+        let budget = time_budget();
         for (name, outline, holes) in slabs_at_the_limit() {
             let points = outline.len() + holes.iter().map(Vec::len).sum::<usize>();
             assert!(
                 (MAX_SLAB_POINTS - 10..=MAX_SLAB_POINTS).contains(&points),
                 "{name}: {points} points"
             );
-            let start = Instant::now();
-            let result = validate_slab_polygon(&outline, &holes);
-            let elapsed = start.elapsed();
+            let result = within_budget(budget, name, || validate_slab_polygon(&outline, &holes));
             assert!(result.is_ok(), "{name}: {result:?}");
-            assert!(elapsed < budget, "{name} took {elapsed:?}");
         }
     }
 
@@ -2158,13 +2276,14 @@ mod tests {
         /// [`MAX_PROFILE_CROSSINGS`], so
         /// each profile of [`profiles_at_the_limit`] validates, or is
         /// rejected, within the time budget of
-        /// `slabs_at_the_point_limit_validate_quickly`: 100 ms in a release
-        /// build, 250 ms in test builds. A fan of 2,500
+        /// `slabs_at_the_point_limit_validate_quickly`,
+        /// [`BUDGET_IN_YARDSTICKS`] (up to about 1.7 yardsticks, 50 ms in a
+        /// test build on an M4 Pro). A fan of 2,500
         /// wedges, whose 3 million pairs took about 2 s to intersect, is
         /// rejected for its number of regions before any is checked.
         #[test]
         fn custom_profiles_at_the_limit_validate_quickly() {
-            let budget = Duration::from_millis(if cfg!(debug_assertions) { 250 } else { 100 });
+            let budget = time_budget();
             let wedges = 2500;
             let step = TAU / wedges as f64;
             let slivers = (0..wedges)
@@ -2175,11 +2294,8 @@ mod tests {
                 })
                 .collect();
             let (project, profile) = custom(slivers);
-            let start = Instant::now();
-            let result = validate_profile(&project, &profile);
-            let elapsed = start.elapsed();
+            let result = within_budget(budget, "slivers", || validate_profile(&project, &profile));
             assert_eq!(result.unwrap_err().key(), "model-error-profile-regions");
-            assert!(elapsed < budget, "slivers took {elapsed:?}");
             for (name, regions, expected) in profiles_at_the_limit() {
                 let points: usize = regions
                     .iter()
@@ -2190,9 +2306,7 @@ mod tests {
                     "{name}: {points} points"
                 );
                 let (project, profile) = custom(regions);
-                let start = Instant::now();
-                let result = validate_profile(&project, &profile);
-                let elapsed = start.elapsed();
+                let result = within_budget(budget, name, || validate_profile(&project, &profile));
                 match expected {
                     Some(Some((first, second))) => {
                         let error = result.unwrap_err();
@@ -2207,7 +2321,6 @@ mod tests {
                     ),
                     None => assert!(result.is_ok(), "{name}: {result:?}"),
                 }
-                assert!(elapsed < budget, "{name} took {elapsed:?}");
             }
         }
     }
