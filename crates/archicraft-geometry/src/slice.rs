@@ -7,8 +7,9 @@
 
 use std::collections::HashMap;
 
+use archicraft_model::outline::Ring;
 use archicraft_model::tolerance::{Cell2, cross_is_zero, quantise};
-use geo::{Coord, LineString, Polygon};
+use geo::Polygon;
 use glam::{DVec2, DVec3};
 
 use crate::mesh::TriMesh;
@@ -125,43 +126,24 @@ fn simplify_collinear(ring: Vec<DVec2>) -> Vec<DVec2> {
     if out.len() >= 3 { out } else { ring }
 }
 
-fn signed_area(ring: &[DVec2]) -> f64 {
-    let n = ring.len();
-    (0..n).map(|i| ring[i].perp_dot(ring[(i + 1) % n])).sum::<f64>() / 2.0
-}
-
-fn point_in_ring(p: DVec2, ring: &[DVec2]) -> bool {
-    let mut inside = false;
-    let mut j = ring.len() - 1;
-    for i in 0..ring.len() {
-        let (a, b) = (ring[i], ring[j]);
-        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
-            inside = !inside;
-        }
-        j = i;
-    }
-    inside
-}
-
-fn line_string(ring: &[DVec2]) -> LineString<f64> {
-    let mut coords: Vec<Coord<f64>> = ring.iter().map(|p| Coord { x: p.x, y: p.y }).collect();
-    if let Some(first) = coords.first().copied() {
-        coords.push(first);
-    }
-    LineString::new(coords)
-}
-
 /// Turns section loops into polygons: every hole is assigned to the smallest
-/// outer loop that contains it.
+/// outer loop that contains it. Each loop's area is computed once.
 pub fn loops_to_polygons(loops: Vec<Vec<DVec2>>) -> Vec<Polygon<f64>> {
-    let (outers, holes): (Vec<_>, Vec<_>) = loops.into_iter().partition(|l| signed_area(l) > 0.0);
-    let mut assigned: Vec<Vec<Vec<DVec2>>> = vec![Vec::new(); outers.len()];
-    for hole in holes {
+    let (outers, holes): (Vec<_>, Vec<_>) = loops
+        .into_iter()
+        .map(|points| {
+            let ring = Ring::<()>::from_points(points);
+            let area = ring.signed_area();
+            (ring, area)
+        })
+        .partition(|(_, area)| *area > 0.0);
+    let mut assigned: Vec<Vec<Ring>> = vec![Vec::new(); outers.len()];
+    for (hole, _) in holes {
         let candidate = outers
             .iter()
             .enumerate()
-            .filter(|(_, outer)| point_in_ring(hole[0], outer))
-            .min_by(|(_, a), (_, b)| signed_area(a).total_cmp(&signed_area(b)))
+            .filter(|(_, (outer, _))| outer.contains(hole.node(0)))
+            .min_by(|(_, (_, a)), (_, (_, b))| a.total_cmp(b))
             .map(|(i, _)| i);
         if let Some(i) = candidate {
             assigned[i].push(hole);
@@ -170,7 +152,7 @@ pub fn loops_to_polygons(loops: Vec<Vec<DVec2>>) -> Vec<Polygon<f64>> {
     outers
         .iter()
         .zip(assigned)
-        .map(|(outer, holes)| Polygon::new(line_string(outer), holes.iter().map(|h| line_string(h)).collect()))
+        .map(|((outer, _), holes)| Polygon::new(outer.to_geo(), holes.iter().map(Ring::to_geo).collect()))
         .collect()
 }
 

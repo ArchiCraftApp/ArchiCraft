@@ -223,25 +223,26 @@ pub fn plan_drawing(
         // material is not drawn: its kind draws its own plan symbol, like
         // the stamp of a space (SPC-001), and a kind that is no
         // construction element adds no lines of its body at all.
-        let construction = element.kind.descriptor().construction;
-        for part in body.bodies().filter(|_| construction) {
-            let Some((lo, hi)) = part.mesh.bounds() else {
-                continue;
-            };
-            if lo.z < range.cut - MODEL_TOLERANCE && hi.z > range.cut + MODEL_TOLERANCE {
-                let Some(material) = part.material else {
+        if element.kind.descriptor().construction {
+            for part in body.bodies() {
+                let Some((lo, hi)) = part.mesh.bounds() else {
                     continue;
                 };
-                let polygons = loops_to_polygons(slice_loops(&part.mesh, range.cut));
-                by_material
-                    .entry(material)
-                    .or_default()
-                    .extend(polygons.iter().cloned());
-                plan.cut.extend(polygons);
-            } else if hi.z <= range.cut + MODEL_TOLERANCE && hi.z >= range.bottom - MODEL_TOLERANCE {
-                plan.projected.extend(part.mesh.up_facing_outline());
-            } else if lo.z >= range.cut - MODEL_TOLERANCE && lo.z <= range.top + MODEL_TOLERANCE {
-                plan.overhead.extend(part.mesh.down_facing_outline());
+                if lo.z < range.cut - MODEL_TOLERANCE && hi.z > range.cut + MODEL_TOLERANCE {
+                    let Some(material) = part.material else {
+                        continue;
+                    };
+                    let polygons = loops_to_polygons(slice_loops(&part.mesh, range.cut));
+                    by_material
+                        .entry(material)
+                        .or_default()
+                        .extend(polygons.iter().cloned());
+                    plan.cut.extend(polygons);
+                } else if hi.z <= range.cut + MODEL_TOLERANCE && hi.z >= range.bottom - MODEL_TOLERANCE {
+                    plan.projected.extend(part.mesh.up_facing_outline());
+                } else if lo.z >= range.cut - MODEL_TOLERANCE && lo.z <= range.top + MODEL_TOLERANCE {
+                    plan.overhead.extend(part.mesh.down_facing_outline());
+                }
             }
         }
         if let Some(wall) = element.as_wall() {

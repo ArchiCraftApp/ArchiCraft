@@ -55,6 +55,8 @@ pub struct Space {
     /// top at the next storey (ELM-006), so the space follows storey edits
     /// (STR-006).
     pub link: VerticalLink,
+    /// Whether the boundary was drawn or detected from the walls around a
+    /// seed (SPC-001, SPC-002).
     pub source: BoundarySource,
     /// Offset of the plan stamp from the boundary's interior point; zero by
     /// default, so files stay deterministic.

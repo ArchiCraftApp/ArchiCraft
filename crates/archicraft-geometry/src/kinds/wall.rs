@@ -3,7 +3,7 @@
 //! axis.
 
 use archicraft_model::validate::validate_ring;
-use archicraft_model::{Element, Project, Wall};
+use archicraft_model::{Element, Message, Project, Wall};
 use glam::DVec2;
 
 use super::{EvalContext, GeometryKind};
@@ -51,6 +51,31 @@ fn square_footprint(start: DVec2, end: DVec2, offsets: (f64, f64)) -> Footprint 
     ]
 }
 
+/// The footprint the body of `wall` is extruded from (WAL-027): its
+/// junction-resolved footprint `joined` ([`crate::wall::footprints`]), or
+/// its footprint with square ends if it has none or a junction folds a very
+/// short wall into a ring that is no valid polygon. The ring is cleaned and
+/// counter-clockwise ([`validate_ring`]). Detected space boundaries follow
+/// it (SPC-001), so that they agree with the plan and the 3D views.
+///
+/// # Errors
+///
+/// The message of [`validate_ring`] if the square footprint is needed and is
+/// no valid polygon.
+pub fn body_footprint(wall: &Wall, joined: Option<&Footprint>) -> Result<Vec<DVec2>, Message> {
+    let square = || {
+        validate_ring(&square_footprint(
+            wall.start,
+            wall.end,
+            wall.reference_line.face_offsets(wall.thickness),
+        ))
+    };
+    match joined {
+        Some(joined) => validate_ring(joined).or_else(|_| square()),
+        None => square(),
+    }
+}
+
 impl GeometryKind for Wall {
     /// Keeps the stored offsets exact rather than subtracting elevations.
     fn local_extent(&self, ctx: &EvalContext<'_>) -> Result<(f64, f64), GeometryError> {
@@ -60,12 +85,7 @@ impl GeometryKind for Wall {
 
     fn evaluate(&self, ctx: &EvalContext<'_>) -> Result<ElementGeometry, GeometryError> {
         let (bottom, top) = self.local_extent(ctx)?;
-        let square = square_footprint(self.start, self.end, self.reference_line.face_offsets(self.thickness));
-        let joined = ctx.footprint.copied().unwrap_or(square);
-        // A junction can fold a very short wall; fall back to square ends.
-        let ring = validate_ring(&joined)
-            .or_else(|_| validate_ring(&square))
-            .map_err(GeometryError::InvalidPolygon)?;
+        let ring = body_footprint(self, ctx.footprint).map_err(GeometryError::InvalidPolygon)?;
         let mesh = extrude(&ring, &[], bottom, top)?;
         Ok(ElementGeometry {
             parts: vec![BodyPart {

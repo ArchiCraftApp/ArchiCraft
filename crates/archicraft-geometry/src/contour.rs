@@ -50,6 +50,9 @@ pub struct CurveRef {
 /// A straight segment of a source, and an edge of a [`ContourGraph`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Segment {
+    /// The two ends in the source's plane: where a source's segment starts
+    /// and ends, or the vertices an edge of the graph joins. The graph does
+    /// not depend on the direction of a source's segments.
     pub points: [DVec2; 2],
     /// The curve the segment is a piece of; `None` for a straight line.
     pub source: Option<CurveRef>,
@@ -75,6 +78,9 @@ pub struct ContourOptions {
 /// Supplies the straight segments a [`ContourGraph`] is built from, in the
 /// 2D coordinates of one plane (INP-018).
 pub trait PlanSegmentSource {
+    /// The segments of the lines that bound regions, those `options` asks
+    /// for included, in any order and direction. Non-finite segments are
+    /// left out of the graph.
     fn segments(&self, options: &ContourOptions) -> Vec<Segment>;
 }
 

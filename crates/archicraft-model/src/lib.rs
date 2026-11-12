@@ -25,6 +25,8 @@ pub mod relations;
 pub mod samples;
 pub mod storey;
 pub mod template;
+#[cfg(feature = "test-kinds")]
+pub mod test_outlines;
 pub mod text;
 pub mod tolerance;
 pub mod transfer;

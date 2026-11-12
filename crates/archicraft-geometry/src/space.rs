@@ -2,9 +2,11 @@
 //!
 //! A click inside a room bounded by walls gives the room's boundary: the
 //! smallest region around the click in the [`ContourGraph`] of the
-//! footprints of the construction elements of the click's storey: the wall
-//! footprints as [`crate::wall::footprints`] resolves them, so L and T
-//! junctions close the corners, and the column footprints, the outlines of
+//! footprints of the construction elements of the click's storey: the
+//! footprints of the wall bodies ([`body_footprint`]), whose L and T
+//! junctions ([`crate::wall::footprints`]) close the corners and whose ends
+//! are square where a junction folds a very short wall, as in the plan and
+//! the 3D views (WAL-027), and the column footprints, the outlines of
 //! their sections in plan ([`column::plan_footprint`]), so a column standing
 //! free in a room becomes a hole of it and one in a wall line closes the
 //! gap it fills. The graph is built from the footprints and not from the
@@ -30,7 +32,7 @@ use glam::DVec2;
 
 use crate::contour::{ContourGraph, ContourOptions, Region, Segment};
 use crate::kinds::column;
-use crate::kinds::wall::wall_inputs;
+use crate::kinds::wall::{body_footprint, wall_inputs};
 use crate::plan::ring_contains;
 use crate::wall::{WallInput, footprints};
 
@@ -61,14 +63,20 @@ pub struct SpaceRegions {
 
 impl SpaceRegions {
     /// Resolves the junctions of the walls whose home storey is `storey` and
-    /// builds the contour graph of their footprints and of the footprints of
-    /// the columns whose home storey is `storey`.
+    /// builds the contour graph of the footprints of their bodies
+    /// ([`body_footprint`], square ends where a junction folds a wall, as in
+    /// the plan and the 3D views, WAL-027) and of the footprints of the
+    /// columns whose home storey is `storey`.
     pub fn build(project: &Project, storey: StoreyId) -> Self {
         let walls: Vec<WallInput> = wall_inputs(project)
             .into_iter()
             .filter(|wall| wall.storey == storey)
             .collect();
-        let walls = footprints(&walls).into_values().map(Vec::from);
+        let joined = footprints(&walls);
+        let walls = walls.iter().filter_map(|input| {
+            let wall = project.element(input.id)?.as_wall()?;
+            body_footprint(wall, joined.get(&input.id)).ok()
+        });
         let columns = project
             .elements
             .values()

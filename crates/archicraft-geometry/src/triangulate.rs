@@ -269,6 +269,8 @@ pub fn triangulate(outer: &[DVec2], holes: &[Vec<DVec2>]) -> Result<Vec<[usize; 
 
 #[cfg(test)]
 mod tests {
+    use archicraft_model::test_outlines::comb;
+
     use super::*;
 
     /// The classification `triangulate` used before archicraft-e2t1: a
@@ -321,23 +323,6 @@ mod tests {
                 centre + DVec2::from_angle(std::f64::consts::TAU * k as f64 / n as f64) * radius
             })
             .collect()
-    }
-
-    /// A comb of `teeth` unit teeth on a 1 m deep back (clockwise).
-    fn comb(teeth: usize) -> Vec<DVec2> {
-        let mut ring = Vec::new();
-        for i in 0..teeth {
-            let x = 2.0 * i as f64;
-            ring.extend([
-                DVec2::new(x, 0.0),
-                DVec2::new(x, 1.0),
-                DVec2::new(x + 1.0, 1.0),
-                DVec2::new(x + 1.0, 0.0),
-            ]);
-        }
-        let end = 2.0 * teeth as f64;
-        ring.extend([DVec2::new(end, 0.0), DVec2::new(end, -1.0), DVec2::new(0.0, -1.0)]);
-        ring
     }
 
     /// SLB-003, NFR-PERF-006: classifying the faces by walking the
