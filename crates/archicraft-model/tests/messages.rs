@@ -9,14 +9,15 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use archicraft_model::command::{JournalEntry, StoreyElements, replay};
-use archicraft_model::glam::DVec2;
+use archicraft_model::glam::{DVec2, DVec3};
 use archicraft_model::kinds::KINDS;
 use archicraft_model::message::{ALL_KEYS, ARG_NAMES};
+use archicraft_model::project::{Projection, ViewCamera};
 use archicraft_model::template::default_metric_project;
 use archicraft_model::transfer::SettingsSource;
 use archicraft_model::{
     Arg, Command, ElementId, GroupId, History, KindTag, Layer, Message, ParametricShape, Profile, Project, Relation,
-    Storey,
+    Storey, ViewId,
 };
 use common::{ground, wall};
 
@@ -72,6 +73,10 @@ const VARIANTS: &[&str] = &[
     "RemoveRelation",
     "InjectSettings",
     "PickUpSettings",
+    "SaveCamera",
+    "SetViewCamera",
+    "RenameView",
+    "DeleteView",
 ];
 
 fn variant(command: &Command) -> &'static str {
@@ -107,6 +112,10 @@ fn variant(command: &Command) -> &'static str {
         Command::RemoveRelation(_) => "RemoveRelation",
         Command::InjectSettings { .. } => "InjectSettings",
         Command::PickUpSettings { .. } => "PickUpSettings",
+        Command::SaveCamera { .. } => "SaveCamera",
+        Command::SetViewCamera { .. } => "SetViewCamera",
+        Command::RenameView { .. } => "RenameView",
+        Command::DeleteView { .. } => "DeleteView",
     }
 }
 
@@ -121,6 +130,13 @@ fn one_of_each(p: &Project) -> Vec<Command> {
     let host = Relation::Host {
         hosted: w.id,
         host: ElementId::new(),
+    };
+    let camera = ViewCamera {
+        target: DVec3::new(1.0, 2.0, 0.5),
+        distance: 12.0,
+        yaw: 0.4,
+        pitch: 0.3,
+        fov_y: 0.8,
     };
     vec![
         Command::AddElements(vec![w.clone()]),
@@ -203,6 +219,21 @@ fn one_of_each(p: &Project) -> Vec<Command> {
             element: w.id,
             into: KindTag::Slab,
         },
+        Command::SaveCamera {
+            view: ViewId::new(),
+            base: "Camera".into(),
+            projection: Projection::Perspective,
+            camera,
+        },
+        Command::SetViewCamera {
+            view: p.views[0].id,
+            camera,
+        },
+        Command::RenameView {
+            view: p.views[0].id,
+            name: "Street".into(),
+        },
+        Command::DeleteView { view: p.views[0].id },
     ]
 }
 
