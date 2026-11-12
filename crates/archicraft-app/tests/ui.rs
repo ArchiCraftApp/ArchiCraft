@@ -16,6 +16,7 @@ use archicraft_app::input::{
 use archicraft_app::persistence::DataDirs;
 use archicraft_app::persistence::prefs::Preferences;
 use archicraft_app::tools::{SpaceMode, ToolKind, WallMode};
+use archicraft_app::ui::command_widgets::{ICON, ICON_BUTTON};
 use archicraft_app::ui::{icons, view_bar};
 use archicraft_app::views::render3d::DisplayMode;
 use archicraft_app::workspace::{Consumer, Pane};
@@ -556,11 +557,12 @@ fn add_wall(harness: &mut Harness<'static, ArchiCraftApp>) {
     harness.run_steps(2);
 }
 
-/// UI-011: the toolbar lies directly below the menu bar and above the
-/// properties strip, and its only buttons are Save, then Undo and Redo
+/// UI-001, UI-011: the toolbar lies directly below the menu bar and above
+/// the properties strip, and its only buttons are Save, then Undo and Redo
 /// (PRJ-003), Pick up and Inject parameters (ELM-003), the Measure tool
-/// (MEA-001), then Group and Ungroup (ELM-015), each its command's icon
-/// and label.
+/// (MEA-001), then Group and Ungroup (ELM-015), found by their accessible
+/// labels in that order. Each is its command's icon without text, in a
+/// square of the toolbox buttons' side.
 #[test]
 fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
     let harness = harness("toolbar-place");
@@ -572,12 +574,24 @@ fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
     let strip = harness
         .get_by_label("Nothing selected. Choose a tool, or select elements to edit them.")
         .rect();
-    let mut buttons: Vec<(f32, String)> = harness
+    let mut buttons: Vec<(egui::Rect, String)> = harness
         .query_all(By::new().role(Role::Button))
         .filter(|n| n.rect().min.y > menu_bar.max.y && n.rect().max.y < strip.min.y)
-        .map(|n| (n.rect().min.x, n.accesskit_node().label().unwrap_or_default()))
+        .map(|n| {
+            assert!(
+                n.children().all(|child| child.accesskit_node().role() != Role::TextRun),
+                "{n:?} shows text"
+            );
+            (n.rect(), n.accesskit_node().label().unwrap_or_default())
+        })
         .collect();
-    buttons.sort_by(|a, b| a.0.total_cmp(&b.0));
+    buttons.sort_by(|a, b| a.0.min.x.total_cmp(&b.0.min.x));
+    for (rect, label) in &buttons {
+        assert!(
+            (rect.width() - ICON_BUTTON).abs() < 0.5 && (rect.height() - ICON_BUTTON).abs() < 0.5,
+            "{label} is not a {ICON_BUTTON} pt square: {rect:?}"
+        );
+    }
     let labels: Vec<&str> = buttons.iter().map(|(_, label)| label.as_str()).collect();
     assert_eq!(
         labels,
@@ -595,9 +609,9 @@ fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
 }
 
 /// UI-001, NFR-PORT-005: the toolbox and the toolbar show their icons,
-/// rasterised for the screen's pixels: 20 pt in the toolbox and 16 pt in the
-/// toolbar, with twice as many pixels per side at 200 % scaling. egui names
-/// an icon's texture by its uri.
+/// rasterised for the screen's pixels: both at the one icon side
+/// [`ICON`], with twice as many pixels per side at 200 % scaling. egui
+/// names an icon's texture by its uri.
 #[test]
 fn the_toolbox_and_the_toolbar_draw_their_icons_for_the_screen() {
     let toolbox = [
@@ -631,8 +645,8 @@ fn the_toolbox_and_the_toolbar_draw_their_icons_for_the_screen() {
             .allocated()
             .map(|(_, meta)| (meta.name.clone(), meta.size))
             .collect();
-        for (icons, points) in [(&toolbox[..], 20.0), (&toolbar[..], 16.0)] {
-            let side = (points * pixels_per_point) as usize;
+        let side = (ICON * pixels_per_point) as usize;
+        for icons in [&toolbox[..], &toolbar[..]] {
             for icon in icons {
                 let uri = icon.uri().unwrap_or_default().to_owned();
                 assert!(
@@ -890,10 +904,10 @@ fn drag_toolbox_edge(harness: &mut Harness<'static, ArchiCraftApp>, dx: f32) {
 }
 
 /// UI-001: at the default width the toolbox shows one column of square
-/// icon buttons without text, in group order; dragging its edge to the
-/// width of two columns puts the same buttons into two columns, a drag that
-/// stops short snaps back to the columns shown, and narrowing it again
-/// returns to one column.
+/// icon buttons of side [`ICON_BUTTON`] without text, in group order;
+/// dragging its edge to the width of two columns puts the same buttons into
+/// two columns, a drag that stops short snaps back to the columns shown, and
+/// narrowing it again returns to one column.
 #[test]
 fn the_toolbox_resizes_between_one_and_two_columns_of_icon_buttons() {
     let mut harness = harness("toolbox-columns");
@@ -905,8 +919,8 @@ fn the_toolbox_resizes_between_one_and_two_columns_of_icon_buttons() {
     );
     for (label, rect) in TOOLBOX_TOOLS.iter().zip(&one) {
         assert!(
-            (rect.width() - rect.height()).abs() < 0.5,
-            "{label} is not square: {rect:?}"
+            (rect.width() - ICON_BUTTON).abs() < 0.5 && (rect.height() - ICON_BUTTON).abs() < 0.5,
+            "{label} is not a {ICON_BUTTON} pt square: {rect:?}"
         );
         let node = toolbox_button(&harness, label);
         assert!(

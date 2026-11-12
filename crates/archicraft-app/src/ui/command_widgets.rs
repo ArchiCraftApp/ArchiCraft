@@ -1,7 +1,7 @@
-//! Widgets that run commands (UI-011, UI-017): menu items, toolbox and
-//! status-bar buttons and the buttons of panels and dialogs. Their label,
-//! enabled and checked state come from the registry in the state of the
-//! frame, and their tooltip is the command's description with its shortcut
+//! Widgets that run commands (UI-011, UI-017): menu items, toolbox,
+//! toolbar and status-bar buttons and the buttons of panels and dialogs.
+//! Their label, enabled and checked state come from the registry in the
+//! state of the frame, and their tooltip is the command's description with its shortcut
 //! from the effective keymap, so every place a command appears shows the
 //! same text and state.
 
@@ -11,10 +11,13 @@ use crate::commands::{Binding, CommandCtx, CommandSpec, Enabled, Keymap};
 use crate::input::Modifiers as Held;
 use crate::tr;
 
-/// The side of the toolbox's icons, in points.
-const TOOLBOX_ICON: f32 = 20.0;
-/// The side of a toolbox button, which is square, in points.
-pub const TOOLBOX_BUTTON: f32 = 32.0;
+/// The side of every button icon, in the toolbox and the main toolbar, in
+/// points (UI-001): a third larger than the toolbox's former 20 pt, so the
+/// icons are easy to click.
+pub const ICON: f32 = 28.0;
+/// The side of an icon button, which is square, in points: [`ICON`] with
+/// a margin around it, grown with the icon from the former 32 pt.
+pub const ICON_BUTTON: f32 = 42.0;
 
 /// How a platform writes keys: a binding, and the modifiers held for a
 /// click gesture.
@@ -95,17 +98,6 @@ fn with_tooltip(response: Response, ui: &Ui, cx: &CommandCtx, spec: &CommandSpec
     }
 }
 
-/// The icon of `spec` (UI-001, `ui/icons.rs`) with a side of `size` points,
-/// then `label`. The button that shows them must tint its images with its
-/// text colour, so the white icon takes the colour of the label.
-pub fn icon_and_label<'a>(spec: &CommandSpec, size: f32, label: impl Into<Atom<'a>>) -> Atoms<'a> {
-    let mut atoms = Atoms::new(label);
-    if let Some(icon) = &spec.icon {
-        atoms.push_left(Image::new(icon.clone()).fit_to_exact_size(Vec2::splat(size)));
-    }
-    atoms
-}
-
 /// The menu item of `spec`: its label in the state `cx`, its shortcut, its
 /// enabled state and, for an on/off command, a check box. Closes the menu
 /// and returns true when clicked.
@@ -134,25 +126,42 @@ pub fn menu_item(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec) -> bool {
     clicked
 }
 
-/// A toolbox button of `spec` (UI-001): a square button with its icon and
-/// no text, selected while the command is on. The short `label` is its
-/// accessible name and the bold title of its tooltip, which adds the
-/// shortcut and the command's description (UI-011). Returns true when
+/// An icon button of `spec` (UI-001): a square of side [`ICON_BUTTON`]
+/// with its icon of side [`ICON`] and no text, tinted with the text colour
+/// (`ui/icons.rs`) and selected while the command is on. `name` is its
+/// accessible name and `title` the bold title of its tooltip, which adds
+/// the shortcut and the command's description (UI-011). Returns true when
 /// clicked.
-pub fn tool_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, label: &str) -> bool {
+fn icon_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, name: &str, title: &str) -> bool {
     let selected = spec.checked_in(cx).unwrap_or(false);
     let enabled = spec.enabled_in(cx).is_yes();
     let mut atoms = Atoms::default();
     if let Some(icon) = &spec.icon {
-        atoms.push_right(Image::new(icon.clone()).fit_to_exact_size(Vec2::splat(TOOLBOX_ICON)));
+        atoms.push_right(Image::new(icon.clone()).fit_to_exact_size(Vec2::splat(ICON)));
     }
     let button = Button::selectable(selected, atoms).image_tint_follows_text_color(true);
-    let response = ui.add_enabled(enabled, |ui: &mut Ui| ui.add_sized(Vec2::splat(TOOLBOX_BUTTON), button));
-    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, selected, label));
+    let response = ui.add_enabled(enabled, |ui: &mut Ui| ui.add_sized(Vec2::splat(ICON_BUTTON), button));
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, selected, name));
     response
-        .on_hover_ui(|ui| titled_tooltip(ui, cx, spec, label))
-        .on_disabled_hover_ui(|ui| titled_tooltip(ui, cx, spec, label))
+        .on_hover_ui(|ui| titled_tooltip(ui, cx, spec, title))
+        .on_disabled_hover_ui(|ui| titled_tooltip(ui, cx, spec, title))
         .clicked()
+}
+
+/// A toolbox button of `spec` (UI-001): an [`icon_button`] whose
+/// accessible name and tooltip title are the tool's short `label`.
+pub fn tool_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec, label: &str) -> bool {
+    icon_button(ui, cx, spec, label, label)
+}
+
+/// A main-toolbar button of `spec` (UI-001, UI-011): an [`icon_button`] of
+/// the toolbox's size without a label, which the user reads in the tooltip.
+/// The command's label, such as "Undo", is its accessible name, so screen
+/// readers and tests find it; the tooltip's title is the label in the state
+/// `cx`, such as "Undo Create wall". A checked command, such as the measure
+/// tool or the latch of Inject, shows selected while it is on.
+pub fn toolbar_button(ui: &mut Ui, cx: &CommandCtx, spec: &CommandSpec) -> bool {
+    icon_button(ui, cx, spec, &spec.label(), &spec.label_in(cx))
 }
 
 /// A bar button of `spec` with the short `label`, for the status line, the
@@ -202,6 +211,41 @@ mod tests {
 
         fn modifiers(&self, held: Held) -> String {
             format!("{held:?}")
+        }
+    }
+
+    /// UI-001: the one icon side of toolbar and toolbox is at least a third
+    /// larger than the toolbox's former 20 pt icons, and the button keeps at
+    /// least the former margin of 6 pt on each side of it. No other icon or
+    /// button size is defined in this file or the shell's: every icon there
+    /// is drawn at [`ICON`].
+    #[test]
+    fn toolbar_and_toolbox_share_one_icon_size_a_third_larger() {
+        const FORMER_ICON: f32 = 20.0;
+        const FORMER_MARGIN: f32 = 6.0;
+        const { assert!(ICON >= FORMER_ICON * 4.0 / 3.0) };
+        const { assert!(ICON_BUTTON >= ICON + 2.0 * FORMER_MARGIN) };
+        let sources = [
+            ("command_widgets.rs", include_str!("command_widgets.rs")),
+            ("shell.rs", include_str!("shell.rs")),
+        ];
+        for (file, source) in sources {
+            let code = source.split("#[cfg(test)]").next().unwrap();
+            for line in code.lines().map(str::trim) {
+                if line.starts_with("const ") || line.starts_with("pub const ") {
+                    let name = line
+                        .split([' ', ':'])
+                        .find(|w| w.chars().any(|c| c.is_ascii_uppercase()));
+                    let name = name.unwrap_or_default();
+                    assert!(
+                        !(name.contains("ICON") || name.contains("BUTTON")) || ["ICON", "ICON_BUTTON"].contains(&name),
+                        "{file} defines its own size {name}"
+                    );
+                }
+                if line.contains("fit_to_exact_size(") {
+                    assert!(line.contains("Vec2::splat(ICON)"), "{file}: {line}");
+                }
+            }
         }
     }
 

@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use archicraft_model::units::format_length;
-use egui::{Button, RichText, Ui};
+use egui::{RichText, Ui};
 
-use super::command_widgets::{TOOLBOX_BUTTON, bar_button, icon_and_label, menu_item, titled_tooltip, tool_button};
+use super::command_widgets::{ICON_BUTTON, bar_button, menu_item, tool_button, toolbar_button};
 use crate::commands::{
     CommandCtx, CommandId, CommandSpec, MENUS, MenuEntry, Registry, edit, file, menu_title, toolbox_groups, tools, view,
 };
@@ -89,16 +89,15 @@ pub fn menu_bar(ui: &mut Ui, ws: &Workspace, cx: &CommandCtx) -> (Option<Command
     (chosen.command, chosen.recent)
 }
 
-/// The side of the toolbar's icons, in points.
-const TOOLBAR_ICON: f32 = 16.0;
-
 /// The toolbar below the menu bar (UI-011): Save at the far left (PRJ-003),
 /// a separator, Undo and Redo, a separator, Pick up and Inject parameters
 /// (ELM-003), a separator, the Measure tool (MEA-001), a separator, then
-/// Group and Ungroup (ELM-015), greyed out while they cannot
-/// run, with their icons, labels and tooltips from the registry. A command
-/// with a checked state, such as a tool, shows selected while it is on, as
-/// in the menus. Returns the command of the clicked button.
+/// Group and Ungroup (ELM-015), greyed out while they cannot run. Each is
+/// an icon button of the toolbox's size without text (UI-001,
+/// [`toolbar_button`]), its label in the tooltip with the shortcut and
+/// description from the registry. A command with a checked state, such as a
+/// tool, shows selected while it is on, as in the menus. Returns the command
+/// of the clicked button.
 pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
     let mut chosen = None;
     ui.horizontal(|ui| {
@@ -118,20 +117,8 @@ pub fn toolbar(ui: &mut Ui, cx: &CommandCtx) -> Option<CommandId> {
             if [1, 3, 5, 6].contains(&i) {
                 ui.separator();
             }
-            let spec = spec(id);
-            let enabled = (spec.enabled)(cx);
-            let atoms = icon_and_label(spec, TOOLBAR_ICON, spec.label());
-            let button = match spec.checked_in(cx) {
-                Some(on) => Button::selectable(on, atoms),
-                None => Button::new(atoms),
-            }
-            .image_tint_follows_text_color(true);
-            let response = ui
-                .add_enabled(enabled.is_yes(), button)
-                .on_hover_ui(|ui| titled_tooltip(ui, cx, spec, &spec.label_in(cx)))
-                .on_disabled_hover_ui(|ui| titled_tooltip(ui, cx, spec, &spec.label_in(cx)));
-            if response.clicked() {
-                chosen = Some(spec.id);
+            if toolbar_button(ui, cx, spec(id)) {
+                chosen = Some(id);
             }
         }
     });
@@ -145,7 +132,7 @@ pub const TOOLBOX_PANEL: &str = "toolbox";
 /// buttons `spacing` apart.
 pub fn toolbox_content_width(columns: u8, spacing: f32) -> f32 {
     let columns = f32::from(columns.clamp(1, MAX_TOOLBOX_COLUMNS));
-    columns * TOOLBOX_BUTTON + (columns - 1.0) * spacing
+    columns * ICON_BUTTON + (columns - 1.0) * spacing
 }
 
 /// The columns of tool buttons that fit into a toolbox `width` wide inside:
@@ -384,11 +371,11 @@ mod tests {
     #[test]
     fn the_toolbox_width_gives_its_columns() {
         let spacing = 8.0;
-        assert_eq!(toolbox_content_width(1, spacing), TOOLBOX_BUTTON);
-        assert_eq!(toolbox_content_width(2, spacing), 2.0 * TOOLBOX_BUTTON + spacing);
+        assert_eq!(toolbox_content_width(1, spacing), ICON_BUTTON);
+        assert_eq!(toolbox_content_width(2, spacing), 2.0 * ICON_BUTTON + spacing);
         assert_eq!(toolbox_columns(0.0, spacing), 1);
-        assert_eq!(toolbox_columns(2.0 * TOOLBOX_BUTTON + spacing - 1.0, spacing), 1);
-        assert_eq!(toolbox_columns(2.0 * TOOLBOX_BUTTON + spacing, spacing), 2);
+        assert_eq!(toolbox_columns(2.0 * ICON_BUTTON + spacing - 1.0, spacing), 1);
+        assert_eq!(toolbox_columns(2.0 * ICON_BUTTON + spacing, spacing), 2);
         assert_eq!(toolbox_columns(500.0, spacing), 2);
         for columns in 1..=MAX_TOOLBOX_COLUMNS {
             assert_eq!(

@@ -522,16 +522,15 @@ fn a_selected_space_shows_and_edits_its_name_number_height_and_area() {
     );
 }
 
-/// The header of the settings dialog's 'Space' section: the node labelled
-/// "Space" outside the toolbox, which has the space tool's button.
+/// The header of the settings dialog's 'Space' section: the button
+/// labelled "Space" that is not the toolbox's space tool, which is an
+/// on/off button. The dialog may float over the toolbox, so its place does
+/// not tell them apart.
 fn space_section(harness: &App) -> egui::Rect {
-    let toolbox = egui::containers::panel::PanelState::load(&harness.ctx, egui::Id::new("toolbox"))
-        .unwrap()
-        .outer_rect;
     let headers: Vec<egui::Rect> = harness
         .query_all(By::new().role(Role::Button).label("Space"))
+        .filter(|n| n.accesskit_node().toggled().is_none())
         .map(|n| n.rect())
-        .filter(|r| !toolbox.contains(r.center()))
         .collect();
     assert_eq!(headers.len(), 1, "one 'Space' section: {headers:?}");
     headers[0]
