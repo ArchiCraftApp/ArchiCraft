@@ -40,8 +40,8 @@ dependencies = [
  "archicraft-model",
  "geo",
  "glam",
+ "rstar",
  "spade",
- "thiserror",
  "tracing",
 ]
 
@@ -61,6 +61,7 @@ dependencies = [
 name = "archicraft-model"
 version = "0.1.0"
 dependencies = [
+ "geo",
  "glam",
  "indexmap",
  "serde",
