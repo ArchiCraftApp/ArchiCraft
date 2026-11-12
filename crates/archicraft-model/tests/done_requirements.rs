@@ -12,9 +12,9 @@
 mod common;
 
 use archicraft_model::command::{DEFAULT_UNDO_LIMIT, JournalEntry, StoreyElements, replay};
-use archicraft_model::glam::DVec2;
+use archicraft_model::glam::{DVec2, DVec3};
 use archicraft_model::outline::Outline;
-use archicraft_model::project::{Building, DefaultsSlot, Location, ProjectInfo, Site};
+use archicraft_model::project::{Building, DefaultsSlot, Location, ProjectInfo, Projection, Site, ViewCamera};
 use archicraft_model::template::default_metric_project;
 use archicraft_model::transfer::SettingsSource;
 use archicraft_model::units::{LengthUnit, NumberFormat, format_angle, format_length, parse_length};
@@ -22,7 +22,7 @@ use archicraft_model::validate::validate_element;
 use archicraft_model::{
     Command, CommandError, Element, ElementKind, GroupId, History, IfcClass, KindTag, Layer, LayerId, MaterialId,
     Message, ParametricShape, Position, Profile, Project, ReferenceLine, Relation, Slab, SlabReference, Storey,
-    StoreyId, StructuralFunction, TopLink, Wall,
+    StoreyId, StructuralFunction, TopLink, ViewId, Wall,
 };
 use common::{ground, wall};
 
@@ -702,10 +702,14 @@ fn variant(command: &Command) -> usize {
         Command::DeleteProfile { .. } => 28,
         Command::InjectSettings { .. } => 29,
         Command::PickUpSettings { .. } => 30,
+        Command::SaveCamera { .. } => 31,
+        Command::SetViewCamera { .. } => 32,
+        Command::RenameView { .. } => 33,
+        Command::DeleteView { .. } => 34,
     }
 }
 
-const VARIANTS: usize = 31;
+const VARIANTS: usize = 35;
 
 /// A recorded session that executes every command variant at least once.
 struct Session {
@@ -920,6 +924,45 @@ fn scripted_session() -> Session {
         &mut p,
         Command::InsertRelation(Relation::Junction { a: wid, b: partner_id }),
     );
+    // VIEW-004: a camera saved, redefined and renamed, and one deleted.
+    let camera = ViewCamera {
+        target: DVec3::new(1.0, 2.0, 0.5),
+        distance: 12.0,
+        yaw: 0.4,
+        pitch: 0.3,
+        fov_y: 0.8,
+    };
+    let saved = ViewId::new();
+    for view in [saved, ViewId::new()] {
+        run(
+            &mut p,
+            Command::SaveCamera {
+                view,
+                base: "Camera".into(),
+                projection: Projection::Perspective,
+                camera,
+            },
+        );
+    }
+    run(
+        &mut p,
+        Command::SetViewCamera {
+            view: saved,
+            camera: ViewCamera {
+                distance: 20.0,
+                ..camera
+            },
+        },
+    );
+    run(
+        &mut p,
+        Command::RenameView {
+            view: saved,
+            name: "Garden".into(),
+        },
+    );
+    let deleted = p.views[0].id;
+    run(&mut p, Command::DeleteView { view: deleted });
 
     Session {
         start,

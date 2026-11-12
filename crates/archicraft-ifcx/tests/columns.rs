@@ -467,3 +467,72 @@ fn a_profile_in_the_column_tool_defaults_round_trips_or_is_repaired() {
     };
     assert_eq!(column.section, template_section());
 }
+
+/// `project` with a copy of its first profile that only beams may use, and
+/// that profile's identity.
+fn with_a_beam_only_profile(project: &mut Project) -> ProfileId {
+    let mut profile = project.profiles[0].clone();
+    profile.id = ProfileId::new();
+    profile.name = "Beams only".into();
+    profile.usage.columns = false;
+    assert!(profile.usage.beams);
+    let id = profile.id;
+    History::default()
+        .execute(project, Command::AddProfile(profile))
+        .unwrap();
+    id
+}
+
+/// PRF-004, COL-001, PRJ-008: a column whose profile exists but does not
+/// allow columns loads with the column tool's template section, anchored at
+/// its centre, with one warning, instead of being skipped; its other
+/// members load as written.
+#[test]
+fn a_profile_without_the_columns_flag_loads_as_the_template_section_with_one_warning() {
+    let mut project = sample();
+    let beam_only = with_a_beam_only_profile(&mut project);
+    let written = column(&project, PROFILE_COLUMN).clone();
+    assert_eq!(written.anchor, Anchor::ProfileOrigin);
+    let bytes = edit(&project, |value| {
+        column_attribute(value, PROFILE_COLUMN)["section"]["profile"] = json!(beam_only.to_string());
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let (severity, message) = only_problem(&loaded);
+    assert_eq!(severity, Severity::Warning);
+    assert!(
+        message.contains("ifcx-repaired") && message.contains("ifcx-column-profile-not-for-columns"),
+        "{message}"
+    );
+    assert!(message.contains(PROFILE_COLUMN), "{message}");
+    assert!(loaded.project.profile(beam_only).is_some());
+    let read = column(&loaded.project, PROFILE_COLUMN);
+    assert_eq!(
+        exact(read),
+        exact(&Column {
+            section: template_section(),
+            anchor: Anchor::Centre,
+            ..written
+        })
+    );
+}
+
+/// ELM-001, PRF-004, PRJ-008: the column tool's defaults slot naming a
+/// profile that exists but does not allow columns loads the template section
+/// with one warning, so later placements with the tool validate.
+#[test]
+fn a_profile_without_the_columns_flag_in_the_column_tool_defaults_is_repaired() {
+    let mut project = sample();
+    let beam_only = with_a_beam_only_profile(&mut project);
+    let bytes = edit(&project, |value| {
+        slot_parameters(value)["section"] = json!({"kind": "profile", "profile": beam_only.to_string()});
+    });
+    let loaded = archicraft_ifcx::load(&bytes).unwrap();
+    let (severity, message) = only_problem(&loaded);
+    assert_eq!(severity, Severity::Warning);
+    assert!(message.contains("ifcx-column-profile-not-for-columns"), "{message}");
+    let read = loaded.project.tool_defaults.get(KindTag::Column).unwrap();
+    let ElementKind::Column(column) = &read.kind else {
+        panic!("{read:?}");
+    };
+    assert_eq!(column.section, template_section());
+}

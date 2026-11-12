@@ -20,7 +20,7 @@
 //! which a new column gets where it is placed.
 
 use archicraft_model::{ProfileId, TopLink};
-use archicraft_model::kinds::{Anchor, Column, ColumnCut, CrossSection, MAX_CUT_ANGLE_DEG, VerticalLink};
+use archicraft_model::kinds::{Anchor, Column, ColumnCut, CrossSection, Kind, MAX_CUT_ANGLE_DEG, VerticalLink};
 use serde_json::{Map, Value, json};
 
 use super::common::{point2_value, read_material, read_top_link, top_link_schema, top_link_value};
@@ -105,23 +105,35 @@ fn read_section(map: &Object) -> Result<CrossSection, Message> {
 
 /// The column tool's section in the template (Appendix D.2), for a
 /// section that cannot be read or names a profile the project does not
-/// have.
+/// have or that does not allow columns.
 const TEMPLATE_SECTION: CrossSection = CrossSection::Rectangular {
     width: 0.3,
     height: 0.3,
 };
 
 /// `section`, or [`TEMPLATE_SECTION`] when it names a profile the project
-/// does not have, reported (PRJ-008). A profile anchor then becomes the
-/// centre when the column is validated.
-fn known_profile(section: CrossSection, context: &ReadContext<'_>, report: &mut Report<'_>) -> CrossSection {
-    match section.profile() {
-        Some(profile) if context.project.profile(profile).is_none() => {
-            report.repaired(Message::new("ifcx-column-profile-missing"));
-            TEMPLATE_SECTION
+/// does not have or one whose usage flags do not allow columns
+/// ([`Kind::accepts_profile`] of `column`), reported (PRJ-008, PRF-004).
+/// Without the repair validation would skip the column and the tool's
+/// defaults slot would keep a profile every placement with it is refused.
+/// A profile anchor then becomes the centre when the column is validated.
+fn known_profile(
+    section: CrossSection,
+    column: &Column,
+    context: &ReadContext<'_>,
+    report: &mut Report<'_>,
+) -> CrossSection {
+    let Some(id) = section.profile() else {
+        return section;
+    };
+    match context.project.profile(id) {
+        None => report.repaired(Message::new("ifcx-column-profile-missing")),
+        Some(profile) if !column.accepts_profile(profile.usage) => {
+            report.repaired(Message::new("ifcx-column-profile-not-for-columns"))
         }
-        _ => section,
+        Some(_) => return section,
     }
+    TEMPLATE_SECTION
 }
 
 const HORIZONTAL: &str = "horizontal";
@@ -250,12 +262,12 @@ impl KindCodec for Column {
 
     /// The slot keeps `default`'s placeholder position; a cut that cannot
     /// be read or whose angle is beyond the limit is horizontal, and a
-    /// profile the project does not have gives the template section, each
-    /// reported.
+    /// profile the project does not have or that does not allow columns
+    /// gives the template section, each reported.
     fn read_slot(attr: &Object, default: &Self, context: &ReadContext<'_>, report: &mut Report<'_>) -> Self {
         let section = report.or(reader::object(attr, "section").and_then(read_section), default.section);
         Column {
-            section: known_profile(section, context, report),
+            section: known_profile(section, default, context, report),
             anchor: report.or(reader::code(attr, "anchor", anchor_from_code), default.anchor),
             rotation: report.or(reader::real(attr, "rotation"), default.rotation),
             link: VerticalLink {

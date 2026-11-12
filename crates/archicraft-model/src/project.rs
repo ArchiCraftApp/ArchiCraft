@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use glam::DVec2;
+use glam::{DVec2, DVec3};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -197,6 +197,45 @@ pub struct View3d {
     pub id: ViewId,
     pub name: String,
     pub projection: Projection,
+    /// The saved viewpoint (VIEW-004): opening the view starts its camera
+    /// here. `None` for a plain viewpoint such as the template's, which
+    /// opens at the default camera; defaulted, so views saved before
+    /// cameras existed load.
+    #[serde(default)]
+    pub camera: Option<ViewCamera>,
+}
+
+/// A saved 3D viewpoint (VIEW-004, VIEW-020): an orbit camera looking at
+/// `target` from `distance` metres, turned by `yaw` around +Z from +X and
+/// raised by `pitch` above the horizon, with the vertical field of view
+/// `fov_y` of the perspective projection, angles in radians. The projection
+/// is the view's own. A plain value, so that a later view definition with
+/// display settings can hold it unchanged.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ViewCamera {
+    pub target: DVec3,
+    pub distance: f64,
+    pub yaw: f64,
+    pub pitch: f64,
+    pub fov_y: f64,
+}
+
+impl ViewCamera {
+    /// Checks the camera (NFR-REL-005): every value finite, the distance
+    /// positive, the pitch within the poles and the field of view in
+    /// (0, pi). The error is `model-error-view-camera`.
+    pub fn validate(&self) -> Result<(), Message> {
+        use std::f64::consts::{FRAC_PI_2, PI};
+        let finite = self.target.is_finite()
+            && [self.distance, self.yaw, self.pitch, self.fov_y]
+                .iter()
+                .all(|v| v.is_finite());
+        if finite && self.distance > 0.0 && self.pitch.abs() <= FRAC_PI_2 && self.fov_y > 0.0 && self.fov_y < PI {
+            Ok(())
+        } else {
+            Err(Message::new("model-error-view-camera"))
+        }
+    }
 }
 
 /// The defaults of one tool (ELM-001): the layer, position, structural
@@ -406,6 +445,18 @@ impl Project {
 
     pub fn view(&self, id: ViewId) -> Option<&View3d> {
         self.views.iter().find(|v| v.id == id)
+    }
+
+    /// The name a new saved camera gets (VIEW-004): `<base> <n>` with the
+    /// first `n` from 1 that no 3D view's name uses, so a gap left by a
+    /// renamed or deleted camera is filled. `base` is the localized word,
+    /// for example `Camera`.
+    pub fn next_view_name(&self, base: &str) -> String {
+        let base = base.trim();
+        (1u32..)
+            .map(|n| format!("{base} {n}"))
+            .find(|name| self.views.iter().all(|v| v.name != *name))
+            .unwrap_or_else(|| base.to_owned())
     }
 
     /// Elements whose home storey is `storey`, in model order.

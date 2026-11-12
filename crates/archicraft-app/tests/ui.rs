@@ -30,7 +30,7 @@ use archicraft_model::{
     Command, ElementId, ElementKind, IfcClass, KindTag, Material, PredefinedType, ProjectSettings, ReferenceLine,
     StoreyId, StructuralFunction, TopLink,
 };
-use common::{assert_present, data_dir, harness, harness_at, harness_in, open_strip_overflow};
+use common::{assert_present, data_dir, harness, harness_at, harness_in, menu_entry, open_strip_overflow};
 use egui::accesskit::{Role, Toggled};
 use egui::os::OperatingSystem;
 use egui::{Event, Key, Modifiers, PointerButton};
@@ -557,15 +557,10 @@ fn add_wall(harness: &mut Harness<'static, ArchiCraftApp>) {
     harness.run_steps(2);
 }
 
-/// UI-001, UI-011: the toolbar lies directly below the menu bar and above
-/// the properties strip, and its only buttons are Save, then Undo and Redo
-/// (PRJ-003), Pick up and Inject parameters (ELM-003), the Measure tool
-/// (MEA-001), then Group and Ungroup (ELM-015), found by their accessible
-/// labels in that order. Each is its command's icon without text, in a
-/// square of the toolbox buttons' side.
-#[test]
-fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
-    let harness = harness("toolbar-place");
+/// The toolbar's buttons, left to right: each one's rectangle and accessible
+/// label, found as the buttons between the menu bar and the properties
+/// strip. Each shows no text.
+fn toolbar_buttons(harness: &Harness<'static, ArchiCraftApp>) -> Vec<(egui::Rect, String)> {
     let menu_bar = harness
         .query_all_by_label("File")
         .map(|n| n.rect())
@@ -586,6 +581,20 @@ fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
         })
         .collect();
     buttons.sort_by(|a, b| a.0.min.x.total_cmp(&b.0.min.x));
+    buttons
+}
+
+/// UI-001, UI-011: the toolbar lies directly below the menu bar and above
+/// the properties strip, and its only buttons are Save, then Undo and Redo
+/// (PRJ-003), Pick up and Inject parameters (ELM-003), the Measure tool
+/// (MEA-001), Group and Ungroup (ELM-015), then Layers, Materials and the
+/// project settings (UI-017), found by their accessible labels in that
+/// order. Each is its command's icon without text, in a square of the
+/// toolbox buttons' side.
+#[test]
+fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
+    let harness = harness("toolbar-place");
+    let buttons = toolbar_buttons(&harness);
     for (rect, label) in &buttons {
         assert!(
             (rect.width() - ICON_BUTTON).abs() < 0.5 && (rect.height() - ICON_BUTTON).abs() < 0.5,
@@ -603,9 +612,81 @@ fn the_toolbar_lies_between_the_menu_bar_and_the_properties_strip() {
             "Inject parameters",
             "Measure tool",
             "Group",
-            "Ungroup"
+            "Ungroup",
+            "Layers…",
+            "Materials…",
+            "Project settings…"
         ]
     );
+}
+
+/// UI-001, UI-011, UI-017: Layers, Materials and the project settings stand
+/// at the right end of the toolbar, after Ungroup and a separator: the gap
+/// before Layers is wider than the one between Group and Ungroup, and the
+/// three follow each other at that narrower gap. Each opens its dialog and
+/// invokes its command by id with `Origin::Toolbar`.
+#[test]
+fn the_toolbar_opens_the_layers_materials_and_project_settings() {
+    let mut harness = harness("toolbar-project");
+    let buttons = toolbar_buttons(&harness);
+    let at = |label: &str| {
+        buttons
+            .iter()
+            .position(|(_, l)| l == label)
+            .unwrap_or_else(|| panic!("no toolbar button {label}"))
+    };
+    let gap = |a: usize, b: usize| buttons[b].0.min.x - buttons[a].0.max.x;
+    let (group, ungroup, layers) = (at("Group"), at("Ungroup"), at("Layers…"));
+    assert_eq!((ungroup, layers), (group + 1, group + 2));
+    assert_eq!(buttons.len(), layers + 3, "Layers, Materials and Settings come last");
+    let spacing = gap(group, ungroup);
+    assert!(gap(ungroup, layers) > spacing + 2.0, "no separator before Layers");
+    assert!((gap(layers, layers + 1) - spacing).abs() < 0.5);
+    assert!((gap(layers + 1, layers + 2) - spacing).abs() < 0.5);
+
+    let dialogs = [
+        ("Layers…", "project.layers", "Layers"),
+        ("Materials…", "project.materials", "Materials"),
+        ("Project settings…", "project.settings", "Project settings"),
+    ];
+    for (label, _, window) in dialogs {
+        let window = By::new().role(Role::Window).label(window);
+        assert!(harness.query(window.clone()).is_none(), "{label}: open already");
+        toolbar_button(&harness, label).click();
+        harness.run_steps(4);
+        assert!(harness.query(window).is_some(), "{label} opens no dialog");
+    }
+
+    // A recording application invokes the commands without running them.
+    let mut harness = common::harness("toolbar-project-invoked");
+    harness.state_mut().record_invocations();
+    for (label, id, _) in dialogs {
+        toolbar_button(&harness, label).click();
+        harness.run_steps(2);
+        assert_eq!(invoked(&mut harness), [(id, Origin::Toolbar)]);
+    }
+}
+
+/// UI-017: the project browser shows no Layers…, Materials… or Settings…
+/// buttons any more, the toolbar has them; the Project menu still has all
+/// three commands.
+#[test]
+fn the_browser_leaves_layers_materials_and_settings_to_the_toolbar() {
+    let mut harness = harness("browser-project-buttons");
+    let browser = panel(&harness, "browser");
+    assert!(browser.contains(harness.get_by_label("Site: Site").rect().center()));
+    for label in ["Layers…", "Materials…", "Settings…", "Project settings…"] {
+        let shown: Vec<egui::Rect> = harness
+            .query_all_by_label(label)
+            .map(|n| n.rect())
+            .filter(|rect| browser.intersects(*rect))
+            .collect();
+        assert!(shown.is_empty(), "the browser shows {label} at {shown:?}");
+    }
+    open_menu(&mut harness, "Project");
+    for label in ["Layers…", "Materials…", "Project settings…"] {
+        menu_entry(&harness, label);
+    }
 }
 
 /// UI-001, NFR-PORT-005: the toolbox and the toolbar show their icons,
@@ -635,6 +716,9 @@ fn the_toolbox_and_the_toolbar_draw_their_icons_for_the_screen() {
         icons::MEASURE,
         icons::GROUP,
         icons::UNGROUP,
+        icons::LAYERS,
+        icons::MATERIALS,
+        icons::SETTINGS,
     ];
     for (pixels_per_point, name) in [(1.0, "icons-100"), (2.0, "icons-200")] {
         let harness = harness_at(name, pixels_per_point);
@@ -1841,8 +1925,8 @@ fn duplicate_material_copies_the_selected_material() {
     invoke_from_palette(&mut harness, commands::project::DUPLICATE_MATERIAL);
     assert_eq!(materials(&mut harness), before, "nothing is selected");
 
-    // The browser's Materials… button.
-    harness.get_by_label("Materials…").click();
+    // The toolbar's Materials… button.
+    toolbar_button(&harness, "Materials…").click();
     harness.run_steps(2);
     harness.get(By::new().role(Role::Button).label(&original.name)).click();
     harness.run_steps(2);
@@ -2151,7 +2235,7 @@ fn the_plan_views_local_keys_run_their_commands() {
     let before = wall_reference_line(&mut harness);
     harness.state_mut().workspace().doc.project.info.name = "Villa".to_owned();
     open_menu(&mut harness, "Project");
-    harness.get_by_label("Project settings…").click();
+    menu_entry(&harness, "Project settings…").click();
     harness.run_steps(2);
     harness.get(By::new().role(Role::TextInput).value("Villa")).focus();
     harness.run_steps(2);
@@ -2223,7 +2307,7 @@ fn typing_into_a_text_field_does_not_switch_tools() {
     let mut harness = harness("typing-w");
     harness.state_mut().workspace().doc.project.info.name = "Villa Test".to_owned();
     open_menu(&mut harness, "Project");
-    harness.get_by_label("Project settings…").click();
+    menu_entry(&harness, "Project settings…").click();
     harness.run_steps(2);
     harness.get(By::new().role(Role::TextInput).value("Villa Test")).focus();
     harness.run_steps(2);
@@ -2293,8 +2377,8 @@ fn a_selected_wall_can_be_excluded_from_snapping() {
 #[test]
 fn the_layers_dialog_has_a_snaps_column() {
     let mut harness = harness("layer-snaps");
-    // The project browser's button; the Project menu has the same command.
-    harness.query_all_by_label("Layers…").next().unwrap().click();
+    // The toolbar's button; the Project menu has the same command.
+    toolbar_button(&harness, "Layers…").click();
     harness.run_steps(4);
     for header in ["Visible", "Locked", "Snaps", "Name", "Elements"] {
         harness.get_by_label(header);
@@ -2788,7 +2872,7 @@ fn project_settings_unit_choices_come_from_the_catalogue() {
     let label = |key: &str| i18n::with(Rc::clone(&pseudo), || tr!(key));
     // Menu titles and command labels come from the catalogue.
     open_menu(&mut harness, &label("menu-project"));
-    harness.get_by_label(&label("cmd-project-settings-label")).click();
+    menu_entry(&harness, &label("cmd-project-settings-label")).click();
     harness.run_steps(4);
     let metre = label(LengthUnit::Meter.label_key());
     assert!(metre.starts_with(i18n::pseudo::OPEN), "{metre}");

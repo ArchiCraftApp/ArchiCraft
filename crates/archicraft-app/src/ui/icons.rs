@@ -49,8 +49,17 @@ pub const PARALLEL_BOX: ImageSource<'static> = include_image!("../../assets/icon
 pub const ZOOM_IN: ImageSource<'static> = include_image!("../../assets/icons/zoom-in.svg");
 pub const ZOOM_OUT: ImageSource<'static> = include_image!("../../assets/icons/zoom-out.svg");
 
+/// Three sheets stacked in oblique projection: the Layers dialog (LAY-001,
+/// UI-017).
+pub const LAYERS: ImageSource<'static> = include_image!("../../assets/icons/layers.svg");
+/// A square sample with section hatching: the Materials dialog (MAT-001,
+/// UI-017).
+pub const MATERIALS: ImageSource<'static> = include_image!("../../assets/icons/materials.svg");
+/// A gear: the Project settings dialog (PRJ-009, UI-017).
+pub const SETTINGS: ImageSource<'static> = include_image!("../../assets/icons/settings.svg");
+
 /// Every icon.
-pub const ALL: [ImageSource<'static>; 22] = [
+pub const ALL: [ImageSource<'static>; 25] = [
     SELECT,
     WALL,
     SLAB,
@@ -71,6 +80,9 @@ pub const ALL: [ImageSource<'static>; 22] = [
     PLAN_SHEET,
     CAMERA,
     PARALLEL_BOX,
+    LAYERS,
+    MATERIALS,
+    SETTINGS,
     ZOOM_IN,
     ZOOM_OUT,
 ];
