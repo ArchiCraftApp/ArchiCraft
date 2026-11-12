@@ -9,7 +9,9 @@
 //! them, a segment is split at every vertex that lies on it, and overlapping
 //! collinear pieces become one edge. The bounded faces of the resulting
 //! half-edge structure, without their antennas, are the regions
-//! ([`ContourGraph::region_at`]). The runs of edges through the vertices
+//! ([`ContourGraph::region_at`]); a line that joins a face's boundary to a
+//! closed loop inside the face (a bridge) is left out of the boundary too,
+//! and the loop becomes an island of the face. The runs of edges through the vertices
 //! where two edges meet are the chains: the clicked edge
 //! ([`ContourGraph::edge_at`], up to the first corner) and the chain of
 //! connected edges ([`ContourGraph::chain_at`]).
@@ -112,7 +114,9 @@ impl PlanSegmentSource for PlanDrawing {
 }
 
 /// A closed region of a contour graph: a bounded face without its antennas
-/// (edges that end inside it), with the components it encloses.
+/// (edges that end inside it) and bridges (edges that join its boundary to a
+/// closed loop inside it), with the components and bridged loops it
+/// encloses. No ring runs along an edge twice.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Region {
     /// The boundary, counter-clockwise, without repeating the first point.
@@ -147,16 +151,19 @@ fn signed_area(ring: &[DVec2]) -> f64 {
     Ring::<()>::from_points(ring.iter().copied()).signed_area()
 }
 
-/// A cycle of half-edges without its antennas.
+/// A ring of a cycle of half-edges, without its antennas and bridges.
 #[derive(Clone, Debug)]
 struct Face {
     ring: Vec<DVec2>,
     /// Signed: positive for a bounded face, negative for the outer boundary
-    /// of a component.
+    /// of a component or of a loop bridged to the bounded face around it.
     area: f64,
     component: usize,
     /// For a bounded face, the boundaries it encloses directly.
     islands: Vec<usize>,
+    /// True for the boundary of a loop bridged to the bounded face around
+    /// it, which is among that face's islands from the start.
+    bridged: bool,
 }
 
 /// An edge of the noded graph between two vertices.
@@ -369,6 +376,7 @@ impl ContourGraph {
         for k in 0..self.faces.len() {
             let face = &self.faces[k];
             if face.area < 0.0
+                && !face.bridged
                 && let Some(around) = self.smallest_face_around(face.ring[0], Some(face.component))
             {
                 self.faces[around].islands.push(k);
@@ -532,7 +540,10 @@ fn node(segments: &[Segment]) -> (Vec<DVec2>, Vec<Edge>) {
 /// outgoing half-edge that precedes the reverse one in counter-clockwise
 /// order, which keeps the face on the left: bounded faces run
 /// counter-clockwise (positive area), the outer boundaries of components
-/// clockwise.
+/// clockwise. A cycle that runs along a bridge out to a loop and back splits
+/// into its rings ([`rings_of`]): a bounded face's outer ring and the loops
+/// bridged to it, its islands, or the boundaries of a component's bridged
+/// parts.
 fn faces(vertices: &[DVec2], edges: &[Edge]) -> Vec<Face> {
     let origin = |h: usize| edges[h / 2].ends[h % 2];
     let direction = |h: usize| vertices[origin(h ^ 1)] - vertices[origin(h)];
@@ -576,41 +587,74 @@ fn faces(vertices: &[DVec2], edges: &[Edge]) -> Vec<Face> {
             cycle.push(h);
             h = next(h);
         }
-        let ring: Vec<DVec2> = without_antennas(&cycle)
+        let component = components.find(origin(start));
+        let rings: Vec<(Vec<DVec2>, f64)> = rings_of(&cycle)
             .into_iter()
-            .map(|h| vertices[origin(h)])
+            .map(|ring| {
+                let ring: Vec<DVec2> = ring.into_iter().map(|h| vertices[origin(h)]).collect();
+                let area = signed_area(&ring);
+                (ring, area)
+            })
+            .filter(|(ring, area)| ring.len() >= 3 && *area != 0.0)
             .collect();
-        let area = signed_area(&ring);
-        if ring.len() >= 3 && area != 0.0 {
-            faces.push(Face {
-                ring,
-                area,
-                component: components.find(origin(start)),
-                islands: Vec::new(),
-            });
+        // A cycle has one counter-clockwise ring at most, the outer ring of
+        // a bounded face; should rounding give it more, the largest holds
+        // the clockwise ones.
+        let outer = rings
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, area))| *area > 0.0)
+            .max_by(|(_, (_, s)), (_, (_, t))| s.total_cmp(t))
+            .map(|(k, _)| k);
+        let first = faces.len();
+        faces.extend(rings.into_iter().map(|(ring, area)| Face {
+            ring,
+            area,
+            component,
+            islands: Vec::new(),
+            bridged: area < 0.0 && outer.is_some(),
+        }));
+        if let Some(outer) = outer {
+            let islands: Vec<usize> = (first..faces.len()).filter(|&k| faces[k].bridged).collect();
+            faces[first + outer].islands = islands;
         }
     }
     faces
 }
 
-/// The cycle of half-edges without antennas: a half-edge followed by its
-/// reverse runs into a dead end and back.
-fn without_antennas(cycle: &[usize]) -> Vec<usize> {
+/// The rings of a cycle of half-edges: the cycle without the edges it runs
+/// along in both directions, split where it leaves them. A half-edge whose
+/// reverse follows it right away runs into a dead end and back (an antenna);
+/// one whose reverse comes later runs out along a bridge, around the ring
+/// between them and back, and that ring is cut out of the cycle. Each edge
+/// left is in one ring, once.
+fn rings_of(cycle: &[usize]) -> Vec<Vec<usize>> {
+    let mut rings = Vec::new();
     let mut kept: Vec<usize> = Vec::with_capacity(cycle.len());
+    // The position of each half-edge in `kept`.
+    let mut at: HashMap<usize, usize> = HashMap::new();
     for &h in cycle {
-        if kept.last() == Some(&(h ^ 1)) {
-            kept.pop();
-        } else {
-            kept.push(h);
+        match at.remove(&(h ^ 1)) {
+            Some(k) => {
+                let ring = kept.split_off(k + 1);
+                for g in &ring {
+                    at.remove(g);
+                }
+                kept.pop();
+                if !ring.is_empty() {
+                    rings.push(ring);
+                }
+            }
+            None => {
+                at.insert(h, kept.len());
+                kept.push(h);
+            }
         }
     }
-    // Pairs across the start of the cycle.
-    let mut start = 0;
-    while kept.len() >= start + 2 && kept[start] == kept[kept.len() - 1] ^ 1 {
-        start += 1;
-        kept.pop();
+    if !kept.is_empty() {
+        rings.push(kept);
     }
-    kept.split_off(start)
+    rings
 }
 
 /// The ring without the vertices where it runs straight on (within the

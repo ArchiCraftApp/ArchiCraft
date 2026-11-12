@@ -287,6 +287,129 @@ fn antennas_are_removed_and_closed_components_become_islands() {
     assert_ring(&graph.region_at(v(3.5, 1.5)).unwrap().outer, &island);
 }
 
+/// Asserts that no ring of `region` runs along an edge twice, in either
+/// direction: no ring is joined to itself or another by a bridge.
+fn assert_no_edge_twice(region: &Region) {
+    let mut seen: Vec<[[u64; 2]; 2]> = Vec::new();
+    for ring in std::iter::once(&region.outer).chain(&region.islands) {
+        for i in 0..ring.len() {
+            let [a, b] = [ring[i], ring[(i + 1) % ring.len()]].map(|p| [p.x.to_bits(), p.y.to_bits()]);
+            let key = if a < b { [a, b] } else { [b, a] };
+            assert!(!seen.contains(&key), "{key:?} twice in {region:?}");
+            seen.push(key);
+        }
+    }
+}
+
+/// INP-018: a line that joins the outer boundary of a region to a closed
+/// loop inside it (a bridge) is not part of the region's boundary: the
+/// region keeps its outer boundary, and the loop is an island, as if the
+/// line were not there. The loop's own region stays as it is.
+#[test]
+fn a_bridge_to_a_loop_inside_a_region_leaves_the_loop_an_island() {
+    let corners = rectangle(v(0.0, 0.0), v(6.0, 4.0));
+    let inner = rectangle(v(2.0, 1.0), v(4.0, 3.0));
+    let mut hole = inner.clone();
+    hole.reverse();
+    // A bridge of one edge, of two collinear ones, of two with a corner and
+    // of one with an antenna branching off it.
+    let bridges: [&[[DVec2; 2]]; 4] = [
+        &[[v(0.0, 2.0), v(2.0, 2.0)]],
+        &[[v(0.0, 2.0), v(1.0, 2.0)], [v(1.0, 2.0), v(2.0, 2.0)]],
+        &[[v(3.0, 0.0), v(3.0, 0.5)], [v(3.0, 0.5), v(2.0, 1.0)]],
+        &[[v(6.0, 2.0), v(4.0, 2.0)], [v(5.0, 2.0), v(5.0, 3.0)]],
+    ];
+    for bridge in bridges {
+        let mut segments = ring_segments(&corners);
+        segments.extend(ring_segments(&inner));
+        segments.extend_from_slice(bridge);
+        let graph = graph_of(&segments);
+        let region = graph.region_at(v(0.5, 0.5)).unwrap();
+        assert_ring(&region.outer, &corners);
+        assert_eq!(region.islands.len(), 1, "{bridge:?}: {region:?}");
+        assert_ring(&region.islands[0], &hole);
+        assert!((region.area() - 20.0).abs() < 1e-9, "{bridge:?}: {region:?}");
+        let loop_region = graph.region_at(v(2.5, 2.5)).unwrap();
+        assert_ring(&loop_region.outer, &inner);
+        assert!(loop_region.islands.is_empty());
+        assert_eq!(graph.regions().len(), 2, "{bridge:?}");
+        graph.regions().iter().for_each(assert_no_edge_twice);
+    }
+}
+
+/// INP-018: two loops joined by a line inside a region, and a loop inside a
+/// loop joined to it and to a third loop, are islands of the region each,
+/// and every loop keeps its own region.
+#[test]
+fn loops_joined_by_bridges_are_separate_islands() {
+    let room = rectangle(v(0.0, 0.0), v(10.0, 6.0));
+    let west = rectangle(v(1.0, 1.0), v(3.0, 3.0));
+    let east = rectangle(v(5.0, 1.0), v(7.0, 3.0));
+    let mut segments = ring_segments(&room);
+    segments.extend(ring_segments(&west));
+    segments.extend(ring_segments(&east));
+    segments.push([v(3.0, 2.0), v(5.0, 2.0)]);
+    let graph = graph_of(&segments);
+    let region = graph.region_at(v(0.5, 0.5)).unwrap();
+    assert_ring(&region.outer, &room);
+    assert_eq!(region.islands.len(), 2, "{region:?}");
+    for (island, expected) in region.islands.iter().zip(if region.islands[0][0].x < 4.0 {
+        [&west, &east]
+    } else {
+        [&east, &west]
+    }) {
+        let mut hole = expected.clone();
+        hole.reverse();
+        assert_ring(island, &hole);
+    }
+    assert!((region.area() - 52.0).abs() < 1e-9, "{region:?}");
+    assert_ring(&graph.region_at(v(2.0, 2.5)).unwrap().outer, &west);
+    assert_ring(&graph.region_at(v(6.0, 2.5)).unwrap().outer, &east);
+    graph.regions().iter().for_each(assert_no_edge_twice);
+
+    // A loop inside the west loop, bridged to it, and the west loop bridged
+    // to the room's boundary.
+    let core = rectangle(v(1.5, 1.5), v(2.5, 2.5));
+    segments.extend(ring_segments(&core));
+    segments.extend([[v(1.0, 2.0), v(1.5, 2.0)], [v(0.0, 2.0), v(1.0, 2.0)]]);
+    let graph = graph_of(&segments);
+    let region = graph.region_at(v(0.5, 0.5)).unwrap();
+    assert_ring(&region.outer, &room);
+    assert_eq!(region.islands.len(), 2, "{region:?}");
+    let ring = graph.region_at(v(1.2, 1.2)).unwrap();
+    assert_ring(&ring.outer, &west);
+    assert_eq!(ring.islands.len(), 1, "{ring:?}");
+    let mut hole = core.clone();
+    hole.reverse();
+    assert_ring(&ring.islands[0], &hole);
+    assert!((ring.area() - 3.0).abs() < 1e-9, "{ring:?}");
+    assert_ring(&graph.region_at(v(2.0, 2.2)).unwrap().outer, &core);
+    graph.regions().iter().for_each(assert_no_edge_twice);
+}
+
+/// INP-018: with reference lines on, the T wall's centred reference line
+/// (5, 0)-(5, 6) of the two-storey shell's ground storey joins the outer
+/// faces of the exterior walls to the room's boundary. The wall body is
+/// still the region between them, with the room's boundary as an island,
+/// and no region runs along an edge twice.
+#[test]
+fn a_reference_line_across_the_wall_body_keeps_the_room_an_island() {
+    let plan = plan_of(&two_storey_shell(), 0);
+    let graph = ContourGraph::build(&plan, &ContourOptions { reference_lines: true });
+
+    let walls = graph.region_at(v(0.1, 3.0)).unwrap();
+    assert_ring(&walls.outer, &rectangle(v(0.0, 0.0), v(12.0, 9.0)));
+    assert_eq!(walls.islands.len(), 1, "{walls:?}");
+    let mut island = ground_room();
+    island.reverse();
+    assert_ring(&walls.islands[0], &island);
+    let room = 11.5 * 8.5 - 0.115 * 5.75;
+    assert!((walls.area() - (12.0 * 9.0 - room)).abs() < 1e-6, "{walls:?}");
+
+    assert_ring(&graph.region_at(v(2.0, 3.0)).unwrap().outer, &ground_room());
+    graph.regions().iter().for_each(assert_no_edge_twice);
+}
+
 /// A storey with a 10 x 8 m ring of exterior walls and two 0.115 m interior
 /// walls, centred on x = 5 and y = 4, crossing each other.
 fn crossing_walls() -> Project {
@@ -600,6 +723,7 @@ fn ten_thousand_random_segments_build_without_panic() {
     assert!(graph.edges().count() > 0);
     let regions = graph.regions();
     assert!(regions.iter().all(|r| r.area() > 0.0));
+    regions.iter().for_each(assert_no_edge_twice);
     for k in 0..100 {
         let p = v(k as f64, (k * 37 % 100) as f64 + 0.5);
         if let Some(region) = graph.region_at(p) {
