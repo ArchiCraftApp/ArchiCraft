@@ -5,30 +5,29 @@
 //! of one plane: a storey's [`PlanDrawing`] for now; the 2D drafting curves
 //! and a working plane of the 3D views are later sources. [`ContourGraph`]
 //! nodes them within [`MODEL_TOLERANCE`] (NFR-ACC-003): endpoints closer than
-//! the tolerance are one vertex, crossing points snap to the vertices near
-//! them, a segment is split at every vertex that lies on it, and overlapping
-//! collinear pieces become one edge. The bounded faces of the resulting
-//! half-edge structure, without their antennas, are the regions
-//! ([`ContourGraph::region_at`]); a line that joins a face's boundary to a
-//! closed loop inside the face (a bridge) is left out of the boundary too,
-//! and the loop becomes an island of the face. The runs of edges through the vertices
+//! the tolerance are one vertex, crossing points, however shallow the angle,
+//! snap to the vertices near them, a segment is split at every vertex that
+//! lies on it, and overlapping collinear pieces become one edge. The bounded
+//! faces of the resulting half-edge structure, without their antennas, are
+//! the regions ([`ContourGraph::region_at`]); a line that joins a face's
+//! boundary to a closed loop inside the face (a bridge) is left out of the
+//! boundary too, and the loop becomes an island of the face. A region's
+//! rings leave out the vertices where they run straight on, each within the
+//! tolerance of the ring that remains. The runs of edges through the vertices
 //! where two edges meet are the chains: the clicked edge
 //! ([`ContourGraph::edge_at`], up to the first corner) and the chain of
 //! connected edges ([`ContourGraph::chain_at`]).
 //!
 //! The segments are put into a canonical order before noding, so the graph
 //! does not depend on the order or direction in which a source supplies
-//! them. Two segments parallel within
-//! [`ANGLE_TOLERANCE`](archicraft_model::ANGLE_TOLERANCE) that cross at so
-//! shallow an angle that neither has an endpoint on the other are not split
-//! at their crossing.
+//! them.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
 use archicraft_model::outline::Ring;
-use archicraft_model::tolerance::{Welder, is_parallel};
+use archicraft_model::tolerance::{Welder, is_parallel, near_zero};
 use archicraft_model::{ElementId, MODEL_TOLERANCE};
 use geo::Polygon;
 use glam::DVec2;
@@ -424,18 +423,28 @@ fn envelope(a: DVec2, b: DVec2, margin: f64) -> AABB<[f64; 2]> {
     AABB::from_corners((a.min(b) - margin).to_array(), (a.max(b) + margin).to_array())
 }
 
-/// The point where the segments `a b` and `c d` cross, if they are not
-/// parallel.
+/// The point where the segments `a b` and `c d` cross, however shallow the
+/// angle between them. Segments parallel up to rounding ([`near_zero`]
+/// determinant) have none: where they overlap, the vertices on each split
+/// the other. Nor has a pair so nearly parallel that rounding moves the
+/// point along them off `c d` by more than the model tolerance: such
+/// segments lie within the tolerance of each other all along their overlap,
+/// and its ends split them.
 fn crossing(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> Option<DVec2> {
     let (r, s) = (b - a, d - c);
-    if is_parallel(r, s) {
+    let denominator = r.perp_dot(s);
+    let magnitude = a.abs().max(b.abs()).max(c.abs()).max(d.abs()).max_element();
+    if near_zero(denominator, magnitude * (r.length() + s.length())) {
         return None;
     }
     let q = c - a;
-    let denominator = r.perp_dot(s);
     let t = q.perp_dot(s) / denominator;
     let u = q.perp_dot(r) / denominator;
-    ((0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u)).then(|| a + r * t)
+    if !((0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u)) {
+        return None;
+    }
+    let x = a + r * t;
+    (segment_distance(x, c, d) < MODEL_TOLERANCE).then_some(x)
 }
 
 /// Nodes the canonically ordered segments: the welded vertices and the
@@ -657,23 +666,95 @@ fn rings_of(cycle: &[usize]) -> Vec<Vec<usize>> {
     rings
 }
 
-/// The ring without the vertices where it runs straight on (within the
-/// model tolerance of the line between their neighbours).
-fn without_straight_vertices(mut ring: Vec<DVec2>) -> Vec<DVec2> {
-    loop {
-        let before = ring.len();
-        let mut k = 0;
-        while ring.len() > 3 && k < ring.len() {
-            let n = ring.len();
-            if segment_distance(ring[k], ring[(k + n - 1) % n], ring[(k + 1) % n]) < MODEL_TOLERANCE {
-                ring.remove(k);
-            } else {
-                k += 1;
-            }
+/// The ring without the vertices where it runs straight on, simplified in
+/// the manner of Douglas and Peucker, so that every vertex it leaves out lies
+/// within [`MODEL_TOLERANCE`] of the edge of the result that replaces it,
+/// also along a gently curving run such as a tessellated arc (INP-018,
+/// NFR-ACC-003). Between two vertices it keeps, it keeps the one farthest
+/// from the line between them while that one is at least the tolerance away.
+/// It starts from the lexically first vertex and the one farthest from it,
+/// and leaves either out afterwards if the ring runs straight on there. The
+/// choices depend on the points only, not on where the ring starts or which
+/// way it runs, so a loop and the island it makes of the region around it
+/// keep the same points. It keeps three vertices at least, in their order.
+fn without_straight_vertices(ring: Vec<DVec2>) -> Vec<DVec2> {
+    let n = ring.len();
+    if n <= 3 {
+        return ring;
+    }
+    let first = (0..n).min_by(|&j, &k| lexical(ring[j], ring[k])).unwrap_or(0);
+    let far = (0..n)
+        .max_by(|&j, &k| {
+            let distance = |i: usize| ring[first].distance_squared(ring[i]);
+            distance(j).total_cmp(&distance(k)).then(lexical(ring[k], ring[j]))
+        })
+        .unwrap_or(first);
+    if far == first {
+        return ring;
+    }
+    // Indices run on past `n` around the ring, so that `i < j` for a run
+    // from `i` to `j`.
+    let far_on = if far > first { far } else { far + n };
+    let mut keep = vec![false; n];
+    keep[first] = true;
+    keep[far] = true;
+    let runs = [(first, far_on), (far_on, first + n)];
+    let mut pending = runs.to_vec();
+    while let Some((i, j)) = pending.pop() {
+        if let Some((k, distance)) = farthest_from_chord(&ring, i, j)
+            && distance >= MODEL_TOLERANCE
+        {
+            keep[k % n] = true;
+            pending.extend([(i, k), (k, j)]);
         }
-        if ring.len() == before {
-            return ring;
+    }
+    if keep.iter().filter(|&&kept| kept).count() < 3 {
+        // Every vertex lies within the tolerance of the line between the two:
+        // keep the farthest from it, so that a ring remains.
+        let farthest = runs
+            .iter()
+            .filter_map(|&(i, j)| farthest_from_chord(&ring, i, j))
+            .max_by(|s, t| s.1.total_cmp(&t.1).then(lexical(ring[t.0 % n], ring[s.0 % n])));
+        if let Some((k, _)) = farthest {
+            keep[k % n] = true;
         }
+    }
+    for anchor in [first, far] {
+        if keep.iter().filter(|&&kept| kept).count() <= 3 {
+            break;
+        }
+        let previous = (1..n).map(|d| anchor + n - d).find(|&k| keep[k % n]).unwrap_or(anchor);
+        let next = (1..n).map(|d| anchor + n + d).find(|&k| keep[k % n]).unwrap_or(anchor);
+        let straight = (previous + 1..next)
+            .all(|k| chord_distance(ring[k % n], ring[previous % n], ring[next % n]) < MODEL_TOLERANCE);
+        if straight {
+            keep[anchor] = false;
+        }
+    }
+    ring.into_iter()
+        .zip(keep)
+        .filter_map(|(p, kept)| kept.then_some(p))
+        .collect()
+}
+
+/// The vertex strictly between `i` and `j` (indices running on around the
+/// ring) farthest from the line between them, with its distance; of equally
+/// far ones the lexically first.
+fn farthest_from_chord(ring: &[DVec2], i: usize, j: usize) -> Option<(usize, f64)> {
+    let n = ring.len();
+    let (a, b) = (ring[i % n], ring[j % n]);
+    (i + 1..j)
+        .map(|k| (k, chord_distance(ring[k % n], a, b)))
+        .max_by(|s, t| s.1.total_cmp(&t.1).then(lexical(ring[t.0 % n], ring[s.0 % n])))
+}
+
+/// The distance from `p` to the segment `a b`, the same to the last bit
+/// whichever way the segment runs.
+fn chord_distance(p: DVec2, a: DVec2, b: DVec2) -> f64 {
+    if lexical(a, b).is_le() {
+        segment_distance(p, a, b)
+    } else {
+        segment_distance(p, b, a)
     }
 }
 
