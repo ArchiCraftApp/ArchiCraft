@@ -25,6 +25,10 @@ model-label-inject-settings = Inject settings into { $count ->
        *[other] { $count_text } elements
     }
 model-label-pick-up-settings = Pick up settings
+model-label-save-camera = Save camera
+model-label-update-camera = Update camera
+model-label-rename-view = Rename view
+model-label-delete-view = Delete view
 model-label-move-elements = Move { $count ->
         [one] { $count_text } element
        *[other] { $count_text } elements
@@ -151,6 +155,10 @@ model-error-location-invalid = The location has invalid values.
 model-error-duplicate-group-id = A group with this ID already exists.
 model-error-group-not-found = The group does not exist.
 model-error-group-name = A group needs a name.
+model-error-view-not-found = The view does not exist.
+model-error-view-name = A view needs a name.
+model-error-view-camera = The camera needs finite values, a positive distance, a pitch between -90° and 90° and a field of view between 0° and 180°.
+model-error-duplicate-view-id = A view with this identity already exists.
 model-error-group-change = An element joins or leaves a group only through Group and Ungroup.
 # Relations between elements (SRS 3.3). $relation is the name of the kind of
 # relation (model-relation-*), $name the element that depends on the other.

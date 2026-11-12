@@ -494,10 +494,10 @@
       "id": "VIEW-004",
       "priority": "M",
       "section": "4.4",
-      "status": "missing",
+      "status": "partial",
       "remaining_effort": "L",
       "evidence": "",
-      "gap": "Missing entirely: a project view is only View3d with ID, name and projection (crates/archicraft-model/src/project.rs:189); the camera lives in session state. Needed: a saved-view resource storing camera or zoom and rotation, drawing scale, layer states, kind filters, storey range, cut planes, hidden elements, display style and sun; re-applying it to the live model; redefining it from the current window while keeping ID and name; visual distinction from plain viewpoints; IFCX persistence; commands with undo. Depends on VIEW-013, VIEW-060 and VIEW-043 restrictions.",
+      "gap": "A 3D view can store a camera: View3d.camera is an Option<ViewCamera> (target, distance, yaw, pitch, fov_y, validated by ViewCamera::validate; crates/archicraft-model/src/project.rs), and Command::SaveCamera (next free 'Camera n' name, Project::next_view_name), SetViewCamera (redefine from the current window, keeping ID and name), RenameView and DeleteView are undoable (crates/archicraft-model/tests/views.rs). Missing: the app does not save, open, update, rename or delete camera views yet (archicraft-j8ntl.2), and IFCX does not persist the camera (archicraft-55lt0). Further needed: a saved-view resource storing camera or zoom and rotation, drawing scale, layer states, kind filters, storey range, cut planes, hidden elements, display style and sun; re-applying it to the live model; redefining the display settings (beyond the camera) from the current window; visual distinction from plain viewpoints; IFCX persistence of all of it. Depends on VIEW-013, VIEW-060 and VIEW-043 restrictions.",
       "depends_on": []
     },
     {
